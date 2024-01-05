@@ -11,15 +11,14 @@
     "Other"
   ],
   "activationEvents": [
-    "onNotebook:codex-type",
-    "onCommand:codex-notebook-extension.createJsonNotebook"
+    "onNotebook:codex-type"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "codex-notebook-extension.createJsonNotebook",
-        "title": "Create JSON Notebook"
+        "command": "codex-notebook-extension.createCodexNotebook",
+        "title": "Create Codex Notebook"
       }
     ],
     "notebooks": [

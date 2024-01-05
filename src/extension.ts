@@ -5,7 +5,7 @@ import { SampleContentSerializer } from './serializer';
 const NOTEBOOK_TYPE = 'codex-type';
 
 export function activate(context: vscode.ExtensionContext) {
-	context.subscriptions.push(vscode.commands.registerCommand('notebook-serializer-sample.createJsonNotebook', async () => {
+	context.subscriptions.push(vscode.commands.registerCommand('codex-notebook-extension.createCodexNotebook', async () => {
 		const language = 'json';
 		const defaultValue = `{ "hello_world": 123 }`;
 		const cell = new vscode.NotebookCellData(vscode.NotebookCellKind.Code, defaultValue, language);
