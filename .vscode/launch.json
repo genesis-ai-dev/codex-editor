@@ -7,21 +7,6 @@
   "configurations": [
     {
       "name": "Run Extension",
-      "type": "pwa-extensionHost",
-      "request": "launch",
-      "args": [
-        "--extensionDevelopmentPath=${workspaceFolder}",
-        "${workspaceFolder}/example"
-      ],
-      "outFiles": [
-        "${workspaceFolder}/out/**/*.js"
-      ],
-      "debugWebviews": true,
-      "trace": true,
-      "preLaunchTask": "npm: watch"
-    },
-    {
-      "name": "Run Extension (no server)",
       "type": "extensionHost",
       "request": "launch",
       "args": [
@@ -31,6 +16,7 @@
         "${workspaceFolder}/out/**/*.js"
       ],
       "debugWebviews": true,
+      "trace": true,
       "preLaunchTask": "npm: watch"
     },
     {

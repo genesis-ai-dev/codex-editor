@@ -1,58 +1,53 @@
 {
-  "name": "codex-editor",
-  "displayName": "codex-editor",
-  "description": "Edit Scripture in Codex",
+  "name": "notebook-serializer-sample",
+  "displayName": "notebook-serializer-sample",
+  "description": "Notebook using Serializer API sample",
+  "publisher": "vscode-samples",
   "version": "0.0.1",
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.74.0"
   },
-  "keywords": [
-    "notebookRenderer"
-  ],
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
-  "main": "./out/extension/extension.js",
-  "browser": "./out/extension/extension.web.js",
+  "activationEvents": [
+    "onNotebook:test-notebook-serializer",
+	"onCommand:notebook-serializer-sample.createJsonNotebook"
+  ],
+  "main": "./out/extension.js",
   "contributes": {
-    "notebookRenderer": [
+	"commands": [
+		{
+			"command": "notebook-serializer-sample.createJsonNotebook",
+			"title": "Create JSON Notebook"
+		}
+	],
+    "notebooks": [
       {
-        "id": "codex-editor",
-        "entrypoint": "./out/client/index.js",
-        "displayName": "Codex Editor",
-        "mimeTypes": ["x-application/custom-json-output"]
+        "type": "test-notebook-serializer",
+        "displayName": "Sample Notebook",
+        "selector": [
+          {
+            "filenamePattern": "*.sample-json-notebook"
+          }
+        ]
       }
     ]
   },
   "scripts": {
-    "vscode:prepublish": "pnpm run compile",
-    "compile": "webpack --mode production",
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -b",
     "lint": "eslint src --ext ts",
-    "watch": "webpack --mode development --watch",
-    "pretest": "webpack --mode development && pnpm run lint",
-    "test": "node ./out/test/runTest.js"
+    "watch": "tsc -b --watch"
   },
   "devDependencies": {
-    "@types/mocha": "^10.0.3",
-    "@types/node": "18.x",
-    "@types/webpack-env": "^1.18.3",
-    "@typescript-eslint/eslint-plugin": "^6.9.0",
-    "@typescript-eslint/parser": "^6.9.0",
-    "@types/vscode-notebook-renderer": "^1.72.2",
-    "@types/vscode": "^1.85.0",
-    "css-loader": "^6.8.1",
-    "eslint": "^8.52.0",
-    "fork-ts-checker-webpack-plugin": "^9.0.0",
-    "glob": "^10.3.10",
+    "@types/mocha": "^8.2.2",
+    "@types/node": "14.x",
+    "@types/vscode": "^1.74.0",
+    "@typescript-eslint/eslint-plugin": "^6.7.0",
+    "@typescript-eslint/parser": "^6.7.0",
+    "eslint": "^7.27.0",
     "mocha": "^10.2.0",
-    "style-loader": "^3.3.3",
-    "ts-loader": "^9.5.0",
-    "typescript": "^5.2.2",
-    "vscode-notebook-error-overlay": "^1.0.1",
-    "@vscode/test-electron": "^2.3.6",
-    "util": "^0.12.5",
-    "webpack": "^5.89.0",
-    "webpack-cli": "^5.1.4"
+    "typescript": "^5.3.2"
   }
 }
