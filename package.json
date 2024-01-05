@@ -31,6 +31,16 @@
           }
         ]
       }
+    ],
+    "languages": [
+      {
+        "id": "scripture",
+        "extensions": [
+          ".codex",
+          ".scripture"
+        ],
+        "configuration": "./scripture-language-configuration.json"
+      }
     ]
   },
   "scripts": {
