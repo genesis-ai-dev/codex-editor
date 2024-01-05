@@ -12,23 +12,23 @@
   ],
   "activationEvents": [
     "onNotebook:test-notebook-serializer",
-	"onCommand:notebook-serializer-sample.createJsonNotebook"
+    "onCommand:notebook-serializer-sample.createJsonNotebook"
   ],
   "main": "./out/extension.js",
   "contributes": {
-	"commands": [
-		{
-			"command": "notebook-serializer-sample.createJsonNotebook",
-			"title": "Create JSON Notebook"
-		}
-	],
+    "commands": [
+      {
+        "command": "notebook-serializer-sample.createJsonNotebook",
+        "title": "Create JSON Notebook"
+      }
+    ],
     "notebooks": [
       {
         "type": "test-notebook-serializer",
         "displayName": "Sample Notebook",
         "selector": [
           {
-            "filenamePattern": "*.sample-json-notebook"
+            "filenamePattern": "*.codex"
           }
         ]
       }
