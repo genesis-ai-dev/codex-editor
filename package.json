@@ -1,6 +1,6 @@
 {
-  "name": "notebook-serializer-sample",
-  "displayName": "notebook-serializer-sample",
+  "name": "codex-notebook-extension",
+  "displayName": "codex-notebook-extension",
   "description": "Notebook using Serializer API sample",
   "publisher": "vscode-samples",
   "version": "0.0.1",
@@ -11,21 +11,21 @@
     "Other"
   ],
   "activationEvents": [
-    "onNotebook:test-notebook-serializer",
-    "onCommand:notebook-serializer-sample.createJsonNotebook"
+    "onNotebook:codex-type",
+    "onCommand:codex-notebook-extension.createJsonNotebook"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "notebook-serializer-sample.createJsonNotebook",
+        "command": "codex-notebook-extension.createJsonNotebook",
         "title": "Create JSON Notebook"
       }
     ],
     "notebooks": [
       {
-        "type": "test-notebook-serializer",
-        "displayName": "Sample Notebook",
+        "type": "codex-type",
+        "displayName": "Codex Scripture Editor Notebook",
         "selector": [
           {
             "filenamePattern": "*.codex"
