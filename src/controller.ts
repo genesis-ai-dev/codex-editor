@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
 export class SampleKernel {
-	private readonly _id = 'test-notebook-serializer-kernel';
+	private readonly _id = 'codex-kernel';
 	private readonly _label = 'Sample Notebook Kernel';
 	private readonly _supportedLanguages = ['json'];
 
@@ -11,7 +11,7 @@ export class SampleKernel {
 	constructor() {
 
 		this._controller = vscode.notebooks.createNotebookController(this._id,
-			'test-notebook-serializer',
+			'codex-type',
 			this._label);
 
 		this._controller.supportedLanguages = this._supportedLanguages;

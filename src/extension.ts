@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { SampleKernel } from './controller';
 import { SampleContentSerializer } from './serializer';
 
-const NOTEBOOK_TYPE = 'test-notebook-serializer';
+const NOTEBOOK_TYPE = 'codex-type';
 
 export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(vscode.commands.registerCommand('notebook-serializer-sample.createJsonNotebook', async () => {
