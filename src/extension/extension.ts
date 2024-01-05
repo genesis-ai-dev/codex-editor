@@ -5,7 +5,7 @@ import * as vscode from 'vscode';
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
-  // Nothing (yet)
+  console.log('Ryders extension is now active!');
 }
 
 // This method is called when your extension is deactivated
