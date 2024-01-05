@@ -1,0 +1,46 @@
+{
+  "FIXME": "This is a draft. Fix this nonsense.",
+  "comments": {
+    "lineComment": "//"
+  },
+  "brackets": [
+    ["{", "}"],
+    ["[", "]"],
+    ["(", ")"]
+  ],
+  "autoClosingPairs": [
+    { "open": "{", "close": "}" },
+    { "open": "[", "close": "]" },
+    { "open": "(", "close": ")" }
+  ],
+  "surroundingPairs": [
+    ["{", "}"],
+    ["[", "]"],
+    ["(", ")"],
+    ["\"", "\""],
+    ["'", "'"]
+  ],
+  "wordPattern": "\\w+",
+  "indentationRules": {
+    "increaseIndentPattern": "^\\s*(\\w+\\s+\\d+:\\d+)",
+    "decreaseIndentPattern": "^\\s*(\\w+\\s+\\d+:\\d+)"
+  },
+  "folding": {
+    "markers": {
+      "start": "^\\s*(\\w+\\s+\\d+:\\d+)",
+      "end": "^\\s*(\\w+\\s+\\d+:\\d+)"
+    }
+  },
+  "tokenization": {
+    "patterns": [
+      {
+        "name": "verse",
+        "match": "^\\s*(\\w+\\s+\\d+:\\d+)"
+      },
+      {
+        "name": "content",
+        "match": "\\s+.*$"
+      }
+    ]
+  }
+}
