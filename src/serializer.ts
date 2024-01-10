@@ -18,7 +18,7 @@ interface RawNotebookCell {
     metadata?: any;
 }
 
-export class SampleContentSerializer implements vscode.NotebookSerializer {
+export class CodexContentSerializer implements vscode.NotebookSerializer {
     public readonly label: string = "My Sample Content Serializer";
 
     public async deserializeNotebook(
@@ -35,20 +35,13 @@ export class SampleContentSerializer implements vscode.NotebookSerializer {
             raw = { cells: [] };
         }
         // Create array of Notebook cells for the VS Code API from file contents
-        const cells = raw.cells.map(
-            (item) =>
-                new vscode.NotebookCellData(
-                    item.kind,
-                    item.value,
-                    item.language,
-                ),
-        );
-
-        const mewCells = cells.map((cell, index) => {
-            cell.metadata = raw.cells[index].metadata;
+        const cells = raw.cells.map((item) => {
+            const cell = new vscode.NotebookCellData(item.kind, item.value, item.language);
+            cell.metadata = item.metadata || {}; // Ensure metadata is included if available
             return cell;
         });
-        return new vscode.NotebookData(mewCells);
+
+        return new vscode.NotebookData(cells);
     }
 
     public async serializeNotebook(
