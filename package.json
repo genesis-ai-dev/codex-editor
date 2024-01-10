@@ -19,6 +19,10 @@
       {
         "command": "codex-notebook-extension.createCodexNotebook",
         "title": "Create Codex Notebook"
+      },
+      {
+        "command": "codex-notebook-extension.createCodexProject",
+        "title": "Create Codex Project"
       }
     ],
     "notebooks": [
