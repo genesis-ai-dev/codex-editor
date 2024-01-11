@@ -47,6 +47,11 @@
           "command": "scripture-explorer.refreshEntry",
           "when": "view == scripture-explorer",
           "group": "navigation"
+        },
+        {
+          "command": "scripture-explorer-activity-bar.refreshEntry",
+          "when": "view == scripture-explorer-activity-bar",
+          "group": "navigation"
         }
       ]
     },
