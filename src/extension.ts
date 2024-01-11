@@ -2,13 +2,17 @@ import * as vscode from 'vscode';
 import { CodexKernel } from './controller';
 import { CodexContentSerializer } from './serializer';
 import { NOTEBOOK_TYPE, createCodexNotebook, createProjectNotebooks } from './codexNotebookUtils';
+import { CodexNotebookProvider } from './tree-view/scriptureTreeViewProvider';
+import { getWorkSpaceFolder } from './utils';
+
+const ROOT_PATH = getWorkSpaceFolder();
 
 export function activate(context: vscode.ExtensionContext) {
 
 	// Register the Codex Notebook serializer for saving and loading .codex files
 	context.subscriptions.push(vscode.workspace.registerNotebookSerializer(
-			NOTEBOOK_TYPE, new CodexContentSerializer(), { transientOutputs: true }
-		),
+		NOTEBOOK_TYPE, new CodexContentSerializer(), { transientOutputs: true }
+	),
 		new CodexKernel()
 	);
 
@@ -23,5 +27,19 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.window.showInformationMessage('Creating Codex Project');
 		await createProjectNotebooks();
 	}));
+
+	// Register and create the Scripture Tree View
+	const scriptureTreeViewProvider = new CodexNotebookProvider(ROOT_PATH);
+	vscode.window.registerTreeDataProvider('scripture-explorer', scriptureTreeViewProvider);
+	// vscode.window.createTreeView('scripture-explorer', { treeDataProvider: scriptureTreeViewProvider });
+	vscode.commands.registerCommand('scripture-explorer.refreshEntry', () =>
+		scriptureTreeViewProvider.refresh()
+	);
+	vscode.window.registerTreeDataProvider('scripture-explorer-activity-bar', scriptureTreeViewProvider);
+	// vscode.window.createTreeView('scripture-explorer', { treeDataProvider: scriptureTreeViewProvider });
+	vscode.commands.registerCommand('scripture-explorer-activity-bar.refreshEntry', () =>
+		scriptureTreeViewProvider.refresh()
+	);
+
 
 }

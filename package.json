@@ -15,6 +15,41 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "views": {
+      "explorer": [
+        {
+          "id": "scripture-explorer",
+          "name": "Scripture Explorer",
+          "visibility": "visible"
+        }
+      ],
+      "scripture-explorer": [
+        {
+          "id": "scripture-explorer-activity-bar",
+          "name": "Scripture Explorer",
+          "visibility": "visible",
+          "icon": "$(open-editors-view-icon)"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "scripture-explorer",
+          "title": "Scripture Explorer",
+          "icon": "$(open-editors-view-icon)"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "scripture-explorer.refreshEntry",
+          "when": "view == scripture-explorer",
+          "group": "navigation"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "codex-notebook-extension.createCodexNotebook",
@@ -23,6 +58,16 @@
       {
         "command": "codex-notebook-extension.createCodexProject",
         "title": "Create Codex Project"
+      },
+      {
+        "command": "scripture-explorer.refreshEntry",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "scripture-explorer-activity-bar.refreshEntry",
+        "title": "Refresh",
+        "icon": "$(refresh)"
       }
     ],
     "notebooks": [
