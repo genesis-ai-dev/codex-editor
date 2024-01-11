@@ -15,6 +15,18 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "notebookEditorDecorations": [
+      {
+        "type": "codex-type",
+        "viewType": "codex-type",
+        "displayName": "Codex Scripture Editor Notebook CodeLens",
+        "selector": [
+          {
+            "filenamePattern": "*.codex"
+          }
+        ]
+      }
+    ],
     "views": {
       "explorer": [
         {
@@ -57,6 +69,10 @@
     },
     "commands": [
       {
+        "command": "codex-notebook-extension.showReferences",
+        "title": "Show Scripture References"
+      },
+      {
         "command": "codex-notebook-extension.createCodexNotebook",
         "title": "Create Codex Notebook"
       },
@@ -93,7 +109,7 @@
           ".codex",
           ".scripture"
         ],
-        "configuration": "./scripture-language-configuration.json"
+        "configuration": "./src/scripture-language-configuration.json"
       }
     ]
   },
