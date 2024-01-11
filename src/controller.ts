@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
 
-export class SampleKernel {
+export class CodexKernel {
 	private readonly _id = 'codex-kernel';
-	private readonly _label = 'Sample Notebook Kernel';
+	private readonly _label = 'Codex Notebook Kernel';
 	private readonly _supportedLanguages = ['json'];
 
 	private _executionOrder = 0;
