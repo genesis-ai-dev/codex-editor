@@ -8,24 +8,12 @@ import {
 } from "./codexNotebookUtils";
 import { CodexNotebookProvider } from "./tree-view/scriptureTreeViewProvider";
 import { getWorkSpaceFolder } from "./utils";
-import { ScriptureReferenceProvider } from "./references";
+import { registerReferences } from "./referencesProvider";
 
 const ROOT_PATH = getWorkSpaceFolder();
 
 export function activate(context: vscode.ExtensionContext) {
-    context.subscriptions.push(
-        vscode.languages.registerDefinitionProvider(
-            // { scheme: "file" }, // all files option
-            ["scripture"],
-            new ScriptureReferenceProvider(),
-        ),
-    );
-    context.subscriptions.push(
-        vscode.languages.registerDefinitionProvider(
-            { notebookType: "codex-type" }, // This targets notebook cells within "codex-type" notebooks
-            new ScriptureReferenceProvider(),
-        ),
-    );
+    registerReferences(context);
 
     // Register the Codex Notebook serializer for saving and loading .codex files
     context.subscriptions.push(
