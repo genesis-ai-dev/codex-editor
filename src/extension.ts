@@ -7,7 +7,7 @@ import {
     createProjectNotebooks,
 } from "./codexNotebookUtils";
 import { CodexNotebookProvider } from "./tree-view/scriptureTreeViewProvider";
-import { getWorkSpaceFolder } from "./utils";
+import { getWorkSpaceFolder, jumpToCellInNotebook } from "./utils";
 import { registerReferences } from "./referencesProvider";
 
 const ROOT_PATH = getWorkSpaceFolder();
@@ -25,6 +25,21 @@ export function activate(context: vscode.ExtensionContext) {
         new CodexKernel(),
     );
 
+    // Register a command called openChapter that opens a specific .codex notebook to a specific chapter
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-notebook-extension.openChapter",
+            async (notebookPath: string, chapterIndex: number) => {
+                try {
+                    jumpToCellInNotebook(notebookPath, chapterIndex);
+                } catch (error) {
+                    vscode.window.showErrorMessage(
+                        `Failed to open chapter: ${error}`,
+                    );
+                }
+            },
+        ),
+    );
     // Register extension commands
     context.subscriptions.push(
         vscode.commands.registerCommand(
@@ -41,8 +56,23 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             "codex-notebook-extension.createCodexProject",
             async () => {
-                vscode.window.showInformationMessage("Creating Codex Project");
-                await createProjectNotebooks();
+                const overwriteConfirmation =
+                    await vscode.window.showWarningMessage(
+                        "Do you want to overwrite any existing project files?",
+                        "Yes",
+                        "No",
+                    );
+                if (overwriteConfirmation === "Yes") {
+                    vscode.window.showInformationMessage(
+                        "Creating Codex Project with overwrite.",
+                    );
+                    await createProjectNotebooks(true);
+                } else {
+                    vscode.window.showInformationMessage(
+                        "Creating Codex Project without overwrite.",
+                    );
+                    await createProjectNotebooks();
+                }
             },
         ),
     );

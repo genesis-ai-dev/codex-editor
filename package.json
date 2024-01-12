@@ -69,6 +69,10 @@
         },
         "commands": [
             {
+                "command": "codex-notebook-extension.openChapter",
+                "title": "Open Chapter"
+            },
+            {
                 "command": "codex-notebook-extension.showReferences",
                 "title": "Show Scripture References"
             },

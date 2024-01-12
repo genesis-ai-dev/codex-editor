@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
+import { CHAPTER_HEADING_CELL_TYPE, CodexCell } from "../codexNotebookUtils";
 
 export class Node extends vscode.TreeItem {
     constructor(
@@ -65,24 +66,33 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
         }
     }
 
-    private getNotebooksInDirectory(dirPath: string): Node[] {
-        if (!fs.existsSync(dirPath)) {
+    private async getNotebooksInDirectory(dirPath: string): Promise<Node[]> {
+        try {
+            const files = await vscode.workspace.fs.readDirectory(
+                vscode.Uri.file(dirPath),
+            );
+            const notebooks = files
+                .filter(
+                    ([file, type]) =>
+                        type === vscode.FileType.File &&
+                        path.extname(file) === ".codex",
+                )
+                .map(
+                    ([file]) =>
+                        new Node(
+                            path.basename(file, ".codex"),
+                            "notebook",
+                            vscode.TreeItemCollapsibleState.Collapsed,
+                        ),
+                );
+
+            return notebooks;
+        } catch (error) {
+            vscode.window.showErrorMessage(
+                `Error reading directory: ${dirPath}`,
+            );
             return [];
         }
-
-        const files = fs.readdirSync(dirPath);
-        const notebooks = files
-            .filter((file) => path.extname(file) === ".codex")
-            .map(
-                (file) =>
-                    new Node(
-                        path.basename(file, ".codex"),
-                        "notebook",
-                        vscode.TreeItemCollapsibleState.Collapsed,
-                    ),
-            );
-
-        return notebooks;
     }
 
     private async getChaptersInNotebook(notebookPath: string): Promise<Node[]> {
@@ -92,24 +102,22 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
         const notebookContent = notebookContentBuffer.toString(); // Convert the buffer to a string
         const notebookJson = JSON.parse(notebookContent); // Parse the JSON content
         const cells = notebookJson.cells; // Access the cells array
-        interface Cell {
-            kind: number;
-            language: string;
-            value: string;
-        }
+
         // Now you can process each cell as needed
-        return cells.map((cell: Cell, index: number) => {
+        return cells.map((cell: CodexCell, index: number) => {
             // Assuming you want to create a Node for each cell
-            return new Node(
-                `Chapter ${index + 1}`,
-                "chapter",
-                vscode.TreeItemCollapsibleState.None,
-                {
-                    command: "codex-notebook-extension.openChapter",
-                    title: "",
-                    arguments: [notebookPath, index],
-                },
-            );
+            if (cell.metadata?.type === CHAPTER_HEADING_CELL_TYPE) {
+                return new Node(
+                    `Chapter ${index + 1}`,
+                    "chapter",
+                    vscode.TreeItemCollapsibleState.None,
+                    {
+                        command: "codex-notebook-extension.openChapter",
+                        title: "",
+                        arguments: [notebookPath, index],
+                    },
+                );
+            }
         });
     }
 

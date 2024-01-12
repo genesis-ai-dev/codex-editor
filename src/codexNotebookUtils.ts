@@ -6,6 +6,11 @@ import { getWorkSpaceFolder } from "./utils";
 import { generateFiles as generateFile } from "./fileUtils";
 
 export const NOTEBOOK_TYPE = "codex-type";
+export const CHAPTER_HEADING_CELL_TYPE = "chapter-heading";
+
+export interface CodexCell extends vscode.NotebookCellData {
+    metadata?: { type: string };
+}
 
 export const createCodexNotebook = async (
     cells: vscode.NotebookCellData[] = [],
@@ -44,14 +49,14 @@ export async function createProjectNotebooks(shouldOverWrite = false) {
          */
         const cells: vscode.NotebookCellData[] = [];
         const bookData = vrefData[book];
-
+        const chapterHeadingText = `# Chapter`;
         // Iterate over all chapters in the current book
         for (const chapter of Object.keys(bookData.chapterVerseCountPairings)) {
             // Generate a markdown cell with the chapter number
             cells.push(
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Markup,
-                    `# Chapter ${chapter}`,
+                    `${chapterHeadingText} ${chapter}`,
                     "markdown",
                 ),
             );
@@ -82,9 +87,15 @@ export async function createProjectNotebooks(shouldOverWrite = false) {
                 ),
             );
         }
+        const cellsWithMetaData = cells.map((cell) => {
+            if (cell.value.includes(chapterHeadingText)) {
+                cell.metadata = { type: CHAPTER_HEADING_CELL_TYPE };
+            }
+            return cell;
+        });
         // Create a notebook for the current book
         const serializer = new CodexContentSerializer();
-        const notebookData = new vscode.NotebookData(cells);
+        const notebookData = new vscode.NotebookData(cellsWithMetaData);
         const notebookFile = await serializer.serializeNotebook(
             notebookData,
             new vscode.CancellationTokenSource().token,
