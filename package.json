@@ -1,133 +1,133 @@
 {
-	"name": "codex-notebook-extension",
-	"displayName": "codex-notebook-extension",
-	"description": "Notebook using Serializer API sample",
-	"publisher": "project-accelerate",
-	"version": "0.0.1",
-	"engines": {
-		"vscode": "^1.74.0"
-	},
-	"categories": [
-		"Other"
-	],
-	"activationEvents": [
-		"onNotebook:codex-type"
-	],
-	"main": "./out/extension.js",
-	"contributes": {
-		"notebookEditorDecorations": [
-			{
-				"type": "codex-type",
-				"viewType": "codex-type",
-				"displayName": "Codex Scripture Editor Notebook CodeLens",
-				"selector": [
-					{
-						"filenamePattern": "*.codex"
-					}
-				]
-			}
-		],
-		"views": {
-			"explorer": [
-				{
-					"id": "scripture-explorer",
-					"name": "Scripture Explorer",
-					"visibility": "visible"
-				}
-			],
-			"scripture-explorer": [
-				{
-					"id": "scripture-explorer-activity-bar",
-					"name": "Scripture Explorer",
-					"visibility": "visible",
-					"icon": "$(open-editors-view-icon)"
-				}
-			]
-		},
-		"viewsContainers": {
-			"activitybar": [
-				{
-					"id": "scripture-explorer",
-					"title": "Scripture Explorer",
-					"icon": "$(open-editors-view-icon)"
-				}
-			]
-		},
-		"menus": {
-			"view/title": [
-				{
-					"command": "scripture-explorer.refreshEntry",
-					"when": "view == scripture-explorer",
-					"group": "navigation"
-				},
-				{
-					"command": "scripture-explorer-activity-bar.refreshEntry",
-					"when": "view == scripture-explorer-activity-bar",
-					"group": "navigation"
-				}
-			]
-		},
-		"commands": [
-			{
-				"command": "codex-notebook-extension.showReferences",
-				"title": "Show Scripture References"
-			},
-			{
-				"command": "codex-notebook-extension.createCodexNotebook",
-				"title": "Create Codex Notebook"
-			},
-			{
-				"command": "codex-notebook-extension.createCodexProject",
-				"title": "Create Codex Project"
-			},
-			{
-				"command": "scripture-explorer.refreshEntry",
-				"title": "Refresh",
-				"icon": "$(refresh)"
-			},
-			{
-				"command": "scripture-explorer-activity-bar.refreshEntry",
-				"title": "Refresh",
-				"icon": "$(refresh)"
-			}
-		],
-		"notebooks": [
-			{
-				"type": "codex-type",
-				"displayName": "Codex Scripture Editor Notebook",
-				"selector": [
-					{
-						"filenamePattern": "*.codex"
-					}
-				]
-			}
-		],
-		"languages": [
-			{
-				"id": "scripture",
-				"extensions": [
-					".codex",
-					".scripture"
-				],
-				"configuration": "./src/scripture-language-configuration.json"
-			}
-		]
-	},
-	"scripts": {
-		"vscode:prepublish": "npm run compile",
-		"compile": "tsc -b",
-		"lint": "eslint src --ext ts",
-		"watch": "tsc -b --watch"
-	},
-	"devDependencies": {
-		"@types/mocha": "^8.2.2",
-		"@types/node": "14.x",
-		"@types/vscode": "^1.74.0",
-		"@typescript-eslint/eslint-plugin": "^6.7.0",
-		"@typescript-eslint/parser": "^6.7.0",
-		"eslint": "^7.27.0",
-		"mocha": "^10.2.0",
-		"typescript": "^5.3.2",
-		"prettier": "^3.1.1"
-	}
+    "name": "codex-notebook-extension",
+    "displayName": "codex-notebook-extension",
+    "description": "Notebook using Serializer API sample",
+    "publisher": "project-accelerate",
+    "version": "0.0.1",
+    "engines": {
+        "vscode": "^1.74.0"
+    },
+    "categories": [
+        "Other"
+    ],
+    "activationEvents": [
+        "onNotebook:codex-type"
+    ],
+    "main": "./out/extension.js",
+    "contributes": {
+        "notebookEditorDecorations": [
+            {
+                "type": "codex-type",
+                "viewType": "codex-type",
+                "displayName": "Codex Scripture Editor Notebook CodeLens",
+                "selector": [
+                    {
+                        "filenamePattern": "*.codex"
+                    }
+                ]
+            }
+        ],
+        "views": {
+            "explorer": [
+                {
+                    "id": "scripture-explorer",
+                    "name": "Scripture Explorer",
+                    "visibility": "visible"
+                }
+            ],
+            "scripture-explorer": [
+                {
+                    "id": "scripture-explorer-activity-bar",
+                    "name": "Scripture Explorer",
+                    "visibility": "visible",
+                    "icon": "$(open-editors-view-icon)"
+                }
+            ]
+        },
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "scripture-explorer",
+                    "title": "Scripture Explorer",
+                    "icon": "$(open-editors-view-icon)"
+                }
+            ]
+        },
+        "menus": {
+            "view/title": [
+                {
+                    "command": "scripture-explorer.refreshEntry",
+                    "when": "view == scripture-explorer",
+                    "group": "navigation"
+                },
+                {
+                    "command": "scripture-explorer-activity-bar.refreshEntry",
+                    "when": "view == scripture-explorer-activity-bar",
+                    "group": "navigation"
+                }
+            ]
+        },
+        "commands": [
+            {
+                "command": "codex-notebook-extension.showReferences",
+                "title": "Show Scripture References"
+            },
+            {
+                "command": "codex-notebook-extension.createCodexNotebook",
+                "title": "Create Codex Notebook"
+            },
+            {
+                "command": "codex-notebook-extension.createCodexProject",
+                "title": "Create Codex Project"
+            },
+            {
+                "command": "scripture-explorer.refreshEntry",
+                "title": "Refresh",
+                "icon": "$(refresh)"
+            },
+            {
+                "command": "scripture-explorer-activity-bar.refreshEntry",
+                "title": "Refresh",
+                "icon": "$(refresh)"
+            }
+        ],
+        "notebooks": [
+            {
+                "type": "codex-type",
+                "displayName": "Codex Scripture Editor Notebook",
+                "selector": [
+                    {
+                        "filenamePattern": "*.codex"
+                    }
+                ]
+            }
+        ],
+        "languages": [
+            {
+                "id": "scripture",
+                "extensions": [
+                    ".codex",
+                    ".scripture"
+                ],
+                "configuration": "./src/scripture-language-configuration.json"
+            }
+        ]
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -b",
+        "lint": "eslint src --ext ts",
+        "watch": "tsc -b --watch"
+    },
+    "devDependencies": {
+        "@types/mocha": "^8.2.2",
+        "@types/node": "14.x",
+        "@types/vscode": "^1.74.0",
+        "@typescript-eslint/eslint-plugin": "^6.7.0",
+        "@typescript-eslint/parser": "^6.7.0",
+        "eslint": "^7.27.0",
+        "mocha": "^10.2.0",
+        "typescript": "^5.3.2",
+        "prettier": "^3.1.1"
+    }
 }
