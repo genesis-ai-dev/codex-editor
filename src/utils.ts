@@ -38,7 +38,7 @@ export async function jumpToCellInNotebook(
         // Reveal the cell in the notebook editor
         notebookEditor.revealRange(
             new vscode.NotebookRange(cellIndex, cellIndex + 1),
-            vscode.NotebookEditorRevealType.InCenter,
+            vscode.NotebookEditorRevealType.AtTop,
         );
     } catch (error: any) {
         vscode.window.showErrorMessage(
