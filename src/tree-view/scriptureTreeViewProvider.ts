@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
-import { CHAPTER_HEADING_CELL_TYPE, CodexCell } from "../codexNotebookUtils";
+import { CellTypes, CodexCell } from "../codexNotebookUtils";
 
 export class Node extends vscode.TreeItem {
     constructor(
@@ -106,9 +106,9 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
         // Now you can process each cell as needed
         return cells.map((cell: CodexCell, index: number) => {
             // Assuming you want to create a Node for each cell
-            if (cell.metadata?.type === CHAPTER_HEADING_CELL_TYPE) {
+            if (cell.metadata?.type === CellTypes.CHAPTER_HEADING) {
                 return new Node(
-                    `Chapter ${index + 1}`,
+                    `Chapter ${cell.metadata.data.chapter}`,
                     "chapter",
                     vscode.TreeItemCollapsibleState.None,
                     {
