@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
-import { CHAPTER_HEADING_CELL_TYPE, CodexCell } from "../codexNotebookUtils";
+import { CellTypes, CodexCell } from "../codexNotebookUtils";
+import { vrefData } from "../assets/vref";
 
 export class Node extends vscode.TreeItem {
     constructor(
@@ -71,7 +72,7 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
             const files = await vscode.workspace.fs.readDirectory(
                 vscode.Uri.file(dirPath),
             );
-            const notebooks = files
+            let notebooks = files
                 .filter(
                     ([file, type]) =>
                         type === vscode.FileType.File &&
@@ -85,6 +86,16 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
                             vscode.TreeItemCollapsibleState.Collapsed,
                         ),
                 );
+
+            // Define the canonical order based on the keys of vrefData
+            const canonicalOrder = Object.keys(vrefData);
+
+            // Sort the notebooks array based on the canonical order
+            notebooks = notebooks.sort((a, b) => {
+                const indexA = canonicalOrder.indexOf(a.label);
+                const indexB = canonicalOrder.indexOf(b.label);
+                return indexA - indexB;
+            });
 
             return notebooks;
         } catch (error) {
@@ -106,9 +117,9 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
         // Now you can process each cell as needed
         return cells.map((cell: CodexCell, index: number) => {
             // Assuming you want to create a Node for each cell
-            if (cell.metadata?.type === CHAPTER_HEADING_CELL_TYPE) {
+            if (cell.metadata?.type === CellTypes.CHAPTER_HEADING) {
                 return new Node(
-                    `Chapter ${index + 1}`,
+                    `Chapter ${cell.metadata.data.chapter}`,
                     "chapter",
                     vscode.TreeItemCollapsibleState.None,
                     {
