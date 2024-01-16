@@ -6,10 +6,17 @@ import { getWorkSpaceFolder } from "./utils";
 import { generateFiles as generateFile } from "./fileUtils";
 
 export const NOTEBOOK_TYPE = "codex-type";
-export const CHAPTER_HEADING_CELL_TYPE = "chapter-heading";
+export enum CellTypes {
+    CHAPTER_HEADING = "chapter-heading",
+}
 
 export interface CodexCell extends vscode.NotebookCellData {
-    metadata?: { type: string };
+    metadata?: {
+        type: CellTypes;
+        data: {
+            chapter: string;
+        };
+    };
 }
 
 export const createCodexNotebook = async (
@@ -38,6 +45,7 @@ export const createCodexNotebook = async (
 };
 
 export async function createProjectNotebooks(shouldOverWrite = false) {
+    const notebookCreationPromises = [];
     // Loop over all books (top-level keys in vrefData), and createCodexNotebook for each
     for (const book of Object.keys(vrefData).filter(
         (ref) => !nonCanonicalBookRefs.includes(ref),
@@ -53,13 +61,18 @@ export async function createProjectNotebooks(shouldOverWrite = false) {
         // Iterate over all chapters in the current book
         for (const chapter of Object.keys(bookData.chapterVerseCountPairings)) {
             // Generate a markdown cell with the chapter number
-            cells.push(
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Markup,
-                    `${chapterHeadingText} ${chapter}`,
-                    "markdown",
-                ),
+            const cell = new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Markup,
+                `${chapterHeadingText} ${chapter}`,
+                "markdown",
             );
+            cell.metadata = {
+                type: CellTypes.CHAPTER_HEADING,
+                data: {
+                    chapter: chapter,
+                },
+            };
+            cells.push(cell);
 
             // Generate a code cell for the chapter
             const numberOfVrefsForChapter =
@@ -87,26 +100,24 @@ export async function createProjectNotebooks(shouldOverWrite = false) {
                 ),
             );
         }
-        const cellsWithMetaData = cells.map((cell) => {
-            if (cell.value.includes(chapterHeadingText)) {
-                cell.metadata = { type: CHAPTER_HEADING_CELL_TYPE };
-            }
-            return cell;
-        });
         // Create a notebook for the current book
         const serializer = new CodexContentSerializer();
-        const notebookData = new vscode.NotebookData(cellsWithMetaData);
-        const notebookFile = await serializer.serializeNotebook(
-            notebookData,
-            new vscode.CancellationTokenSource().token,
-        );
-
-        // Save the notebook using generateFiles
-        const filePath = `drafts/Bible/${book}.codex`;
-        await generateFile({
-            filepath: filePath,
-            fileContent: notebookFile,
-            shouldOverWrite,
-        });
+        const notebookData = new vscode.NotebookData(cells);
+        const notebookCreationPromise = serializer
+            .serializeNotebook(
+                notebookData,
+                new vscode.CancellationTokenSource().token,
+            )
+            .then((notebookFile) => {
+                // Save the notebook using generateFiles
+                const filePath = `drafts/Bible/${book}.codex`;
+                return generateFile({
+                    filepath: filePath,
+                    fileContent: notebookFile,
+                    shouldOverWrite,
+                });
+            });
+        notebookCreationPromises.push(notebookCreationPromise);
     }
+    await Promise.all(notebookCreationPromises);
 }
