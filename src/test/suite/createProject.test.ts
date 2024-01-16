@@ -1,7 +1,6 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import { CellTypes, createProjectNotebooks } from "../../codexNotebookUtils";
-import * as fs from "fs";
 import * as sinon from "sinon";
 import * as path from "path";
 
@@ -30,8 +29,6 @@ suite("createProjectNotebooks Test Suite", () => {
     test("createProjectNotebooks creates notebooks with correct metadata", async () => {
         const shouldOverWrite = false;
         await createProjectNotebooks(shouldOverWrite);
-        // Sleep for 2 seconds to wait for the notebooks to be created
-        // await new Promise((resolve) => setTimeout(resolve, 1000));
 
         // Assuming the notebooks are created in the workspace directory
         const workspaceFolders = vscode.workspace.workspaceFolders;
