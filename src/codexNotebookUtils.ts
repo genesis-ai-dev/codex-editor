@@ -45,6 +45,7 @@ export const createCodexNotebook = async (
 };
 
 export async function createProjectNotebooks(shouldOverWrite = false) {
+    const notebookCreationPromises = [];
     // Loop over all books (top-level keys in vrefData), and createCodexNotebook for each
     for (const book of Object.keys(vrefData).filter(
         (ref) => !nonCanonicalBookRefs.includes(ref),
@@ -99,26 +100,24 @@ export async function createProjectNotebooks(shouldOverWrite = false) {
                 ),
             );
         }
-        // const cellsWithMetaData = cells.map((cell) => {
-        //     if (cell.value.includes(chapterHeadingText)) {
-        //         cell.metadata = { type: CHAPTER_HEADING_CELL_TYPE };
-        //     }
-        //     return cell;
-        // });
         // Create a notebook for the current book
         const serializer = new CodexContentSerializer();
         const notebookData = new vscode.NotebookData(cells);
-        const notebookFile = await serializer.serializeNotebook(
-            notebookData,
-            new vscode.CancellationTokenSource().token,
-        );
-
-        // Save the notebook using generateFiles
-        const filePath = `drafts/Bible/${book}.codex`;
-        await generateFile({
-            filepath: filePath,
-            fileContent: notebookFile,
-            shouldOverWrite,
-        });
+        const notebookCreationPromise = serializer
+            .serializeNotebook(
+                notebookData,
+                new vscode.CancellationTokenSource().token,
+            )
+            .then((notebookFile) => {
+                // Save the notebook using generateFiles
+                const filePath = `drafts/Bible/${book}.codex`;
+                return generateFile({
+                    filepath: filePath,
+                    fileContent: notebookFile,
+                    shouldOverWrite,
+                });
+            });
+        notebookCreationPromises.push(notebookCreationPromise);
     }
+    await Promise.all(notebookCreationPromises);
 }
