@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
 import { CodexContentSerializer } from "./serializer";
+import { nonCanonicalBookRefs, vrefData } from "./assets/vref";
 
-export const getWorkSpaceFolder = () => {
+export const getWorkSpaceFolder = (): string | undefined => {
     /**
      * Generic function to get the workspace folder
      * NOTE: this util assumes we want to return only the first workspace folder
@@ -45,4 +46,19 @@ export async function jumpToCellInNotebook(
             `Failed to open notebook: ${error.message}`,
         );
     }
+}
+
+// Abstracted functions to get all book references, chapter references, and complete vrefs
+export function getAllBookRefs(): string[] {
+    return Object.keys(vrefData).filter((ref) => !nonCanonicalBookRefs.includes(ref));
+}
+
+export function getAllBookChapterRefs(book: string): string[] {
+    return Object.keys(vrefData[book].chapterVerseCountPairings);
+}
+
+export function getAllVrefs(book: string, chapter: string, numberOfVrefsForChapter: number): string {
+    return Array.from(
+        Array(numberOfVrefsForChapter).keys(),
+    ).map((_, i) => `${book} ${chapter}:${i + 1}`).join("\n");
 }

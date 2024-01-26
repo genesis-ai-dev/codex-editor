@@ -2,6 +2,8 @@
 
 This is a very simple extension sample demonstrating the use of the notebook serializer and controller APIs. This sample includes:
 
+> Note: we are building this extension up to be the core features you need to use the Codex app for translation projects. It will include `.codex` notebook functionality, Scripture language-related functionality, and schemas for relevant data types. Subject to change!
+
 -   A notebook serializer that is activated for files matching `*.sample-json-notebook`. It serializes notebook data into a simple JSON-based format.
 -   A notebook controller that "executes" JSON-type code cells by adding an output to the cell that includes the content of the cell parsed as JSON.
 -   A command "Create Codex Notebook" that creates a new untitled notebook of this type.
