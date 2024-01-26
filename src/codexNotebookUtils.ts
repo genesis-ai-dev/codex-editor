@@ -1,9 +1,10 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
 import { CodexContentSerializer } from "./serializer";
-import { vrefData, nonCanonicalBookRefs } from "./assets/vref.js";
 import { getWorkSpaceFolder } from "./utils";
 import { generateFiles as generateFile } from "./fileUtils";
+import { getAllBookRefs, getAllBookChapterRefs, getAllVrefs } from "./utils";
+import { vrefData } from "./assets/vref";
 
 export const NOTEBOOK_TYPE = "codex-type";
 export enum CellTypes {
@@ -28,13 +29,13 @@ export const createCodexNotebook = async (
     const cellData =
         cells.length > 0
             ? cells.map(
-                  (cell) =>
-                      new vscode.NotebookCellData(
-                          cell.kind,
-                          cell.value,
-                          cell.languageId,
-                      ),
-              )
+                (cell) =>
+                    new vscode.NotebookCellData(
+                        cell.kind,
+                        cell.value,
+                        cell.languageId,
+                    ),
+            )
             : [];
     const data = new vscode.NotebookData(cellData);
     const doc = await vscode.workspace.openNotebookDocument(
@@ -46,20 +47,19 @@ export const createCodexNotebook = async (
 
 export async function createProjectNotebooks(shouldOverWrite = false) {
     const notebookCreationPromises = [];
-    // Loop over all books (top-level keys in vrefData), and createCodexNotebook for each
-    for (const book of Object.keys(vrefData).filter(
-        (ref) => !nonCanonicalBookRefs.includes(ref),
-    )) {
+
+    // Loop over all books and createCodexNotebook for each
+    for (const book of getAllBookRefs()) {
         /**
          * One notebook for each book of the Bible. Each notebook has a code cell for each chapter.
          * Each chapter cell has a preceding markdown cell with the chapter number, and a following
          * markdown cell that says '### Notes for Chapter {chapter number}'
          */
         const cells: vscode.NotebookCellData[] = [];
-        const bookData = vrefData[book];
         const chapterHeadingText = `# Chapter`;
+
         // Iterate over all chapters in the current book
-        for (const chapter of Object.keys(bookData.chapterVerseCountPairings)) {
+        for (const chapter of getAllBookChapterRefs(book)) {
             // Generate a markdown cell with the chapter number
             const cell = new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Markup,
@@ -75,13 +75,8 @@ export async function createProjectNotebooks(shouldOverWrite = false) {
             cells.push(cell);
 
             // Generate a code cell for the chapter
-            const numberOfVrefsForChapter =
-                bookData.chapterVerseCountPairings[chapter];
-            const vrefsString = Array.from(
-                Array(numberOfVrefsForChapter).keys(),
-            )
-                .map((_, i) => `${book} ${chapter}:${i + 1}`)
-                .join("\n");
+            const numberOfVrefsForChapter = vrefData[book].chapterVerseCountPairings[chapter];
+            const vrefsString = getAllVrefs(book, chapter, numberOfVrefsForChapter);
 
             cells.push(
                 new vscode.NotebookCellData(

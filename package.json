@@ -69,6 +69,11 @@
         },
         "commands": [
             {
+                "title": "Start a new Project",
+                "shortTitle": "Start a new Project",
+                "command": "codex-notebook-extension.initializeNewProject"
+            },
+            {
                 "command": "codex-notebook-extension.openChapter",
                 "title": "Open Chapter"
             },
