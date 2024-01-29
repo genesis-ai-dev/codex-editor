@@ -12,6 +12,17 @@ export enum CellTypes {
     CHAPTER_HEADING = "chapter-heading",
 }
 
+/**
+ * Interface representing a Codex cell with optional metadata.
+ * 
+ * This interface extends the vscode.NotebookCellData with additional metadata that
+ * specifies the type of cell and associated data. The metadata includes the type of the cell,
+ * which is defined by the CellTypes enum, and data that contains the chapter information.
+ * 
+ * @property {CellTypes} [type] - The type of the cell, as defined by the CellTypes enum.
+ * @property {Object} [data] - An object containing additional data for the cell.
+ * @property {string} [chapter] - The chapter number or identifier associated with the cell.
+ */
 export interface CodexCell extends vscode.NotebookCellData {
     metadata?: {
         type: CellTypes;
@@ -25,7 +36,15 @@ export const createCodexNotebook = async (
     cells: vscode.NotebookCellData[] = [],
 ) => {
     /**
-     * Generic function to create a Codex notebook
+     * Creates a Codex notebook with the provided cell data.
+     * 
+     * This function takes an array of NotebookCellData objects and uses them to create a new Codex notebook.
+     * If no cells are provided, an empty array is used by default. Each cell in the array is transformed into
+     * a NotebookCellData object, which is then used to create the notebook data. A new notebook document is
+     * opened with this data in the Codex-specific notebook type.
+     * 
+     * @param {vscode.NotebookCellData[]} cells - An array of NotebookCellData objects to populate the notebook.
+     * @returns {Promise<vscode.NotebookDocument>} A promise that resolves to the created NotebookDocument.
      */
     const cellData =
         cells.length > 0
@@ -46,6 +65,19 @@ export const createCodexNotebook = async (
     return doc;
 };
 
+/**
+ * Creates a Codex notebook for each book in the Bible.
+ * 
+ * This function generates a Codex notebook for each book in the Bible. If a list of books is provided, 
+ * notebooks will only be created for those books. Otherwise, notebooks will be created for all books.
+ * Each notebook contains a code cell for each chapter in the book. Each chapter cell is preceded by a 
+ * markdown cell with the chapter number and followed by a markdown cell for notes for the chapter.
+ * 
+ * @param {Object} options - An object containing options for the notebook creation.
+ * @param {boolean} options.shouldOverWrite - A boolean indicating whether existing notebooks should be overwritten.
+ * @param {string[]} options.books - An array of book names for which to create notebooks. If not provided, notebooks will be created for all books.
+ * @returns {Promise<void>} A promise that resolves when all notebooks have been created.
+ */
 export async function createProjectNotebooks(
     {
         shouldOverWrite = false,
