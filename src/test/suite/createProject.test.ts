@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { CellTypes, createProjectNotebooks } from "../../codexNotebookUtils";
 import * as sinon from "sinon";
 import * as path from "path";
+import { LanguageProjectStatus } from "../../types";
 
 suite("createProjectNotebooks Test Suite", () => {
     let sandbox: sinon.SinonSandbox;
@@ -17,6 +18,19 @@ suite("createProjectNotebooks Test Suite", () => {
         sandbox
             .stub(vscode.workspace, "workspaceFolders")
             .value([workspaceFolder]);
+
+        // Mock the project metadata
+        const projectMetadata = {
+            languages: [
+                {
+                    tag: "eng", // ISO 639-3 language code
+                    projectStatus: LanguageProjectStatus.TARGET,
+                },
+            ],
+        };
+        sandbox
+            .stub(vscode.workspace.fs, "readFile")
+            .returns(Promise.resolve(Buffer.from(JSON.stringify(projectMetadata))));
     });
 
     teardown(() => {
@@ -28,7 +42,7 @@ suite("createProjectNotebooks Test Suite", () => {
 
     test("createProjectNotebooks creates notebooks with correct metadata", async () => {
         const shouldOverWrite = false;
-        await createProjectNotebooks(shouldOverWrite);
+        await createProjectNotebooks({ shouldOverWrite });
 
         // Assuming the notebooks are created in the workspace directory
         const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -38,7 +52,7 @@ suite("createProjectNotebooks Test Suite", () => {
 
         const workspacePath = workspaceFolders[0].uri.fsPath;
         const generatedCodexFile = await vscode.workspace.fs.readFile(
-            vscode.Uri.file(`${workspacePath}/drafts/Bible/GEN.codex`),
+            vscode.Uri.file(`${workspacePath}/drafts/Bible/GEN.codex`), // FIXME: Here we are attempting to use the /Bible path, but elsewhere in the code we are retrieving the project metadata.languages filtered to where projectStatus === LanguageProjectStatus.TARGET [0th item].tag.
         );
 
         // Parse the generatedCodexFile as JSON
