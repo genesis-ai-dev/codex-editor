@@ -29,7 +29,7 @@ export async function getProjectMetadata(): Promise<Project> {
     }
 
     const projectMetadataPath = vscode.Uri.file(
-        `${workspaceFolder}/project.json`
+        `${workspaceFolder}/metadata.json`
     );
 
     const projectMetadata = await vscode.workspace.fs.readFile(projectMetadataPath).then(
