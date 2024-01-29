@@ -1,6 +1,6 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
-import { CellTypes, createProjectNotebooks } from "../../codexNotebookUtils";
+import { CellTypes, createProjectNotebooks, getProjectMetadata, LanguageMetadata } from "../../codexNotebookUtils";
 import * as sinon from "sinon";
 import * as path from "path";
 import { LanguageProjectStatus } from "../../types";
@@ -29,8 +29,8 @@ suite("createProjectNotebooks Test Suite", () => {
             ],
         };
         sandbox
-            .stub(vscode.workspace.fs, "readFile")
-            .returns(Promise.resolve(Buffer.from(JSON.stringify(projectMetadata))));
+            .stub(getProjectMetadata, "call")
+            .returns(Promise.resolve(projectMetadata));
     });
 
     teardown(() => {
@@ -51,8 +51,11 @@ suite("createProjectNotebooks Test Suite", () => {
         }
 
         const workspacePath = workspaceFolders[0].uri.fsPath;
+        const projectMetadata = await getProjectMetadata();
+        const targetLanguage = projectMetadata.languages.filter((language: LanguageMetadata) => language.projectStatus === LanguageProjectStatus.TARGET)[0].tag;
+
         const generatedCodexFile = await vscode.workspace.fs.readFile(
-            vscode.Uri.file(`${workspacePath}/drafts/Bible/GEN.codex`), // FIXME: Here we are attempting to use the /Bible path, but elsewhere in the code we are retrieving the project metadata.languages filtered to where projectStatus === LanguageProjectStatus.TARGET [0th item].tag.
+            vscode.Uri.file(`${workspacePath}/drafts/${targetLanguage}/GEN.codex`),
         );
 
         // Parse the generatedCodexFile as JSON
