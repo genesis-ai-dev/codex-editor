@@ -1,10 +1,11 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
 import { CodexContentSerializer } from "./serializer";
-import { getWorkSpaceFolder } from "./utils";
+import { getProjectMetadata, getWorkSpaceFolder } from "./utils";
 import { generateFiles as generateFile } from "./fileUtils";
 import { getAllBookRefs, getAllBookChapterRefs, getAllVrefs } from "./utils";
 import { vrefData } from "./assets/vref";
+import { LanguageProjectStatus } from "./types";
 
 export const NOTEBOOK_TYPE = "codex-type";
 export enum CellTypes {
@@ -45,11 +46,19 @@ export const createCodexNotebook = async (
     return doc;
 };
 
-export async function createProjectNotebooks(shouldOverWrite = false) {
+export async function createProjectNotebooks(
+    {
+        shouldOverWrite = false,
+        books = undefined
+    }: {
+        shouldOverWrite?: boolean;
+        books?: string[] | undefined;
+    } = {}) {
     const notebookCreationPromises = [];
 
+    const allBooks = books ? books : getAllBookRefs();
     // Loop over all books and createCodexNotebook for each
-    for (const book of getAllBookRefs()) {
+    for (const book of allBooks) {
         /**
          * One notebook for each book of the Bible. Each notebook has a code cell for each chapter.
          * Each chapter cell has a preceding markdown cell with the chapter number, and a following
@@ -98,6 +107,8 @@ export async function createProjectNotebooks(shouldOverWrite = false) {
         // Create a notebook for the current book
         const serializer = new CodexContentSerializer();
         const notebookData = new vscode.NotebookData(cells);
+
+        const project = await getProjectMetadata();
         const notebookCreationPromise = serializer
             .serializeNotebook(
                 notebookData,
@@ -105,7 +116,10 @@ export async function createProjectNotebooks(shouldOverWrite = false) {
             )
             .then((notebookFile) => {
                 // Save the notebook using generateFiles
-                const filePath = `drafts/Bible/${book}.codex`;
+                const sourceLanguageTag = project.languages.filter(
+                    language => language.projectStatus === LanguageProjectStatus.TARGET
+                )[0].tag;
+                const filePath = `drafts/${sourceLanguageTag}/${book}.codex`;
                 return generateFile({
                     filepath: filePath,
                     fileContent: notebookFile,
