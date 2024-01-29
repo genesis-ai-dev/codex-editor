@@ -86,10 +86,6 @@
                 "title": "Create Codex Notebook"
             },
             {
-                "command": "codex-notebook-extension.createCodexProject",
-                "title": "Create Codex Project"
-            },
-            {
                 "command": "scripture-explorer.refreshEntry",
                 "title": "Refresh",
                 "icon": "$(refresh)"

@@ -7,12 +7,17 @@ import {
     createProjectNotebooks,
 } from "./codexNotebookUtils";
 import { CodexNotebookProvider } from "./tree-view/scriptureTreeViewProvider";
-import { getAllBookRefs, getWorkSpaceFolder, jumpToCellInNotebook } from "./utils";
+import { getAllBookRefs, getProjectMetadata, getWorkSpaceFolder, jumpToCellInNotebook } from "./utils";
 import { registerReferences } from "./referencesProvider";
-import { Project } from "./types";
+import { LanguageMetadata, LanguageProjectStatus, Project } from "./types";
 import { nonCanonicalBookRefs } from "./assets/vref";
+import { LanguageCodes } from "./assets/languages";
 
 const ROOT_PATH = getWorkSpaceFolder();
+
+if (!ROOT_PATH) {
+    vscode.window.showErrorMessage("No workspace found");
+}
 
 export function activate(context: vscode.ExtensionContext) {
     registerReferences(context);
@@ -56,39 +61,42 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand(
-            "codex-notebook-extension.createCodexProject",
-            async () => {
-                const overwriteConfirmation =
-                    await vscode.window.showWarningMessage(
-                        "Do you want to overwrite any existing project files?",
-                        "Yes",
-                        "No",
-                    );
-                if (overwriteConfirmation === "Yes") {
-                    vscode.window.showInformationMessage(
-                        "Creating Codex Project with overwrite.",
-                    );
-                    await createProjectNotebooks(true);
-                } else {
-                    vscode.window.showInformationMessage(
-                        "Creating Codex Project without overwrite.",
-                    );
-                    await createProjectNotebooks();
-                }
-            },
-        ),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
             "codex-notebook-extension.initializeNewProject",
             async () => {
                 vscode.window.showInformationMessage("Initializing new project...");
                 try {
                     const projectDetails = await promptForProjectDetails();
                     if (projectDetails) {
-                        const newProject = await initializeProject(projectDetails);
+                        const newProject = await initializeProjectMetadata(projectDetails);
                         vscode.window.showInformationMessage(`New project initialized: ${newProject?.meta.generator.userName}'s ${newProject?.meta.category}`);
+
+                        // Spawn notebooks based on project scope
+                        const projectScope = newProject?.type.flavorType.currentScope;
+                        if (!projectScope) {
+                            vscode.window.showErrorMessage("Failed to initialize new project: project scope not found.");
+                            return;
+                        }
+                        const books = Object.keys(projectScope);
+
+                        const overwriteConfirmation =
+                            await vscode.window.showWarningMessage(
+                                "Do you want to overwrite any existing project files?",
+                                { modal: true }, // This option ensures the dialog stays open until an explicit choice is made.
+                                "Yes",
+                                "No",
+                            );
+                        if (overwriteConfirmation === "Yes") {
+                            vscode.window.showInformationMessage(
+                                "Creating Codex Project with overwrite.",
+                            );
+                            await createProjectNotebooks({ shouldOverWrite: true, books });
+                        } else if (overwriteConfirmation === "No") {
+                            vscode.window.showInformationMessage(
+                                "Creating Codex Project without overwrite.",
+                            );
+                            await createProjectNotebooks({ books });
+                        }
+
                     } else {
                         vscode.window.showErrorMessage("Project initialization cancelled.");
                     }
@@ -104,9 +112,11 @@ export function activate(context: vscode.ExtensionContext) {
         projectCategory: string;
         userName: string;
         abbreviation: string;
+        sourceLanguage: LanguageMetadata;
+        targetLanguage: LanguageMetadata;
     }
 
-    async function promptForProjectDetails() {
+    async function promptForProjectDetails(): Promise<ProjectDetails | undefined> {
         // Prompt user for project details and return them
 
         const projectCategory = await vscode.window.showQuickPick(
@@ -124,12 +134,40 @@ export function activate(context: vscode.ExtensionContext) {
 
         const abbreviation = await vscode.window.showInputBox({ prompt: "Enter the project abbreviation" });
         if (!abbreviation) return;
+        const languages = LanguageCodes;
+        const sourceLanguagePick = await vscode.window.showQuickPick(
+            languages.map(lang => `${lang.refName} (${lang.tag})`),
+            {
+                placeHolder: "Select the source language",
+            },
+        );
+        if (!sourceLanguagePick) return;
+
+        const sourceLanguage = languages.find(lang => `${lang.refName} (${lang.tag})` === sourceLanguagePick);
+        if (!sourceLanguage) return;
+
+        const targetLanguagePick = await vscode.window.showQuickPick(
+            languages.map(lang => `${lang.refName} (${lang.tag})`),
+            {
+                placeHolder: "Select the target language",
+            },
+        );
+        if (!targetLanguagePick) return;
+
+        const targetLanguage = languages.find(lang => `${lang.refName} (${lang.tag})` === targetLanguagePick);
+        if (!targetLanguage) return;
+
+        // Add project status to the selected languages
+        sourceLanguage.projectStatus = LanguageProjectStatus.SOURCE;
+        targetLanguage.projectStatus = LanguageProjectStatus.TARGET;
 
         return {
             projectName,
             projectCategory,
             userName,
             abbreviation,
+            sourceLanguage,
+            targetLanguage,
         };
     }
 
@@ -156,16 +194,17 @@ export function activate(context: vscode.ExtensionContext) {
         return projectScope;
     }
 
-    async function initializeProject(details: { projectName?: string; projectCategory: any; userName: any; }) {
+    async function initializeProjectMetadata(details: ProjectDetails) {
         // Initialize a new project with the given details and return the project object
-        const newProject = {
-            format: "1.0",
+        const newProject: Project = {
+            format: "scripture burrito",
+            projectName: details.projectName,
             meta: {
-                version: "1.0",
+                version: "0.0.0",
                 category: details.projectCategory,
                 generator: {
                     softwareName: "Codex Editor",
-                    softwareVersion: "1.0",
+                    softwareVersion: "0.0.1",
                     userName: details.userName,
                 },
                 defaultLocale: "en",
@@ -198,6 +237,10 @@ export function activate(context: vscode.ExtensionContext) {
                 shortStatements: [],
             },
         };
+
+        newProject.languages.push(details.sourceLanguage);
+        newProject.languages.push(details.targetLanguage);
+
         const workspaceFolder = vscode.workspace.workspaceFolders
             ? vscode.workspace.workspaceFolders[0].uri.fsPath
             : undefined;
