@@ -257,7 +257,7 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
 
-        const projectFilePath = vscode.Uri.joinPath(WORKSPACE_FOLDER.uri, 'project.json');
+        const projectFilePath = vscode.Uri.joinPath(WORKSPACE_FOLDER.uri, 'metadata.json');
         const projectFileData = Buffer.from(JSON.stringify(newProject, null, 4), 'utf8');
 
         vscode.workspace.fs.writeFile(projectFilePath, projectFileData)
