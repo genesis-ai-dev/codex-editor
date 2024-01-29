@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { CodexContentSerializer } from "./serializer";
 import { nonCanonicalBookRefs, vrefData } from "./assets/vref";
+import { Project } from "./types";
 
 export const getWorkSpaceFolder = (): string | undefined => {
     /**
@@ -16,6 +17,45 @@ export const getWorkSpaceFolder = (): string | undefined => {
     }
     return workspaceFolder;
 };
+
+export async function getProjectMetadata(): Promise<Project> {
+    /**
+     * Generic function to get the project metadata
+     */
+    const workspaceFolder = getWorkSpaceFolder();
+
+    if (!workspaceFolder) {
+        return Promise.reject("No workspace found");
+    }
+
+    const projectMetadataPath = vscode.Uri.file(
+        `${workspaceFolder}/project.json`
+    );
+
+    const projectMetadata = await vscode.workspace.fs.readFile(projectMetadataPath).then(
+        (projectMetadata) => {
+            try {
+                return JSON.parse(
+                    Buffer.from(projectMetadata).toString(),
+                ) as Project;
+            } catch (error: any) {
+                vscode.window.showErrorMessage(
+                    `Failed to parse project metadata: ${error.message}`,
+                );
+            }
+        },
+        (err) => {
+            vscode.window.showErrorMessage(
+                `Failed to read project metadata: ${err.message}`,
+            );
+        },
+    );
+
+    if (!projectMetadata) {
+        return Promise.reject("No project metadata found");
+    }
+    return projectMetadata;
+}
 
 export async function jumpToCellInNotebook(
     notebookPath: string,
