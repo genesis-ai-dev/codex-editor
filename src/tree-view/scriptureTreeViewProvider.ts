@@ -1,8 +1,10 @@
+import { LanguageMetadata, LanguageProjectStatus } from './../types';
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
 import { CellTypes, CodexCell } from "../codexNotebookUtils";
 import { vrefData } from "../assets/vref";
+import { getProjectMetadata } from '../utils';
 
 export class Node extends vscode.TreeItem {
     constructor(
@@ -22,7 +24,7 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
     readonly onDidChangeTreeData: vscode.Event<Node | undefined | void> =
         this._onDidChangeTreeData.event;
 
-    constructor(private workspaceRoot: string | undefined) {}
+    constructor(private workspaceRoot: string | undefined) { }
 
     refresh(): void {
         this._onDidChangeTreeData.fire();
@@ -32,7 +34,7 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
         return element;
     }
 
-    getChildren(element?: Node): Promise<Node[]> {
+    async getChildren(element?: Node): Promise<Node[]> {
         if (!this.workspaceRoot) {
             vscode.window.showInformationMessage(
                 "No notebooks in empty workspace",
@@ -40,13 +42,17 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
             return Promise.resolve([]);
         }
 
+        // Retrieve project metadata
+        const projectMetadata = await getProjectMetadata();
+        const targetLanguage = projectMetadata.languages.filter((language: LanguageMetadata) => language.projectStatus === LanguageProjectStatus.TARGET)[0].tag;
+
         if (element) {
             if (element.type === "notebook") {
                 // Read the chapters from the .codex file
                 const notebookPath = path.join(
                     this.workspaceRoot,
                     "drafts",
-                    "Bible",
+                    targetLanguage,
                     `${element.label}.codex`,
                 );
                 const chapters = this.getChaptersInNotebook(notebookPath);
@@ -56,11 +62,12 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
                 return Promise.resolve([]);
             }
         } else {
-            // Read the .codex files from the drafts/Bible directory
+
+            // Read the .codex files from the drafts/{targetLanguage} directory
             const notebooksPath = path.join(
                 this.workspaceRoot,
                 "drafts",
-                "Bible",
+                targetLanguage,
             );
             const notebooks = this.getNotebooksInDirectory(notebooksPath);
             return Promise.resolve(notebooks);
