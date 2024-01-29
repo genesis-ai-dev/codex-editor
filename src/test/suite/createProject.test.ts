@@ -1,11 +1,12 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
-import { CellTypes, createProjectNotebooks, getProjectMetadata, LanguageMetadata } from "../../codexNotebookUtils";
+import { CellTypes, createProjectNotebooks, getProjectMetadata } from "../../codexNotebookUtils";
 import * as sinon from "sinon";
 import * as path from "path";
-import { LanguageProjectStatus } from "../../types";
+import { LanguageProjectStatus, LanguageMetadata } from "../../types";
 
 suite("createProjectNotebooks Test Suite", () => {
+    // The sandbox is effectively a blank workspace where we can populate test files
     let sandbox: sinon.SinonSandbox;
 
     setup(() => {
@@ -18,19 +19,6 @@ suite("createProjectNotebooks Test Suite", () => {
         sandbox
             .stub(vscode.workspace, "workspaceFolders")
             .value([workspaceFolder]);
-
-        // Mock the project metadata
-        const projectMetadata = {
-            languages: [
-                {
-                    tag: "eng", // ISO 639-3 language code
-                    projectStatus: LanguageProjectStatus.TARGET,
-                },
-            ],
-        };
-        sandbox
-            .stub(getProjectMetadata, "call")
-            .returns(Promise.resolve(projectMetadata));
     });
 
     teardown(() => {
@@ -40,7 +28,7 @@ suite("createProjectNotebooks Test Suite", () => {
         "Start all tests for createProjectNotebooks.",
     );
 
-    test("createProjectNotebooks creates notebooks with correct metadata", async () => {
+    test("createProjectNotebooks creates notebooks with correct metadata, at the correct target-language tag path", async () => {
         const shouldOverWrite = false;
         await createProjectNotebooks({ shouldOverWrite });
 
