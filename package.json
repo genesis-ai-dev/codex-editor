@@ -1,6 +1,6 @@
 {
-    "name": "codex-notebook-extension",
-    "displayName": "codex-notebook-extension",
+    "name": "codex-editor-extension",
+    "displayName": "codex-editor-extension",
     "description": "Notebook using Serializer API sample",
     "publisher": "project-accelerate",
     "version": "0.0.1",
@@ -71,18 +71,18 @@
             {
                 "title": "Start a new Project",
                 "shortTitle": "Start a new Project",
-                "command": "codex-notebook-extension.initializeNewProject"
+                "command": "codex-editor-extension.initializeNewProject"
             },
             {
-                "command": "codex-notebook-extension.openChapter",
+                "command": "codex-editor-extension.openChapter",
                 "title": "Open Chapter"
             },
             {
-                "command": "codex-notebook-extension.showReferences",
+                "command": "codex-editor-extension.showReferences",
                 "title": "Show Scripture References"
             },
             {
-                "command": "codex-notebook-extension.createCodexNotebook",
+                "command": "codex-editor-extension.createCodexNotebook",
                 "title": "Create Codex Notebook"
             },
             {

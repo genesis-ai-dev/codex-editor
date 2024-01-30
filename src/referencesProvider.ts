@@ -43,7 +43,7 @@ class ScriptureReferenceCodeLensProvider {
                 lenses.push(
                     new vscode.CodeLens(range, {
                         title: "Show References",
-                        command: "codex-notebook-extension.showReferences",
+                        command: "codex-editor-extension.showReferences",
                         arguments: [verseRef],
                     }),
                 );
@@ -105,7 +105,7 @@ const registerReferences = (context: vscode.ExtensionContext) => {
     // Register the command 'extension.showReferences'
     context.subscriptions.push(
         vscode.commands.registerCommand(
-            "codex-notebook-extension.showReferences",
+            "codex-editor-extension.showReferences",
             async (verseRef: string) => {
                 const filesWithReferences = await findReferences(verseRef);
                 console.log({ filesWithReferences });
