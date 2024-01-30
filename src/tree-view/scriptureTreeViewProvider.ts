@@ -130,7 +130,7 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
                     "chapter",
                     vscode.TreeItemCollapsibleState.None,
                     {
-                        command: "codex-notebook-extension.openChapter",
+                        command: "codex-editor-extension.openChapter",
                         title: "",
                         arguments: [notebookPath, index],
                     },

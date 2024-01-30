@@ -35,7 +35,7 @@ export function activate(context: vscode.ExtensionContext) {
     // Register a command called openChapter that opens a specific .codex notebook to a specific chapter
     context.subscriptions.push(
         vscode.commands.registerCommand(
-            "codex-notebook-extension.openChapter",
+            "codex-editor-extension.openChapter",
             async (notebookPath: string, chapterIndex: number) => {
                 try {
                     jumpToCellInNotebook(notebookPath, chapterIndex);
@@ -50,7 +50,7 @@ export function activate(context: vscode.ExtensionContext) {
     // Register extension commands
     context.subscriptions.push(
         vscode.commands.registerCommand(
-            "codex-notebook-extension.createCodexNotebook",
+            "codex-editor-extension.createCodexNotebook",
             async () => {
                 vscode.window.showInformationMessage("Creating Codex Notebook");
                 const doc = await createCodexNotebook();
@@ -61,7 +61,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand(
-            "codex-notebook-extension.initializeNewProject",
+            "codex-editor-extension.initializeNewProject",
             async () => {
                 vscode.window.showInformationMessage("Initializing new project...");
                 try {

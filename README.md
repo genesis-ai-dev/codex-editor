@@ -1,4 +1,4 @@
-# codex-notebook-extension
+# codex-editor-extension
 
 This is a very simple extension sample demonstrating the use of the notebook serializer and controller APIs. This sample includes:
 
@@ -10,7 +10,7 @@ This is a very simple extension sample demonstrating the use of the notebook ser
 
 ## Running this sample
 
-1.  `cd codex-notebook-extension`
+1.  `cd codex-editor-extension`
 1.  `code .`: Open the folder in VS Code
 1.  Hit `F5` to build+debug
 1.  Run the command "Create Codex Notebook"
