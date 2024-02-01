@@ -7,8 +7,14 @@ import {
     createProjectNotebooks,
 } from "./codexNotebookUtils";
 import { CodexNotebookProvider } from "./tree-view/scriptureTreeViewProvider";
-import { getAllBookRefs, getProjectMetadata, getWorkSpaceFolder, jumpToCellInNotebook } from "./utils";
-import { registerReferences } from "./referencesCodeLensProvider";
+import {
+    getAllBookRefs,
+    getProjectMetadata,
+    getWorkSpaceFolder,
+    jumpToCellInNotebook,
+} from "./utils";
+import { registerReferencesCodeLens } from "./referencesCodeLensProvider";
+import { registerSourceCodeLens } from "./sourceCodeLensProvider";
 import { LanguageMetadata, LanguageProjectStatus, Project } from "./types";
 import { nonCanonicalBookRefs } from "./assets/vref";
 import { LanguageCodes } from "./assets/languages";
@@ -21,7 +27,8 @@ if (!ROOT_PATH) {
 }
 
 export function activate(context: vscode.ExtensionContext) {
-    registerReferences(context);
+    registerReferencesCodeLens(context);
+    registerSourceCodeLens(context);
 
     // Register the Codex Notebook serializer for saving and loading .codex files
     context.subscriptions.push(
@@ -83,17 +90,25 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             "codex-editor-extension.initializeNewProject",
             async () => {
-                vscode.window.showInformationMessage("Initializing new project...");
+                vscode.window.showInformationMessage(
+                    "Initializing new project...",
+                );
                 try {
                     const projectDetails = await promptForProjectDetails();
                     if (projectDetails) {
-                        const newProject = await initializeProjectMetadata(projectDetails);
-                        vscode.window.showInformationMessage(`New project initialized: ${newProject?.meta.generator.userName}'s ${newProject?.meta.category}`);
+                        const newProject =
+                            await initializeProjectMetadata(projectDetails);
+                        vscode.window.showInformationMessage(
+                            `New project initialized: ${newProject?.meta.generator.userName}'s ${newProject?.meta.category}`,
+                        );
 
                         // Spawn notebooks based on project scope
-                        const projectScope = newProject?.type.flavorType.currentScope;
+                        const projectScope =
+                            newProject?.type.flavorType.currentScope;
                         if (!projectScope) {
-                            vscode.window.showErrorMessage("Failed to initialize new project: project scope not found.");
+                            vscode.window.showErrorMessage(
+                                "Failed to initialize new project: project scope not found.",
+                            );
                             return;
                         }
                         const books = Object.keys(projectScope);
@@ -109,19 +124,25 @@ export function activate(context: vscode.ExtensionContext) {
                             vscode.window.showInformationMessage(
                                 "Creating Codex Project with overwrite.",
                             );
-                            await createProjectNotebooks({ shouldOverWrite: true, books });
+                            await createProjectNotebooks({
+                                shouldOverWrite: true,
+                                books,
+                            });
                         } else if (overwriteConfirmation === "No") {
                             vscode.window.showInformationMessage(
                                 "Creating Codex Project without overwrite.",
                             );
                             await createProjectNotebooks({ books });
                         }
-
                     } else {
-                        vscode.window.showErrorMessage("Project initialization cancelled.");
+                        vscode.window.showErrorMessage(
+                            "Project initialization cancelled.",
+                        );
                     }
                 } catch (error) {
-                    vscode.window.showErrorMessage(`Failed to initialize new project: ${error}`);
+                    vscode.window.showErrorMessage(
+                        `Failed to initialize new project: ${error}`,
+                    );
                 }
             },
         ),
@@ -136,7 +157,9 @@ export function activate(context: vscode.ExtensionContext) {
         targetLanguage: LanguageMetadata;
     }
 
-    async function promptForProjectDetails(): Promise<ProjectDetails | undefined> {
+    async function promptForProjectDetails(): Promise<
+        ProjectDetails | undefined
+    > {
         // Prompt user for project details and return them
 
         const projectCategory = await vscode.window.showQuickPick(
@@ -145,36 +168,45 @@ export function activate(context: vscode.ExtensionContext) {
         );
         if (!projectCategory) return;
 
-        const projectName = await vscode.window.showInputBox({ prompt: "Enter the project name" });
+        const projectName = await vscode.window.showInputBox({
+            prompt: "Enter the project name",
+        });
         if (!projectName) return;
 
-
-        const userName = await vscode.window.showInputBox({ prompt: "Enter your username" });
+        const userName = await vscode.window.showInputBox({
+            prompt: "Enter your username",
+        });
         if (!userName) return;
 
-        const abbreviation = await vscode.window.showInputBox({ prompt: "Enter the project abbreviation" });
+        const abbreviation = await vscode.window.showInputBox({
+            prompt: "Enter the project abbreviation",
+        });
         if (!abbreviation) return;
         const languages = LanguageCodes;
         const sourceLanguagePick = await vscode.window.showQuickPick(
-            languages.map(lang => `${lang.refName} (${lang.tag})`),
+            languages.map((lang) => `${lang.refName} (${lang.tag})`),
             {
                 placeHolder: "Select the source language",
             },
         );
         if (!sourceLanguagePick) return;
 
-        const sourceLanguage = languages.find(lang => `${lang.refName} (${lang.tag})` === sourceLanguagePick);
+        const sourceLanguage = languages.find(
+            (lang) => `${lang.refName} (${lang.tag})` === sourceLanguagePick,
+        );
         if (!sourceLanguage) return;
 
         const targetLanguagePick = await vscode.window.showQuickPick(
-            languages.map(lang => `${lang.refName} (${lang.tag})`),
+            languages.map((lang) => `${lang.refName} (${lang.tag})`),
             {
                 placeHolder: "Select the target language",
             },
         );
         if (!targetLanguagePick) return;
 
-        const targetLanguage = languages.find(lang => `${lang.refName} (${lang.tag})` === targetLanguagePick);
+        const targetLanguage = languages.find(
+            (lang) => `${lang.refName} (${lang.tag})` === targetLanguagePick,
+        );
         if (!targetLanguage) return;
 
         // Add project status to the selected languages
@@ -191,11 +223,13 @@ export function activate(context: vscode.ExtensionContext) {
         };
     }
 
-    function generateProjectScope(skipNonCanonical: boolean = true): Project["type"]["flavorType"]["currentScope"] {
+    function generateProjectScope(
+        skipNonCanonical: boolean = true,
+    ): Project["type"]["flavorType"]["currentScope"] {
         /** For now, we are just setting the scope as all books, but allowing the vref.ts file to determine the books.
          * We could add a feature to allow users to select which books they want to include in the project.
          * And we could even drill down to specific chapter/verse ranges.
-         * 
+         *
          * FIXME: need to sort out whether the scope can sometimes be something other than books, like stories, etc.
          */
         const books: string[] = getAllBookRefs();
@@ -203,14 +237,15 @@ export function activate(context: vscode.ExtensionContext) {
         // The keys will be the book refs, and the values will be empty arrays
         const projectScope: any = {}; // NOTE: explicit any type here because we are dynamically generating the keys
 
-        skipNonCanonical ? books.filter(book =>
-            !nonCanonicalBookRefs
-                .includes(book))
-            .forEach(book => {
-                projectScope[book] = [];
-            }) : books.forEach(book => {
-                projectScope[book] = [];
-            });
+        skipNonCanonical
+            ? books
+                  .filter((book) => !nonCanonicalBookRefs.includes(book))
+                  .forEach((book) => {
+                      projectScope[book] = [];
+                  })
+            : books.forEach((book) => {
+                  projectScope[book] = [];
+              });
         return projectScope;
     }
 
@@ -270,18 +305,31 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
 
-        const WORKSPACE_FOLDER = vscode?.workspace?.workspaceFolders && vscode?.workspace?.workspaceFolders[0];
+        const WORKSPACE_FOLDER =
+            vscode?.workspace?.workspaceFolders &&
+            vscode?.workspace?.workspaceFolders[0];
 
         if (!WORKSPACE_FOLDER) {
             vscode.window.showErrorMessage("No workspace folder found.");
             return;
         }
 
-        const projectFilePath = vscode.Uri.joinPath(WORKSPACE_FOLDER.uri, 'metadata.json');
-        const projectFileData = Buffer.from(JSON.stringify(newProject, null, 4), 'utf8');
+        const projectFilePath = vscode.Uri.joinPath(
+            WORKSPACE_FOLDER.uri,
+            "metadata.json",
+        );
+        const projectFileData = Buffer.from(
+            JSON.stringify(newProject, null, 4),
+            "utf8",
+        );
 
-        vscode.workspace.fs.writeFile(projectFilePath, projectFileData)
-            .then(() => vscode.window.showInformationMessage(`Project created at ${projectFilePath.fsPath}`));
+        vscode.workspace.fs
+            .writeFile(projectFilePath, projectFileData)
+            .then(() =>
+                vscode.window.showInformationMessage(
+                    `Project created at ${projectFilePath.fsPath}`,
+                ),
+            );
         return newProject;
     }
 

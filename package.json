@@ -92,6 +92,10 @@
                 "title": "Show Scripture References"
             },
             {
+                "command": "codex-editor-extension.showSource",
+                "title": "Show Scripture Source"
+            },
+            {
                 "command": "codex-editor-extension.createCodexNotebook",
                 "title": "Create Codex Notebook"
             },

@@ -1,11 +1,7 @@
 import * as vscode from "vscode";
 import { NOTEBOOK_TYPE } from "./codexNotebookUtils";
-import {
-    extractVerseRefFromLine,
-    findReferences,
-    findVerseRef,
-} from "./utils/verseRefUtils";
-
+import { extractVerseRefFromLine, findReferences, findVerseRef } from "./utils/verseRefUtils";
+const commandName = "showSource";
 class ScriptureReferenceProvider {
     async provideDefinition(
         document: vscode.TextDocument,
@@ -33,7 +29,7 @@ class ScriptureReferenceProvider {
     }
 }
 
-class ScriptureReferenceCodeLensProvider {
+class SourceCodeLensProvider {
     private _onDidChangeCodeLenses: vscode.EventEmitter<void>;
     public onDidChangeCodeLenses: vscode.Event<void>;
     constructor() {
@@ -66,7 +62,7 @@ class ScriptureReferenceCodeLensProvider {
                 );
                 lenses.push(
                     new vscode.CodeLens(range, {
-                        title: "Show References",
+                        title: "Show Source",
                         command: `codex-editor-extension.${commandName}`,
                         arguments: [verseRef],
                     }),
@@ -77,21 +73,43 @@ class ScriptureReferenceCodeLensProvider {
     }
 }
 
-const commandName = "showReferences";
 const registerReferences = (context: vscode.ExtensionContext) => {
-    const provider = new ScriptureReferenceCodeLensProvider();
+    const scriptureReferenceProvider = new SourceCodeLensProvider();
     context.subscriptions.push(
-        vscode.languages.registerCodeLensProvider({ language: "*" }, provider),
+        vscode.languages.registerCodeLensProvider(
+            { language: "scripture" },
+            scriptureReferenceProvider,
+        ),
     );
 
     context.subscriptions.push(
-        vscode.window.onDidChangeTextEditorSelection(() => provider.refresh()),
+        vscode.window.onDidChangeTextEditorSelection(() =>
+            scriptureReferenceProvider.refresh(),
+        ),
     );
+
+    context.subscriptions.push(
+        vscode.languages.registerDefinitionProvider(
+            // { scheme: "file" }, // all files option
+            ["scripture"],
+            new ScriptureReferenceProvider(),
+        ),
+    );
+    context.subscriptions.push(
+        vscode.languages.registerDefinitionProvider(
+            { notebookType: NOTEBOOK_TYPE }, // This targets notebook cells within "codex-type" notebooks
+            new ScriptureReferenceProvider(),
+        ),
+    );
+
     context.subscriptions.push(
         vscode.commands.registerCommand(
             `codex-editor-extension.${commandName}`,
             async (verseRef: string) => {
-                const filesWithReferences = await findReferences({ verseRef });
+                const filesWithReferences = await findReferences({
+                    verseRef,
+                    fileType: ".bible",
+                });
                 console.log({ filesWithReferences });
                 if (
                     Array.isArray(filesWithReferences) &&
@@ -131,20 +149,6 @@ const registerReferences = (context: vscode.ExtensionContext) => {
             },
         ),
     );
-
-    context.subscriptions.push(
-        vscode.languages.registerDefinitionProvider(
-            // { scheme: "file" }, // all files option
-            ["scripture"],
-            new ScriptureReferenceProvider(),
-        ),
-    );
-    context.subscriptions.push(
-        vscode.languages.registerDefinitionProvider(
-            { notebookType: NOTEBOOK_TYPE }, // This targets notebook cells within "codex-type" notebooks
-            new ScriptureReferenceProvider(),
-        ),
-    );
 };
 
-export { registerReferences as registerReferencesCodeLens };
+export { registerReferences as registerSourceCodeLens };
