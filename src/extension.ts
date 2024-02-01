@@ -8,7 +8,7 @@ import {
 } from "./codexNotebookUtils";
 import { CodexNotebookProvider } from "./tree-view/scriptureTreeViewProvider";
 import { getAllBookRefs, getProjectMetadata, getWorkSpaceFolder, jumpToCellInNotebook } from "./utils";
-import { registerReferences } from "./referencesProvider";
+import { registerReferences } from "./referencesCodeLensProvider";
 import { LanguageMetadata, LanguageProjectStatus, Project } from "./types";
 import { nonCanonicalBookRefs } from "./assets/vref";
 import { LanguageCodes } from "./assets/languages";
