@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { getLookupStringsForBook } from "../assets/vref";
 
 export const findVerseRef = ({
     verseRef,
@@ -7,24 +8,37 @@ export const findVerseRef = ({
     verseRef: string;
     content: string;
 }) => {
-    // TODO: expand to use know abbreviations
-    // TODO: add a versification bridge so that ORG refs can be used to look up other versifications to get the correct content
-    const tsvVerseRef = verseRef.replace(/(\w+)\s(\d+):(\d+)/, "$1\t$2\t$3");
-    const verseRefWasOrgFormat = content.includes(verseRef);
-    const verseRefWasFound =
-        verseRefWasOrgFormat || content.includes(tsvVerseRef);
+    // Utilizing known abbreviations for book names
+    const lookupStrings = getLookupStringsForBook(verseRef.split(" ")[0]);
+    let verseRefWasFound = false;
+    let verseRefInContentFormat = "";
+
+    // Checking each possible abbreviation or full name in the content
+    for (const lookupString of lookupStrings) {
+        if (!lookupString) continue; // Skip undefined lookup strings
+        const modifiedVerseRef = verseRef.replace(verseRef.split(" ")[0], lookupString);
+        const tsvVerseRef = modifiedVerseRef.replace(/(\w+)\s(\d+):(\d+)/, "$1\t$2\t$3");
+        if (content.includes(modifiedVerseRef) || content.includes(tsvVerseRef)) {
+            verseRefWasFound = true;
+            verseRefInContentFormat = content.includes(modifiedVerseRef) ? modifiedVerseRef : tsvVerseRef;
+            break; // Stop checking once a match is found
+        }
+    }
+
     return {
         verseRefWasFound,
-        verseRefInContentFormat: verseRefWasOrgFormat ? verseRef : tsvVerseRef,
+        verseRefInContentFormat,
     };
 };
 
 export async function findReferences({
     verseRef,
     fileType,
+    usfmOnly,
 }: {
     verseRef: string;
     fileType?: string;
+    usfmOnly?: boolean;
 }) {
     const filesWithReferences: string[] = [];
     const workspaceFolders = vscode.workspace.workspaceFolders;
