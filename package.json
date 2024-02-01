@@ -28,17 +28,18 @@
             }
         ],
         "views": {
-            "explorer": [
-                {
-                    "id": "scripture-explorer",
-                    "name": "Scripture Explorer",
-                    "visibility": "visible"
-                }
-            ],
-            "scripture-explorer": [
+            "scripture-explorer-activity-bar": [
                 {
                     "id": "scripture-explorer-activity-bar",
                     "name": "Scripture Explorer",
+                    "visibility": "visible",
+                    "icon": "$(open-editors-view-icon)"
+                }
+            ],
+            "resource-explorer": [
+                {
+                    "id": "resource-explorer",
+                    "name": "Resource Explorer",
                     "visibility": "visible",
                     "icon": "$(open-editors-view-icon)"
                 }
@@ -47,7 +48,7 @@
         "viewsContainers": {
             "activitybar": [
                 {
-                    "id": "scripture-explorer",
+                    "id": "scripture-explorer-activity-bar",
                     "title": "Scripture Explorer",
                     "icon": "$(open-editors-view-icon)"
                 }
@@ -56,8 +57,8 @@
         "menus": {
             "view/title": [
                 {
-                    "command": "scripture-explorer.refreshEntry",
-                    "when": "view == scripture-explorer",
+                    "command": "resource-explorer.refreshEntry",
+                    "when": "view == resource-explorer",
                     "group": "navigation"
                 },
                 {
@@ -74,7 +75,11 @@
                 "command": "codex-editor-extension.initializeNewProject"
             },
             {
-                "command": "codex-editor-extension.openChapter",
+                "command": "codex-notebook-extension.openFile",
+                "title": "Open File"
+            },
+            {
+                "command": "codex-notebook-extension.openChapter",
                 "title": "Open Chapter"
             },
             {
@@ -86,7 +91,11 @@
                 "title": "Create Codex Notebook"
             },
             {
-                "command": "scripture-explorer.refreshEntry",
+                "command": "codex-notebook-extension.createCodexProject",
+                "title": "Create Codex Project"
+            },
+            {
+                "command": "resource-explorer.refreshEntry",
                 "title": "Refresh",
                 "icon": "$(refresh)"
             },

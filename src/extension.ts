@@ -12,6 +12,7 @@ import { registerReferences } from "./referencesProvider";
 import { LanguageMetadata, LanguageProjectStatus, Project } from "./types";
 import { nonCanonicalBookRefs } from "./assets/vref";
 import { LanguageCodes } from "./assets/languages";
+import { ResourceProvider } from "./tree-view/resourceTreeViewProvider";
 
 const ROOT_PATH = getWorkSpaceFolder();
 
@@ -32,7 +33,6 @@ export function activate(context: vscode.ExtensionContext) {
         new CodexKernel(),
     );
 
-    // Register a command called openChapter that opens a specific .codex notebook to a specific chapter
     context.subscriptions.push(
         vscode.commands.registerCommand(
             "codex-editor-extension.openChapter",
@@ -42,6 +42,26 @@ export function activate(context: vscode.ExtensionContext) {
                 } catch (error) {
                     vscode.window.showErrorMessage(
                         `Failed to open chapter: ${error}`,
+                    );
+                }
+            },
+        ),
+    );
+    // Register a command called openChapter that opens a specific .codex notebook to a specific chapter
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-notebook-extension.openFile",
+            async (resourceUri: vscode.Uri) => {
+                try {
+                    const document =
+                        await vscode.workspace.openTextDocument(resourceUri);
+                    await vscode.window.showTextDocument(
+                        document,
+                        vscode.ViewColumn.Beside,
+                    );
+                } catch (error) {
+                    vscode.window.showErrorMessage(
+                        `Failed to open document: ${error}`,
                     );
                 }
             },
@@ -267,13 +287,14 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Register and create the Scripture Tree View
     const scriptureTreeViewProvider = new CodexNotebookProvider(ROOT_PATH);
+    const resourceTreeViewProvider = new ResourceProvider(ROOT_PATH);
     vscode.window.registerTreeDataProvider(
-        "scripture-explorer",
-        scriptureTreeViewProvider,
+        "resource-explorer",
+        resourceTreeViewProvider,
     );
     // vscode.window.createTreeView('scripture-explorer', { treeDataProvider: scriptureTreeViewProvider });
-    vscode.commands.registerCommand("scripture-explorer.refreshEntry", () =>
-        scriptureTreeViewProvider.refresh(),
+    vscode.commands.registerCommand("resource-explorer.refreshEntry", () =>
+        resourceTreeViewProvider.refresh(),
     );
     vscode.window.registerTreeDataProvider(
         "scripture-explorer-activity-bar",
