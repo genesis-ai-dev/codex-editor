@@ -29,17 +29,36 @@ class ScriptureReferenceProvider {
 }
 
 class ScriptureReferenceCodeLensProvider {
+    private _onDidChangeCodeLenses: vscode.EventEmitter<void>;
+    public onDidChangeCodeLenses: vscode.Event<void>;
+    constructor() {
+        this._onDidChangeCodeLenses = new vscode.EventEmitter();
+        this.onDidChangeCodeLenses = this._onDidChangeCodeLenses.event;
+    }
+
+    refresh() {
+        this._onDidChangeCodeLenses.fire();
+    }
     provideCodeLenses(
         document: vscode.TextDocument,
         token: vscode.CancellationToken,
     ): vscode.CodeLens[] {
-        // console.log({ document }, "hi");
         const lenses: vscode.CodeLens[] = [];
-        for (let i = 0; i < document.lineCount; i++) {
-            const line = document.lineAt(i);
+        const activeEditor = vscode.window.activeTextEditor;
+        if (
+            activeEditor &&
+            activeEditor.document.uri.toString() === document.uri.toString()
+        ) {
+            const cursorPosition = activeEditor.selection.active;
+            const line = document.lineAt(cursorPosition.line);
             const verseRef = extractVerseRefFromLine(line.text);
             if (verseRef) {
-                const range = new vscode.Range(i, 0, i, line.text.length);
+                const range = new vscode.Range(
+                    cursorPosition.line,
+                    0,
+                    cursorPosition.line,
+                    line.text.length,
+                );
                 lenses.push(
                     new vscode.CodeLens(range, {
                         title: "Show References",
@@ -61,6 +80,25 @@ function extractVerseRefFromLine(line: string): string | null {
     return match ? match[0] : null;
 }
 
+const findVerseRef = ({
+    verseRef,
+    content,
+}: {
+    verseRef: string;
+    content: string;
+}) => {
+    // TODO: expand to use know abbreviations
+    // TODO: add a versification bridge so that ORG refs can be used to look up other versifications to get the correct content
+    const tsvVerseRef = verseRef.replace(/(\w+)\s(\d+):(\d+)/, "$1\t$2\t$3");
+    const verseRefWasOrgFormat = content.includes(verseRef);
+    const verseRefWasFound =
+        verseRefWasOrgFormat || content.includes(tsvVerseRef);
+    return {
+        verseRefWasFound,
+        verseRefInContentFormat: verseRefWasOrgFormat ? verseRef : tsvVerseRef,
+    };
+};
+
 export async function findReferences(verseRef: string) {
     const filesWithReferences: string[] = [];
     const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -71,14 +109,17 @@ export async function findReferences(verseRef: string) {
 
     for (const folder of workspaceFolders) {
         const files = await vscode.workspace.findFiles(
-            new vscode.RelativePattern(folder, "**/*.scripture"),
+            new vscode.RelativePattern(folder, "resources/**"),
         );
+
+        console.log({ files });
 
         for (const file of files) {
             const fileUri = vscode.Uri.file(file.fsPath);
             const document = await vscode.workspace.openTextDocument(fileUri);
             const content = document.getText();
-            if (content.includes(verseRef)) {
+            const { verseRefWasFound } = findVerseRef({ verseRef, content });
+            if (verseRefWasFound) {
                 filesWithReferences.push(file.fsPath);
             }
         }
@@ -88,11 +129,16 @@ export async function findReferences(verseRef: string) {
 }
 
 const registerReferences = (context: vscode.ExtensionContext) => {
+    const provider = new ScriptureReferenceCodeLensProvider();
     context.subscriptions.push(
         vscode.languages.registerCodeLensProvider(
             { language: "scripture" },
-            new ScriptureReferenceCodeLensProvider(),
+            provider,
         ),
+    );
+
+    context.subscriptions.push(
+        vscode.window.onDidChangeTextEditorSelection(() => provider.refresh()),
     );
 
     // context.subscriptions.push(
@@ -114,7 +160,26 @@ const registerReferences = (context: vscode.ExtensionContext) => {
                     filesWithReferences.length > 0
                 ) {
                     const uri = vscode.Uri.file(filesWithReferences[0]);
-                    const position = new vscode.Position(0, 0); // Assuming the reference is at the start of the file
+                    const document =
+                        await vscode.workspace.openTextDocument(uri);
+                    const text = document.getText();
+                    const lines = text.split(/\r?\n/);
+                    let position = new vscode.Position(0, 0); // Default to the start of the file
+
+                    for (let i = 0; i < lines.length; i++) {
+                        const { verseRefWasFound, verseRefInContentFormat } =
+                            findVerseRef({
+                                verseRef,
+                                content: lines[i],
+                            });
+                        if (verseRefWasFound) {
+                            position = new vscode.Position(
+                                i,
+                                lines[i].indexOf(verseRefInContentFormat),
+                            );
+                            break;
+                        }
+                    }
                     vscode.commands.executeCommand("vscode.open", uri, {
                         selection: new vscode.Range(position, position),
                         preview: true,
