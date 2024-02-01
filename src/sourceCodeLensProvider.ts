@@ -1,6 +1,10 @@
 import * as vscode from "vscode";
 import { NOTEBOOK_TYPE } from "./codexNotebookUtils";
-import { extractVerseRefFromLine, findReferences, findVerseRef } from "./utils/verseRefUtils";
+import {
+    extractVerseRefFromLine,
+    findReferences,
+    findVerseRef,
+} from "./utils/verseRefUtils";
 const commandName = "showSource";
 class ScriptureReferenceProvider {
     async provideDefinition(
@@ -62,7 +66,7 @@ class SourceCodeLensProvider {
                 );
                 lenses.push(
                     new vscode.CodeLens(range, {
-                        title: "Show Source",
+                        title: "📖 Show Source",
                         command: `codex-editor-extension.${commandName}`,
                         arguments: [verseRef],
                     }),
