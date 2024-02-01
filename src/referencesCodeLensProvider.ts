@@ -6,6 +6,8 @@ import {
     findVerseRef,
 } from "./utils/verseRefUtils";
 
+const SHOW_DISCUSS_COMMAND = true;
+
 class ScriptureReferenceProvider {
     async provideDefinition(
         document: vscode.TextDocument,
@@ -71,6 +73,15 @@ class ScriptureReferenceCodeLensProvider {
                         arguments: [verseRef],
                     }),
                 );
+                if (SHOW_DISCUSS_COMMAND) {
+                    lenses.push(
+                        new vscode.CodeLens(range, {
+                            title: "💬 Discuss",
+                            command: `codex-editor-extension.discuss`,
+                            arguments: [verseRef],
+                        }),
+                    );
+                }
             }
         }
         return lenses;
@@ -134,6 +145,18 @@ const registerReferences = (context: vscode.ExtensionContext) => {
                         `No references found for ${verseRef}`,
                     );
                 }
+            },
+        ),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            `codex-editor-extension.discuss`,
+            async (verseRef: string) => {
+                // Discuss command implementation
+                vscode.window.showInformationMessage(
+                    `Discussing ${verseRef}...`,
+                );
             },
         ),
     );
