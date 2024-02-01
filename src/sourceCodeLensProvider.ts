@@ -52,7 +52,8 @@ class SourceCodeLensProvider {
         const activeEditor = vscode.window.activeTextEditor;
         if (
             activeEditor &&
-            activeEditor.document.uri.toString() === document.uri.toString()
+            activeEditor.document.uri.toString() === document.uri.toString() &&
+            !activeEditor.document.fileName.endsWith(".bible")
         ) {
             const cursorPosition = activeEditor.selection.active;
             const line = document.lineAt(cursorPosition.line);
