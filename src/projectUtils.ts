@@ -29,7 +29,7 @@ export async function promptForProjectDetails(): Promise<ProjectDetails | undefi
     const userName = await vscode.window.showInputBox({ prompt: "Enter your username" });
     if (!userName) return;
 
-    const abbreviation = await vscode.window.showInputBox({ prompt: "Enter the project abbreviation" });
+    const abbreviation = await vscode.window.showInputBox({ prompt: "Enter the project abbreviation", placeHolder: "e.g. KJV, NASB, RSV, etc." });
     if (!abbreviation) return;
     const languages = LanguageCodes;
     const sourceLanguagePick = await vscode.window.showQuickPick(
