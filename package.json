@@ -28,7 +28,7 @@
             }
         ],
         "views": {
-            "scripture-explorer": [
+            "scripture-explorer-activity-bar": [
                 {
                     "id": "scripture-explorer-activity-bar",
                     "name": "Scripture Explorer",
@@ -48,7 +48,7 @@
         "viewsContainers": {
             "activitybar": [
                 {
-                    "id": "scripture-explorer",
+                    "id": "scripture-explorer-activity-bar",
                     "title": "Scripture Explorer",
                     "icon": "$(open-editors-view-icon)"
                 }
