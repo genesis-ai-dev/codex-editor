@@ -6,22 +6,20 @@ export const findVerseRef = ({
     content,
 }: {
     verseRef: string;
-    content: string;
+    content: string,
 }) => {
-    // Utilizing known abbreviations for book names
+    // Utilize expanded strings for lookup
     const lookupStrings = getLookupStringsForBook(verseRef.split(" ")[0]);
     let verseRefWasFound = false;
     let verseRefInContentFormat = "";
 
-    // Checking each possible abbreviation or full name in the content
+    // Check each lookup string to see if it's present in the content
     for (const lookupString of lookupStrings) {
-        if (!lookupString) continue; // Skip undefined lookup strings
-        const modifiedVerseRef = verseRef.replace(verseRef.split(" ")[0], lookupString);
-        const tsvVerseRef = modifiedVerseRef.replace(/(\w+)\s(\d+):(\d+)/, "$1\t$2\t$3");
-        if (content.includes(modifiedVerseRef) || content.includes(tsvVerseRef)) {
+        const tsvVerseRef = `${lookupString}\t${verseRef.split(" ")[1]}\t${verseRef.split(" ")[2]}`;
+        if (content.includes(verseRef) || content.includes(tsvVerseRef)) {
             verseRefWasFound = true;
-            verseRefInContentFormat = content.includes(modifiedVerseRef) ? modifiedVerseRef : tsvVerseRef;
-            break; // Stop checking once a match is found
+            verseRefInContentFormat = content.includes(verseRef) ? verseRef : tsvVerseRef;
+            break;
         }
     }
 
