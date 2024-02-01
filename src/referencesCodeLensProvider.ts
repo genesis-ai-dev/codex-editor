@@ -66,7 +66,7 @@ class ScriptureReferenceCodeLensProvider {
                 );
                 lenses.push(
                     new vscode.CodeLens(range, {
-                        title: "Show References",
+                        title: "📚 Show Reference",
                         command: `codex-editor-extension.${commandName}`,
                         arguments: [verseRef],
                     }),
@@ -118,11 +118,17 @@ const registerReferences = (context: vscode.ExtensionContext) => {
                             break;
                         }
                     }
-                    vscode.commands.executeCommand("vscode.open", uri, {
-                        selection: new vscode.Range(position, position),
-                        preview: true,
-                        viewColumn: vscode.ViewColumn.Beside,
-                    });
+                    vscode.commands
+                        .executeCommand("vscode.open", uri, {
+                            selection: new vscode.Range(position, position),
+                            preview: true,
+                            viewColumn: vscode.ViewColumn.Active,
+                        })
+                        .then(() => {
+                            vscode.commands.executeCommand(
+                                "workbench.action.splitEditorDown",
+                            );
+                        });
                 } else {
                     vscode.window.showInformationMessage(
                         `No references found for ${verseRef}`,
