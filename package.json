@@ -51,6 +51,11 @@
                     "id": "scripture-explorer-activity-bar",
                     "title": "Scripture Explorer",
                     "icon": "$(open-editors-view-icon)"
+                },
+                {
+                    "id": "resource-explorer",
+                    "title": "Resource Explorer",
+                    "icon": "$(open-editors-view-icon)"
                 }
             ]
         },
