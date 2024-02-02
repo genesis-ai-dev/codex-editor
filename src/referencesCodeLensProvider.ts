@@ -2,8 +2,9 @@ import * as vscode from "vscode";
 import { NOTEBOOK_TYPE } from "./codexNotebookUtils";
 import {
     extractVerseRefFromLine,
-    findReferences,
+    // findReferences,
     findVerseRef,
+    findReferencesUsingMeilisearch,
 } from "./utils/verseRefUtils";
 
 const SHOW_DISCUSS_COMMAND = true;
@@ -20,7 +21,7 @@ class ScriptureReferenceProvider {
             return null;
         }
 
-        const references = await findReferences({ verseRef });
+        const references = await findReferencesUsingMeilisearch(verseRef);
         if (!references) {
             return null;
         }
@@ -28,7 +29,7 @@ class ScriptureReferenceProvider {
         return references.map(
             (filePath) =>
                 new vscode.Location(
-                    vscode.Uri.file(filePath),
+                    vscode.Uri.file(filePath.uri),
                     new vscode.Position(0, 0),
                 ),
         );
@@ -102,33 +103,33 @@ const registerReferences = (context: vscode.ExtensionContext) => {
         vscode.commands.registerCommand(
             `codex-editor-extension.${commandName}`,
             async (verseRef: string) => {
-                const filesWithReferences = await findReferences({ verseRef });
+                const filesWithReferences =
+                    await findReferencesUsingMeilisearch(verseRef);
                 console.log({ filesWithReferences });
                 if (
                     Array.isArray(filesWithReferences) &&
                     filesWithReferences.length > 0
                 ) {
-                    const uri = vscode.Uri.file(filesWithReferences[0]);
+                    const uri = vscode.Uri.file(filesWithReferences[0].uri);
                     const document =
                         await vscode.workspace.openTextDocument(uri);
                     const text = document.getText();
                     const lines = text.split(/\r?\n/);
-                    let position = new vscode.Position(0, 0); // Default to the start of the file
-
-                    for (let i = 0; i < lines.length; i++) {
-                        const { verseRefWasFound, verseRefInContentFormat } =
-                            findVerseRef({
-                                verseRef,
-                                content: lines[i],
-                            });
-                        if (verseRefWasFound) {
-                            position = new vscode.Position(
-                                i,
-                                lines[i].indexOf(verseRefInContentFormat),
-                            );
-                            break;
-                        }
-                    }
+                    const position = filesWithReferences[0].position;
+                    // for (let i = 0; i < lines.length; i++) {
+                    //     const { verseRefWasFound, verseRefInContentFormat } =
+                    //         findVerseRef({
+                    //             verseRef,
+                    //             content: lines[i],
+                    //         });
+                    //     if (verseRefWasFound) {
+                    //         position = new vscode.Position(
+                    //             i,
+                    //             lines[i].indexOf(verseRefInContentFormat),
+                    //         );
+                    //         break;
+                    //     }
+                    // }
                     vscode.commands
                         .executeCommand("vscode.open", uri, {
                             selection: new vscode.Range(position, position),
