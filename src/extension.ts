@@ -136,6 +136,29 @@ export function activate(context: vscode.ExtensionContext) {
                 try {
                     const projectDetails = await promptForProjectDetails();
                     if (projectDetails) {
+                        const workspaceFolder = vscode.workspace.workspaceFolders
+                            ? vscode.workspace.workspaceFolders[0]
+                            : undefined;
+                        if (!workspaceFolder) {
+                            vscode.window.showErrorMessage("No workspace found");
+                            return;
+                        }
+                        const projectFilePath = await vscode.Uri.joinPath(workspaceFolder.uri, 'metadata.json');
+
+                        if (await vscode.workspace.fs.stat(projectFilePath)) {
+                            const fileData = await vscode.workspace.fs.readFile(projectFilePath);
+                            const metadata = JSON.parse(fileData.toString());
+                            const projectName = metadata.projectName;
+                            const confirmDelete = await vscode.window.showInputBox({
+                                prompt: `A project named ${projectName} already already exists. Type the project name to confirm deletion.`,
+                                placeHolder: "Project name",
+                            });
+                            if (confirmDelete !== projectName) {
+                                vscode.window.showErrorMessage("Project name does not match. Initialization cancelled.");
+                                return;
+                            }
+                        }
+
                         const newProject =
                             await initializeProjectMetadata(projectDetails);
                         vscode.window.showInformationMessage(
