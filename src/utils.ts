@@ -29,27 +29,29 @@ export async function getProjectMetadata(): Promise<Project> {
     }
 
     const projectMetadataPath = vscode.Uri.file(
-        `${workspaceFolder}/metadata.json`
+        `${workspaceFolder}/metadata.json`,
     );
 
-    const projectMetadata = await vscode.workspace.fs.readFile(projectMetadataPath).then(
-        (projectMetadata) => {
-            try {
-                return JSON.parse(
-                    Buffer.from(projectMetadata).toString(),
-                ) as Project;
-            } catch (error: any) {
+    const projectMetadata = await vscode.workspace.fs
+        .readFile(projectMetadataPath)
+        .then(
+            (projectMetadata) => {
+                try {
+                    return JSON.parse(
+                        Buffer.from(projectMetadata).toString(),
+                    ) as Project;
+                } catch (error: any) {
+                    vscode.window.showErrorMessage(
+                        `Failed to parse project metadata: ${error.message}`,
+                    );
+                }
+            },
+            (err) => {
                 vscode.window.showErrorMessage(
-                    `Failed to parse project metadata: ${error.message}`,
+                    `Failed to read project metadata: ${err.message}`,
                 );
-            }
-        },
-        (err) => {
-            vscode.window.showErrorMessage(
-                `Failed to read project metadata: ${err.message}`,
-            );
-        },
-    );
+            },
+        );
 
     if (!projectMetadata) {
         return Promise.reject("No project metadata found");
@@ -90,15 +92,39 @@ export async function jumpToCellInNotebook(
 
 // Abstracted functions to get all book references, chapter references, and complete vrefs
 export function getAllBookRefs(): string[] {
-    return Object.keys(vrefData).filter((ref) => !nonCanonicalBookRefs.includes(ref));
+    return Object.keys(vrefData).filter(
+        (ref) => !nonCanonicalBookRefs.includes(ref),
+    );
 }
 
 export function getAllBookChapterRefs(book: string): string[] {
     return Object.keys(vrefData[book].chapterVerseCountPairings);
 }
 
-export function getAllVrefs(book: string, chapter: string, numberOfVrefsForChapter: number): string {
-    return Array.from(
-        Array(numberOfVrefsForChapter).keys(),
-    ).map((_, i) => `${book} ${chapter}:${i + 1}`).join("\n");
+export function getAllVrefs(
+    book: string,
+    chapter: string,
+    numberOfVrefsForChapter: number,
+): string {
+    return Array.from(Array(numberOfVrefsForChapter).keys())
+        .map((_, i) => `${book} ${chapter}:${i + 1}`)
+        .join("\n");
 }
+
+export const getFullListOfOrgVerseRefs = (): string[] => {
+    const allBookRefs = getAllBookRefs();
+    const orgVerseRefs: string[] = [];
+
+    allBookRefs.forEach((book) => {
+        const chapters = Object.keys(vrefData[book].chapterVerseCountPairings);
+        chapters.forEach((chapter) => {
+            const numberOfVerses =
+                vrefData[book].chapterVerseCountPairings[chapter];
+            for (let verse = 1; verse <= numberOfVerses; verse++) {
+                orgVerseRefs.push(`${book} ${chapter}:${verse}`);
+            }
+        });
+    });
+
+    return orgVerseRefs;
+};

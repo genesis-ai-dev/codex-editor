@@ -84,6 +84,14 @@
                 "title": "Open File"
             },
             {
+                "command": "codex-editor-extension.indexVrefs",
+                "title": "indexVrefs"
+            },
+            {
+                "command": "codex-editor-extension.checkTaskStatus",
+                "title": "checkTaskStatus"
+            },
+            {
                 "command": "codex-notebook-extension.openChapter",
                 "title": "Open Chapter"
             },
@@ -160,6 +168,8 @@
         "typescript": "^5.3.2"
     },
     "dependencies": {
+        "codex-types": "^0.0.1",
+        "meilisearch": "^0.37.0",
         "sinon": "^17.0.1"
     }
 }

@@ -19,7 +19,11 @@ import { LanguageMetadata, LanguageProjectStatus, Project } from "./types";
 import { nonCanonicalBookRefs } from "./assets/vref";
 import { LanguageCodes } from "./assets/languages";
 import { ResourceProvider } from "./tree-view/resourceTreeViewProvider";
-import { initializeProjectMetadata, promptForProjectDetails } from "./projectUtils";
+import {
+    initializeProjectMetadata,
+    promptForProjectDetails,
+} from "./projectUtils";
+import { checkTaskStatus, indexVrefs } from "./commands/indexVrefsCommand";
 
 const ROOT_PATH = getWorkSpaceFolder();
 
@@ -33,9 +37,38 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Add .bible files to the files.readonlyInclude glob pattern to make them readonly without overriding existing patterns
     const config = vscode.workspace.getConfiguration();
-    const existingPatterns = config.get('files.readonlyInclude') || {};
+    const existingPatterns = config.get("files.readonlyInclude") || {};
     const updatedPatterns = { ...existingPatterns, "**/*.bible": true };
-    config.update('files.readonlyInclude', updatedPatterns, vscode.ConfigurationTarget.Global);
+    config.update(
+        "files.readonlyInclude",
+        updatedPatterns,
+        vscode.ConfigurationTarget.Global,
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor-extension.indexVrefs",
+            indexVrefs,
+        ),
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor-extension.checkTaskStatus",
+            async () => {
+                const taskNumber = await vscode.window.showInputBox({
+                    prompt: "Enter the task number to check its status",
+                    placeHolder: "Task number",
+                    validateInput: (text) => {
+                        return isNaN(parseInt(text, 10))
+                            ? "Please enter a valid number"
+                            : null;
+                    },
+                });
+                if (taskNumber !== undefined) {
+                    checkTaskStatus(parseInt(taskNumber, 10));
+                }
+            },
+        ),
+    );
 
     // Register the Codex Notebook serializer for saving and loading .codex files
     context.subscriptions.push(
