@@ -4,77 +4,80 @@ import { findVerseRef } from "../utils/verseRefUtils";
 import { getFullListOfOrgVerseRefs } from "../utils";
 
 export async function indexVrefs() {
-    const orgVerseRefs = getFullListOfOrgVerseRefs();
-    console.log({ orgVerseRefs });
+    const orgVerseRefsSet = new Set(getFullListOfOrgVerseRefs()); // Convert list to a Set for faster lookup
     try {
-        const files = await vscode.workspace.findFiles("resources/**"); // Adjust the glob pattern to match your files
-        const documentsToIndex = [];
-        console.log({ files });
-        for (const file of files) {
-            try {
-                const document = await vscode.workspace.openTextDocument(file);
-                const text = document.getText();
-                const lines = text.split(/\r?\n/);
+        const files = await vscode.workspace.findFiles(
+            "resources/**",
+            "**/*.bible",
+        ); // Adjust the glob pattern to match your files
+        const documentsToIndex: {
+            id: string;
+            vref: string;
+            uri: string;
+            position: { line: number; character: number };
+        }[] = [];
 
-                // optimize: check the full content of each file for vrefs first. If any are vrefs are found then add the file to an array of files with vrefs.
-                // The array should contain objects with the file path and the vrefs in the file.
-                // A second pass should be done to find the position of those vrfs in the file.
+        // Use Promise.all to process files in parallel
+        await Promise.all(
+            files.map(async (file) => {
+                try {
+                    const document =
+                        await vscode.workspace.openTextDocument(file);
+                    const text = document.getText();
+                    const lines = text.split(/\r?\n/);
 
-                for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-                    for (
-                        let orgVerseRefIndex = 0;
-                        orgVerseRefIndex < orgVerseRefs.length;
-                        orgVerseRefIndex++
-                    ) {
-                        const { verseRefWasFound, verseRefInContentFormat } =
-                            findVerseRef({
-                                verseRef: orgVerseRefs[orgVerseRefIndex], // Adjust this to match how vrefs are identified in your content
-                                content: lines[lineIndex],
-                            });
-
-                        if (verseRefWasFound) {
-                            console.log({
-                                verseRefWasFound,
-                                verseRefInContentFormat,
-                            });
-                            documentsToIndex.push({
-                                // Replace all non-alphanumeric characters with underscores
-                                id: `${file.fsPath.replace(
-                                    /[^a-zA-Z0-9-_]/g,
-                                    "_",
-                                )}_${lineIndex}_${lines[lineIndex].indexOf(
-                                    verseRefInContentFormat,
-                                )}`,
-                                vref: verseRefInContentFormat,
-                                uri: file.fsPath,
-                                position: {
-                                    line: lineIndex,
-                                    character: lines[lineIndex].indexOf(
-                                        verseRefInContentFormat,
-                                    ),
-                                },
-                            });
-                        }
-                    }
+                    lines.forEach((line, lineIndex) => {
+                        // Extract potential verse references from the line
+                        const potentialVrefs = extractPotentialVrefs(line); // Implement this based on your pattern
+                        potentialVrefs.forEach((vref) => {
+                            if (orgVerseRefsSet.has(vref)) {
+                                // Add to documentsToIndex
+                                documentsToIndex.push({
+                                    id: `${file.fsPath.replace(
+                                        /[^a-zA-Z0-9-_]/g,
+                                        "_",
+                                    )}_${lineIndex}_${line.indexOf(vref)}`,
+                                    vref: vref,
+                                    uri: file.fsPath,
+                                    position: {
+                                        line: lineIndex,
+                                        character: line.indexOf(vref),
+                                    },
+                                });
+                            }
+                        });
+                    });
+                } catch (error) {
+                    console.error(
+                        `Error processing file ${file.fsPath}: ${error}`,
+                    );
                 }
-            } catch (error) {
-                console.error(`Error processing file ${file.fsPath}: ${error}`);
-            }
-        }
-        console.log({ documentsToIndex });
-        const index = client.index("vrefs"); // Replace 'vrefs' with your chosen index name
-        // Clear the index before adding new documents
-        await index.deleteAllDocuments();
+            }),
+        );
 
-        await index
-            .addDocuments(documentsToIndex)
-            .then((res) => console.log(res));
+        // After collecting documents, batch them to Meilisearch
+        const index = client.index("vrefs"); // Replace 'vrefs' with your chosen index name
+        // Consider batching if documentsToIndex is large
+        await index.deleteAllDocuments();
+        if (documentsToIndex.length > 0) {
+            await index
+                .addDocuments(documentsToIndex)
+                .then((res) => console.log(res));
+        }
+
         vscode.window.showInformationMessage(
             "Indexing of verse references completed successfully.",
         );
     } catch (error) {
         console.error(`Error indexing documents: ${error}`);
     }
+}
+
+function extractPotentialVrefs(line: string): string[] {
+    const verseRefPattern = /\b(?:[1-3]\s)?[A-Za-z]+(?:\s\d+:\d+(-\d+)?)/g;
+    // fixme: Ryder, expand this search
+    const matches = line.match(verseRefPattern);
+    return matches || [];
 }
 
 export async function checkTaskStatus(taskUid: number) {
