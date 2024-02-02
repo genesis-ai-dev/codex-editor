@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { client } from "../meilisearchClient";
 import { findVerseRef } from "../utils/verseRefUtils";
-import { getFullListOfOrgVerseRefs } from "../utils";
+import { getFullListOfOrgVerseRefs } from "../utils/utils";
 
 export async function indexVrefs() {
     const orgVerseRefsSet = new Set(getFullListOfOrgVerseRefs()); // Convert list to a Set for faster lookup

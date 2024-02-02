@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
-import { CodexContentSerializer } from "./serializer";
-import { nonCanonicalBookRefs, vrefData } from "./assets/vref";
+import { CodexContentSerializer } from "../serializer";
+import { nonCanonicalBookRefs, vrefData } from "../assets/vref";
 import { Project } from "codex-types";
 
 export const getWorkSpaceFolder = (): string | undefined => {

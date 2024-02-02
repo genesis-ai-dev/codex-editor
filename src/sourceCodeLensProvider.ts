@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { NOTEBOOK_TYPE } from "./codexNotebookUtils";
+import { NOTEBOOK_TYPE } from "./utils/codexNotebookUtils";
 import {
     extractVerseRefFromLine,
     findReferences,
