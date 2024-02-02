@@ -31,6 +31,12 @@ export function activate(context: vscode.ExtensionContext) {
     registerReferencesCodeLens(context);
     registerSourceCodeLens(context);
 
+    // Add .bible files to the files.readonlyInclude glob pattern to make them readonly without overriding existing patterns
+    const config = vscode.workspace.getConfiguration();
+    const existingPatterns = config.get('files.readonlyInclude') || {};
+    const updatedPatterns = { ...existingPatterns, "**/*.bible": true };
+    config.update('files.readonlyInclude', updatedPatterns, vscode.ConfigurationTarget.Global);
+
     // Register the Codex Notebook serializer for saving and loading .codex files
     context.subscriptions.push(
         vscode.workspace.registerNotebookSerializer(
