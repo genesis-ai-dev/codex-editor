@@ -4,7 +4,7 @@ import { CellTypes, createProjectNotebooks } from "../../utils/codexNotebookUtil
 import { getProjectMetadata } from "../../utils/utils";
 import * as sinon from "sinon";
 import * as path from "path";
-import { LanguageProjectStatus, LanguageMetadata } from "../../types";
+import { LanguageProjectStatus, LanguageMetadata } from "codex-types";
 
 suite("createProjectNotebooks Test Suite", () => {
     // The sandbox is effectively a blank workspace where we can populate test files
