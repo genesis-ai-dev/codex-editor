@@ -1,7 +1,7 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
-import { CellTypes, createProjectNotebooks } from "../../codexNotebookUtils";
-import { getProjectMetadata } from "../../utils";
+import { CellTypes, createProjectNotebooks } from "../../utils/codexNotebookUtils";
+import { getProjectMetadata } from "../../utils/utils";
 import * as sinon from "sinon";
 import * as path from "path";
 import { LanguageProjectStatus, LanguageMetadata } from "../../types";

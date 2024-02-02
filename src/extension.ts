@@ -5,14 +5,14 @@ import {
     NOTEBOOK_TYPE,
     createCodexNotebook,
     createProjectNotebooks,
-} from "./codexNotebookUtils";
+} from "./utils/codexNotebookUtils";
 import { CodexNotebookProvider } from "./tree-view/scriptureTreeViewProvider";
 import {
     getAllBookRefs,
     getProjectMetadata,
     getWorkSpaceFolder,
     jumpToCellInNotebook,
-} from "./utils";
+} from "./utils/utils";
 import { registerReferencesCodeLens } from "./referencesCodeLensProvider";
 import { registerSourceCodeLens } from "./sourceCodeLensProvider";
 import { LanguageMetadata, LanguageProjectStatus, Project } from "codex-types";
@@ -22,7 +22,7 @@ import { ResourceProvider } from "./tree-view/resourceTreeViewProvider";
 import {
     initializeProjectMetadata,
     promptForProjectDetails,
-} from "./projectUtils";
+} from "./utils/projectUtils";
 import { checkTaskStatus, indexVrefs } from "./commands/indexVrefsCommand";
 
 const ROOT_PATH = getWorkSpaceFolder();

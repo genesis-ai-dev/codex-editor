@@ -2,9 +2,9 @@ import { LanguageMetadata, LanguageProjectStatus } from 'codex-types';
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
-import { CellTypes, CodexCell } from "../codexNotebookUtils";
+import { CellTypes, CodexCell } from "../utils/codexNotebookUtils";
 import { vrefData } from "../assets/vref";
-import { getProjectMetadata } from '../utils';
+import { getProjectMetadata } from '../utils/utils';
 
 export class Node extends vscode.TreeItem {
     constructor(

@@ -1,10 +1,10 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
-import { CodexContentSerializer } from "./serializer";
+import { CodexContentSerializer } from "../serializer";
 import { getProjectMetadata, getWorkSpaceFolder } from "./utils";
 import { generateFiles as generateFile } from "./fileUtils";
 import { getAllBookRefs, getAllBookChapterRefs, getAllVrefs } from "./utils";
-import { vrefData } from "./assets/vref";
+import { vrefData } from "../assets/vref";
 import { LanguageProjectStatus } from "codex-types";
 
 export const NOTEBOOK_TYPE = "codex-type";
