@@ -15,7 +15,7 @@ import {
 } from "./utils";
 import { registerReferencesCodeLens } from "./referencesCodeLensProvider";
 import { registerSourceCodeLens } from "./sourceCodeLensProvider";
-import { LanguageMetadata, LanguageProjectStatus, Project } from "./types";
+import { LanguageMetadata, LanguageProjectStatus, Project } from "codex-types";
 import { nonCanonicalBookRefs } from "./assets/vref";
 import { LanguageCodes } from "./assets/languages";
 import { ResourceProvider } from "./tree-view/resourceTreeViewProvider";
