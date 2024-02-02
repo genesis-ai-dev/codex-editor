@@ -1,4 +1,4 @@
-import { LanguageMetadata, LanguageProjectStatus } from './../types';
+import { LanguageMetadata, LanguageProjectStatus } from 'codex-types';
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";

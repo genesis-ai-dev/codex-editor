@@ -5,7 +5,7 @@ import { getProjectMetadata, getWorkSpaceFolder } from "./utils";
 import { generateFiles as generateFile } from "./fileUtils";
 import { getAllBookRefs, getAllBookChapterRefs, getAllVrefs } from "./utils";
 import { vrefData } from "./assets/vref";
-import { LanguageProjectStatus } from "./types";
+import { LanguageProjectStatus } from "codex-types";
 
 export const NOTEBOOK_TYPE = "codex-type";
 export enum CellTypes {

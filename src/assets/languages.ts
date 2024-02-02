@@ -1,6 +1,6 @@
 // Get the languages from the ./iso-639-3.tab file
 import * as vscode from "vscode";
-import { LanguageMetadata } from "../types";
+import { LanguageMetadata } from "codex-types";
 
 const isoLanguageData: any[] = [
     {"Id":"aaa","Scope":"I","Language_Type":"L","Ref_Name":"Ghotuo","Comment":null},
