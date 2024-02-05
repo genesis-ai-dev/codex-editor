@@ -28,9 +28,9 @@ import {
 import { checkTaskStatus, indexVrefs } from "./commands/indexVrefsCommand";
 
 /* -------------------------------------------------------------------------
- * NOTE: This file's invokation of a python server is a derivative work of 
+ * NOTE: This file's invokation of a python server is a derivative work of
  * "extension.ts" from the vscode-python, whose original notice is below.
- * 
+ *
  * Original work Copyright (c) Microsoft Corporation. All rights reserved.
  * Original work licensed under the MIT License.
  * See ThirdPartyNotices.txt in the project root for license information.
@@ -54,7 +54,14 @@ import * as path from "path";
 import * as semver from "semver";
 
 import { PythonExtension } from "@vscode/python-extension";
-import { LanguageClient, LanguageClientOptions, ServerOptions, State, integer } from "vscode-languageclient/node";
+import {
+    LanguageClient,
+    LanguageClientOptions,
+    ServerOptions,
+    State,
+    integer,
+} from "vscode-languageclient/node";
+import { registerCommentsProvider } from "./commentsProvider";
 
 const MIN_PYTHON = semver.parse("3.7.9");
 const ROOT_PATH = getWorkSpaceFolder();
@@ -69,11 +76,10 @@ let python: PythonExtension;
 let pyglsLogger: vscode.LogOutputChannel;
 
 export async function activate(context: vscode.ExtensionContext) {
-
     /** BEGIN CODEX EDITOR EXTENSION FUNCTIONALITY */
-
     registerReferencesCodeLens(context);
     registerSourceCodeLens(context);
+    registerCommentsProvider(context);
 
     // Add .bible files to the files.readonlyInclude glob pattern to make them readonly without overriding existing patterns
     const config = vscode.workspace.getConfiguration();
@@ -176,25 +182,37 @@ export async function activate(context: vscode.ExtensionContext) {
                 try {
                     const projectDetails = await promptForProjectDetails();
                     if (projectDetails) {
-                        const workspaceFolder = vscode.workspace.workspaceFolders
+                        const workspaceFolder = vscode.workspace
+                            .workspaceFolders
                             ? vscode.workspace.workspaceFolders[0]
                             : undefined;
                         if (!workspaceFolder) {
-                            vscode.window.showErrorMessage("No workspace found");
+                            vscode.window.showErrorMessage(
+                                "No workspace found",
+                            );
                             return;
                         }
-                        const projectFilePath = await vscode.Uri.joinPath(workspaceFolder.uri, 'metadata.json');
+                        const projectFilePath = await vscode.Uri.joinPath(
+                            workspaceFolder.uri,
+                            "metadata.json",
+                        );
 
                         if (await vscode.workspace.fs.stat(projectFilePath)) {
-                            const fileData = await vscode.workspace.fs.readFile(projectFilePath);
+                            const fileData =
+                                await vscode.workspace.fs.readFile(
+                                    projectFilePath,
+                                );
                             const metadata = JSON.parse(fileData.toString());
                             const projectName = metadata.projectName;
-                            const confirmDelete = await vscode.window.showInputBox({
-                                prompt: `A project named ${projectName} already already exists. Type the project name to confirm deletion.`,
-                                placeHolder: "Project name",
-                            });
+                            const confirmDelete =
+                                await vscode.window.showInputBox({
+                                    prompt: `A project named ${projectName} already already exists. Type the project name to confirm deletion.`,
+                                    placeHolder: "Project name",
+                                });
                             if (confirmDelete !== projectName) {
-                                vscode.window.showErrorMessage("Project name does not match. Initialization cancelled.");
+                                vscode.window.showErrorMessage(
+                                    "Project name does not match. Initialization cancelled.",
+                                );
                                 return;
                             }
                         }
@@ -276,10 +294,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
     /** BEGIN PYTHON SERVER FUNCTIONALITY */
 
-    pyglsLogger = vscode.window.createOutputChannel('pygls', { log: true });
+    pyglsLogger = vscode.window.createOutputChannel("pygls", { log: true });
     pyglsLogger.info("Extension activated.");
     pyglsLogger.info(`extension path ${context.extensionPath}`);
-
 
     await getPythonExtension();
     if (!python) {
@@ -289,64 +306,59 @@ export async function activate(context: vscode.ExtensionContext) {
     // Restart language server command
     context.subscriptions.push(
         vscode.commands.registerCommand("pygls.server.restart", async () => {
-            pyglsLogger.info('restarting server...');
+            pyglsLogger.info("restarting server...");
             await startLangServer(context);
-        })
+        }),
     );
-
 
     // Execute command... command
     context.subscriptions.push(
-        vscode.commands.registerCommand("pygls.server.executeCommand", async () => {
-            await executeServerCommand();
-        })
+        vscode.commands.registerCommand(
+            "pygls.server.executeCommand",
+            async () => {
+                await executeServerCommand();
+            },
+        ),
     );
-
 
     // Restart the language server if the user switches Python envs...
     context.subscriptions.push(
         python.environments.onDidChangeActiveEnvironmentPath(async () => {
-            pyglsLogger.info('python env modified, restarting server...');
+            pyglsLogger.info("python env modified, restarting server...");
             await startLangServer(context);
-        })
+        }),
     );
-
 
     // ... or if they change a relevant config option
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration(async (event) => {
-            if (event.affectsConfiguration("pygls.server") || event.affectsConfiguration("pygls.client")) {
-                pyglsLogger.info('config modified, restarting server...');
+            if (
+                event.affectsConfiguration("pygls.server") ||
+                event.affectsConfiguration("pygls.client")
+            ) {
+                pyglsLogger.info("config modified, restarting server...");
                 await startLangServer(context);
             }
-        })
+        }),
     );
-
 
     // Start the language server once the user opens the first text document...
     context.subscriptions.push(
-        vscode.workspace.onDidOpenTextDocument(
-            async () => {
-                if (!client) {
-                    await startLangServer(context);
-                }
+        vscode.workspace.onDidOpenTextDocument(async () => {
+            if (!client) {
+                await startLangServer(context);
             }
-        )
+        }),
     );
-
 
     // ...or notebook.
     context.subscriptions.push(
-        vscode.workspace.onDidOpenNotebookDocument(
-            async () => {
-                if (!client) {
-                    await startLangServer(context);
-                }
+        vscode.workspace.onDidOpenNotebookDocument(async () => {
+            if (!client) {
+                await startLangServer(context);
             }
-        )
+        }),
     );
-
-
 }
 
 export function deactivate(): Thenable<void> {
@@ -362,13 +374,10 @@ export function deactivate(): Thenable<void> {
  * @returns
  */
 async function startLangServer(context: vscode.ExtensionContext) {
-
-
     // Don't interfere if we are already in the process of launching the server.
     if (clientStarting) {
         return;
     }
-
 
     clientStarting = true;
     if (client) {
@@ -376,7 +385,7 @@ async function startLangServer(context: vscode.ExtensionContext) {
     }
 
     const config = vscode.workspace.getConfiguration("pygls.server");
-    const server_path = '/servers/server.py';
+    const server_path = "/servers/server.py";
     const extension_path = context.extensionPath;
 
     const full_path = vscode.Uri.parse(extension_path + server_path);
@@ -397,58 +406,62 @@ async function startLangServer(context: vscode.ExtensionContext) {
         options: { cwd },
     };
 
-    client = new LanguageClient('pygls', serverOptions, getClientOptions());
+    client = new LanguageClient("pygls", serverOptions, getClientOptions());
     const promises = [client.start()];
-
 
     if (config.get<boolean>("debug")) {
         promises.push(startDebugging());
     }
 
-
     const results = await Promise.allSettled(promises);
     clientStarting = false;
 
-
     for (const result of results) {
         if (result.status === "rejected") {
-            pyglsLogger.error(`There was a error starting the server: ${result.reason}`);
+            pyglsLogger.error(
+                `There was a error starting the server: ${result.reason}`,
+            );
         }
     }
 }
-
 
 async function stopLangServer(): Promise<void> {
     if (!client) {
         return;
     }
 
-
     if (client.state === State.Running) {
         await client.stop();
     }
-
 
     client.dispose();
     client = undefined;
 }
 
-
 function startDebugging(): Promise<void> {
     if (!vscode.workspace.workspaceFolders) {
         pyglsLogger.error("Unable to start debugging, there is no workspace.");
-        return Promise.reject("Unable to start debugging, there is no workspace.");
+        return Promise.reject(
+            "Unable to start debugging, there is no workspace.",
+        );
     }
     // TODO: Is there a more reliable way to ensure the debug adapter is ready?
     return new Promise((resolve, reject) => {
         setTimeout(async () => {
-            const workspaceFolder = vscode?.workspace?.workspaceFolders && vscode?.workspace?.workspaceFolders[0];
+            const workspaceFolder =
+                vscode?.workspace?.workspaceFolders &&
+                vscode?.workspace?.workspaceFolders[0];
             if (!workspaceFolder) {
-                pyglsLogger.error("Unable to start debugging, there is no workspace.");
+                pyglsLogger.error(
+                    "Unable to start debugging, there is no workspace.",
+                );
                 reject("Unable to start debugging, there is no workspace.");
             } else {
                 try {
-                    await vscode.debug.startDebugging(workspaceFolder, "pygls: Debug Server");
+                    await vscode.debug.startDebugging(
+                        workspaceFolder,
+                        "pygls: Debug Server",
+                    );
                     resolve();
                 } catch (error) {
                     pyglsLogger.error(`Failed to start debugging: ${error}`);
@@ -459,39 +472,39 @@ function startDebugging(): Promise<void> {
     });
 }
 
-
 function getClientOptions(): LanguageClientOptions {
     const options = {
         documentSelector: [
             {
-                language: 'scripture',
-                scheme: 'file',
-                pattern: '**/*.codex'
+                language: "scripture",
+                scheme: "file",
+                pattern: "**/*.codex",
             },
             {
-                language: 'scripture',
-                scheme: 'file',
-                pattern: '**/*.bible'
+                language: "scripture",
+                scheme: "file",
+                pattern: "**/*.bible",
             },
             {
-                language: 'scripture',
-                scheme: 'file',
-                pattern: '**/*.scripture'
+                language: "scripture",
+                scheme: "file",
+                pattern: "**/*.scripture",
             },
             {
                 schema: "file",
-                language: "plaintext"
+                language: "plaintext",
             },
         ],
         outputChannel: pyglsLogger,
         connectionOptions: {
-            maxRestartCount: 1 // don't restart on server failure.
+            maxRestartCount: 1, // don't restart on server failure.
         },
     };
-    pyglsLogger.info(`client options: ${JSON.stringify(options, undefined, 2)}`);
+    pyglsLogger.info(
+        `client options: ${JSON.stringify(options, undefined, 2)}`,
+    );
     return options;
 }
-
 
 function startLangServerTCP(addr: number): LanguageClient {
     const serverOptions: ServerOptions = () => {
@@ -506,48 +519,53 @@ function startLangServerTCP(addr: number): LanguageClient {
         });
     };
 
-
     return new LanguageClient(
         `tcp lang server (port ${addr})`,
         serverOptions,
-        getClientOptions()
+        getClientOptions(),
     );
 }
-
 
 /**
  * Execute a command provided by the language server.
  */
 async function executeServerCommand() {
     if (!client || client.state !== State.Running) {
-        await vscode.window.showErrorMessage("There is no language server running.");
+        await vscode.window.showErrorMessage(
+            "There is no language server running.",
+        );
         return;
     }
 
-
-    const knownCommands = client?.initializeResult?.capabilities.executeCommandProvider?.commands;
+    const knownCommands =
+        client?.initializeResult?.capabilities.executeCommandProvider?.commands;
     if (!knownCommands || knownCommands.length === 0) {
         const info = client?.initializeResult?.serverInfo;
         const name = info?.name || "Server";
         const version = info?.version || "";
 
-
-        await vscode.window.showInformationMessage(`${name} ${version} does not implement any commands.`);
+        await vscode.window.showInformationMessage(
+            `${name} ${version} does not implement any commands.`,
+        );
         return;
     }
 
-
-    const commandName = await vscode.window.showQuickPick(knownCommands, { canPickMany: false });
+    const commandName = await vscode.window.showQuickPick(knownCommands, {
+        canPickMany: false,
+    });
     if (!commandName) {
         return;
     }
     pyglsLogger.info(`executing command: '${commandName}'`);
 
-
-    const result = await vscode.commands.executeCommand(commandName, vscode.window.activeTextEditor?.document.uri);
-    pyglsLogger.info(`${commandName} result: ${JSON.stringify(result, undefined, 2)}`);
+    const result = await vscode.commands.executeCommand(
+        commandName,
+        vscode.window.activeTextEditor?.document.uri,
+    );
+    pyglsLogger.info(
+        `${commandName} result: ${JSON.stringify(result, undefined, 2)}`,
+    );
 }
-
 
 /**
  * Return the python command to use when starting the server.
@@ -557,31 +575,37 @@ async function executeServerCommand() {
  *
  * @returns The full python command needed in order to start the server.
  */
-async function getPythonCommand(resource?: vscode.Uri): Promise<string[] | undefined> {
+async function getPythonCommand(
+    resource?: vscode.Uri,
+): Promise<string[] | undefined> {
     const config = vscode.workspace.getConfiguration("pygls.server", resource);
     const pythonPath = await getPythonInterpreter(resource);
     if (!pythonPath) {
         return;
     }
     const command = [pythonPath];
-    const enableDebugger = config.get<boolean>('debug');
-
+    const enableDebugger = config.get<boolean>("debug");
 
     if (!enableDebugger) {
         return command;
     }
 
-
-    const debugHost = config.get<string>('debugHost');
-    const debugPort = config.get<integer>('debugPort');
+    const debugHost = config.get<string>("debugHost");
+    const debugPort = config.get<integer>("debugPort");
 
     if (!debugHost || !debugPort) {
-        pyglsLogger.error("Debugging is enabled but no debug host or port is set.");
+        pyglsLogger.error(
+            "Debugging is enabled but no debug host or port is set.",
+        );
         pyglsLogger.error("Debugger will not be available.");
         return command;
     }
     try {
-        const debugArgs = await python.debug.getRemoteLauncherCommand(debugHost, debugPort, true);
+        const debugArgs = await python.debug.getRemoteLauncherCommand(
+            debugHost,
+            debugPort,
+            true,
+        );
         // Debugpy recommends we disable frozen modules
         command.push("-Xfrozen_modules=off", ...debugArgs);
     } catch (err) {
@@ -589,10 +613,8 @@ async function getPythonCommand(resource?: vscode.Uri): Promise<string[] | undef
         pyglsLogger.error("Debugger will not be available.");
     }
 
-
     return command;
 }
-
 
 /**
  * Return the python interpreter to use when starting the server.
@@ -602,34 +624,40 @@ async function getPythonCommand(resource?: vscode.Uri): Promise<string[] | undef
  *
  * @returns The python interpreter to use to launch the server
  */
-async function getPythonInterpreter(resource?: vscode.Uri): Promise<string | undefined> {
+async function getPythonInterpreter(
+    resource?: vscode.Uri,
+): Promise<string | undefined> {
     const config = vscode.workspace.getConfiguration("pygls.server", resource);
-    const pythonPath = config.get<string>('pythonPath');
+    const pythonPath = config.get<string>("pythonPath");
     if (pythonPath) {
-        pyglsLogger.info(`Using user configured python environment: '${pythonPath}'`);
+        pyglsLogger.info(
+            `Using user configured python environment: '${pythonPath}'`,
+        );
         return pythonPath;
     }
-
 
     if (!python) {
         return;
     }
 
-
     if (resource) {
-        pyglsLogger.info(`Looking for environment in which to execute: '${resource.toString()}'`);
+        pyglsLogger.info(
+            `Looking for environment in which to execute: '${resource.toString()}'`,
+        );
     }
     // Use whichever python interpreter the user has configured.
-    const activeEnvPath = python.environments.getActiveEnvironmentPath(resource);
-    pyglsLogger.info(`Found environment: ${activeEnvPath.id}: ${activeEnvPath.path}`);
+    const activeEnvPath =
+        python.environments.getActiveEnvironmentPath(resource);
+    pyglsLogger.info(
+        `Found environment: ${activeEnvPath.id}: ${activeEnvPath.path}`,
+    );
 
-
-    const activeEnv = await python.environments.resolveEnvironment(activeEnvPath);
+    const activeEnv =
+        await python.environments.resolveEnvironment(activeEnvPath);
     if (!activeEnv) {
         pyglsLogger.error(`Unable to resolve envrionment: ${activeEnvPath}`);
         return;
     }
-
 
     const v = activeEnv.version;
     const pythonVersion = semver.parse(`${v?.major}.${v?.minor}.${v?.micro}`);
@@ -640,7 +668,9 @@ async function getPythonInterpreter(resource?: vscode.Uri): Promise<string | und
     }
 
     if (MIN_PYTHON === null) {
-        pyglsLogger.error(`Unable to parse minimum python version: ${MIN_PYTHON}`);
+        pyglsLogger.error(
+            `Unable to parse minimum python version: ${MIN_PYTHON}`,
+        );
         return;
     }
 
@@ -648,19 +678,20 @@ async function getPythonInterpreter(resource?: vscode.Uri): Promise<string | und
     if (semver.lt(pythonVersion, MIN_PYTHON)) {
         const message = [
             `Your currently configured environment provides Python v${pythonVersion} `,
-            `but pygls requires v${MIN_PYTHON}.\n\nPlease choose another environment.`
-        ].join('');
+            `but pygls requires v${MIN_PYTHON}.\n\nPlease choose another environment.`,
+        ].join("");
 
-
-        const response = await vscode.window.showErrorMessage(message, "Change Environment");
+        const response = await vscode.window.showErrorMessage(
+            message,
+            "Change Environment",
+        );
         if (!response) {
             return;
         } else {
-            await vscode.commands.executeCommand('python.setInterpreter');
+            await vscode.commands.executeCommand("python.setInterpreter");
             return;
         }
     }
-
 
     const pythonUri = activeEnv.executable.uri;
     if (!pythonUri) {
@@ -668,10 +699,8 @@ async function getPythonInterpreter(resource?: vscode.Uri): Promise<string | und
         return;
     }
 
-
     return pythonUri.fsPath;
 }
-
 
 async function getPythonExtension() {
     try {

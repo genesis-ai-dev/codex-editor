@@ -73,6 +73,77 @@
                     "when": "view == scripture-explorer-activity-bar",
                     "group": "navigation"
                 }
+            ],
+            "commandPalette": [
+                {
+                    "command": "commentsExtension.createNote",
+                    "when": "false"
+                },
+                {
+                    "command": "commentsExtension.replyNote",
+                    "when": "false"
+                },
+                {
+                    "command": "commentsExtension.deleteNote",
+                    "when": "false"
+                },
+                {
+                    "command": "commentsExtension.deleteNoteComment",
+                    "when": "false"
+                }
+            ],
+            "comments/commentThread/title": [
+                {
+                    "command": "commentsExtension.deleteNote",
+                    "group": "navigation",
+                    "when": "commentController == comment-sample && !commentThreadIsEmpty"
+                }
+            ],
+            "comments/commentThread/context": [
+                {
+                    "command": "commentsExtension.createNote",
+                    "group": "inline",
+                    "when": "commentController == comment-sample && commentThreadIsEmpty"
+                },
+                {
+                    "command": "commentsExtension.replyNote",
+                    "group": "inline",
+                    "when": "commentController == comment-sample && !commentThreadIsEmpty"
+                },
+                {
+                    "command": "commentsExtension.startDraft",
+                    "group": "inline",
+                    "when": "commentController == comment-sample && commentThreadIsEmpty"
+                },
+                {
+                    "command": "commentsExtension.finishDraft",
+                    "group": "inline",
+                    "when": "commentController == comment-sample && commentThread == draft"
+                }
+            ],
+            "comments/comment/title": [
+                {
+                    "command": "commentsExtension.editNote",
+                    "group": "group@1",
+                    "when": "commentController == comment-sample"
+                },
+                {
+                    "command": "commentsExtension.deleteNoteComment",
+                    "group": "group@2",
+                    "when": "commentController == comment-sample && comment == canDelete"
+                }
+            ],
+            "comments/comment/context": [
+                {
+                    "command": "commentsExtension.cancelsaveNote",
+                    "group": "inline@1",
+                    "when": "commentController == comment-sample"
+                },
+                {
+                    "command": "commentsExtension.saveNote",
+                    "group": "inline@2",
+                    "when": "commentController == comment-sample"
+                }
             ]
         },
         "commands": [
@@ -142,6 +213,61 @@
                 "command": "pygls.server.add_dictionary",
                 "title": "Add to Dictionary",
                 "category": "pygls"
+            },
+            {
+                "command": "commentsExtension.createNote",
+                "title": "Create Note",
+                "enablement": "!commentIsEmpty"
+            },
+            {
+                "command": "commentsExtension.replyNote",
+                "title": "Reply",
+                "enablement": "!commentIsEmpty"
+            },
+            {
+                "command": "commentsExtension.editNote",
+                "title": "Edit",
+                "icon": {
+                    "dark": "resources/edit_inverse.svg",
+                    "light": "resources/edit.svg"
+                }
+            },
+            {
+                "command": "commentsExtension.deleteNote",
+                "title": "Delete",
+                "icon": {
+                    "dark": "resources/close_inverse.svg",
+                    "light": "resources/close.svg"
+                }
+            },
+            {
+                "command": "commentsExtension.deleteNoteComment",
+                "title": "Delete",
+                "icon": {
+                    "dark": "resources/close_inverse.svg",
+                    "light": "resources/close.svg"
+                }
+            },
+            {
+                "command": "commentsExtension.saveNote",
+                "title": "Save"
+            },
+            {
+                "command": "commentsExtension.cancelsaveNote",
+                "title": "Cancel"
+            },
+            {
+                "command": "commentsExtension.startDraft",
+                "title": "Start Draft",
+                "enablement": "!commentIsEmpty"
+            },
+            {
+                "command": "commentsExtension.finishDraft",
+                "title": "Finish Draft"
+            },
+            {
+                "command": "commentsExtension.dispose",
+                "title": "Remove All Notes"
             }
         ],
         "notebooks": [
