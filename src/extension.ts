@@ -197,7 +197,14 @@ export async function activate(context: vscode.ExtensionContext) {
                             "metadata.json",
                         );
 
-                        if (await vscode.workspace.fs.stat(projectFilePath)) {
+                        const fileExists = await vscode.workspace.fs
+                            .stat(projectFilePath)
+                            .then(
+                                () => true,
+                                () => false,
+                            );
+
+                        if (fileExists) {
                             const fileData =
                                 await vscode.workspace.fs.readFile(
                                     projectFilePath,
