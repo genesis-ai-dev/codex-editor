@@ -157,6 +157,7 @@ export async function initializeProjectMetadata(details: ProjectDetails) {
     const projectFilePath = vscode.Uri.joinPath(WORKSPACE_FOLDER.uri, 'metadata.json');
     const projectFileData = Buffer.from(JSON.stringify(newProject, null, 4), 'utf8');
 
+    // FIXME: need to handle the case where the file does not exist
     vscode.workspace.fs.writeFile(projectFilePath, projectFileData)
         .then(() => vscode.window.showInformationMessage(`Project created at ${projectFilePath.fsPath}`));
     return newProject;
