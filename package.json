@@ -1,17 +1,19 @@
 {
     "name": "codex-editor-extension",
-    "displayName": "codex-editor-extension",
-    "description": "Notebook using Serializer API sample",
+    "displayName": "Codex Scripture Editor",
+    "description": "Support for `.codex` notebooks, `.bible` source files, and `.scripture` raw scripture files. Includes Translator's Copilot Language Server for scripture drafting and checking diagnostics and features.",
     "publisher": "project-accelerate",
     "version": "0.0.1",
     "engines": {
-        "vscode": "^1.74.0"
+        "node": ">=16.17.1",
+        "vscode": "^1.78.0"
     },
     "categories": [
         "Other"
     ],
     "activationEvents": [
-        "onNotebook:codex-type"
+        "onNotebook:codex-type",
+        "onStartupFinished"
     ],
     "main": "./out/extension.js",
     "contributes": {
@@ -120,6 +122,26 @@
                 "command": "scripture-explorer-activity-bar.refreshEntry",
                 "title": "Refresh",
                 "icon": "$(refresh)"
+            },
+            {
+                "command": "pygls.server.restart",
+                "title": "Restart Language Server",
+                "category": "pygls"
+            },
+            {
+                "command": "pygls.server.executeCommand",
+                "title": "Execute Command",
+                "category": "pygls"
+            },
+            {
+                "command": "pygls.server.EmbedDocument",
+                "title": "Embed Document",
+                "category": "pygls"
+            },
+            {
+                "command": "pygls.server.add_dictionary",
+                "title": "Add to Dictionary",
+                "category": "pygls"
             }
         ],
         "notebooks": [
@@ -142,6 +164,110 @@
                 ],
                 "configuration": "./src/scripture-language-configuration.json"
             }
+        ],
+        "configuration": [
+            {
+                "type": "object",
+                "title": "Json Server Configuration",
+                "properties": {
+                    "pygls.jsonServer.exampleConfiguration": {
+                        "scope": "resource",
+                        "type": "string",
+                        "default": "You can override this message"
+                    }
+                }
+            },
+            {
+                "type": "object",
+                "title": "Server Configuration",
+                "properties": {
+                    "pygls.server.cwd": {
+                        "scope": "resource",
+                        "type": "string",
+                        "description": "The working directory from which to launch the server.",
+                        "markdownDescription": "The working directory from which to launch the server.\nIf blank, this will default to the `examples/servers` directory."
+                    },
+                    "pygls.server.relative_server_path": {
+                        "scope": "resource",
+                        "type": "string",
+                        "description": "The working directory from which to launch the server.",
+                        "markdownDescription": "The working directory from which to launch the server.\nIf blank, this will default to the `examples/servers` directory."
+                    },
+                    "pygls.server.workspace": {
+                        "scope": "resource",
+                        "type": "string",
+                        "description": "The workspace directory (for debugging)"
+                    },
+                    "pygls.server.debug": {
+                        "scope": "resource",
+                        "default": false,
+                        "type": "boolean",
+                        "description": "Enable debugging of the server process."
+                    },
+                    "pygls.server.debugHost": {
+                        "scope": "resource",
+                        "default": "localhost",
+                        "type": "string",
+                        "description": "The host on which the server process to debug is running."
+                    },
+                    "pygls.server.debugPort": {
+                        "scope": "resource",
+                        "default": 5678,
+                        "type": "integer",
+                        "description": "The port number on which the server process to debug is listening."
+                    },
+                    "pygls.server.launchScript": {
+                        "scope": "resource",
+                        "type": "string",
+                        "default": "server.py",
+                        "description": "The python script to run when launching the server.",
+                        "markdownDescription": "The python script to run when launching the server.\n Relative to #pygls.server.cwd#"
+                    },
+                    "pygls.server.pythonPath": {
+                        "scope": "resource",
+                        "type": "string",
+                        "default": "python3",
+                        "description": "The python interpreter to use to run the server.\nBy default, this extension will attempt to use the Python interpreter configured via the Python extension, setting this setting will override this behavior."
+                    },
+                    "pygls.trace.server": {
+                        "scope": "resource",
+                        "type": "string",
+                        "default": "off",
+                        "enum": [
+                            "off",
+                            "messages",
+                            "verbose"
+                        ],
+                        "description": "Controls if LSP messages send to/from the server should be logged.",
+                        "enumDescriptions": [
+                            "do not log any lsp messages",
+                            "log all lsp messages sent to/from the server",
+                            "log all lsp messages sent to/from the server, including their contents"
+                        ]
+                    }
+                }
+            },
+            {
+                "type": "object",
+                "title": "Client Configuration",
+                "properties": {
+                    "pygls.client.documentSelector": {
+                        "scope": "window",
+                        "type": "array",
+                        "items": {
+                            "type": "object"
+                        },
+                        "default": [
+                            {
+                                "scheme": "file",
+                                "language": "json"
+                            }
+                        ],
+                        "description": "The client uses this to decide which documents the server is able to help with.",
+                        "markdownDescription": "The client uses this to decide which documents the server is able to help with.\n See [DocumentSelector](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#documentFilter) in the LSP Specification for more details."
+                    }
+                }
+            }
         ]
     },
     "scripts": {
@@ -157,6 +283,7 @@
         "@types/glob": "^8.1.0",
         "@types/mocha": "^8.2.2",
         "@types/node": "14.x",
+        "@types/semver": "^7.5.6",
         "@types/sinon": "^17.0.3",
         "@types/vscode": "^1.74.0",
         "@typescript-eslint/eslint-plugin": "^6.7.0",
@@ -168,8 +295,11 @@
         "typescript": "^5.3.2"
     },
     "dependencies": {
+        "@vscode/python-extension": "^1.0.5",
         "codex-types": "^0.0.2",
         "meilisearch": "^0.37.0",
-        "sinon": "^17.0.1"
+        "semver": "^7.6.0",
+        "sinon": "^17.0.1",
+        "vscode-languageclient": "^9.0.1"
     }
 }
