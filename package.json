@@ -427,5 +427,9 @@
         "semver": "^7.6.0",
         "sinon": "^17.0.1",
         "vscode-languageclient": "^9.0.1"
+    },
+    "overrides": {
+        "minimatch": "5.1.2",
+        "glob": "8.1.0"
     }
 }
