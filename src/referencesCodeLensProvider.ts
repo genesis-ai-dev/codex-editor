@@ -105,7 +105,6 @@ const registerReferences = (context: vscode.ExtensionContext) => {
             async (verseRef: string) => {
                 const filesWithReferences =
                     await findReferencesUsingMeilisearch(verseRef);
-                console.log({ filesWithReferences });
                 if (
                     Array.isArray(filesWithReferences) &&
                     filesWithReferences.length > 0
