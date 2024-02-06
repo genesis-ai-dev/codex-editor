@@ -2,7 +2,7 @@ from PIL import Image, ImageDraw, ImageFont
 import imagehash
 
 
-def spell_hash(text: str, font_path: str= "servers/expirements/unifont-15.1.04.otf", font_size: int=50) -> imagehash.ImageHash:
+def spell_hash(text: str, font_path: str= "servers/expirements/unifont-15.1.04.otf", font_size: int=100) -> imagehash.ImageHash:
     """
     Convert text to an image and return the image hash, automatically computing image size based on text.
     
