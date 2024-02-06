@@ -1,5 +1,9 @@
+   
+
 """
-Spell checking
+This module provides classes and functions for spell checking words against a custom dictionary.
+It includes functionality to determine if a word needs correction, suggest corrections, and
+provide auto-completion suggestions for partially typed words.
 """
 import json
 import os
@@ -7,8 +11,6 @@ from typing import List, Dict
 import uuid
 import expirements.hash_check as hash_check
 import tools.edit_distance as edit_distance
-# from codex_types.types import Dictionary as DictionaryType
-# from codex_types.types import DictionaryEntry
 import re
 import string
 
@@ -47,14 +49,23 @@ def remove_punctuation(text: str) -> str:
     return text.translate(translator).strip()
 
 
-class Dictionary():
-    def __init__(self, project_path) -> None:
-        self.path = project_path + '/project.dictionary' # TODO: #4 Use all .dictionary files in drafts directory
-        self.dictionary = self.load_dictionary()  # load the .dictionary (json file)
+class Dictionary:
+    def __init__(self, project_path: str) -> None:
+        """
+        Initializes the Dictionary object with a project path.
+
+        Args:
+            project_path (str): The base path where the dictionary files are located.
+        """
+        self.path = project_path + '/project.dictionary'  # TODO: #4 Use all .dictionary files in drafts directory
+        self.dictionary = self.load_dictionary()  # Load the .dictionary (json file)
     
     def load_dictionary(self) -> Dict:
         """
-        loads the dictionary
+        Loads the dictionary from a JSON file.
+
+        Returns:
+            Dict: The dictionary loaded from the file, or a new dictionary if the file does not exist.
         """
         try:
             with open(self.path, 'r') as file:
@@ -71,10 +82,19 @@ class Dictionary():
             return new_dict
 
     def save_dictionary(self) -> None:
+        """
+        Saves the current state of the dictionary to a JSON file.
+        """
         with open(self.path, 'w') as file:
             json.dump(self.dictionary, file, indent=2)
 
     def define(self, word: str) -> None:
+        """
+        Adds a new word to the dictionary if it does not already exist.
+
+        Args:
+            word (str): The word to add to the dictionary.
+        """
         word = remove_punctuation(word)
         
         # Add a word if it does not already exist
@@ -96,22 +116,43 @@ class Dictionary():
             self.save_dictionary()
 
     def remove(self, word: str) -> None:
+        """
+        Removes a word from the dictionary.
+
+        Args:
+            word (str): The word to remove from the dictionary.
+        """
         word = remove_punctuation(word)
         # Remove a word
         self.dictionary['entries'] = [entry for entry in self.dictionary['entries'] if entry['headWord'] != word]
         self.save_dictionary()
 
-    
+
 
 class SpellCheck:
-    def __init__(self, dictionary: Dictionary, relative_checking=False):
+    def __init__(self, dictionary: Dictionary, relative_checking: bool = False) -> None:
+        """
+        Initialize the SpellCheck class with a dictionary and a flag for relative checking.
+
+        Args:
+            dictionary (Dictionary): The dictionary object to use for spell checking.
+            relative_checking (bool, optional): Flag to determine if relative checking is enabled. Defaults to False.
+        """
         self.dictionary = dictionary
         self.relative_checking = relative_checking
     
     def is_correction_needed(self, word: str) -> bool:
-        if word.upper() == word:
-            return False
-        if re.search(r"\d+:\d+", word):
+        """
+        Determine if a word needs correction based on its presence in the dictionary and other criteria.
+
+        Args:
+            word (str): The word to check for correction.
+
+        Returns:
+            bool: True if correction is needed, False otherwise.
+        """
+        
+        if word.upper() == word or re.search(r"\d+:\d+", word):
             return False
         word = word.lower()
         word = remove_punctuation(word)
@@ -120,6 +161,15 @@ class SpellCheck:
         )
 
     def check(self, word: str) -> List[str]:
+        """
+        Check a word for spelling and suggest corrections if needed.
+
+        Args:
+            word (str): The word to check for spelling.
+
+        Returns:
+            List[str]: A list of suggested corrections, limited to the top 5 suggestions.
+        """
         word = remove_punctuation(word).lower()
 
         if not self.is_correction_needed(word):
@@ -145,13 +195,22 @@ class SpellCheck:
         return suggestions[:5]
     
     def complete(self, word: str) -> List[str]:
+        """
+        Provide auto-completion suggestions for a given word fragment.
+
+        Args:
+            word (str): The word fragment to complete.
+
+        Returns:
+            List[str]: A list of auto-completion suggestions, limited to the top 5 suggestions.
+        """
         word = remove_punctuation(word)
         entries = self.dictionary.dictionary['entries']
         completions = [
             entry['headWord'][len(word):] for entry in entries
         ]
 
-        sorted_completions = sorted(completions, key=lambda x: edit_distance.distance(x, word)) # keeping edit distance here because it is slightly faster than creating that many images on the fly
+        sorted_completions = sorted(completions, key=lambda x: edit_distance.distance(x, word))
         return sorted_completions[:5]
 
 

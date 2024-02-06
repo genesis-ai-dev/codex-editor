@@ -8,7 +8,6 @@ from lsprotocol.types import (DocumentDiagnosticParams, CompletionParams,
 from pygls.server import LanguageServer
 from typing import List
 import time
-from servable.spelling import is_bible_ref
 
 def uri_to_filepath(uri):
     # Decode the URL
@@ -50,13 +49,12 @@ class ServableEmbedding:
         document = server.workspace.get_document(document_uri)
         line = document.lines[params.position.line].strip()
         if time.time() - self.time_last_serverd > 2 or self.last_served == []:
-            if not is_bible_ref(line):
-                result = self.database.search(line, limit=2)
-                if not result:
-                    return []
-                result = [CompletionItem(label=result[0]['text'][:20]+ '...', text_edit=TextEdit(range=range, new_text=f'\nSimilar: \n{str(result[0]["text"])}\n'))]
-                self.last_served = result
-                return result
+            result = self.database.search(line, limit=2)
+            if not result:
+                return []
+            result = [CompletionItem(label=result[0]['text'][:20]+ '...', text_edit=TextEdit(range=range, new_text=f'\nSimilar: \n{str(result[0]["text"])}\n'))]
+            self.last_served = result
+            return result
         return []
 
     def initialize(self, server, params, sf):

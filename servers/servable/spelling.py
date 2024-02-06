@@ -8,6 +8,10 @@ from lsprotocol.types import (DocumentDiagnosticParams, CompletionParams,
     TextEdit, Position, Diagnostic, CodeAction, WorkspaceEdit, CodeActionKind, Command, DiagnosticSeverity)
 from pygls.server import LanguageServer
 
+from tools.loadvrefs import get_verse_references_from_file, filter
+
+
+refrences = get_verse_references_from_file('src/assets/vref.ts')
 
 class SPELLING_MESSAGE(Enum):
     TYPO = "❓🔤"
@@ -15,14 +19,6 @@ class SPELLING_MESSAGE(Enum):
     ADD_ALL_WORDS = f"Add all {{count}} 📖" # Not implemented yet
     REPLACE_WORD = f"'{{word}}' → '{{correction}}'"
 
-def is_bible_ref(text: str)-> bool:
-    """
-    Does text contain a Bible refrence.
-    """
-    pattern = r'\b\d*\s*[A-Z]+\s\d+:\d+\b'
-    match = re.search(pattern, text)
-    
-    return bool(match)
 
 class ServableSpelling:
     def __init__(self, sf: ServerFunctions, relative_checking=False):
@@ -56,6 +52,8 @@ class ServableSpelling:
             document = ls.workspace.get_document(document_uri)
         lines = document.lines
         for line_num, line in enumerate(lines):
+            if len(line) % 5 == 0:
+                line = filter(line, refrences)
             words = line.split(" ")
             edit_window = 0
 
@@ -94,8 +92,6 @@ class ServableSpelling:
                     corrections = self.spell_check.check(word)
                 except IndexError:
                     corrections = []
-                if is_bible_ref(document.lines[start_line]):
-                    return []
                 for correction in corrections:
                     edit = TextEdit(range=diagnostic.range, new_text=correction)
                     
