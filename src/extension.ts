@@ -62,6 +62,7 @@ import {
     integer,
 } from "vscode-languageclient/node";
 import { registerCommentsProvider } from "./commentsProvider";
+import { registerChatProvider } from "./providers/chat/customWebviewProvider";
 
 const MIN_PYTHON = semver.parse("3.7.9");
 const ROOT_PATH = getWorkSpaceFolder();
@@ -80,6 +81,7 @@ export async function activate(context: vscode.ExtensionContext) {
     registerReferencesCodeLens(context);
     registerSourceCodeLens(context);
     registerCommentsProvider(context);
+    registerChatProvider(context);
 
     // Add .bible files to the files.readonlyInclude glob pattern to make them readonly without overriding existing patterns
     const config = vscode.workspace.getConfiguration();

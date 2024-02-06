@@ -30,6 +30,15 @@
             }
         ],
         "views": {
+            "genesis-translator-sidebar-view": [
+                {
+                    "type": "webview",
+                    "id": "genesis-translator-sidebar",
+                    "name": "Genesis Translator",
+                    "icon": "src/media/copilot.svg",
+                    "contextualTitle": "Genesis Translator"
+                }
+            ],
             "scripture-explorer-activity-bar": [
                 {
                     "id": "scripture-explorer-activity-bar",
@@ -58,6 +67,11 @@
                     "id": "resource-explorer",
                     "title": "Resource Explorer",
                     "icon": "$(open-editors-view-icon)"
+                },
+                {
+                    "id": "genesis-translator-sidebar-view",
+                    "title": "Genesis Translator Bar",
+                    "icon": "src/media/copilot.svg"
                 }
             ]
         },
@@ -96,53 +110,43 @@
                 {
                     "command": "commentsExtension.deleteNote",
                     "group": "navigation",
-                    "when": "commentController == comment-sample && !commentThreadIsEmpty"
+                    "when": "commentController == comment-project && !commentThreadIsEmpty"
                 }
             ],
             "comments/commentThread/context": [
                 {
                     "command": "commentsExtension.createNote",
                     "group": "inline",
-                    "when": "commentController == comment-sample && commentThreadIsEmpty"
+                    "when": "commentController == comment-project && commentThreadIsEmpty"
                 },
                 {
                     "command": "commentsExtension.replyNote",
                     "group": "inline",
-                    "when": "commentController == comment-sample && !commentThreadIsEmpty"
-                },
-                {
-                    "command": "commentsExtension.startDraft",
-                    "group": "inline",
-                    "when": "commentController == comment-sample && commentThreadIsEmpty"
-                },
-                {
-                    "command": "commentsExtension.finishDraft",
-                    "group": "inline",
-                    "when": "commentController == comment-sample && commentThread == draft"
+                    "when": "commentController == comment-project && !commentThreadIsEmpty"
                 }
             ],
             "comments/comment/title": [
                 {
                     "command": "commentsExtension.editNote",
                     "group": "group@1",
-                    "when": "commentController == comment-sample"
+                    "when": "commentController == comment-project"
                 },
                 {
                     "command": "commentsExtension.deleteNoteComment",
                     "group": "group@2",
-                    "when": "commentController == comment-sample && comment == canDelete"
+                    "when": "commentController == comment-project && comment == canDelete"
                 }
             ],
             "comments/comment/context": [
                 {
                     "command": "commentsExtension.cancelsaveNote",
                     "group": "inline@1",
-                    "when": "commentController == comment-sample"
+                    "when": "commentController == comment-project"
                 },
                 {
                     "command": "commentsExtension.saveNote",
                     "group": "inline@2",
-                    "when": "commentController == comment-sample"
+                    "when": "commentController == comment-project"
                 }
             ]
         },
@@ -257,15 +261,6 @@
                 "title": "Cancel"
             },
             {
-                "command": "commentsExtension.startDraft",
-                "title": "Start Draft",
-                "enablement": "!commentIsEmpty"
-            },
-            {
-                "command": "commentsExtension.finishDraft",
-                "title": "Finish Draft"
-            },
-            {
                 "command": "commentsExtension.dispose",
                 "title": "Remove All Notes"
             }
@@ -292,6 +287,36 @@
             }
         ],
         "configuration": [
+            {
+                "title": "translators-copilot",
+                "properties": {
+                    "translators-copilot.llmEndpoint": {
+                        "type": "string",
+                        "default": "https://api.openai.com/v1",
+                        "description": "The endpoint for the completion API. Either OpenAI or local LLM."
+                    },
+                    "translators-copilot.api_key": {
+                        "type": "string",
+                        "default": "",
+                        "description": "Your own openai API key. Ignorable for local LLM."
+                    },
+                    "translators-copilot.model": {
+                        "type": "string",
+                        "default": "gpt-3.5-turbo",
+                        "description": "Model name selected for inference. Ignorable for local LLM."
+                    },
+                    "translators-copilot.max_tokens": {
+                        "type": "number",
+                        "default": 2048,
+                        "description": "The maximum number of output tokens for the completion API."
+                    },
+                    "translators-copilot.temperature": {
+                        "type": "number",
+                        "default": 0.2,
+                        "description": "The randomness level of output generation. A higher value leads to more random outputs."
+                    }
+                }
+            },
             {
                 "type": "object",
                 "title": "Json Server Configuration",
@@ -407,7 +432,7 @@
     },
     "devDependencies": {
         "@types/glob": "^8.1.0",
-        "@types/mocha": "^8.2.2",
+        "@types/mocha": "^8.2.3",
         "@types/node": "14.x",
         "@types/semver": "^7.5.6",
         "@types/sinon": "^17.0.3",

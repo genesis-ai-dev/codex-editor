@@ -3,6 +3,44 @@ import { TextEncoder, TextDecoder } from "util";
 
 let commentId = 1;
 let commentThreads: vscode.CommentThread[] = [];
+class CommentingRangeProvider implements vscode.CommentingRangeProvider {
+    provideCommentingRanges(
+        document: vscode.TextDocument,
+        token: vscode.CancellationToken,
+    ): vscode.ProviderResult<vscode.Range[]> {
+        console.log({ document });
+        if (!document.uri.path.endsWith(".codex")) {
+            // This example is for .ipynb files, adjust according to your notebook format
+            return;
+        }
+
+        // Assuming we have a way to access the notebook's cells (this part is pseudo-code)
+        const notebookCells = this.getNotebookCells(document);
+
+        const commentableRanges: vscode.Range[] = [];
+
+        notebookCells.forEach((cell) => {
+            if (cell.type === "markdown") {
+                // Create a range covering the entire markdown cell
+                const range = new vscode.Range(
+                    cell.startLine,
+                    0,
+                    cell.endLine,
+                    0,
+                );
+                commentableRanges.push(range);
+            }
+        });
+
+        return commentableRanges;
+    }
+
+    private getNotebookCells(document: vscode.TextDocument): any[] {
+        // Placeholder: You need to replace this with actual logic to retrieve notebook cells
+        // This could involve parsing the notebook file content if the API does not provide direct access
+        return [];
+    }
+}
 
 class NoteComment implements vscode.Comment {
     id: number;
@@ -73,8 +111,16 @@ class FileHandler {
 
 export function registerCommentsProvider(context: vscode.ExtensionContext) {
     // A `CommentController` is able to provide comments for documents.
+    const notebookCommentController = vscode.comments.createCommentController(
+        "notebookCommentController",
+        "Notebook Comments",
+    );
+    context.subscriptions.push(notebookCommentController);
+
+    notebookCommentController.commentingRangeProvider =
+        new CommentingRangeProvider();
     const commentController = vscode.comments.createCommentController(
-        "comment-sample",
+        "comment-project",
         "Comment API Sample",
     );
     context.subscriptions.push(commentController);
@@ -307,7 +353,6 @@ export function registerCommentsProvider(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         new vscode.Disposable(() => {
             const serializedData = serializeCommentThreadArray(commentThreads);
-            console.log(serializedData);
             commentThreads.forEach((thread) => thread.dispose());
             commentThreads = [];
         }),
