@@ -15,7 +15,30 @@ import string
 
 translator = str.maketrans('', '', string.punctuation)
 
+USE_IMAGE_HASH = False
 
+
+def criteria(dictionary_word: Dict, word: str) -> float:
+    """
+    Calculates the criteria for spell checking by comparing a word against a dictionary entry.
+
+    If USE_IMAGE_HASH is True, it uses image hash values to calculate the difference between the word and the dictionary entry.
+    Otherwise, it uses edit distance to determine the similarity between the word and the dictionary headWord.
+
+    Parameters:
+    dictionary_word (Dict): A dictionary entry with keys like 'hash' and 'headWord'.
+    word (str): The word to compare against the dictionary entry.
+
+    Returns:
+    float: The difference between the word and the dictionary entry as a float. A lower value indicates a closer match.
+    """
+    if USE_IMAGE_HASH:
+        hash1 = hash_check.imagehash.hex_to_hash(dictionary_word['hash'])
+        hash2 = hash_check.spell_hash(word)
+        return hash1 - hash2
+    else:
+        return edit_distance.distance(dictionary_word["headWord"], word)
+    
 
 def remove_punctuation(text: str) -> str:
     """
@@ -98,14 +121,13 @@ class SpellCheck:
 
     def check(self, word: str) -> List[str]:
         word = remove_punctuation(word).lower()
-        word_hash = hash_check.spell_hash(word)
 
         if not self.is_correction_needed(word):
             return [word]  # No correction needed, return the original word
 
         entries = self.dictionary.dictionary['entries']
         possibilities = [
-            (entry['headWord'], abs(word_hash-hash_check.imagehash.hex_to_hash(entry['hash'])))
+            (entry['headWord'], criteria(entry, word))
             for entry in entries
         ]
 
