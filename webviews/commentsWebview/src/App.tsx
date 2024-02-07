@@ -4,14 +4,14 @@ import {
     VSCodeTextField,
 } from "@vscode/webview-ui-toolkit/react";
 import "./App.css";
-import { NotebookCommentThread } from "../../types";
+import { NotebookCommentThread } from "../../../types";
 const vscode = acquireVsCodeApi();
 type Comment = NotebookCommentThread["comments"][0];
 function App() {
     const [comment, setComment] = useState<Comment>();
-    const [commentThreadArray, setCommentThread] = useState<NotebookCommentThread[]>(
-        [],
-    );
+    const [commentThreadArray, setCommentThread] = useState<
+        NotebookCommentThread[]
+    >([]);
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
@@ -46,7 +46,7 @@ function App() {
                     uri: uri,
                     canReply: true,
                     comments: [comment],
-                    verseRef,
+                    verseRef: "GEN 1:1", // FIXME: this should be based on global state
                     collapsibleState: 0,
                 },
             ];
@@ -62,7 +62,7 @@ function App() {
         // const currentMessageLog = [...messageLog, message];
         // setMessageLog(currentMessageLog);
         // console.log({ currentMessageLog });
-        const id = 1 // FIXME: use unique id count
+        const id = 1; // FIXME: use unique id count
         setComment({
             id,
             contextValue: "canDelete",

@@ -25,6 +25,7 @@ const loadWebviewHtml = (
     const scriptUri = webviewView.webview.asWebviewUri(
         vscode.Uri.joinPath(
             extensionUri,
+            "webviews",
             "commentsWebview",
             "build",
             "assets",
@@ -34,6 +35,7 @@ const loadWebviewHtml = (
     const styleUri = webviewView.webview.asWebviewUri(
         vscode.Uri.joinPath(
             extensionUri,
+            "webviews",
             "commentsWebview",
             "build",
             "assets",

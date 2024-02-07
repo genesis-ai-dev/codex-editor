@@ -4,7 +4,7 @@ import {
     VSCodeTextField,
 } from "@vscode/webview-ui-toolkit/react";
 import "./App.css";
-import { ChatMessage } from "../../types";
+import { ChatMessage } from "../../../types";
 const vscode = acquireVsCodeApi();
 
 function App() {
