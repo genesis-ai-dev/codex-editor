@@ -14,12 +14,12 @@ import {
     getProjectMetadata,
     getWorkSpaceFolder,
     jumpToCellInNotebook,
-} from "./utils/utils";
+} from "./utils";
 import { registerReferencesCodeLens } from "./referencesCodeLensProvider";
 import { registerSourceCodeLens } from "./sourceCodeLensProvider";
 import { LanguageMetadata, LanguageProjectStatus, Project } from "codex-types";
-import { nonCanonicalBookRefs } from "./assets/vref";
-import { LanguageCodes } from "./assets/languages";
+import { nonCanonicalBookRefs } from "./utils/verseRefUtils/verseData";
+import { LanguageCodes } from "./utils/languageUtils";
 import { ResourceProvider } from "./tree-view/resourceTreeViewProvider";
 import {
     initializeProjectMetadata,

@@ -3,8 +3,8 @@ import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
 import { CellTypes, CodexCell } from "../utils/codexNotebookUtils";
-import { vrefData } from "../assets/vref";
-import { getProjectMetadata } from '../utils/utils';
+import { vrefData } from "../utils/verseRefUtils/verseData";
+import { getProjectMetadata } from '../utils';
 
 export class Node extends vscode.TreeItem {
     constructor(

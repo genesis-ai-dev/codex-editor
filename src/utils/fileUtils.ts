@@ -1,6 +1,6 @@
 // eslint-disable-next-line @typescript-eslint/naming-convention
 import * as vscode from "vscode";
-import { getWorkSpaceFolder } from "./utils";
+import { getWorkSpaceFolder } from ".";
 import * as path from "path";
 
 export const generateFiles = async ({
