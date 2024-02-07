@@ -1,14 +1,17 @@
 import { useState, useEffect } from "react";
-// import {
-//     // VSCodeButton,
-//     VSCodeTextField,
-// } from "@vscode/webview-ui-toolkit/react";
+import {
+    VSCodeButton,
+    VSCodeTextField,
+} from "@vscode/webview-ui-toolkit/react";
 import "./App.css";
-import { CommentThread } from "../../types";
+import { NotebookCommentThread } from "../../types";
 const vscode = acquireVsCodeApi();
-
+type Comment = NotebookCommentThread["comments"][0];
 function App() {
-    const [commentThreadArray, setCommentThread] = useState<CommentThread>([]);
+    const [comment, setComment] = useState<Comment>();
+    const [commentThreadArray, setCommentThread] = useState<NotebookCommentThread[]>(
+        [],
+    );
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
@@ -16,9 +19,11 @@ function App() {
             console.log({ message }, "lkdjsfad;o");
             switch (message.command) {
                 case "commentsFromWorkspace": {
-                    const comments = JSON.parse(message.content);
-                    setCommentThread(comments);
-                    console.log({ comments });
+                    if (message.content) {
+                        const comments = JSON.parse(message.content);
+                        setCommentThread(comments);
+                        console.log({ comments });
+                    }
                     break;
                 }
                 // Handle other cases
@@ -32,16 +37,40 @@ function App() {
             window.removeEventListener("message", handleMessage);
         };
     }, []); // The empty array means this effect runs once on mount and cleanup on unmount
+    useEffect(() => {
+        const uri: any = "";
+        if (comment) {
+            const updatedCommentThreadArray: NotebookCommentThread[] = [
+                ...commentThreadArray,
+                {
+                    uri: uri,
+                    canReply: true,
+                    comments: [comment],
+                    verseRef,
+                    collapsibleState: 0,
+                },
+            ];
+            vscode.postMessage({
+                command: "updateCommentThread",
+                comments: JSON.stringify(updatedCommentThreadArray),
+            });
+        }
+    }, [comment, commentThreadArray]);
 
-    function handleClick() {
+    function handleClick(commentContent?: string) {
         // if (message) {
         // const currentMessageLog = [...messageLog, message];
         // setMessageLog(currentMessageLog);
         // console.log({ currentMessageLog });
-        vscode.postMessage({
-            command: "updateCommentThread",
-            messages: JSON.stringify(commentThreadArray),
+        const id = 1 // FIXME: use unique id count
+        setComment({
+            id,
+            contextValue: "canDelete",
+            body: commentContent || "",
+            mode: 1,
+            author: { name: "vscode" },
         });
+
         // setMessage(undefined);
         // }
     }
@@ -96,7 +125,11 @@ function App() {
             >
                 <div className="chat-content">
                     {commentThreadArray.map((commentThread) => {
-                        return <p>{commentThread.comments[0].body}</p>;
+                        return (
+                            <p>
+                                {JSON.stringify(commentThread.comments[0].body)}
+                            </p>
+                        );
                     })}
                 </div>
             </div>
@@ -115,18 +148,15 @@ function App() {
                     handleClick();
                 }}
             >
-                {/* <VSCodeTextField
+                <VSCodeTextField
                     placeholder="Type a message..."
-                    value={message?.content || ""}
+                    value={JSON.stringify(comment?.body) || ""}
                     onChange={(e) =>
-                        setMessage({
-                            content: (e.target as HTMLInputElement).value,
-                            role: "user",
-                        })
+                        handleClick((e.target as HTMLInputElement).value)
                     }
                     style={{ width: "100%" }}
-                /> */}
-                {/* <VSCodeButton type="submit">Send</VSCodeButton> */}
+                />
+                <VSCodeButton type="submit">Send</VSCodeButton>
             </form>
         </main>
     );

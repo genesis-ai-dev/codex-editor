@@ -1,4 +1,8 @@
 import * as vscode from "vscode";
+import {
+    FileHandler,
+    serializeCommentThreadArray,
+} from "../../commentsProvider";
 
 const abortController: AbortController | null = null;
 
@@ -80,7 +84,8 @@ const sendCommentsToWebview = async (webviewView: vscode.WebviewView) => {
     console.log("sendCommentsToWebview was called");
     const workspaceFolders = vscode.workspace.workspaceFolders;
     const filePath = workspaceFolders
-        ? vscode.Uri.joinPath(workspaceFolders[0].uri, "comments.json").fsPath
+        ? vscode.Uri.joinPath(workspaceFolders[0].uri, "notebook-comments.json")
+              .fsPath
         : "";
     try {
         const uri = vscode.Uri.file(filePath);
@@ -95,6 +100,20 @@ const sendCommentsToWebview = async (webviewView: vscode.WebviewView) => {
         vscode.window.showErrorMessage(`Error reading file: ${filePath}`);
     }
 };
+
+async function writeSerializedData(
+    serializedData: string,
+    filename: string = "notebook-comments.json",
+) {
+    const fileHandler = new FileHandler();
+
+    try {
+        await fileHandler.writeFile(filename, serializedData);
+        console.log("Write operation completed.");
+    } catch (error) {
+        console.error("Error writing file:", error);
+    }
+}
 export class CustomWebviewProvider {
     _extensionUri: any;
     selectionChangeListener: any;
@@ -125,7 +144,14 @@ export class CustomWebviewProvider {
             console.log({ message });
             try {
                 switch (message.command) {
-                    case "fetch": {
+                    case "updateCommentThread": {
+                        const serializedData = serializeCommentThreadArray(
+                            JSON.parse(message.comments),
+                        ); // Assuming serializeCommentThreads is available in this scope
+                        await writeSerializedData(
+                            serializedData,
+                            "notebook-comments.json",
+                        );
                         break;
                     }
                     case "abort-fetch":
