@@ -8,7 +8,7 @@ class CommentingRangeProvider implements vscode.CommentingRangeProvider {
         document: vscode.TextDocument,
         token: vscode.CancellationToken,
     ): vscode.ProviderResult<vscode.Range[]> {
-        console.log({ document });
+        // console.log({ document });
         if (!document.uri.path.endsWith(".codex")) {
             // This example is for .ipynb files, adjust according to your notebook format
             return;
@@ -141,7 +141,7 @@ export function registerCommentsProvider(context: vscode.ExtensionContext) {
         .readFile("comments.json")
         .then((jsonData) => {
             // Now jsonData contains the contents of the file
-            console.log("Read operation completed.", jsonData);
+            // console.log("Read operation completed.", jsonData);
             restoreCommentsFromJSON(jsonData, commentController); // Call the function here
         })
         .catch((error) => console.error(error));
