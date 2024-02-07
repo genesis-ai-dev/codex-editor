@@ -43,9 +43,9 @@
                 {
                     "type": "webview",
                     "id": "comments-sidebar",
-                    "name": "Genesis Translator",
+                    "name": "Comments",
                     "icon": "src/media/note.svg",
-                    "contextualTitle": "Genesis Translator"
+                    "contextualTitle": "Comments"
                 }
             ],
             "scripture-explorer-activity-bar": [

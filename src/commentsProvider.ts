@@ -8,7 +8,6 @@ class CommentingRangeProvider implements vscode.CommentingRangeProvider {
         document: vscode.TextDocument,
         token: vscode.CancellationToken,
     ): vscode.ProviderResult<vscode.Range[]> {
-        // console.log({ document });
         if (!document.uri.path.endsWith(".codex")) {
             // This example is for .ipynb files, adjust according to your notebook format
             return;
@@ -72,7 +71,7 @@ class NoteComment implements vscode.Comment {
     }
 }
 
-class FileHandler {
+export class FileHandler {
     async writeFile(filename: string, data: string): Promise<void> {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders) {
@@ -107,6 +106,36 @@ class FileHandler {
             throw error; // Rethrow the error to handle it in the calling code
         }
     }
+}
+function serializeCommentThread(thread: vscode.CommentThread) {
+    return {
+        uri: thread.uri.toString(),
+        range: {
+            start: {
+                line: thread.range.start.line,
+                character: thread.range.start.character,
+            },
+            end: {
+                line: thread.range.end.line,
+                character: thread.range.end.character,
+            },
+        },
+        comments: thread.comments.map((comment) =>
+            (comment as NoteComment).toJSON
+                ? (comment as NoteComment).toJSON()
+                : comment,
+        ),
+        // collapsibleState: thread.collapsibleState
+        collapsibleState: vscode.CommentThreadCollapsibleState.Collapsed,
+    };
+}
+
+export function serializeCommentThreadArray(
+    threads: vscode.CommentThread[],
+): string {
+    console.log({ threads });
+    const serializedThreads = threads.map(serializeCommentThread);
+    return JSON.stringify(serializedThreads, null, 2); // Pretty print JSON
 }
 
 export function registerCommentsProvider(context: vscode.ExtensionContext) {
@@ -381,34 +410,6 @@ export function registerCommentsProvider(context: vscode.ExtensionContext) {
         if (index > -1) {
             commentThreads.splice(index, 1);
         }
-    }
-
-    function serializeCommentThread(thread: vscode.CommentThread) {
-        return {
-            uri: thread.uri.toString(),
-            range: {
-                start: {
-                    line: thread.range.start.line,
-                    character: thread.range.start.character,
-                },
-                end: {
-                    line: thread.range.end.line,
-                    character: thread.range.end.character,
-                },
-            },
-            comments: thread.comments.map((comment) =>
-                (comment as NoteComment).toJSON(),
-            ),
-            // collapsibleState: thread.collapsibleState
-            collapsibleState: vscode.CommentThreadCollapsibleState.Collapsed,
-        };
-    }
-
-    function serializeCommentThreadArray(
-        threads: vscode.CommentThread[],
-    ): string {
-        const serializedThreads = threads.map(serializeCommentThread);
-        return JSON.stringify(serializedThreads, null, 2); // Pretty print JSON
     }
 
     async function restoreCommentsFromJSON(
