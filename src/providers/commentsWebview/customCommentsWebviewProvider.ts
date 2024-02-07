@@ -12,10 +12,10 @@ const loadWebviewHtml = (
     };
 
     const styleResetUri = webviewView.webview.asWebviewUri(
-        vscode.Uri.joinPath(extensionUri, "src", "media", "reset.css"),
+        vscode.Uri.joinPath(extensionUri, "src", "assets", "reset.css"),
     );
     const styleVSCodeUri = webviewView.webview.asWebviewUri(
-        vscode.Uri.joinPath(extensionUri, "src", "media", "vscode.css"),
+        vscode.Uri.joinPath(extensionUri, "src", "assets", "vscode.css"),
     );
 
     const scriptUri = webviewView.webview.asWebviewUri(
@@ -76,7 +76,25 @@ const loadWebviewHtml = (
 
     webviewView.webview.html = html;
 };
-
+const sendCommentsToWebview = async (webviewView: vscode.WebviewView) => {
+    console.log("sendCommentsToWebview was called");
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    const filePath = workspaceFolders
+        ? vscode.Uri.joinPath(workspaceFolders[0].uri, "comments.json").fsPath
+        : "";
+    try {
+        const uri = vscode.Uri.file(filePath);
+        const fileContentUint8Array = await vscode.workspace.fs.readFile(uri);
+        const fileContent = new TextDecoder().decode(fileContentUint8Array);
+        webviewView.webview.postMessage({
+            command: "commentsFromWorkspace",
+            content: fileContent,
+        });
+    } catch (error) {
+        console.error("Error reading file:", error);
+        vscode.window.showErrorMessage(`Error reading file: ${filePath}`);
+    }
+};
 export class CustomWebviewProvider {
     _extensionUri: any;
     selectionChangeListener: any;
@@ -84,52 +102,23 @@ export class CustomWebviewProvider {
         this._extensionUri = extensionUri;
     }
 
-    sendSelectMessage(webviewView: vscode.WebviewView, selectedText: string) {
-        const activeEditor = vscode.window.activeTextEditor;
-        let languageId = "";
-        if (activeEditor) {
-            languageId = activeEditor.document.languageId;
-        }
-        const formattedCode =
-            "```" + languageId + "\r\n" + selectedText + "\r\n```";
-        webviewView.webview.postMessage({
-            command: "select",
-            text: selectedText ? formattedCode : "",
-        });
-    }
-
-    saveSelectionChanges(webviewView: vscode.WebviewView) {
-        const activeEditor = vscode.window.activeTextEditor;
-        if (activeEditor) {
-            this.selectionChangeListener =
-                vscode.window.onDidChangeTextEditorSelection((e) => {
-                    if (e.textEditor === activeEditor) {
-                        const selectedText = activeEditor.document.getText(
-                            e.selections[0],
-                        );
-                        this.sendSelectMessage(webviewView, selectedText);
-                    }
-                });
-        }
-    }
-
     resolveWebviewView(webviewView: vscode.WebviewView) {
         loadWebviewHtml(webviewView, this._extensionUri);
         webviewView.webview.postMessage({ command: "reload" });
-
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
+                sendCommentsToWebview(webviewView);
                 webviewView.webview.postMessage({ command: "reload" });
             }
         });
 
-        this.saveSelectionChanges(webviewView);
         vscode.window.onDidChangeActiveTextEditor(() => {
             // When the active editor changes, remove the old listener and add a new one
             if (this.selectionChangeListener) {
                 this.selectionChangeListener.dispose();
             }
-            this.saveSelectionChanges(webviewView);
+
+            sendCommentsToWebview(webviewView);
         });
 
         webviewView.webview.onDidReceiveMessage(async (message) => {

@@ -1,11 +1,12 @@
 export interface ChatMessage {
-  role: "system" | "user";
-  content: string;
+    role: "system" | "user";
+    content: string;
 }
 
 interface FrontEndMessage {
-  command: {
-    name: string; // use enum
-    data?: any; // define based on enum
-  };
+    command: {
+        name: string; // use enum
+        data?: any; // define based on enum
+    };
 }
+type CommentThread = vscode.CommentThread[];
