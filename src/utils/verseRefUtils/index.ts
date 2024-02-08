@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { getLookupStringsForBook } from "../assets/vref";
+import { getLookupStringsForBook } from "./verseData";
 
 export const findVerseRef = ({
     verseRef,
@@ -80,7 +80,7 @@ export function extractVerseRefFromLine(line: string): string | null {
     return match ? match[0] : null;
 }
 
-import { client } from "../meilisearchClient";
+import { client } from "../../meilisearchClient";
 
 export async function findReferencesUsingMeilisearch(verseRef: string) {
     try {

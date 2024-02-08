@@ -39,6 +39,15 @@
                     "contextualTitle": "Genesis Translator"
                 }
             ],
+            "comments-sidebar-view": [
+                {
+                    "type": "webview",
+                    "id": "comments-sidebar",
+                    "name": "Comments",
+                    "icon": "src/media/note.svg",
+                    "contextualTitle": "Comments"
+                }
+            ],
             "scripture-explorer-activity-bar": [
                 {
                     "id": "scripture-explorer-activity-bar",
@@ -72,6 +81,11 @@
                     "id": "genesis-translator-sidebar-view",
                     "title": "Genesis Translator Bar",
                     "icon": "src/media/copilot.svg"
+                },
+                {
+                    "id": "comments-sidebar-view",
+                    "title": "Comments",
+                    "icon": "src/media/note.svg"
                 }
             ]
         },

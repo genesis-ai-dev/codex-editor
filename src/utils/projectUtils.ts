@@ -1,7 +1,7 @@
-import { LanguageCodes } from "../assets/languages";
-import { nonCanonicalBookRefs } from "../assets/vref";
+import { LanguageCodes } from "./languageUtils";
+import { nonCanonicalBookRefs } from "./verseRefUtils/verseData";
 import { LanguageMetadata, LanguageProjectStatus, Project } from "codex-types";
-import { getAllBookRefs } from "./utils";
+import { getAllBookRefs } from ".";
 import * as vscode from "vscode";
 
 interface ProjectDetails {
