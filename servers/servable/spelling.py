@@ -11,7 +11,7 @@ from pygls.server import LanguageServer
 from tools.loadvrefs import get_verse_references_from_file, filter
 
 
-refrences = get_verse_references_from_file('src/assets/vref.ts')
+refrences = get_verse_references_from_file('src/utils/verseRefUtils/verseData.ts')
 
 class SPELLING_MESSAGE(Enum):
     TYPO = "❓🔤"

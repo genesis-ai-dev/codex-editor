@@ -1,6 +1,6 @@
 import re
 
-def filter(text, refrence):
+def filter(text, reference):
     # Define a regular expression pattern to find verse references
     pattern = r'\b([A-Z]+)\s+(\d+):(\d+)\b'
 
