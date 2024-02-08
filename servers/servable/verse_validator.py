@@ -23,7 +23,7 @@ class ServableVrefs:
         last_verse = None
 
         for i, line in enumerate(lines):
-            match = re.match(r'([A-Z]+) (\d+):(\d+)', line)
+            match = re.match(r'([A-Z][A-Z][A-Z]) (\d+):(\d+)', line)
             if match:
                 book, chapter, verse = match.groups()
                 if expected_book is None:
