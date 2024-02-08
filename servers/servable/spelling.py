@@ -22,6 +22,13 @@ class SPELLING_MESSAGE(Enum):
 
 class ServableSpelling:
     def __init__(self, sf: ServerFunctions, relative_checking=False):
+        """
+        Initialize the ServableSpelling class with server functions and a flag for relative checking.
+
+        Args:
+            sf (ServerFunctions): The server functions object that provides access to server-related utilities.
+            relative_checking (bool, optional): Flag to determine if relative checking is enabled. Defaults to False.
+        """
         self.dictionary = None 
         self.spell_check = None
         self.relative_checking = relative_checking
@@ -29,6 +36,18 @@ class ServableSpelling:
         self.sf.initialize_functions.append(self.initialize)
 
     def spell_completion(self, server: LanguageServer, params: CompletionParams, range: Range, sf: ServerFunctions) -> List:
+        """
+        Provide completion items for spelling corrections in a document.
+
+        Args:
+            server (LanguageServer): The instance of the language server.
+            params (CompletionParams): The parameters for the completion request.
+            range (Range): The range within the document where the completion is requested.
+            sf (ServerFunctions): The server functions object.
+
+        Returns:
+            List: A list of CompletionItem objects representing spelling suggestions.
+        """
         try:
             document_uri = params.text_document.uri
             document = server.workspace.get_document(document_uri)
@@ -46,10 +65,21 @@ class ServableSpelling:
             return []
 
     def spell_diagnostic(self, ls: LanguageServer, params: DocumentDiagnosticParams, sf: ServerFunctions) -> List[Diagnostic]:
+        """
+        Generate diagnostics for spelling errors in a document.
+
+        Args:
+            ls (LanguageServer): The instance of the language server.
+            params (DocumentDiagnosticParams): The parameters for the diagnostic request.
+            sf (ServerFunctions): The server functions object.
+
+        Returns:
+            List[Diagnostic]: A list of Diagnostic objects representing spelling errors.
+        """
         diagnostics: List[Diagnostic] = []
         document_uri = params.text_document.uri
-        if ".codex" in document_uri or ".scripture" in document_uri:
-            document = ls.workspace.get_document(document_uri)
+        #if ".codex" in document_uri or ".scripture" in document_uri:
+        document = ls.workspace.get_document(document_uri)
         lines = document.lines
         for line_num, line in enumerate(lines):
             if len(line) % 5 == 0:
@@ -74,6 +104,18 @@ class ServableSpelling:
         return diagnostics 
     
     def spell_action(self, ls: LanguageServer, params: CodeActionParams, range: Range, sf: ServerFunctions) -> List[CodeAction]:
+        """
+        Generate code actions for spelling corrections in a document.
+
+        Args:
+            ls (LanguageServer): The instance of the language server.
+            params (CodeActionParams): The parameters for the code action request.
+            range (Range): The range within the document where the code action is requested.
+            sf (ServerFunctions): The server functions object.
+
+        Returns:
+            List[CodeAction]: A list of CodeAction objects representing spelling correction actions.
+        """
         document_uri = params.text_document.uri
         document = ls.workspace.get_document(document_uri)
         diagnostics = params.context.diagnostics
@@ -122,11 +164,25 @@ class ServableSpelling:
         return actions
     
     def add_dictionary(self, args):
+        """
+        Add words to the dictionary.
+
+        Args:
+            args (List[str]): A list of words to be added to the dictionary.
+        """
         args = args[0]
         for word in args:
             self.dictionary.define(word)
         self.sf.server.show_message("Dictionary updated.")
 
     def initialize(self, params, server: LanguageServer, sf):
+        """
+        Initialize the spell checking functionality by setting up the dictionary and spell checker.
+
+        Args:
+            params: The initialization parameters.
+            server (LanguageServer): The instance of the language server.
+            sf (ServerFunctions): The server functions object.
+        """
         self.dictionary = Dictionary(self.sf.data_path)
         self.spell_check = SpellCheck(dictionary=self.dictionary, relative_checking=self.relative_checking)

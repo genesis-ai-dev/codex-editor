@@ -1,84 +1,73 @@
 import re
-import json
 
-def extract_json_like_from_file(file_path):
-    """
-    Reads the file content and extracts the JSON-like part that contains the verse reference data.
-    """
-    try:
-        with open(file_path, 'r', encoding='utf-8') as file:
-            ts_content = file.read()
-            
-            # Assuming the verse reference data is contained within a specific object structure
-            # Adjust the regex pattern if the structure is known to be different
-            json_like_matches = re.findall(r'=\s*{.*?}\s*;', ts_content, re.DOTALL)
-            for match in json_like_matches:
-                if "chapterVerseCountPairings" in match:
-                    json_like = match[1:-1].strip()  # Remove the leading '=' and trailing ';', then strip spaces
-                    return json_like
-    except FileNotFoundError:
-        print(f"File not found: {file_path}")
-        return "{}"
-    return "{}"
+def filter(text, refrence):
+    # Define a regular expression pattern to find verse references
+    pattern = r'\b([A-Z]+)\s+(\d+):(\d+)\b'
 
-def parse_ts_content_from_json_like(json_like):
-    """
-    Parses the JSON-like string to a Python dictionary.
-    """
-    json_like = json_like.replace("'", '"')  # Replace single quotes with double quotes
-    try:
-        data = json.loads(json_like)
-        return data
-    except json.JSONDecodeError:
-        print("Failed to decode JSON")
-        return {}
+    # Define a function to replace each match with underscores
+    def replace_with_underscores(match):
+        book, chapter, verse = match.groups()
+        book_underscores = "_" * len(book)
+        chapter_underscores = "_" * len(chapter)
+        verse_underscores = "_" * len(verse)
+        return f"{book_underscores} {chapter_underscores}:{verse_underscores}"
 
-def generate_verse_references(data):
-    """
-    Generates verse references from the parsed data.
-    """
-    verse_references = []
-    for book, details in data.items():
-        chapter_verse_pairs = details.get("chapterVerseCountPairings", {})
-        for chapter, verse_count in chapter_verse_pairs.items():
-            for verse in range(1, verse_count + 1):
-                verse_references.append(f"{book} {chapter}:{verse}")
-    return verse_references
+    # Use re.sub to replace each match with underscores
+    filtered_text = re.sub(pattern, replace_with_underscores, text)
 
-def get_verse_references_from_file(file_path):
-    """
-    High-level function to process TypeScript content from a file and return all valid verse references.
-    """
-    json_like = extract_json_like_from_file(file_path)
-    data = parse_ts_content_from_json_like(json_like)
-    verse_references = generate_verse_references(data)
-    return verse_references
+    return filtered_text
 
 
+def get_verse_references_from_file(path):
+    path = 'servers/versedata.txt'
+    with open(path, 'r') as f:
+        return f.readlines()
+
+def extract_chapter_verse_counts(file_path):
+    all_chapter_verse_counts = []
+    with open(file_path, 'r') as file:
+        content = file.read()
+        matches = re.findall(r'"chapterVerseCountPairings":\s*{([^}]*)}', content)
+        for match in matches:
+            chapter_verse_pairs = match.strip()
+            pairs = re.findall(r'"(\d+)":\s*(\d+)', chapter_verse_pairs)
+            chapter_verse_counts = {int(chapter): int(verse) for chapter, verse in pairs}
+            all_chapter_verse_counts.append(chapter_verse_counts)
+    return all_chapter_verse_counts
 
 
-def filter(text, verse_references):
-    """
-    Replaces any verse references in the text with underscores.
+def extract_book_names(file_path):
+    # This regular expression looks for patterns that match }, followed by whitespace (optional),
+    # then a sequence of uppercase letters and/or numbers (the book name), followed by ": {". 
+    # The book name is captured in a group by the parentheses.
+    pattern = re.compile(r'},\s*"([A-Z0-9]+)":\s*{')
 
-    :param text: The input text containing potential verse references.
-    :param verse_references: A list of verse references to look for in the text.
-    :return: The text with verse references replaced by underscores.
-    """
-    # Sort verse references by length in descending order to match longer references first
-    verse_references_sorted = sorted(verse_references, key=len, reverse=True)
+    book_names = []
+    with open(file_path, 'r') as file:
+        content = file.read()
+        matches = re.findall(pattern, content)
+        for match in matches:
+            # Each match is a book name that is appended to the book_names list
+            book_names.append(match)
 
-    for vref in verse_references_sorted:
-        # Escape special regex characters in verse reference
-        vref_escaped = re.escape(vref)
-        # Replace the verse reference with underscores
-        text = re.sub(vref_escaped, lambda match: '_' * len(match.group(0)), text)
-
-    return text
+    return book_names
 
 
-if __name__ == '__main__':
-    # Example usage
-    file_path = "/Users/daniellosey/Desktop/code/biblica/codex-editor/src/assets/vref.ts"
-    verse_references = get_verse_references_from_file(file_path)
-    print(verse_references)
+# file_path = "src/assets/vref.ts"  # Update with your file path
+# all_chapter_verse_counts = extract_chapter_verse_counts(file_path)
+
+# names = extract_book_names(file_path)
+# names = ["GEN"] + names
+
+# combined = [{name: all_chapter_verse_counts[names.index(name)]} for name in names]
+# print(combined[0])
+# lines = []
+# for combo in combined:
+#     name = list(combo.keys())[0]  # Fixed to get the actual name string instead of dict_keys object
+#     data = list(combo.values())[0]  # Fixed to get the actual dictionary instead of dict_values object
+#     for chapter, verse_count in data.items():  # Fixed to iterate over items of the dictionary
+#         for i in range(verse_count):
+#             lines.append(f"\n{name} {chapter}:{i+1}")  # Fixed to print the correct chapter and verse number
+
+# with open("versedata.txt", "w") as f:
+#     f.writelines(lines)
