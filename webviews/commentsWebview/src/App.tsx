@@ -9,6 +9,7 @@ const vscode = acquireVsCodeApi();
 type Comment = NotebookCommentThread["comments"][0];
 function App() {
     const [comment, setComment] = useState<Comment>();
+    const [verseRef, setVerseRef] = useState<string>();
     const [commentThreadArray, setCommentThread] = useState<
         NotebookCommentThread[]
     >([]);
@@ -26,6 +27,11 @@ function App() {
                     }
                     break;
                 }
+                case "reload": {
+                    console.log(verseRef, message.data?.verseRef);
+                    setVerseRef(message.data?.verseRef);
+                    break;
+                }
                 // Handle other cases
             }
         };
@@ -39,14 +45,14 @@ function App() {
     }, []); // The empty array means this effect runs once on mount and cleanup on unmount
     useEffect(() => {
         const uri: any = "";
-        if (comment) {
+        if (comment && verseRef) {
             const updatedCommentThreadArray: NotebookCommentThread[] = [
                 ...commentThreadArray,
                 {
                     uri: uri,
                     canReply: true,
                     comments: [comment],
-                    verseRef: "GEN 1:1", // FIXME: this should be based on global state
+                    verseRef,
                     collapsibleState: 0,
                 },
             ];
@@ -123,6 +129,7 @@ function App() {
                 className="chat-container"
                 style={{ flex: 1, overflowY: "auto" }}
             >
+                <h1>{verseRef}</h1>
                 <div className="chat-content">
                     {commentThreadArray.map((commentThread) => {
                         return (
