@@ -6,6 +6,7 @@ import {
     findVerseRef,
     findReferencesUsingMeilisearch,
 } from "./utils/verseRefUtils";
+import { updateGlobalState } from "./globalState";
 
 const SHOW_DISCUSS_COMMAND = true;
 
@@ -148,12 +149,11 @@ const registerReferences = (context: vscode.ExtensionContext) => {
             },
         ),
     );
-
     context.subscriptions.push(
         vscode.commands.registerCommand(
             `codex-editor-extension.discuss`,
             async (verseRef: string) => {
-                // Discuss command implementation
+                updateGlobalState(context, "verseRef", verseRef);
                 vscode.window.showInformationMessage(
                     `Discussing ${verseRef}...`,
                 );
