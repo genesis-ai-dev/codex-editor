@@ -486,7 +486,7 @@ function getClientOptions(): LanguageClientOptions {
         documentSelector: [
             {
                 language: "scripture",
-                scheme: "file",
+                scheme: "*",
                 pattern: "**/*.codex",
             },
             {
@@ -503,6 +503,7 @@ function getClientOptions(): LanguageClientOptions {
                 schema: "file",
                 language: "plaintext",
             },
+
         ],
         outputChannel: pyglsLogger,
         connectionOptions: {
