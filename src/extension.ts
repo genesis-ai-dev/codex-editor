@@ -14,12 +14,12 @@ import {
     getProjectMetadata,
     getWorkSpaceFolder,
     jumpToCellInNotebook,
-} from "./utils/utils";
+} from "./utils";
 import { registerReferencesCodeLens } from "./referencesCodeLensProvider";
 import { registerSourceCodeLens } from "./sourceCodeLensProvider";
 import { LanguageMetadata, LanguageProjectStatus, Project } from "codex-types";
-import { nonCanonicalBookRefs } from "./assets/vref";
-import { LanguageCodes } from "./assets/languages";
+import { nonCanonicalBookRefs } from "./utils/verseRefUtils/verseData";
+import { LanguageCodes } from "./utils/languageUtils";
 import { ResourceProvider } from "./tree-view/resourceTreeViewProvider";
 import {
     initializeProjectMetadata,
@@ -62,7 +62,8 @@ import {
     integer,
 } from "vscode-languageclient/node";
 import { registerCommentsProvider } from "./commentsProvider";
-import { registerChatProvider } from "./providers/chat/customWebviewProvider";
+import { registerChatProvider } from "./providers/chat/customChatWebviewProvider";
+import { registerCommentsWebviewProvider } from "./providers/commentsWebview/customCommentsWebviewProvider";
 
 const MIN_PYTHON = semver.parse("3.7.9");
 const ROOT_PATH = getWorkSpaceFolder();
@@ -82,6 +83,7 @@ export async function activate(context: vscode.ExtensionContext) {
     registerSourceCodeLens(context);
     registerCommentsProvider(context);
     registerChatProvider(context);
+    registerCommentsWebviewProvider(context);
 
     // Add .bible files to the files.readonlyInclude glob pattern to make them readonly without overriding existing patterns
     const config = vscode.workspace.getConfiguration();

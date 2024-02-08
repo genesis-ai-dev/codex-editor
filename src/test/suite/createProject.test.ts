@@ -1,7 +1,7 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import { CellTypes, createProjectNotebooks } from "../../utils/codexNotebookUtils";
-import { getProjectMetadata } from "../../utils/utils";
+import { getProjectMetadata } from "../../utils";
 import * as sinon from "sinon";
 import * as path from "path";
 import { LanguageProjectStatus, LanguageMetadata } from "codex-types";
@@ -41,10 +41,9 @@ suite("createProjectNotebooks Test Suite", () => {
 
         const workspacePath = workspaceFolders[0].uri.fsPath;
         const projectMetadata = await getProjectMetadata();
-        const targetLanguage = projectMetadata.languages.filter((language: LanguageMetadata) => language.projectStatus === LanguageProjectStatus.TARGET)[0].tag;
 
         const generatedCodexFile = await vscode.workspace.fs.readFile(
-            vscode.Uri.file(`${workspacePath}/drafts/${targetLanguage}/GEN.codex`),
+            vscode.Uri.file(`${workspacePath}/drafts/target/GEN.codex`),
         );
 
         // Parse the generatedCodexFile as JSON

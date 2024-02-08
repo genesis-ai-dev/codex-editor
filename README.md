@@ -10,11 +10,39 @@ This is a very simple extension sample demonstrating the use of the notebook ser
 
 ## Running this sample
 
-1.  `cd codex-editor-extension`
-1.  `code .`: Open the folder in VS Code
+First you need to clone the repository and install the dependencies. If you have `pnpm` installed, you can use it to install the dependencies. If you don't have `pnpm` installed, you can install it by running `npm install -g pnpm`. `pnpm` is a package manager that is faster and more efficient than `npm` and `yarn`, but you can just use `npm` if you prefer.
+
+```bash
+git clone https://github.com/genesis-ai-dev/codex-editor.git
+cd codex-editor
+```
+
+```bash
+
+Note: Before running the extension, you need to install the dependencies for **both** the extension itself, and any children webviews, such as the `ChatSideBar`. To do this, open a terminal and run the following command:
+
+```bash
+# First let's install the dependencies for the extension
+pnpm install # if you're using pnpm, or npm install if you're using npm
+
+# Next, let's install the dependencies for the webview 
+#FIXME: we can just add this step to a setup script 
+codex-editor % cd webviews/ChatSideBar
+ChatSideBar % pnpm i
+ChatSideBar % pnpm run watch
+
+# Now, let's go back to the root of the project and start the extension
+ChatSideBar % cd ../..
+codex-editor % code . # this opens the project in VS Code, but you can also open it manually by opening VS Code and opening the extension folder you cloned
+```
+
+Now that you have the extension open in VS Code, you can run the extension by pressing `F5`. This will open a new VS Code window with the extension running. You can then open a new untitled file and run the "Create Codex Notebook" command to create a new untitled notebook of this type.
+
+With the extension project open in VS Code, do the following:
+
 1.  Hit `F5` to build+debug
-1.  Run the command "Create Codex Notebook"
-1.  Add and edit cells, and click the run button to invoke the controller
+2.  Run the command "Create Codex Notebook"
+3.  Add and edit cells, and click the run button to invoke the controller
 
 ## Run tests
 

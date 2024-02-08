@@ -1,6 +1,4 @@
 import * as vscode from "vscode";
-import * as fs from "fs";
-import * as path from "path";
 
 const config = vscode.workspace.getConfiguration("translators-copilot");
 const endpoint = config.get("llmEndpoint"); // NOTE: config.endpoint is reserved so we must have unique name
@@ -28,15 +26,16 @@ const loadWebviewHtml = (
     // );
 
     const styleResetUri = webviewView.webview.asWebviewUri(
-        vscode.Uri.joinPath(extensionUri, "src", "media", "reset.css"),
+        vscode.Uri.joinPath(extensionUri, "src", "assets", "reset.css"),
     );
     const styleVSCodeUri = webviewView.webview.asWebviewUri(
-        vscode.Uri.joinPath(extensionUri, "src", "media", "vscode.css"),
+        vscode.Uri.joinPath(extensionUri, "src", "assets", "vscode.css"),
     );
 
     const scriptUri = webviewView.webview.asWebviewUri(
         vscode.Uri.joinPath(
             extensionUri,
+            "webviews",
             "ChatSideBar",
             "build",
             "assets",
@@ -46,6 +45,7 @@ const loadWebviewHtml = (
     const styleUri = webviewView.webview.asWebviewUri(
         vscode.Uri.joinPath(
             extensionUri,
+            "webviews",
             "ChatSideBar",
             "build",
             "assets",
@@ -89,23 +89,6 @@ const loadWebviewHtml = (
     <script nonce="${nonce}" src="${scriptUri}"></script>
   </body>
   </html>`;
-    // let htmlContent = fs.readFileSync(html, "utf-8");
-
-    // const resourceRegEx = /<(script|link).*?(src|href)="([^"]*?)".*?\/?>/g;
-    // htmlContent = htmlContent.replace(
-    //   resourceRegEx,
-    //   (match: string, tag: string, attribute: string, src: string) => {
-    //     const resourcePath = vscode.Uri.file(
-    //       path.join(extensionUri.fsPath, "dist", src)
-    //     );
-    //     console.log({ resourcePath });
-    //     const resourceUri = webviewView.webview.asWebviewUri(resourcePath);
-    //     return `<${tag} ${attribute}="${resourceUri}" ${
-    //       tag === "link" ? 'rel="stylesheet"' : ""
-    //     }></${tag}>`;
-    //   }
-    // );
-    console.log({ html });
     webviewView.webview.html = html;
 };
 
@@ -287,16 +270,6 @@ export function registerChatProvider(context: vscode.ExtensionContext) {
     const item = vscode.window.createStatusBarItem(
         vscode.StatusBarAlignment.Right,
     );
-    // startProxy();
-    // startChatServer();
-    // item.text = "$(beaker) Add Todo";
-    // item.command = "vstodo.addTodo";
-    // context.subscriptions.push(
-    //   vscode.window.registerWebviewViewProvider(
-    //     "genesis-translator-sidebar",
-    //     sidebarProvider,
-    //   ),
-    // );
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(
             "genesis-translator-sidebar",
