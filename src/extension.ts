@@ -64,6 +64,7 @@ import {
 import { registerCommentsProvider } from "./commentsProvider";
 import { registerChatProvider } from "./providers/chat/customChatWebviewProvider";
 import { registerCommentsWebviewProvider } from "./providers/commentsWebview/customCommentsWebviewProvider";
+import { registerDictionaryTableProvider } from "./providers/dictionaryTable/dictionaryTableProvider";
 
 const MIN_PYTHON = semver.parse("3.7.9");
 const ROOT_PATH = getWorkSpaceFolder();
@@ -84,6 +85,7 @@ export async function activate(context: vscode.ExtensionContext) {
     registerCommentsProvider(context);
     registerChatProvider(context);
     registerCommentsWebviewProvider(context);
+    registerDictionaryTableProvider(context);
 
     // Add .bible files to the files.readonlyInclude glob pattern to make them readonly without overriding existing patterns
     const config = vscode.workspace.getConfiguration();

@@ -5,3 +5,4 @@ node_modules
 /package-lock.json
 pnpm-lock.yaml
 __pycache__
+webviews/editable-react-table/node_modules
