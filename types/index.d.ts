@@ -32,6 +32,18 @@ interface VerseRefGlobalState {
     uri: string;
 }
 
+type CommentPostMessages =
+    | { command: "commentsFromWorkspace"; content: string }
+    | { command: "reload"; data: VerseRefGlobalState }
+    | { command: "updateCommentThread"; comments: string }
+    | { command: "fetchComments" };
+
+type ChatPostMessages =
+    | { command: "response"; finished: boolean; text: string }
+    | { command: "reload" }
+    | { command: "select"; text: string }
+    | { command: "fetch"; messages: string };
+
 // enum CommentCommandNames {
 //     updateCommentThread = "updateCommentThread",
 // }
