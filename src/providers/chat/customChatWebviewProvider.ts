@@ -224,7 +224,7 @@ export class CustomWebviewProvider {
         });
 
         webviewView.webview.onDidReceiveMessage(async (message) => {
-            console.log({ message });
+            console.log({ message }, "onDidReceiveMessage in chat");
             try {
                 switch (message.command) {
                     case "fetch": {

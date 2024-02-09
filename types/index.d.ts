@@ -26,3 +26,12 @@ interface NotebookCommentThread {
     collapsibleState: number;
     canReply: boolean;
 }
+
+interface VerseRefGlobalState {
+    verseRef: string;
+    uri: string;
+}
+
+// enum CommentCommandNames {
+//     updateCommentThread = "updateCommentThread",
+// }

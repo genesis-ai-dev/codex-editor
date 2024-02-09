@@ -1,17 +1,21 @@
 import { EventEmitter } from "events";
 class GlobalStateEmitter extends EventEmitter {}
 import * as vscode from "vscode";
+import { VerseRefGlobalState } from "../types";
 
 const globalStateEmitter = new GlobalStateEmitter();
 
+type GlobalStateUpdate =
+    | { key: "verseRef"; value: VerseRefGlobalState }
+    | { key: "uri"; value: string };
+
 function updateGlobalState(
     context: vscode.ExtensionContext,
-    key: string,
-    value: any,
+    update: GlobalStateUpdate,
 ): void {
-    context.globalState.update(key, value).then(() => {
-        console.log("Value changed", { key, value });
-        globalStateEmitter.emit("changed", { key, value });
+    context.globalState.update(update.key, update.value).then(() => {
+        console.log("Value changed", update);
+        globalStateEmitter.emit("changed", update);
     });
 }
 
