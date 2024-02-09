@@ -1,16 +1,17 @@
 from lsprotocol.types import Diagnostic, DocumentDiagnosticParams, Position, Range, DiagnosticSeverity
 from pygls.server import LanguageServer
 import re
-import enum
+from enum import Enum
 from typing import List
 
 
-class VrefMessages(enum.Enum):
+class VrefMessages(Enum):
     VERSE_SHOULD_COME_BEFORE = "The verse {verse} should come before {next}"
     VERSE_MISSING = "The verse {missing_verse} is missing after {after}"
     INCORRECT_BOOK = "The reference {reference} is not correct for book {book}"
     VERSE_DOES_NOT_EXIST = "The verse {verse} does not exist"
     FIRST_VERSE_MISSING = "The first verse is missing"
+    DUPLICATE_VERSE = "The verse {verse} is duplicated"
 
 
 class ServableVrefs:
@@ -21,22 +22,30 @@ class ServableVrefs:
         diagnostics = []
         expected_book = None
         last_verse = None
+        seen_verses = set()
 
         for i, line in enumerate(lines):
             match = re.match(r'([A-Z][A-Z][A-Z]) (\d+):(\d+)', line)
             if match:
                 book, chapter, verse = match.groups()
+                verse_ref = f"{book} {chapter}:{verse}"
+                if verse_ref in seen_verses:
+                    diagnostics.append(self.create_diagnostic(i, line, match, VrefMessages.DUPLICATE_VERSE.value.format(verse=verse_ref)))
+                    continue
+                else:
+                    seen_verses.add(verse_ref)
+
                 if expected_book is None:
                     expected_book = book
                 elif expected_book != book:
-                    diagnostics.append(self.create_diagnostic(i, line, match, VrefMessages.INCORRECT_BOOK.value.format(reference=f"{book} {chapter}:{verse}", book=expected_book)))
+                    diagnostics.append(self.create_diagnostic(i, line, match, VrefMessages.INCORRECT_BOOK.value.format(reference=verse_ref, book=expected_book)))
                     continue
 
                 if last_verse:
                     last_chapter, last_verse_num = map(int, last_verse.split(':'))
                     current_chapter, current_verse_num = int(chapter), int(verse)
                     if current_chapter < last_chapter or (current_chapter == last_chapter and current_verse_num < last_verse_num):
-                        diagnostics.append(self.create_diagnostic(i, line, match, VrefMessages.VERSE_SHOULD_COME_BEFORE.value.format(verse=f"{book} {chapter}:{verse}", next=last_verse)))
+                        diagnostics.append(self.create_diagnostic(i, line, match, VrefMessages.VERSE_SHOULD_COME_BEFORE.value.format(verse=verse_ref, next=last_verse)))
                     elif current_chapter == last_chapter and current_verse_num != last_verse_num + 1:
                         for missing_verse_num in range(last_verse_num + 1, current_verse_num):
                             missing_verse = f"{book} {last_chapter}:{missing_verse_num}"
