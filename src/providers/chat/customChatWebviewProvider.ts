@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { ChatPostMessages } from "../../../types";
 
 const config = vscode.workspace.getConfiguration("translators-copilot");
 const endpoint = config.get("llmEndpoint"); // NOTE: config.endpoint is reserved so we must have unique name
@@ -81,8 +82,9 @@ const loadWebviewHtml = (
       Use a content security policy to only allow loading images from https or from our extension directory,
       and only allow scripts that have a specific nonce.
     -->
-    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${webviewView.webview.cspSource
-        }; script-src 'nonce-${nonce}';">
+    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${
+        webviewView.webview.cspSource
+    }; script-src 'nonce-${nonce}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="${styleResetUri}" rel="stylesheet">
     <link href="${styleVSCodeUri}" rel="stylesheet">
@@ -106,7 +108,7 @@ const sendFinishMessage = (webviewView: vscode.WebviewView) => {
         command: "response",
         finished: true,
         text: "",
-    });
+    } as ChatPostMessages);
 };
 
 const processFetchResponse = (
@@ -149,7 +151,7 @@ const processFetchResponse = (
                                         command: "response",
                                         finished: false,
                                         text: sendChunk,
-                                    });
+                                    } as ChatPostMessages);
                             } catch (error) {
                                 console.log("Error:", error);
                             }
@@ -186,7 +188,7 @@ export class CustomWebviewProvider {
         webviewView.webview.postMessage({
             command: "select",
             text: selectedText ? formattedCode : "",
-        });
+        } as ChatPostMessages);
     }
 
     saveSelectionChanges(webviewView: vscode.WebviewView) {
@@ -206,11 +208,15 @@ export class CustomWebviewProvider {
 
     resolveWebviewView(webviewView: vscode.WebviewView) {
         loadWebviewHtml(webviewView, this._extensionUri);
-        webviewView.webview.postMessage({ command: "reload" });
+        webviewView.webview.postMessage({
+            command: "reload",
+        } as ChatPostMessages);
 
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
-                webviewView.webview.postMessage({ command: "reload" });
+                webviewView.webview.postMessage({
+                    command: "reload",
+                } as ChatPostMessages);
             }
         });
 
@@ -224,7 +230,7 @@ export class CustomWebviewProvider {
         });
 
         webviewView.webview.onDidReceiveMessage(async (message) => {
-            console.log({ message });
+            console.log({ message }, "onDidReceiveMessage in chat");
             try {
                 switch (message.command) {
                     case "fetch": {
