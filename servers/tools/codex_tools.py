@@ -32,7 +32,7 @@ class CodexReader:
         self.verse_chunk_size = verse_chunk_size
 
     def read_file(self, filename):
-        with open(filename, 'r') as file:
+        with open('/'+filename if ':' not in filename[1] else filename, 'r') as file:
             data = json.load(file)
             return self.process_cells(data.get('cells', []))
 
