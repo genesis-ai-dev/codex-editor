@@ -4,6 +4,7 @@ import {
     serializeCommentThreadArray,
 } from "../../commentsProvider";
 import { globalStateEmitter } from "../../globalState";
+import { CommentPostMessages, VerseRefGlobalState } from "../../../types";
 
 const abortController: AbortController | null = null;
 
@@ -86,18 +87,21 @@ const loadWebviewHtml = (
 const sendCommentsToWebview = async (webviewView: vscode.WebviewView) => {
     console.log("sendCommentsToWebview was called");
     const workspaceFolders = vscode.workspace.workspaceFolders;
+    console.log({ workspaceFolders });
     const filePath = workspaceFolders
         ? vscode.Uri.joinPath(workspaceFolders[0].uri, "notebook-comments.json")
               .fsPath
         : "";
+    console.log({ filePath });
     try {
         const uri = vscode.Uri.file(filePath);
         const fileContentUint8Array = await vscode.workspace.fs.readFile(uri);
         const fileContent = new TextDecoder().decode(fileContentUint8Array);
+        console.log({ fileContent });
         webviewView.webview.postMessage({
             command: "commentsFromWorkspace",
             content: fileContent,
-        });
+        } as CommentPostMessages);
     } catch (error) {
         console.error("Error reading file:", error);
         vscode.window.showErrorMessage(`Error reading file: ${filePath}`);
@@ -125,45 +129,53 @@ export class CustomWebviewProvider {
     }
 
     resolveWebviewView(webviewView: vscode.WebviewView) {
-        globalStateEmitter.on("changed", ({ key, value }) => {
-            console.log({ key, value, webviewView });
-            if (webviewView.visible && key === "verseRef") {
-                webviewView.webview.postMessage({
-                    command: "reload",
-                    data: { verseRef: value },
-                });
-            }
-        });
+        globalStateEmitter.on(
+            "changed",
+            ({ key, value }: { key: string; value: VerseRefGlobalState }) => {
+                if (webviewView.visible && key === "verseRef") {
+                    webviewView.webview.postMessage({
+                        command: "reload",
+                        data: { verseRef: value.verseRef, uri: value.uri },
+                    } as CommentPostMessages);
+                }
+            },
+        );
         loadWebviewHtml(webviewView, this._extensionUri);
         sendCommentsToWebview(webviewView);
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
                 sendCommentsToWebview(webviewView);
-                webviewView.webview.postMessage({ command: "reload" });
+                // webviewView.webview.postMessage({ command: "reload" });
             }
         });
 
-        vscode.window.onDidChangeActiveTextEditor(() => {
-            // When the active editor changes, remove the old listener and add a new one
-            if (this.selectionChangeListener) {
-                this.selectionChangeListener.dispose();
-            }
+        // vscode.window.onDidChangeActiveTextEditor(() => {
+        //     // When the active editor changes, remove the old listener and add a new one
+        //     if (this.selectionChangeListener) {
+        //         this.selectionChangeListener.dispose();
+        //     }
 
-            sendCommentsToWebview(webviewView);
-        });
+        //     sendCommentsToWebview(webviewView);
+        // });
+
+        // TODO: find out if the above code was needed. Find out why comments are not loading sometime at first
+        // Find out why new comments are not being created
+        // create a system of share types so message posting is easier to deal with.
 
         webviewView.webview.onDidReceiveMessage(async (message) => {
-            console.log({ message });
+            console.log({ message }, "onDidReceiveMessage");
             try {
                 switch (message.command) {
                     case "updateCommentThread": {
-                        const serializedData = serializeCommentThreadArray(
-                            JSON.parse(message.comments),
-                        ); // Assuming serializeCommentThreads is available in this scope
                         await writeSerializedData(
-                            serializedData,
+                            message.comments,
                             "notebook-comments.json",
                         );
+                        break;
+                    }
+                    case "fetchComments": {
+                        console.log({ message }, "fetchComments");
+                        sendCommentsToWebview(webviewView);
                         break;
                     }
                     case "abort-fetch":
