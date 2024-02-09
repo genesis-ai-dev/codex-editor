@@ -450,6 +450,7 @@
         "build:table": "cd webviews/editable-react-table && npm run build"
     },
     "devDependencies": {
+        "@babel/plugin-proposal-private-property-in-object": "^7.16.7",
         "@types/glob": "^8.1.0",
         "@types/mocha": "^8.2.3",
         "@types/node": "14.x",
@@ -463,11 +464,10 @@
         "mocha": "^10.2.0",
         "prettier": "^3.1.1",
         "typescript": "^5.3.2",
-
-        "@babel/plugin-proposal-private-property-in-object": "^7.16.7",
         "vscode-test": "^1.5.0"
     },
     "dependencies": {
+        "@vscode/codicons": "^0.0.35",
         "@vscode/python-extension": "^1.0.5",
         "codex-types": "^0.0.2",
         "meilisearch": "^0.37.0",
