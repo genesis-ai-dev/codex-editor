@@ -123,46 +123,60 @@ function App() {
                 }}
             >
                 {messageLog.map((message, index) => (
-                    <div
-                        key={index}
-                        style={{
-                            display:
-                                message.role === "system" ? "none" : "flex",
-                            flexDirection:
-                                message.role === "user" ? "row" : "row-reverse",
-                            gap: "0.5em",
-                            justifyContent:
-                                message.role === "user"
-                                    ? "flex-start"
-                                    : "flex-end",
-                            borderRadius: "20px",
-                            backgroundColor:
-                                message.role === "user"
-                                    ? "var(--vscode-editor-background)"
-                                    : "var(--vscode-button-background)",
-                            color:
-                                message.role === "user"
-                                    ? "var(--vscode-editor-foreground)"
-                                    : "var(--vscode-button-foreground)",
-                            padding: "0.5em 1em",
-                            maxWidth: "80%",
-                            alignSelf:
-                                message.role === "user"
-                                    ? "flex-start"
-                                    : "flex-end",
-                        }}
-                    >
-                        {SHOW_SENDER_ROLE_LABELS && (
-                            <VSCodeTag>
-                                {
-                                    ChatRoleLabel[
-                                        message.role as keyof typeof ChatRoleLabel
-                                    ]
-                                }
-                            </VSCodeTag>
-                        )}
-                        <p>{message.content}</p>
-                    </div>
+                    <>
+                        <div
+                            style={{
+                                fontSize: "0.8em",
+                                color: "lightgrey",
+                                marginBottom: "0.2em",
+                            }}
+                        >
+                            {new Date().toLocaleTimeString()}
+                            {/* FIXME: add timestamps to all messages */}
+                        </div>
+                        <div
+                            key={index}
+                            style={{
+                                display:
+                                    message.role === "system" ? "none" : "flex",
+                                flexDirection:
+                                    message.role === "user"
+                                        ? "row"
+                                        : "row-reverse",
+                                gap: "0.5em",
+                                justifyContent:
+                                    message.role === "user"
+                                        ? "flex-start"
+                                        : "flex-end",
+                                borderRadius: "20px",
+                                backgroundColor:
+                                    message.role === "user"
+                                        ? "var(--vscode-editor-background)"
+                                        : "var(--vscode-button-background)",
+                                color:
+                                    message.role === "user"
+                                        ? "var(--vscode-editor-foreground)"
+                                        : "var(--vscode-button-foreground)",
+                                padding: "0.5em 1em",
+                                maxWidth: "80%",
+                                alignSelf:
+                                    message.role === "user"
+                                        ? "flex-start"
+                                        : "flex-end",
+                            }}
+                        >
+                            {SHOW_SENDER_ROLE_LABELS && (
+                                <VSCodeTag>
+                                    {
+                                        ChatRoleLabel[
+                                            message.role as keyof typeof ChatRoleLabel
+                                        ]
+                                    }
+                                </VSCodeTag>
+                            )}
+                            <p>{message.content}</p>
+                        </div>
+                    </>
                 ))}
             </div>
             {/* Input for sending messages */}
