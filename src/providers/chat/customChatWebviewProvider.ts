@@ -31,6 +31,15 @@ const loadWebviewHtml = (
     const styleVSCodeUri = webviewView.webview.asWebviewUri(
         vscode.Uri.joinPath(extensionUri, "src", "assets", "vscode.css"),
     );
+    const codiconsUri = webviewView.webview.asWebviewUri(
+        vscode.Uri.joinPath(
+            extensionUri,
+            "node_modules",
+            "@vscode/codicons",
+            "dist",
+            "codicon.css",
+        ),
+    );
 
     const scriptUri = webviewView.webview.asWebviewUri(
         vscode.Uri.joinPath(
@@ -72,13 +81,13 @@ const loadWebviewHtml = (
       Use a content security policy to only allow loading images from https or from our extension directory,
       and only allow scripts that have a specific nonce.
     -->
-    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${
-        webviewView.webview.cspSource
-    }; script-src 'nonce-${nonce}';">
+    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${webviewView.webview.cspSource
+        }; script-src 'nonce-${nonce}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="${styleResetUri}" rel="stylesheet">
     <link href="${styleVSCodeUri}" rel="stylesheet">
-    <link href="${styleUri}" rel="stylesheet">
+    <link href="${styleUri}" rel="stylesheet" />
+    <link href="${codiconsUri}" rel="stylesheet" />
     <script nonce="${nonce}">
       // const vsCodeApi = acquireVsCodeApi();
       const apiBaseUrl = ${JSON.stringify("http://localhost:3002")}
@@ -131,7 +140,7 @@ const processFetchResponse = (
                             try {
                                 const payload = JSON.parse(jsonString);
                                 // console.log("29u3089u", { payload });
-                                const payloadTemp = payload["choices"][0];
+                                const payloadTemp = payload["choices"]?.[0];
                                 const sendChunk = payloadTemp["message"]
                                     ? payloadTemp["message"]["content"]
                                     : payloadTemp["delta"]["content"];
