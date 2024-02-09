@@ -4,3 +4,5 @@ txtai
 codex_python_types
 imagehash
 pillow
+flask
+swig
