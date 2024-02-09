@@ -234,6 +234,7 @@ export class CustomWebviewProvider {
                             stream: true,
                             messages: JSON.parse(message.messages),
                             model: undefined as any,
+                            stop: ["\n\n", "###", "<|endoftext|>"], // ? Not sure if it matters if we pass this here.
                         };
                         if (model) {
                             data.model = model;

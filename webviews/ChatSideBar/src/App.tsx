@@ -14,6 +14,65 @@ const ChatRoleLabel = {
     assistant: "Copilot",
 };
 
+interface MessageItemProps {
+    messageItem: ChatMessage;
+    showSenderRoleLabels?: boolean;
+}
+
+const MessageItem: React.FC<MessageItemProps> = ({
+    messageItem,
+    showSenderRoleLabels = false,
+}) => {
+    return (
+        <>
+            <div
+                style={{
+                    fontSize: "0.8em",
+                    color: "lightgrey",
+                    marginBottom: "0.2em",
+                }}
+            >
+                {new Date().toLocaleTimeString()}{" "}
+                {/* FIXME: add actual timestamps */}
+            </div>
+            <div
+                style={{
+                    display: messageItem.role === "system" ? "none" : "flex",
+                    flexDirection:
+                        messageItem.role === "user" ? "row" : "row-reverse",
+                    gap: "0.5em",
+                    justifyContent:
+                        messageItem.role === "user" ? "flex-start" : "flex-end",
+                    borderRadius: "20px",
+                    backgroundColor:
+                        messageItem.role === "user"
+                            ? "var(--vscode-editor-background)"
+                            : "var(--vscode-button-background)",
+                    color:
+                        messageItem.role === "user"
+                            ? "var(--vscode-editor-foreground)"
+                            : "var(--vscode-button-foreground)",
+                    padding: "0.5em 1em",
+                    maxWidth: "80%",
+                    alignSelf:
+                        messageItem.role === "user" ? "flex-start" : "flex-end",
+                }}
+            >
+                {showSenderRoleLabels && (
+                    <VSCodeTag>
+                        {
+                            ChatRoleLabel[
+                                messageItem.role as keyof typeof ChatRoleLabel
+                            ]
+                        }
+                    </VSCodeTag>
+                )}
+                <span style={{ display: "flex" }}>{messageItem.content}</span>
+            </div>
+        </>
+    );
+};
+
 function App() {
     const systemMessage: ChatMessage = {
         role: "system",
@@ -120,68 +179,19 @@ function App() {
                     flexDirection: "column",
                     padding: "1em",
                     display: "flex",
+                    width: "100%",
                 }}
             >
                 {messageLog.map((messageLogItem, index) => (
-                    <>
-                        <div
-                            style={{
-                                fontSize: "0.8em",
-                                color: "lightgrey",
-                                marginBottom: "0.2em",
-                            }}
-                        >
-                            {new Date().toLocaleTimeString()}
-                            {/* FIXME: add timestamps to all messages */}
-                        </div>
-                        <div
-                            key={index}
-                            style={{
-                                display:
-                                    messageLogItem.role === "system"
-                                        ? "none"
-                                        : "flex",
-                                flexDirection:
-                                    messageLogItem.role === "user"
-                                        ? "row"
-                                        : "row-reverse",
-                                gap: "0.5em",
-                                justifyContent:
-                                    messageLogItem.role === "user"
-                                        ? "flex-start"
-                                        : "flex-end",
-                                borderRadius: "20px",
-                                backgroundColor:
-                                    messageLogItem.role === "user"
-                                        ? "var(--vscode-editor-background)"
-                                        : "var(--vscode-button-background)",
-                                color:
-                                    messageLogItem.role === "user"
-                                        ? "var(--vscode-editor-foreground)"
-                                        : "var(--vscode-button-foreground)",
-                                padding: "0.5em 1em",
-                                maxWidth: "80%",
-                                alignSelf:
-                                    messageLogItem.role === "user"
-                                        ? "flex-start"
-                                        : "flex-end",
-                            }}
-                        >
-                            {SHOW_SENDER_ROLE_LABELS && (
-                                <VSCodeTag>
-                                    {
-                                        ChatRoleLabel[
-                                            messageLogItem.role as keyof typeof ChatRoleLabel
-                                        ]
-                                    }
-                                </VSCodeTag>
-                            )}
-                            <p>{messageLogItem.content}</p>
-                        </div>
-                    </>
+                    <MessageItem
+                        key={index}
+                        messageItem={messageLogItem}
+                        showSenderRoleLabels={SHOW_SENDER_ROLE_LABELS}
+                    />
                 ))}
-                {pendingMessage?.role === "assistant" && pendingMessage.content} // FIXME: add
-                component for assistant messages
+                {pendingMessage?.role === "assistant" && (
+                    <MessageItem messageItem={pendingMessage} />
+                )}
             </div>
             {/* Input for sending messages */}
             <form
@@ -209,7 +219,11 @@ function App() {
                 </VSCodeButton>
                 <VSCodeTextField
                     placeholder="Type a message..."
-                    value={(pendingMessage?.role === "user" && pendingMessage?.content) || ""}
+                    value={
+                        (pendingMessage?.role === "user" &&
+                            pendingMessage?.content) ||
+                        ""
+                    }
                     onChange={(e) =>
                         setMessage({
                             role: "user",
