@@ -3,6 +3,7 @@ import {
     FileHandler,
     serializeCommentThreadArray,
 } from "../../commentsProvider";
+import { globalStateEmitter } from "../../globalState";
 
 const abortController: AbortController | null = null;
 
@@ -124,8 +125,17 @@ export class CustomWebviewProvider {
     }
 
     resolveWebviewView(webviewView: vscode.WebviewView) {
+        globalStateEmitter.on("changed", ({ key, value }) => {
+            console.log({ key, value, webviewView });
+            if (webviewView.visible && key === "verseRef") {
+                webviewView.webview.postMessage({
+                    command: "reload",
+                    data: { verseRef: value },
+                });
+            }
+        });
         loadWebviewHtml(webviewView, this._extensionUri);
-        webviewView.webview.postMessage({ command: "reload" });
+        sendCommentsToWebview(webviewView);
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
                 sendCommentsToWebview(webviewView);
