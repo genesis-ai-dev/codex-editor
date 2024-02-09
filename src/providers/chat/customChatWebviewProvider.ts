@@ -7,7 +7,7 @@ const apiKey = config.get("api_key");
 const model = config.get("model");
 const maxTokens = config.get("max_tokens");
 const temperature = config.get("temperature");
-const maxLength = 4000;
+const maxLength = 2048;
 let abortController: AbortController | null = null;
 
 const loadWebviewHtml = (
@@ -18,13 +18,6 @@ const loadWebviewHtml = (
         enableScripts: true,
         localResourceRoots: [extensionUri],
     };
-
-    // const indexPath = path.join(
-    //   extensionUri.fsPath,
-    //   "ChatSideBar",
-    //   "build",
-    //   "index.html"
-    // );
 
     const styleResetUri = webviewView.webview.asWebviewUri(
         vscode.Uri.joinPath(extensionUri, "src", "assets", "reset.css"),
@@ -82,9 +75,8 @@ const loadWebviewHtml = (
       Use a content security policy to only allow loading images from https or from our extension directory,
       and only allow scripts that have a specific nonce.
     -->
-    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${
-        webviewView.webview.cspSource
-    }; script-src 'nonce-${nonce}';">
+    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${webviewView.webview.cspSource
+        }; script-src 'nonce-${nonce}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="${styleResetUri}" rel="stylesheet">
     <link href="${styleVSCodeUri}" rel="stylesheet">
