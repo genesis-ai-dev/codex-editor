@@ -4,6 +4,7 @@ import {
     serializeCommentThreadArray,
 } from "../../commentsProvider";
 import { globalStateEmitter } from "../../globalState";
+import { CommentPostMessages, VerseRefGlobalState } from "../../../types";
 
 const abortController: AbortController | null = null;
 
@@ -100,7 +101,7 @@ const sendCommentsToWebview = async (webviewView: vscode.WebviewView) => {
         webviewView.webview.postMessage({
             command: "commentsFromWorkspace",
             content: fileContent,
-        });
+        } as CommentPostMessages);
     } catch (error) {
         console.error("Error reading file:", error);
         vscode.window.showErrorMessage(`Error reading file: ${filePath}`);
@@ -128,14 +129,17 @@ export class CustomWebviewProvider {
     }
 
     resolveWebviewView(webviewView: vscode.WebviewView) {
-        globalStateEmitter.on("changed", ({ key, value }) => {
-            if (webviewView.visible && key === "verseRef") {
-                webviewView.webview.postMessage({
-                    command: "reload",
-                    data: { verseRef: value.verseRef, uri: value.uri },
-                });
-            }
-        });
+        globalStateEmitter.on(
+            "changed",
+            ({ key, value }: { key: string; value: VerseRefGlobalState }) => {
+                if (webviewView.visible && key === "verseRef") {
+                    webviewView.webview.postMessage({
+                        command: "reload",
+                        data: { verseRef: value.verseRef, uri: value.uri },
+                    } as CommentPostMessages);
+                }
+            },
+        );
         loadWebviewHtml(webviewView, this._extensionUri);
         sendCommentsToWebview(webviewView);
         webviewView.onDidChangeVisibility(() => {

@@ -5,7 +5,7 @@ import {
     VSCodeTag,
 } from "@vscode/webview-ui-toolkit/react";
 import "./App.css";
-import { ChatMessage } from "../../../types";
+import { ChatMessage, ChatPostMessages } from "../../../types";
 const vscode = acquireVsCodeApi();
 
 const ChatRoleLabel = {
@@ -68,7 +68,7 @@ function App() {
             vscode.postMessage({
                 command: "fetch",
                 messages: JSON.stringify(currentMessageLog),
-            });
+            } as ChatPostMessages);
             setMessage(undefined);
         }
     }
