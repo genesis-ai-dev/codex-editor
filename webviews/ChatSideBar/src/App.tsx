@@ -36,8 +36,6 @@ function App() {
 
     const SHOW_SENDER_ROLE_LABELS = false;
 
-    const [inputValue, setInputValue] = useState(""); // State to track input value
-
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             const message = event.data;
@@ -104,11 +102,12 @@ function App() {
             style={{
                 display: "flex",
                 flexDirection: "column",
-                gap: "1em",
                 height: "100vh",
                 width: "100%",
+                padding: "0",
                 backgroundImage: "linear-gradient(to bottom, #f5f5f5, #e0e0e0)",
                 backgroundSize: "cover",
+                overflowX: "hidden",
             }}
         >
             <div
@@ -116,58 +115,55 @@ function App() {
                 style={{
                     flex: 1,
                     overflowY: "auto",
-                    gap: "1em",
+                    overflowX: "hidden",
+                    gap: "0.5em",
                     flexDirection: "column",
-                    paddingRight: "1em",
                     padding: "1em",
+                    display: "flex",
                 }}
             >
-                <div className="chat-content">
-                    {messageLog.map((message, index) => (
-                        <div
-                            key={index}
-                            style={{
-                                display:
-                                    message.role === "system" ? "none" : "flex",
-                                flexDirection:
-                                    message.role === "user"
-                                        ? "row"
-                                        : "row-reverse",
-                                gap: "0.5em",
-                                justifyContent:
-                                    message.role === "user"
-                                        ? "flex-start"
-                                        : "flex-end",
-                                borderRadius: "20px",
-                                backgroundColor:
-                                    message.role === "user"
-                                        ? "var(--vscode-editor-background)"
-                                        : "var(--vscode-button-background)",
-                                color:
-                                    message.role === "user"
-                                        ? "var(--vscode-editor-foreground)"
-                                        : "var(--vscode-button-foreground)",
-                                padding: "0.5em 1em",
-                                maxWidth: "70%",
-                                alignSelf:
-                                    message.role === "user"
-                                        ? "flex-start"
-                                        : "flex-end",
-                            }}
-                        >
-                            {SHOW_SENDER_ROLE_LABELS && (
-                                <VSCodeTag>
-                                    {
-                                        ChatRoleLabel[
-                                            message.role as keyof typeof ChatRoleLabel
-                                        ]
-                                    }
-                                </VSCodeTag>
-                            )}
-                            <p>{message.content}</p>
-                        </div>
-                    ))}
-                </div>
+                {messageLog.map((message, index) => (
+                    <div
+                        key={index}
+                        style={{
+                            display:
+                                message.role === "system" ? "none" : "flex",
+                            flexDirection:
+                                message.role === "user" ? "row" : "row-reverse",
+                            gap: "0.5em",
+                            justifyContent:
+                                message.role === "user"
+                                    ? "flex-start"
+                                    : "flex-end",
+                            borderRadius: "20px",
+                            backgroundColor:
+                                message.role === "user"
+                                    ? "var(--vscode-editor-background)"
+                                    : "var(--vscode-button-background)",
+                            color:
+                                message.role === "user"
+                                    ? "var(--vscode-editor-foreground)"
+                                    : "var(--vscode-button-foreground)",
+                            padding: "0.5em 1em",
+                            maxWidth: "80%",
+                            alignSelf:
+                                message.role === "user"
+                                    ? "flex-start"
+                                    : "flex-end",
+                        }}
+                    >
+                        {SHOW_SENDER_ROLE_LABELS && (
+                            <VSCodeTag>
+                                {
+                                    ChatRoleLabel[
+                                        message.role as keyof typeof ChatRoleLabel
+                                    ]
+                                }
+                            </VSCodeTag>
+                        )}
+                        <p>{message.content}</p>
+                    </div>
+                ))}
             </div>
             {/* Input for sending messages */}
             <form
@@ -179,8 +175,7 @@ function App() {
                     display: "flex",
                     gap: "0.25em",
                     alignItems: "center",
-                    padding: "0.5em",
-                    paddingRight: "1.25em",
+                    paddingInline: "0.5em",
                     background: "var(--vscode-sideBar-background)",
                 }}
                 onSubmit={(e) => {
@@ -196,9 +191,12 @@ function App() {
                 </VSCodeButton>
                 <VSCodeTextField
                     placeholder="Type a message..."
-                    value={inputValue}
+                    value={message?.content || ""}
                     onChange={(e) =>
-                        setInputValue((e.target as HTMLInputElement).value)
+                        setMessage({
+                            role: "user",
+                            content: (e.target as HTMLInputElement).value,
+                        })
                     }
                     style={{
                         flexGrow: 1,

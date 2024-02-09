@@ -93,8 +93,8 @@ const loadWebviewHtml = (
       const apiBaseUrl = ${JSON.stringify("http://localhost:3002")}
     </script>
     </head>
-    <body>
-    <div id="root"></div>
+    <body style="padding: 0; min-width: none; max-width: 100%; margin: 0;">
+    <div id="root" style="padding: 0; min-width: none; max-width: 100%; margin: 0;"></div>
     <script nonce="${nonce}" src="${scriptUri}"></script>
   </body>
   </html>`;
