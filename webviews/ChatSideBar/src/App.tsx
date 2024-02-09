@@ -27,7 +27,7 @@ function App() {
         role: "assistant",
         content: "Let me check your current translation drafts...",
     };
-    const [message, setMessage] = useState<ChatMessage>();
+    const [pendingMessage, setMessage] = useState<ChatMessage>();
     const [messageLog, setMessageLog] = useState<ChatMessage[]>([
         systemMessage,
         dummyUserMessage,
@@ -59,8 +59,8 @@ function App() {
     }, []); // The empty array means this effect runs once on mount and cleanup on unmount
 
     function handleClick() {
-        if (message) {
-            const currentMessageLog = [...messageLog, message];
+        if (pendingMessage) {
+            const currentMessageLog = [...messageLog, pendingMessage];
             setMessageLog(currentMessageLog);
             // console.log({ currentMessageLog });
             vscode.postMessage({
@@ -80,18 +80,18 @@ function App() {
                 text: string;
             }>,
         ) => {
-            // const message = event.data; // The JSON data our extension sent
-            // console.log({ event, message });
+            const messageInfo = event.data; // The JSON data our extension sent
+            console.log({ event, messageInfo, message: pendingMessage });
             if (!event.data.finished) {
                 const messageContent =
-                    (message?.content || "") + (event.data.text || "");
+                    (pendingMessage?.content || "") + (event.data.text || "");
                 setMessage({
                     role: "assistant",
                     content: messageContent,
                 });
             } else {
-                if (message) {
-                    setMessageLog([...messageLog, message]);
+                if (pendingMessage) {
+                    setMessageLog([...messageLog, pendingMessage]);
                 }
                 setMessage(undefined);
             }
@@ -105,7 +105,7 @@ function App() {
                 height: "100vh",
                 width: "100%",
                 padding: "0",
-                backgroundImage: "linear-gradient(to bottom, #f5f5f5, #e0e0e0)",
+                backgroundImage: "linear-gradient(to bottom, #f5f5f5, #e0e0e0)", // FIXME: use vscode theme colors
                 backgroundSize: "cover",
                 overflowX: "hidden",
             }}
@@ -122,7 +122,7 @@ function App() {
                     display: "flex",
                 }}
             >
-                {messageLog.map((message, index) => (
+                {messageLog.map((messageLogItem, index) => (
                     <>
                         <div
                             style={{
@@ -138,29 +138,31 @@ function App() {
                             key={index}
                             style={{
                                 display:
-                                    message.role === "system" ? "none" : "flex",
+                                    messageLogItem.role === "system"
+                                        ? "none"
+                                        : "flex",
                                 flexDirection:
-                                    message.role === "user"
+                                    messageLogItem.role === "user"
                                         ? "row"
                                         : "row-reverse",
                                 gap: "0.5em",
                                 justifyContent:
-                                    message.role === "user"
+                                    messageLogItem.role === "user"
                                         ? "flex-start"
                                         : "flex-end",
                                 borderRadius: "20px",
                                 backgroundColor:
-                                    message.role === "user"
+                                    messageLogItem.role === "user"
                                         ? "var(--vscode-editor-background)"
                                         : "var(--vscode-button-background)",
                                 color:
-                                    message.role === "user"
+                                    messageLogItem.role === "user"
                                         ? "var(--vscode-editor-foreground)"
                                         : "var(--vscode-button-foreground)",
                                 padding: "0.5em 1em",
                                 maxWidth: "80%",
                                 alignSelf:
-                                    message.role === "user"
+                                    messageLogItem.role === "user"
                                         ? "flex-start"
                                         : "flex-end",
                             }}
@@ -169,15 +171,17 @@ function App() {
                                 <VSCodeTag>
                                     {
                                         ChatRoleLabel[
-                                            message.role as keyof typeof ChatRoleLabel
+                                            messageLogItem.role as keyof typeof ChatRoleLabel
                                         ]
                                     }
                                 </VSCodeTag>
                             )}
-                            <p>{message.content}</p>
+                            <p>{messageLogItem.content}</p>
                         </div>
                     </>
                 ))}
+                {pendingMessage?.role === "assistant" && pendingMessage.content} // FIXME: add
+                component for assistant messages
             </div>
             {/* Input for sending messages */}
             <form
@@ -205,7 +209,7 @@ function App() {
                 </VSCodeButton>
                 <VSCodeTextField
                     placeholder="Type a message..."
-                    value={message?.content || ""}
+                    value={(pendingMessage?.role === "user" && pendingMessage?.content) || ""}
                     onChange={(e) =>
                         setMessage({
                             role: "user",
