@@ -1,8 +1,28 @@
 import React from 'react';
-import { ActionTypes, DataTypes, shortId } from '../utils';
+import { 
+  ActionTypes, 
+  DataTypes, 
+  shortId 
+} from '../utils';
 import DataTypeIcon from './DataTypeIcon';
 
-function getLabel(type) {
+interface TypesMenuProps {
+  popper: any
+  popperRef: React.Ref<HTMLDivElement>;
+  dataDispatch: React.Dispatch<DataAction>;
+  setShowTypeMenu: (show: boolean) => void;
+  onClose: () => void;
+  columnId: string;
+}
+
+interface TypeOption {
+  type: DataTypes;
+  onClick: (event: React.MouseEvent<HTMLButtonElement, MouseEvent>) => void;
+  icon: JSX.Element;
+  label: string;
+}
+
+function getLabel(type: DataTypes): string {
   return type.charAt(0).toUpperCase() + type.slice(1);
 }
 
@@ -13,11 +33,11 @@ export default function TypesMenu({
   setShowTypeMenu,
   onClose,
   columnId,
-}) {
-  const types = [
+}: TypesMenuProps) {
+  const types: TypeOption[] = [
     {
       type: DataTypes.SELECT,
-      onClick: e => {
+      onClick: () => {
         dataDispatch({
           type: ActionTypes.UPDATE_COLUMN_TYPE,
           columnId,
@@ -30,7 +50,7 @@ export default function TypesMenu({
     },
     {
       type: DataTypes.TEXT,
-      onClick: e => {
+      onClick: () => {
         dataDispatch({
           type: ActionTypes.UPDATE_COLUMN_TYPE,
           columnId,
@@ -43,7 +63,7 @@ export default function TypesMenu({
     },
     {
       type: DataTypes.NUMBER,
-      onClick: e => {
+      onClick: () => {
         dataDispatch({
           type: ActionTypes.UPDATE_COLUMN_TYPE,
           columnId,

@@ -10,7 +10,7 @@ export default function Cell({
   row: { index },
   column: { id, dataType, options },
   dataDispatch,
-}) {
+}: CellData) {
   function getCellElement() {
     switch (dataType) {
       case DataTypes.TEXT:
