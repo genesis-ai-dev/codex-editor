@@ -1,4 +1,8 @@
-from tools.codex_tools import CodexReader
+try:
+    from tools.codex_tools import CodexReader
+except:
+    from codex_tools import CodexReader
+
 from txtai import Embeddings
 
 class DataBase:
@@ -43,7 +47,7 @@ class DataBase:
         Initializes a new database with the specified name and loads existing embeddings if available.
         """
         self.name = name
-        self.embeddings = Embeddings(path="sentence-transformers/nli-mpnet-base-v2", content=True)
+        self.embeddings = Embeddings(path="sentence-transformers/nli-mpnet-base-v2", content=True, objects=True)
         try:
             self.embeddings.load(self.name)
         except:
@@ -62,7 +66,6 @@ class DataBase:
         """
         reader = CodexReader(verse_chunk_size=verse_chunk_size)
         results = reader.get_embed_format(path)
-        results = [(str(result[0]), str(result[1])) for result in results if len(result[1]) > 4]
         self.upsert_all(results)
 
     def index_all(self, data: list) -> None:
@@ -131,6 +134,7 @@ class DataBase:
 
 if __name__ == "__main__":
     database = DataBase('db3')
-    database.upsert_codex_file('C:\\Users\\danie\\example_workspace\\drafts\\Bible\\1CH.codex')
+    #database.upsert_codex_file('C:\\Users\\danie\\example_workspace\\drafts\\Bible\\1CH.codex')
+    database.upsert_all([{'id': 1, 'text': "hello this is a test"}, {'id': 2, 'text': "it is so cold in il"}])
     print(database.search('dog', limit=1900))
     database.save()
