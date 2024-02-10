@@ -1,84 +1,81 @@
-# API Reference for Flask Server
+# Flask Server for Embedding Database Operations
 
-This document serves as a reference for the API endpoints provided by the Flask server defined in `servers/flask_server.py`. The server offers a set of endpoints to interact with different databases through a web interface.
+This Flask server provides a RESTful API for managing and interacting with embedding databases. It supports upserting data and codex files, searching, and saving the current state of databases. The initialization of databases is handled automatically by the language server, so users do not need to manually start the databases.
+
+## Setup
+
+Before running the server, ensure you have Flask installed in your Python environment. You can install Flask using pip:
+
+```bash
+pip install -r --break-system-packages requirements.txt
+```
+
+The server will automatically start with the extension.
+
+The server will start on port 5554.
+
+Here are the valid databases:
+```python
+class DatabaseName(Enum):
+    """Enumeration for database names."""
+    DRAFTS = 'drafts'
+    USER_RESOURCES = 'user_resources'
+    REFERENCE_MATERIALS = 'reference_materials'
+```
 
 ## Endpoints
 
-### 1. Initialize Databases
+### 1. Upsert Codex File (`/upsert_codex_file`)
 
-- **Endpoint**: `/start`
-- **Method**: [GET]
-- **Description**: Initializes the databases required for the application by reading the work path from the request arguments and creating DataBase instances.
-- **Query Parameters**:
-  - [data_path]: The path where the databases are located.
-- **Responses**:
-  - **200 OK**: Returns a message indicating successful initialization of databases.
-  - **Example**:
-    ```json
-    "Databases initialized successfully"
-    ```
+- **Method:** POST
+- **Description:** Upserts a codex file into the specified embedding database.
+- **Payload Parameters:**
+  - `db_name` (string): The name of the database.
+  - `path` (string): The path to the .codex file.
+  - `verse_chunk_size` (integer, optional): The size of verse chunks. Defaults to 4.
+- **Returns:** A JSON response indicating success or error and an HTTP status code.
 
-### 2. Upsert Codex File
+### 2. Upsert Data (`/upsert_data`)
 
-- **Endpoint**: `/upsert_codex_file`
-- **Method**: `POST`
-- **Description**: Inserts or updates a codex file into the specified database.
-- **JSON Payload**:
-  - `db_name` (required): The name of the database to upsert the codex file into.
-  - `path` (required): The file path of the codex file.
-  - `verse_chunk_size` (optional): The size of the verse chunks, defaults to 4 if not provided.
-- **Responses**:
-  - **200 OK**: Returns a message indicating the codex file was upserted successfully.
-  - **400 Bad Request**: Returns an error if the database name or path is not provided.
-  - **Example**:
-    ```json
-    {"message": "Codex file upserted"}
-    ```
+- **Method:** POST
+- **Description:** Upserts text data into the specified embedding database.
+- **Payload Parameters:**
+  - `db_name` (string): The name of the database.
+  - `text` (string): The text data to upsert.
+  - `uri` (string, optional): The URI of the data. Defaults to an empty string.
+  - `metadata` (dictionary, optional): Metadata associated with the data. Defaults to an empty dictionary.
+  - `book` (string, optional): The book name. Defaults to an empty string.
+  - `chapter` (integer, optional): The chapter number. Defaults to -1.
+  - `verse` (string, optional): The verse. Defaults to an empty string.
+- **Returns:** A JSON response indicating success or error and an HTTP status code.
 
-### 3. Search
+### 3. Search (`/search`)
 
-- **Endpoint**: `/search`
-- **Method**: `GET` (subject to Change (this is the one part of the docs I wrote haha))
-- **Description**: Searches for a query in the specified database.
-- **Query Parameters**:
-  - `db_name` (required): The name of the database to perform the search in.
-  - `query` (required): The search query.
-  - `limit` (optional): The maximum number of results to return, defaults to 1 if not provided.
-- **Responses**:
-  - **200 OK**: Returns the search results.
-  - **400 Bad Request**: Returns an error if the database name or query is not provided.
-  - **Example**:
-    ```json
-    [{"result": "Search result here"}]
-    ```
+- **Method:** GET
+- **Description:** Searches for a query in the specified embedding database.
+- **Parameters:**
+  - `db_name` (string): The name of the database to search in.
+  - `query` (string): The search query.
+  - `limit` (integer, optional): The maximum number of results to return. Defaults to 5.
+  - `min_score` (float, optional): The minimum score of results to return. Defaults to None.
+- **Returns:** A JSON response containing the search results or an error message and an HTTP status code.
 
-### 4. Save Database State
+### 4. Save Database State (`/save`)
 
-- **Endpoint**: `/save`
-- **Method**: `POST`
-- **Description**: Saves the current state of the specified database.
-- **JSON Payload**:
-  - `db_name` (required): The name of the database to save the state of.
-- **Responses**:
-  - **200 OK**: Returns a message indicating the database state was saved successfully.
-  - **400 Bad Request**: Returns an error if the database name is not provided.
-  - **Example**:
-    ```json
-    {"message": "Database 'database_name' state saved"}
-    ```
+- **Method:** POST
+- **Description:** Saves the current state of the specified embedding database.
+- **Payload Parameters:**
+  - `db_name` (string): The name of the database to save.
+- **Returns:** A JSON response indicating success or error and an HTTP status code.
 
-## Running the Server
+## Usage
 
-To start the server, ensure you are in the directory containing `flask_server.py` and execute the following command:
+To use the API, send HTTP requests to the endpoints described above. For POST requests, include a JSON payload. For example, to upsert data:
 
-```sh
-python flask_server.py
+```bash
+curl -X POST -H "Content-Type: application/json" -d '{"db_name": "drafts", "text": "Sample text"}' "http://localhost:5554/upsert_data"
 ```
 
-The server will start on port `5554` unless modified in the code.
+## Note
 
-## Notes
-
-- All endpoints return a JSON response along with the appropriate HTTP status code.
-- The server expects the `DataBase` class to be defined in `tools/embedding_tools` with the necessary methods (`upsert_codex_file`, `search`, and `save`) implemented.
-- The `DatabaseName` enum is used to define the names of the databases that can be interacted with through the API.
+Ensure that the `DataBase` class and its methods (`upsert_codex_file`, `upsert_data`, `simple_search`, `save`) are correctly implemented in the `tools.embedding2` module as these are crucial for the server's functionality.
