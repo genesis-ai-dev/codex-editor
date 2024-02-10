@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-from tools.embedding_tools import DataBase
+from tools.embedding2 import DataBase  # Updated import path
 from enum import Enum
 from typing import Dict
 
@@ -8,8 +8,8 @@ databases: Dict[str, DataBase] = {}
 
 class DatabaseName(Enum):
     """Enumeration for database names."""
-    DRAFTS = 'database'
-    USER_RESOURCES = 'userresources'
+    DRAFTS = 'drafts'
+    USER_RESOURCES = 'user_resources'
     REFERENCE_MATERIALS = 'reference_materials'
 
 @app.route("/start", methods=['GET'])
@@ -45,28 +45,55 @@ def upsert_codex_file() -> tuple:
     db_name = data.get('db_name')
     path = data.get('path')
     verse_chunk_size = data.get('verse_chunk_size', 4)
-    if db_name and db_name in databases and path:
+    if db_name in databases.keys() and path:
         databases[db_name].upsert_codex_file(path, verse_chunk_size)
         return jsonify({"message": "Codex file upserted"}), 200
     else:
         return jsonify({"error": "Database name and path are required"}), 400
+
+@app.route('/upsert_data', methods=['POST'])
+def upsert_data() -> tuple:
+    """
+    Upserts text data into the specified database.
+
+    Expects 'db_name', 'text', 'uri', and optionally 'metadata', 'book', 'chapter', 'verse' in the JSON payload of the request.
+    If the required parameters are present, it calls the upsert_data method of the DataBase instance.
+
+    Returns:
+        A tuple containing a JSON response and an HTTP status code.
+    """
+    data = request.json
+    db_name = data.get('db_name')
+    text = data.get('text')
+    uri = data.get('uri', defualt="", type=str)
+    metadata = data.get('metadata', {})
+    book = data.get('book', "")
+    chapter = data.get('chapter', -1)
+    verse = data.get('verse', "")
+    if db_name and db_name in databases.keys() and text:
+        databases[db_name].upsert_data(text, uri, metadata, book, chapter, verse)
+        return jsonify({"message": "Data upserted into database"}), 200
+    else:
+        return jsonify({"error": "Database name, text, are required"}), 400
 
 @app.route('/search', methods=['GET'])
 def search() -> tuple:
     """
     Searches for a query in the specified database.
 
-    Expects 'db_name', 'query', and optionally 'limit' in the request arguments.
-    If the required parameters are present, it calls the search method of the DataBase instance.
+    Expects 'db_name', 'query', and optionally 'limit', 'min_score' in the request arguments.
+    If the required parameters are present, it calls the simple_search method of the DataBase instance.
 
     Returns:
         A tuple containing a JSON response and an HTTP status code.
     """
     db_name = request.args.get('db_name')
     query = request.args.get('query')
-    limit = request.args.get('limit', default=1, type=int)
-    if db_name and db_name in databases and query:
-        results = databases[db_name].search(query, limit)
+    limit = request.args.get('limit', default=5, type=int)
+    min_score = request.args.get('min_score', default=None, type=float)
+    print(databases)
+    if db_name in databases.keys() and query:
+        results = databases[db_name].simple_search(query, limit, min_score)
         return jsonify(results), 200
     else:
         return jsonify({"error": "Database name and query are required"}), 400
@@ -91,5 +118,3 @@ def save() -> tuple:
 
 if __name__ == "__main__":
     app.run(port=5554, debug=False)
-
-    

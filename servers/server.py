@@ -63,7 +63,7 @@ server = LanguageServer("code-action-server", "v0.1")  # TODO: #1 Dynamically po
 # Create server functions and servables
 server_functions = ServerFunctions(server=server, data_path='/drafts')
 spelling = ServableSpelling(sf=server_functions, relative_checking=True)
-embedding = ServableEmbedding(sf=server_functions)
+#embedding = ServableEmbedding(sf=server_functions) I don't think this will be needed anymore?
 vrefs = ServableVrefs(sf=server_functions)
 
 # Register completions, diagnostics, and actions with the server

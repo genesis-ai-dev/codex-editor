@@ -1,5 +1,5 @@
 import requests
-from lsprotocol.types import DidCloseTextDocumentParams, Range, Position
+from lsprotocol.types import DidCloseTextDocumentParams, Range, Position, CompletionList, CompletionItem, CompletionItemKind, TextEdit
 from tools.ls_tools import ServerFunctions
 from pygls.server import LanguageServer
 from typing import List
@@ -23,7 +23,7 @@ class ServableEmbedding:
         self.sf.close_functions.append(self.on_close)
         self.sf.initialize_functions.append(self.start)
         self.last_served = []
-        self.time_last_serverd = time.time()
+        self.time_last_served = time.time()
 
     def embed_document(self, params, sf):
         path = params[0]['fsPath']
@@ -31,7 +31,7 @@ class ServableEmbedding:
             sf.server.show_message(message="Embedding document.")
             response = requests.post(
                 'http://localhost:5554/upsert_codex_file',
-                json={'db_name': 'drafts', 'path': path}
+                json={'db_name': 'drafts', 'path': path}  # Updated 'db_name' to match the Enum in flask_server.py
             )
             if response.status_code == 200:
                 sf.server.show_message(message=f"The Codex file '{path}' has been upserted into 'drafts' database")
@@ -48,17 +48,17 @@ class ServableEmbedding:
         document_uri = params.text_document.uri
         document = server.workspace.get_document(document_uri)
         line = document.lines[params.position.line].strip()
-        if time.time() - self.time_last_serverd > 2 or not self.last_served:
+        if time.time() - self.time_last_served > 2 or not self.last_served:
             self.last_served = line
-            self.time_last_serverd = time.time()
+            self.time_last_served = time.time()
             response = requests.get(
                 'http://localhost:5554/search',
-                params={'db_name': 'drafts', 'query': line, 'limit': 2}
+                params={'db_name': 'drafts', 'query': line, 'limit': 2}  # Updated 'db_name' to match the Enum in flask_server.py
             )
             if response.status_code == 200:
                 results = response.json()
                 # Assuming you want to return the results as a list of completion items
-                completion_items = [self.create_completion_item(result) for result in results]
+                completion_items = [self.create_completion_item(result, range) for result in results]
                 return completion_items
             else:
                 sf.server.show_message_log("Search request failed.")
@@ -67,20 +67,22 @@ class ServableEmbedding:
             # If the last served line is the same and it has not been 2 seconds, return the last served results
             return self.last_served
 
-    def create_completion_item(self, search_result):
+    def create_completion_item(self, search_result, range):
         # This is a placeholder function. You need to replace it with actual logic to create a completion item.
         # Assuming 'search_result' is a dictionary with a 'text' field that you want to use for the completion.
-        return {
-            'label': search_result['text'],
-            'kind': 1,  # Text completion
-            'documentation': search_result['text'],
-            'insertText': search_result['text']
-        }
+        # item =  {
+        #     'label': search_result['text'],
+        #     'kind': 1,  # Text completion
+        #     'documentation': search_result['text'],
+        #     'insertText': search_result['text']
+        # }
+        text = search_result['text']
+        return CompletionItem(label=text[:20], text_edit=TextEdit(range=range, new_text=text))
     def start(self, params, server: LanguageServer, sf):
         def attempt_start(retries_left=5):
             nonlocal sf
             if retries_left > 0:
-                response = requests.get("http://localhost:5554/start?data_path="+sf.data_path)
+                response = requests.get("http://localhost:5554/start", params={"data_path": sf.data_path})  # Updated to use params for GET request
                 if response.status_code == 200:
                     return
                 else:

@@ -2,6 +2,16 @@ import json
 import re
 
 
+def parse_scripture(scripture):
+    pattern = r"scripture\s+(\w+)\s+(\d+):(\d+)\s+-\s+(\d+):(\d+)"
+    match = re.match(pattern, scripture)
+    if match:
+        book_abbr, start_chapter, start_verse, end_chapter, end_verse = match.groups()
+        return {"book": book_abbr, "chapter": start_chapter, "verse": f"{start_verse}-{end_verse}"}
+    else:
+        return None
+
+
 class CodexReader:
     """
     A class for reading and processing Codex files containing markdown and scripture cells.
@@ -93,14 +103,16 @@ class CodexReader:
         chunks = []
         for chapter in chapters:
             for chunk in chapter['verse_chunks']:
-                chunks.append(tuple(chunk.items())[0])
+                item = list(list(chunk.items())[0])
+                item[0] = (parse_scripture(item[0]))
+                chunks.append({"data": item[0], "text": item[1]})
         return chunks
 
 
-# Example usage
-# reader = CodexReader(verse_chunk_size=5)
-# result = reader.get_embed_format("C:\\Users\\danie\\example_workspace\\drafts\\Bible\\ZEP.codex")
+if __name__ == "__main__":
+    reader = CodexReader(verse_chunk_size=5)
+    result = reader.get_embed_format("/Users/daniellosey/Desktop/code/biblica/example_workspace/drafts/eng/GEN.codex")
 
-# for i in result:
-#     print(i)
-    
+    for i in result:
+        print(i)
+        
