@@ -1,6 +1,12 @@
 import React from 'react';
 
-export default function Badge({ value, backgroundColor }) {
+// Define an interface for the component's props
+interface BadgeProps {
+  value: React.ReactNode; // This allows for strings, numbers, and other React nodes
+  backgroundColor: string;
+}
+
+const Badge: React.FC<BadgeProps> = ({ value, backgroundColor }) => {
   return (
     <span
       className="font-weight-400 d-inline-block color-grey-800 border-radius-sm text-transform-capitalize"
@@ -12,4 +18,6 @@ export default function Badge({ value, backgroundColor }) {
       {value}
     </span>
   );
-}
+};
+
+export default Badge;

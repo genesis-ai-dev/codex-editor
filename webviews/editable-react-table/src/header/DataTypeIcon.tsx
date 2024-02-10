@@ -1,12 +1,16 @@
-import React from 'react';
+import React, { ReactElement } from 'react';
 import { DataTypes } from '../utils';
 import TextIcon from '../img/Text';
 import MultiIcon from '../img/Multi';
 import HashIcon from '../img/Hash';
 
-export default function DataTypeIcon({ dataType }) {
-  function getPropertyIcon(dataType) {
-    switch (dataType) {
+interface DataTypeIconProps {
+  dataType: DataTypes;
+}
+
+export default function DataTypeIcon({ dataType }: DataTypeIconProps): ReactElement | null {
+  function getPropertyIcon(dataType: DataTypes): ReactElement | null {
+    switch (dataType as DataTypes) {
       case DataTypes.NUMBER:
         return <HashIcon />;
       case DataTypes.TEXT:
@@ -18,5 +22,5 @@ export default function DataTypeIcon({ dataType }) {
     }
   }
 
-  return getPropertyIcon(dataType);
+  return getPropertyIcon(dataType );
 }

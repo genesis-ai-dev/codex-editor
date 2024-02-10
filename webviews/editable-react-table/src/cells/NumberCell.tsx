@@ -7,15 +7,16 @@ export default function NumberCell({
   columnId,
   rowIndex,
   dataDispatch,
-}) {
-  const [value, setValue] = useState({ value: initialValue, update: false });
+}: CellTypeData) {
+  const [value, setValue] = useState<ValueState>({ value: initialValue, update: false });
 
-  function onChange(e) {
-    setValue({ value: e.target.value, update: false });
+  const onChange = (e: React.FormEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    setValue({ value: target.innerText, update: false });
   }
 
-  function onBlur(e) {
-    setValue(old => ({ value: old.value, update: true }));
+  const onBlur = () => {
+    setValue(old => ({ ...old, update: true }));
   }
 
   useEffect(() => {
