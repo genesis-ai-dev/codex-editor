@@ -1,5 +1,5 @@
 import { vscode } from "./utilities/vscode";
-import React, { useEffect, useReducer, useState } from 'react';
+import React, { useEffect, useReducer } from 'react';
 import './style.css';
 import Table from './Table';
 import {
@@ -225,8 +225,8 @@ function App() {
 
   useEffect(() => {
     if (state.data.length > 0 && state.columns.length > 0) {
-      const tableData = { data: state.data, columns: state.columns }; // Adjust according to the actual structure
-      const dictionaryData = transformToDictionaryFormat(tableData, state.dictionary);
+      const tableData: TableData = { data: state.data, columns: state.columns }; // Adjust according to the actual structure
+      const dictionaryData: Dictionary = transformToDictionaryFormat(tableData, state.dictionary);
       vscode.postMessage({
         command: 'updateData',
         data: dictionaryData,

@@ -12,12 +12,12 @@ export default function SelectCell({
   columnId,
   rowIndex,
   dataDispatch,
-}) {
-  const [selectRef, setSelectRef] = useState(null);
-  const [selectPop, setSelectPop] = useState(null);
-  const [showSelect, setShowSelect] = useState(false);
-  const [showAdd, setShowAdd] = useState(false);
-  const [addSelectRef, setAddSelectRef] = useState(null);
+}: CellTypeData) {
+  const [selectRef, setSelectRef] = useState<HTMLDivElement | null>(null);
+  const [selectPop, setSelectPop] = useState<HTMLDivElement | null>(null);
+  const [showSelect, setShowSelect] = useState<boolean>(false);
+  const [showAdd, setShowAdd] = useState<boolean>(false);
+  const [addSelectRef, setAddSelectRef] = useState<HTMLInputElement | null>(null);
   const { styles, attributes } = usePopper(selectRef, selectPop, {
     placement: 'bottom-start',
     strategy: 'fixed',
@@ -47,20 +47,21 @@ export default function SelectCell({
   }, [addSelectRef, showAdd]);
 
   function getColor() {
-    let match = options.find(option => option.label === value.value);
-    return (match && match.backgroundColor) || grey(200);
+    let match = options?.find(option => option.label === value.value);
+    return (match?.backgroundColor) ?? grey(200);
   }
 
-  function handleAddOption(e) {
+  function handleAddOption() {
     setShowAdd(true);
   }
 
-  function handleOptionKeyDown(e) {
+  function handleOptionKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') {
-      if (e.target.value !== '') {
+      const target = e.target as HTMLInputElement;
+      if (target.value !== '') {
         dataDispatch({
           type: ActionTypes.ADD_OPTION_TO_COLUMN,
-          option: e.target.value,
+          option: target.value,
           backgroundColor: randomColor(),
           columnId,
         });
@@ -69,7 +70,7 @@ export default function SelectCell({
     }
   }
 
-  function handleOptionBlur(e) {
+  function handleOptionBlur(e: React.FocusEvent<HTMLInputElement>) {
     if (e.target.value !== '') {
       dataDispatch({
         type: ActionTypes.ADD_OPTION_TO_COLUMN,
@@ -81,7 +82,7 @@ export default function SelectCell({
     setShowAdd(false);
   }
 
-  function handleOptionClick(option) {
+  function handleOptionClick(option: any) {
     setValue({ value: option.label, update: true });
     setShowSelect(false);
   }
@@ -126,7 +127,7 @@ export default function SelectCell({
               className="d-flex flex-wrap-wrap"
               style={{ marginTop: '-0.5rem' }}
             >
-              {options.map(option => (
+              {options?.map(option => (
                 <div
                   className="cursor-pointer mr-5 mt-5"
                   onClick={() => handleOptionClick(option)}
@@ -169,7 +170,7 @@ export default function SelectCell({
               </div>
             </div>
           </div>,
-          document.querySelector('#popper-portal')
+          document.querySelector('#popper-portal') as Element
         )}
     </>
   );
