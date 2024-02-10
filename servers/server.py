@@ -68,7 +68,7 @@ vrefs = ServableVrefs(sf=server_functions)
 
 # Register completions, diagnostics, and actions with the server
 server_functions.add_completion(spelling.spell_completion)
-server_functions.add_completion(embedding.embed_completion)
+#server_functions.add_completion(embedding.embed_completion)
 server_functions.add_diagnostic(spelling.spell_diagnostic)
 server_functions.add_diagnostic(wb_line_diagnostic)
 server_functions.add_diagnostic(vrefs.vref_diagnostics)
