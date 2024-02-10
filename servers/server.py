@@ -72,7 +72,9 @@ server_functions.add_completion(spelling.spell_completion)
 server_functions.add_diagnostic(spelling.spell_diagnostic)
 server_functions.add_diagnostic(wb_line_diagnostic)
 server_functions.add_diagnostic(vrefs.vref_diagnostics)
+
 server_functions.add_action(spelling.spell_action)
+server_functions.add_action(vrefs.vref_code_actions)
 
 def add_dictionary(args: list) -> bool:
     """Add a dictionary to the spelling servable.
