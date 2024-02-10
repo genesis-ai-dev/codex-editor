@@ -1,4 +1,4 @@
-from lsprotocol.types import Diagnostic, DocumentDiagnosticParams, Position, Range, DiagnosticSeverity
+from lsprotocol.types import *
 from pygls.server import LanguageServer
 import re
 from enum import Enum
@@ -23,10 +23,9 @@ class ServableVrefs:
         expected_book = None
         last_verse = None
         seen_verses = set()
-
         for i, line in enumerate(lines):
-            match = re.match(r'([A-Z][A-Z][A-Z]) (\d+):(\d+)', line)
-            if match:
+            matches = re.finditer(r'(\d*[A-Z]+) (\d+):(\d+)', line)
+            for match in matches:
                 book, chapter, verse = match.groups()
                 verse_ref = f"{book} {chapter}:{verse}"
                 if verse_ref in seen_verses:
@@ -52,7 +51,6 @@ class ServableVrefs:
                             diagnostics.append(self.create_diagnostic(i, line, match, VrefMessages.VERSE_MISSING.value.format(missing_verse=missing_verse, after=last_verse)))
 
                 last_verse = f"{chapter}:{verse}"
-
         return diagnostics
 
     def create_diagnostic(self, line_num: int, line: str, match, message: str) -> Diagnostic:
@@ -67,3 +65,65 @@ class ServableVrefs:
         document = self.ls.server.workspace.get_document(document_uri)
         lines = document.lines
         return self.validate_verses(lines)
+    
+    def vref_code_actions(self, ls: LanguageServer, params: CodeActionParams, range: Range, sf) -> List[CodeAction]:
+        """
+        Generate code actions for verse validation corrections in a document.
+
+        Args:
+            ls (LanguageServer): The instance of the language server.
+            params (CodeActionParams): The parameters for the code action request.
+
+        Returns:
+            List[CodeAction]: A list of CodeAction objects representing verse validation correction actions.
+        """
+        document_uri = params.text_document.uri
+        diagnostics = params.context.diagnostics
+
+        actions = []
+
+        for diagnostic in diagnostics:
+            if 'duplicated' in diagnostic.message:
+                # Extract the verse reference from the diagnostic message
+                verse = diagnostic.message.split(" ")[-1]
+                action = CodeAction(
+                    title=f"Remove duplicate verse {verse}",
+                    kind=CodeActionKind.QuickFix,
+                    diagnostics=[diagnostic],
+                    edit=WorkspaceEdit(changes={
+                        document_uri: [TextEdit(range=diagnostic.range, new_text="")]
+                    })
+                )
+                actions.append(action)
+
+            elif "missing" in diagnostic.message:
+                # Extract the missing verse and the verse after which it is missing from the diagnostic message
+                missing_verse = " ".join(diagnostic.message.split(" ")[2:4])
+                # Determine the position to insert the missing verse above the current line
+                insert_position = diagnostic.range.start
+                # Create a new range starting at the beginning of the line
+                insert_range = Range(start=Position(line=insert_position.line, character=0), end=Position(line=insert_position.line, character=0))
+                action = CodeAction(
+                    title=f"Add missing verse {missing_verse}",
+                    kind=CodeActionKind.QuickFix,
+                    diagnostics=[diagnostic],
+                    edit=WorkspaceEdit(changes={
+                        document_uri: [TextEdit(range=insert_range, new_text=f"{missing_verse}\n")]
+                    })
+                )
+                actions.append(action)
+
+            elif "is not correct for book" in diagnostic.message:
+                # This case might require more complex logic to determine the correct book or offer suggestions
+                # For simplicity, we'll just offer an action to remove the incorrect reference
+                action = CodeAction(
+                    title="Remove incorrect book reference",
+                    kind=CodeActionKind.QuickFix,
+                    diagnostics=[diagnostic],
+                    edit=WorkspaceEdit(changes={
+                        document_uri: [TextEdit(range=diagnostic.range, new_text="")]
+                    })
+                )
+                actions.append(action)
+
+        return actions
