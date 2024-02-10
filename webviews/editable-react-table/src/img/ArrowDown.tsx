@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function Arrow() {
+const Arrow: React.FC = () => {
   return (
     <svg
       width="44"
@@ -13,9 +13,11 @@ export default function Arrow() {
       strokeLinejoin="round"
     >
       <path stroke="none" d="M0 0h24v24H0z" fill="none" />
-      <line x1="5" y1="12" x2="19" y2="12" />
-      <line x1="5" y1="12" x2="11" y2="18" />
-      <line x1="5" y1="12" x2="11" y2="6" />
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="18" y1="13" x2="12" y2="19" />
+      <line x1="6" y1="13" x2="12" y2="19" />
     </svg>
   );
-}
+};
+
+export default Arrow;

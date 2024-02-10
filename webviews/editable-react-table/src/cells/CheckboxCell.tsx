@@ -6,10 +6,10 @@ export default function CheckboxCell({
   columnId,
   rowIndex,
   dataDispatch,
-}) {
+}: CellTypeData) {
   const [checked, setChecked] = useState(initialValue);
 
-  const handleChange = (e) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setChecked(e.target.checked);
     dataDispatch({
       type: ActionTypes.UPDATE_CELL,

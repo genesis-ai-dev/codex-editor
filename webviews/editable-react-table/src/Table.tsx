@@ -13,7 +13,7 @@ import { ActionTypes } from './utils';
 import { FixedSizeList } from 'react-window';
 import scrollbarWidth from './scrollbarWidth';
 
-const defaultColumn = {
+const defaultColumn: TableColumn = {
   minWidth: 50,
   width: 150,
   maxWidth: 400,
@@ -27,10 +27,12 @@ export default function Table({
   data,
   dispatch: dataDispatch,
   skipReset,
-}) {
+}: TableData) {
+// export const Table: React.FC<TableData> = ({ columns, data, dispatch: dataDispatch, skipReset }) => {
+
   const sortTypes = useMemo(
     () => ({
-      alphanumericFalsyLast(rowA, rowB, columnId, desc) {
+      alphanumericFalsyLast(rowA: any, rowB: any, columnId: string, desc?: boolean) {
         if (!rowA.values[columnId] && !rowB.values[columnId]) {
           return 0;
         }
@@ -74,19 +76,15 @@ export default function Table({
     useSortBy
   );
 
-
-  
-
-
   const RenderRow = React.useCallback(
     
-    ({ index, style }) => {
+    ({ index, style }: { index: number; style: React.CSSProperties }) => {
 
       const row = rows[index];
       prepareRow(row);
       return (
         <div {...row.getRowProps({ style })} className="tr">
-          {row.cells.map((cell, cellIndex) => (
+          {row.cells.map((cell: any, cellIndex: number) => (
             <div {...cell.getCellProps()} key={cellIndex} className="td">
               {cell.render('Cell')}
             </div>
@@ -97,7 +95,7 @@ export default function Table({
     [prepareRow, rows]
   );
 
-  function isTableResizing() {
+  function isTableResizing(): boolean {
     for (let headerGroup of headerGroups) {
       for (let column of headerGroup.headers) {
         if (column.isResizing) {
@@ -116,9 +114,9 @@ export default function Table({
         className={clsx('table', isTableResizing() && 'noselect')}
       >
         <div>
-          {headerGroups.map((headerGroup, index) => (
+          {headerGroups.map((headerGroup: any, index: number) => (
             <div {...headerGroup.getHeaderGroupProps()} key={index} className="tr">
-              {headerGroup.headers.map(column => column.render('Header', { key: column.id}))}
+              {headerGroup.headers.map((column: any) => column.render('Header', { key: column.id}))}
             </div>
           ))}
         </div>
@@ -133,7 +131,7 @@ export default function Table({
           </FixedSizeList>
           <div
             className="tr add-row"
-            onClick={() => dataDispatch({ type: ActionTypes.ADD_ROW })}
+            onClick={() => dataDispatch && dataDispatch({ type: ActionTypes.ADD_ROW })}
           >
             <span className="svg-icon svg-gray icon-margin">
               <PlusIcon />

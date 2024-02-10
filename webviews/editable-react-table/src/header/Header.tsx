@@ -4,15 +4,36 @@ import { Constants } from '../utils';
 import AddColumnHeader from './AddColumnHeader';
 import DataTypeIcon from './DataTypeIcon';
 import HeaderMenu from './HeaderMenu';
+import { DataTypes } from '../utils'; //Unsure about importing this
+
+interface DataAction {
+  type: string; // More specific action types as string literals
+  payload?: any; // Be as specific as possible with the payload
+}
+
+interface Column {
+  id: string | number;
+  created?: boolean;
+  label: string;
+  dataType: string; // You might want to use a specific union type or enum if you have a finite set of data types
+  getResizerProps: () => any; // Specify the correct return type if possible
+  getHeaderProps: () => any; // Specify the correct return type if possible
+}
+
+interface HeaderProps {
+  column: Column;
+  setSortBy: (criteria: any) => void; // Specify the correct parameter type based on your sorting logic
+  dataDispatch: React.Dispatch<DataAction>;
+}
 
 export default function Header({
   column: { id, created, label, dataType, getResizerProps, getHeaderProps },
   setSortBy,
   dataDispatch,
-}) {
-  const [showHeaderMenu, setShowHeaderMenu] = useState(created || false);
-  const [headerMenuAnchorRef, setHeaderMenuAnchorRef] = useState(null);
-  const [headerMenuPopperRef, setHeaderMenuPopperRef] = useState(null);
+}: HeaderProps) {
+  const [showHeaderMenu, setShowHeaderMenu] = useState<boolean>(created || false);
+  const [headerMenuAnchorRef, setHeaderMenuAnchorRef] = useState<HTMLDivElement | null>(null);
+  const [headerMenuPopperRef, setHeaderMenuPopperRef] = useState<HTMLDivElement | null>(null);
   const headerMenuPopper = usePopper(headerMenuAnchorRef, headerMenuPopperRef, {
     placement: 'bottom',
     strategy: 'absolute',
@@ -54,7 +75,7 @@ export default function Header({
             ref={setHeaderMenuAnchorRef}
           >
             <span className="svg-icon svg-gray icon-margin">
-              <DataTypeIcon dataType={dataType} />
+            <DataTypeIcon dataType={DataTypes[dataType as keyof typeof DataTypes]} />
             </span>
             {label}
           </div>
@@ -71,7 +92,7 @@ export default function Header({
             popperRef={setHeaderMenuPopperRef}
             dataDispatch={dataDispatch}
             setSortBy={setSortBy}
-            columnId={id}
+            columnId={id.toString()}
             setShowHeaderMenu={setShowHeaderMenu}
           />
         )}
