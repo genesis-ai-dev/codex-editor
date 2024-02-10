@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { ChatPostMessages } from "../../../types";
 
 const config = vscode.workspace.getConfiguration("translators-copilot");
 const endpoint = config.get("llmEndpoint"); // NOTE: config.endpoint is reserved so we must have unique name
@@ -6,7 +7,7 @@ const apiKey = config.get("api_key");
 const model = config.get("model");
 const maxTokens = config.get("max_tokens");
 const temperature = config.get("temperature");
-const maxLength = 4000;
+const maxLength = 2048;
 let abortController: AbortController | null = null;
 
 const loadWebviewHtml = (
@@ -18,18 +19,20 @@ const loadWebviewHtml = (
         localResourceRoots: [extensionUri],
     };
 
-    // const indexPath = path.join(
-    //   extensionUri.fsPath,
-    //   "ChatSideBar",
-    //   "build",
-    //   "index.html"
-    // );
-
     const styleResetUri = webviewView.webview.asWebviewUri(
         vscode.Uri.joinPath(extensionUri, "src", "assets", "reset.css"),
     );
     const styleVSCodeUri = webviewView.webview.asWebviewUri(
         vscode.Uri.joinPath(extensionUri, "src", "assets", "vscode.css"),
+    );
+    const codiconsUri = webviewView.webview.asWebviewUri(
+        vscode.Uri.joinPath(
+            extensionUri,
+            "node_modules",
+            "@vscode/codicons",
+            "dist",
+            "codicon.css",
+        ),
     );
 
     const scriptUri = webviewView.webview.asWebviewUri(
@@ -72,20 +75,20 @@ const loadWebviewHtml = (
       Use a content security policy to only allow loading images from https or from our extension directory,
       and only allow scripts that have a specific nonce.
     -->
-    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${
-        webviewView.webview.cspSource
-    }; script-src 'nonce-${nonce}';">
+    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${webviewView.webview.cspSource
+        }; script-src 'nonce-${nonce}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="${styleResetUri}" rel="stylesheet">
     <link href="${styleVSCodeUri}" rel="stylesheet">
-    <link href="${styleUri}" rel="stylesheet">
+    <link href="${styleUri}" rel="stylesheet" />
+    <link href="${codiconsUri}" rel="stylesheet" />
     <script nonce="${nonce}">
       // const vsCodeApi = acquireVsCodeApi();
       const apiBaseUrl = ${JSON.stringify("http://localhost:3002")}
     </script>
     </head>
-    <body>
-    <div id="root"></div>
+    <body style="padding: 0; min-width: none; max-width: 100%; margin: 0;">
+    <div id="root" style="padding: 0; min-width: none; max-width: 100%; margin: 0;"></div>
     <script nonce="${nonce}" src="${scriptUri}"></script>
   </body>
   </html>`;
@@ -97,7 +100,7 @@ const sendFinishMessage = (webviewView: vscode.WebviewView) => {
         command: "response",
         finished: true,
         text: "",
-    });
+    } as ChatPostMessages);
 };
 
 const processFetchResponse = (
@@ -131,7 +134,7 @@ const processFetchResponse = (
                             try {
                                 const payload = JSON.parse(jsonString);
                                 // console.log("29u3089u", { payload });
-                                const payloadTemp = payload["choices"][0];
+                                const payloadTemp = payload["choices"]?.[0];
                                 const sendChunk = payloadTemp["message"]
                                     ? payloadTemp["message"]["content"]
                                     : payloadTemp["delta"]["content"];
@@ -140,7 +143,7 @@ const processFetchResponse = (
                                         command: "response",
                                         finished: false,
                                         text: sendChunk,
-                                    });
+                                    } as ChatPostMessages);
                             } catch (error) {
                                 console.log("Error:", error);
                             }
@@ -177,7 +180,7 @@ export class CustomWebviewProvider {
         webviewView.webview.postMessage({
             command: "select",
             text: selectedText ? formattedCode : "",
-        });
+        } as ChatPostMessages);
     }
 
     saveSelectionChanges(webviewView: vscode.WebviewView) {
@@ -197,11 +200,15 @@ export class CustomWebviewProvider {
 
     resolveWebviewView(webviewView: vscode.WebviewView) {
         loadWebviewHtml(webviewView, this._extensionUri);
-        webviewView.webview.postMessage({ command: "reload" });
+        webviewView.webview.postMessage({
+            command: "reload",
+        } as ChatPostMessages);
 
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
-                webviewView.webview.postMessage({ command: "reload" });
+                webviewView.webview.postMessage({
+                    command: "reload",
+                } as ChatPostMessages);
             }
         });
 
@@ -215,7 +222,7 @@ export class CustomWebviewProvider {
         });
 
         webviewView.webview.onDidReceiveMessage(async (message) => {
-            console.log({ message });
+            console.log({ message }, "onDidReceiveMessage in chat");
             try {
                 switch (message.command) {
                     case "fetch": {
@@ -227,6 +234,7 @@ export class CustomWebviewProvider {
                             stream: true,
                             messages: JSON.parse(message.messages),
                             model: undefined as any,
+                            stop: ["\n\n", "###", "<|endoftext|>"], // ? Not sure if it matters if we pass this here.
                         };
                         if (model) {
                             data.model = model;

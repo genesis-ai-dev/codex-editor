@@ -4,7 +4,7 @@ import {
     VSCodeTextField,
 } from "@vscode/webview-ui-toolkit/react";
 import "./App.css";
-import { NotebookCommentThread } from "../../../types";
+import { NotebookCommentThread, CommentPostMessages } from "../../../types";
 const vscode = acquireVsCodeApi();
 type Comment = NotebookCommentThread["comments"][0];
 function App() {
@@ -16,7 +16,7 @@ function App() {
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
-            const message = event.data;
+            const message: CommentPostMessages = event.data;
             console.log({ message }, "lkdjsfad;o");
             switch (message.command) {
                 case "commentsFromWorkspace": {
@@ -58,21 +58,25 @@ function App() {
             ];
             vscode.postMessage({
                 command: "updateCommentThread",
-                comments: JSON.stringify(updatedCommentThreadArray),
-            });
+                comments: JSON.stringify(updatedCommentThreadArray, null, 4),
+            } as CommentPostMessages);
         }
     }, [comment, commentThreadArray]);
-
-    function handleClick(commentContent?: string) {
+    const [formState, setFormState] = useState<string>("");
+    function handleSubmit() {
         // if (message) {
         // const currentMessageLog = [...messageLog, message];
         // setMessageLog(currentMessageLog);
-        // console.log({ currentMessageLog });
+        console.log({
+            formState,
+            // "CommentCommandNames.updateCommentThread":
+            //     CommentCommandNames.updateCommentThread,
+        });
         const id = 1; // FIXME: use unique id count
         setComment({
             id,
             contextValue: "canDelete",
-            body: commentContent || "",
+            body: formState || "",
             mode: 1,
             author: { name: "vscode" },
         });
@@ -116,6 +120,7 @@ function App() {
     //         // }
     //     },
     // );
+
     return (
         <main
             style={{
@@ -126,11 +131,23 @@ function App() {
             }}
         >
             <div
-                className="chat-container"
+                className="comments-container"
                 style={{ flex: 1, overflowY: "auto" }}
             >
                 <h1>{verseRef}</h1>
-                <div className="chat-content">
+                {commentThreadArray.length === 0 && (
+                    <VSCodeButton
+                        type="button"
+                        onClick={() => {
+                            vscode.postMessage({
+                                command: "fetchComments",
+                            } as CommentPostMessages);
+                        }}
+                    >
+                        Fetch Comments
+                    </VSCodeButton>
+                )}
+                <div className="comments-content">
                     {commentThreadArray.map((commentThread) => {
                         return (
                             <p>
@@ -142,7 +159,7 @@ function App() {
             </div>
             {/* Input for sending messages */}
             <form
-                className="chat-input"
+                className="comments-input"
                 style={{
                     position: "sticky",
                     bottom: 0,
@@ -151,15 +168,22 @@ function App() {
                     flexWrap: "nowrap",
                 }}
                 onSubmit={(e) => {
+                    console.log({ e });
                     e.preventDefault();
-                    handleClick();
+                    handleSubmit();
                 }}
             >
                 <VSCodeTextField
                     placeholder="Type a message..."
-                    value={JSON.stringify(comment?.body) || ""}
-                    onChange={(e) =>
-                        handleClick((e.target as HTMLInputElement).value)
+                    value={formState}
+                    onChange={
+                        (e) => {
+                            setFormState(
+                                formState +
+                                    (e.target as HTMLInputElement).value,
+                            );
+                        }
+                        // handleSubmit((e.target as HTMLInputElement).value)
                     }
                     style={{ width: "100%" }}
                 />
