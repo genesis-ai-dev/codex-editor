@@ -80,7 +80,7 @@ class ScriptureReferenceCodeLensProvider {
                         new vscode.CodeLens(range, {
                             title: "💬 Discuss",
                             command: `codex-editor-extension.discuss`,
-                            arguments: [verseRef],
+                            arguments: [verseRef, document.uri.toString()],
                         }),
                     );
                 }
@@ -152,8 +152,11 @@ const registerReferences = (context: vscode.ExtensionContext) => {
     context.subscriptions.push(
         vscode.commands.registerCommand(
             `codex-editor-extension.discuss`,
-            async (verseRef: string) => {
-                updateGlobalState(context, "verseRef", verseRef);
+            async (verseRef: string, uri: string) => {
+                updateGlobalState(context, {
+                    key: "verseRef",
+                    value: { verseRef, uri },
+                });
                 vscode.window.showInformationMessage(
                     `Discussing ${verseRef}...`,
                 );

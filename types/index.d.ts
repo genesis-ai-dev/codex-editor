@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
-export interface ChatMessage {
-    role: "system" | "user";
+interface ChatMessage {
+    role: "system" | "user" | "assistant";
     content: string;
 }
 
@@ -26,3 +26,24 @@ interface NotebookCommentThread {
     collapsibleState: number;
     canReply: boolean;
 }
+
+interface VerseRefGlobalState {
+    verseRef: string;
+    uri: string;
+}
+
+type CommentPostMessages =
+    | { command: "commentsFromWorkspace"; content: string }
+    | { command: "reload"; data: VerseRefGlobalState }
+    | { command: "updateCommentThread"; comments: string }
+    | { command: "fetchComments" };
+
+type ChatPostMessages =
+    | { command: "response"; finished: boolean; text: string }
+    | { command: "reload" }
+    | { command: "select"; text: string }
+    | { command: "fetch"; messages: string };
+
+// enum CommentCommandNames {
+//     updateCommentThread = "updateCommentThread",
+// }
