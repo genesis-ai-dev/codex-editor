@@ -82,9 +82,8 @@ function App() {
             <VerseRefNavigation verseRef={verseRef} callback={setVerseRef} />
             <div
                 className="comments-container"
-                style={{ flex: 1, overflowY: "auto" }}
+                style={{ flex: 1, overflowY: "auto", width: "100%" }}
             >
-                <h1>{verseRef}</h1>
                 {commentThreadArray.length === 0 && (
                     <VSCodeButton
                         type="button"
@@ -97,15 +96,46 @@ function App() {
                         Fetch Comments
                     </VSCodeButton>
                 )}
-                <div className="comments-content">
+                <div
+                    className="comments-content"
+                    style={{
+                        display: "flex",
+                        flexFlow: "column nowrap",
+                        justifyContent: "stretch",
+                    }}
+                >
                     {commentThreadArray.map((commentThread) => {
                         if (commentThread.verseRef === verseRef) {
                             return (
-                                <p>
-                                    {JSON.stringify(
-                                        commentThread.comments[0].body,
-                                    )}
-                                </p>
+                                <div
+                                    style={{
+                                        backgroundColor:
+                                            "var(--vscode-button-background)",
+                                        paddingTop: "20px",
+                                        paddingRight: "15px",
+                                        paddingLeft: "15px",
+                                        paddingBottom: "30px",
+                                        borderRadius: "20px",
+                                        margin: "20px",
+                                    }}
+                                >
+                                    <h3>
+                                        {commentThread.threadTitle || "Note:"}
+                                    </h3>
+                                    <hr
+                                        style={{
+                                            width: "100%",
+                                            border: "0",
+                                            borderBottom:
+                                                "1px solid var(--vscode-editor-foreground)",
+                                        }}
+                                    />
+                                    <p>
+                                        {JSON.stringify(
+                                            commentThread.comments[0].body,
+                                        )}
+                                    </p>
+                                </div>
                             );
                         }
                     })}
