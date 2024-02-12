@@ -5,11 +5,13 @@ import {
 } from "@vscode/webview-ui-toolkit/react";
 import "./App.css";
 import { NotebookCommentThread, CommentPostMessages } from "../../../types";
+import VerseRefNavigation from "./components/verseRefNavigation";
 const vscode = acquireVsCodeApi();
 type Comment = NotebookCommentThread["comments"][0];
 function App() {
-    const [comment, setComment] = useState<Comment>();
-    const [verseRef, setVerseRef] = useState<string>();
+    // const [comment, setComment] = useState<Comment>();
+    const [verseRef, setVerseRef] = useState<string>("GEN 1:1");
+    const [uri, setUri] = useState<string>();
     const [commentThreadArray, setCommentThread] = useState<
         NotebookCommentThread[]
     >([]);
@@ -30,6 +32,7 @@ function App() {
                 case "reload": {
                     console.log(verseRef, message.data?.verseRef);
                     setVerseRef(message.data?.verseRef);
+                    setUri(message.data?.uri);
                     break;
                 }
                 // Handle other cases
@@ -43,25 +46,22 @@ function App() {
             window.removeEventListener("message", handleMessage);
         };
     }, []); // The empty array means this effect runs once on mount and cleanup on unmount
-    useEffect(() => {
-        const uri: any = "";
-        if (comment && verseRef) {
-            const updatedCommentThreadArray: NotebookCommentThread[] = [
-                ...commentThreadArray,
-                {
-                    uri: uri,
-                    canReply: true,
-                    comments: [comment],
-                    verseRef,
-                    collapsibleState: 0,
-                },
-            ];
-            vscode.postMessage({
-                command: "updateCommentThread",
-                comments: JSON.stringify(updatedCommentThreadArray, null, 4),
-            } as CommentPostMessages);
-        }
-    }, [comment, commentThreadArray]);
+    // useEffect(() => {
+    //     const uri: any = "";
+    //     if (comment && verseRef) {
+    //         const updatedCommentThread: NotebookCommentThread = {
+    //             uri: uri,
+    //             canReply: true,
+    //             comments: [comment],
+    //             verseRef,
+    //             collapsibleState: 0,
+    //         };
+    //         vscode.postMessage({
+    //             command: "updateCommentThread",
+    //             comment: updatedCommentThread,
+    //         } as CommentPostMessages);
+    //     }
+    // }, [comment, commentThreadArray]);
     const [formState, setFormState] = useState<string>("");
     function handleSubmit() {
         // if (message) {
@@ -72,15 +72,37 @@ function App() {
             // "CommentCommandNames.updateCommentThread":
             //     CommentCommandNames.updateCommentThread,
         });
-        const id = 1; // FIXME: use unique id count
-        setComment({
-            id,
+        // const id = 1; // FIXME: use unique id count
+        // setComment({
+        //     id,
+        //     contextValue: "canDelete",
+        //     body: formState || "",
+        //     mode: 1,
+        //     author: { name: "vscode" },
+        // });
+        if (!uri) {
+            console.error("uri not found");
+            return;
+        }
+        const comment: Comment = {
+            id: 1,
             contextValue: "canDelete",
             body: formState || "",
             mode: 1,
             author: { name: "vscode" },
-        });
+        };
 
+        const updatedCommentThread: NotebookCommentThread = {
+            uri: uri,
+            canReply: true,
+            comments: [comment],
+            verseRef,
+            collapsibleState: 0,
+        };
+        vscode.postMessage({
+            command: "updateCommentThread",
+            comment: updatedCommentThread,
+        } as CommentPostMessages);
         // setMessage(undefined);
         // }
     }
@@ -130,6 +152,7 @@ function App() {
                 width: "100%",
             }}
         >
+            <VerseRefNavigation verseRef={verseRef} callback={setVerseRef} />
             <div
                 className="comments-container"
                 style={{ flex: 1, overflowY: "auto" }}
