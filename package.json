@@ -248,6 +248,11 @@
                 "category": "pygls"
             },
             {
+                "command": "pygls.server.textSelected",
+                "title": "Text Highlighted",
+                "category": "pygls"
+            },
+            {
                 "command": "commentsExtension.createNote",
                 "title": "Create Note",
                 "enablement": "!commentIsEmpty"

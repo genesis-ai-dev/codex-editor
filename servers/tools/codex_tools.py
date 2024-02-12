@@ -3,7 +3,7 @@ import re
 
 
 def parse_scripture(scripture):
-    pattern = r"scripture\s+(\w+)\s+(\d+):(\d+)\s+-\s+(\d+):(\d+)"
+    pattern = r"scripture\s+([0-9]*\w+)\s+(\d+):(\d+)\s+-\s+(\d+):(\d+)"
     match = re.match(pattern, scripture)
     if match:
         book_abbr, start_chapter, start_verse, end_chapter, end_verse = match.groups()
