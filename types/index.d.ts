@@ -35,7 +35,7 @@ interface VerseRefGlobalState {
 type CommentPostMessages =
     | { command: "commentsFromWorkspace"; content: string }
     | { command: "reload"; data: VerseRefGlobalState }
-    | { command: "updateCommentThread"; comments: string }
+    | { command: "updateCommentThread"; comment: NotebookCommentThread }
     | { command: "fetchComments" };
 
 type ChatPostMessages =
@@ -47,3 +47,4 @@ type ChatPostMessages =
 // enum CommentCommandNames {
 //     updateCommentThread = "updateCommentThread",
 // }
+// fixme: enums so the types compile when they are used
