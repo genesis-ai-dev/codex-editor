@@ -3,8 +3,7 @@
 import * as vscode from "vscode";
 import { CodexKernel } from "./controller";
 import { CodexContentSerializer } from "./serializer";
-const fetch = require('node-fetch');
-
+ 
 import {
     NOTEBOOK_TYPE,
     createCodexNotebook,
