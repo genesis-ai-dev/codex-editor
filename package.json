@@ -197,10 +197,6 @@
                 "title": "checkTaskStatus"
             },
             {
-                "command": "codex-notebook-extension.openChapter",
-                "title": "Open Chapter"
-            },
-            {
                 "command": "codex-editor-extension.showReferences",
                 "title": "Show Scripture References"
             },
@@ -225,6 +221,11 @@
                 "command": "scripture-explorer-activity-bar.refreshEntry",
                 "title": "Refresh",
                 "icon": "$(refresh)"
+            },
+            {
+                "command": "scripture-explorer-activity-bar.openChapter",
+                "title": "Open",
+                "icon": "$(arrow-right)"
             },
             {
                 "command": "pygls.server.restart",

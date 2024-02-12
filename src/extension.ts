@@ -134,20 +134,6 @@ export async function activate(context: vscode.ExtensionContext) {
         new CodexKernel(),
     );
 
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-editor-extension.openChapter",
-            async (notebookPath: string, chapterIndex: number) => {
-                try {
-                    jumpToCellInNotebook(notebookPath, chapterIndex);
-                } catch (error) {
-                    vscode.window.showErrorMessage(
-                        `Failed to open chapter: ${error}`,
-                    );
-                }
-            },
-        ),
-    );
     // Register a command called openChapter that opens a specific .codex notebook to a specific chapter
     context.subscriptions.push(
         vscode.commands.registerCommand(
@@ -287,11 +273,12 @@ export async function activate(context: vscode.ExtensionContext) {
     // Register and create the Scripture Tree View
     const scriptureTreeViewProvider = new CodexNotebookProvider(ROOT_PATH);
     const resourceTreeViewProvider = new ResourceProvider(ROOT_PATH);
+
     vscode.window.registerTreeDataProvider(
         "resource-explorer",
         resourceTreeViewProvider,
     );
-    // vscode.window.createTreeView('scripture-explorer', { treeDataProvider: scriptureTreeViewProvider });
+
     vscode.commands.registerCommand("resource-explorer.refreshEntry", () =>
         resourceTreeViewProvider.refresh(),
     );
@@ -299,12 +286,26 @@ export async function activate(context: vscode.ExtensionContext) {
         "scripture-explorer-activity-bar",
         scriptureTreeViewProvider,
     );
-    // vscode.window.createTreeView('scripture-explorer', { treeDataProvider: scriptureTreeViewProvider });
+
     vscode.commands.registerCommand(
         "scripture-explorer-activity-bar.refreshEntry",
         () => scriptureTreeViewProvider.refresh(),
     );
 
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "scripture-explorer-activity-bar.openChapter",
+            async (notebookPath: string, chapterIndex: number) => {
+                try {
+                    jumpToCellInNotebook(notebookPath, chapterIndex);
+                } catch (error) {
+                    vscode.window.showErrorMessage(
+                        `Failed to open chapter: ${error}`,
+                    );
+                }
+            },
+        ),
+    );
     /** END CODEX EDITOR EXTENSION FUNCTIONALITY */
 
     /** BEGIN PYTHON SERVER FUNCTIONALITY */
