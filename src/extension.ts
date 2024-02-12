@@ -3,7 +3,7 @@
 import * as vscode from "vscode";
 import { CodexKernel } from "./controller";
 import { CodexContentSerializer } from "./serializer";
- 
+
 import {
     NOTEBOOK_TYPE,
     createCodexNotebook,
@@ -70,6 +70,15 @@ import { CreateProjectProvider } from "./providers/obs/CreateProject/CreateProje
 
 const MIN_PYTHON = semver.parse("3.7.9");
 const ROOT_PATH = getWorkSpaceFolder();
+
+const PATHS_TO_POPULATE = [
+    "metadata.json", // This is where we store the project metadata in scripture burrito format
+    "comments.json", // This is where we store the VS Code comments api comments, such as on .bible files
+    "notebook-comments.json", // We can't use the VS Code comments api for notebooks (.codex files), so a second files avoids overwriting conflicts
+    "drafts/", // This is where we store the project drafts, including project.dictionary and embedding dbs
+    "drafts/target/", // This is where we store the drafted scripture in particular as .codex files
+    "drafts/project.dictionary", // This is where we store the project dictionary
+];
 
 if (!ROOT_PATH) {
     vscode.window.showErrorMessage("No workspace found");
@@ -350,6 +359,26 @@ export async function activate(context: vscode.ExtensionContext) {
             },
         ),
     );
+
+    // Check and create missing project files or directories as specified in PATHS_TO_POPULATE
+    if (ROOT_PATH) {
+        vscode.window.showInformationMessage("Checking for missing project files...");
+        for (const pathToPopulate of PATHS_TO_POPULATE) {
+            const fullPath = vscode.Uri.joinPath(vscode.Uri.file(ROOT_PATH), pathToPopulate);
+            try {
+                await vscode.workspace.fs.stat(fullPath);
+            } catch (error) {
+                // Determine if the missing path is a file or a directory based on its name
+                if (pathToPopulate.includes('.')) { // Assuming it's a file if there's an extension
+                    vscode.window.showInformationMessage(`Creating file: ${pathToPopulate}`);
+                    await vscode.workspace.fs.writeFile(fullPath, new Uint8Array()); // Create an empty file
+                } else { // Assuming it's a directory if there's no file extension
+                    vscode.window.showInformationMessage(`Creating directory: ${pathToPopulate}`);
+                    await vscode.workspace.fs.createDirectory(fullPath);
+                }
+            }
+        }
+    }
     /** END CODEX EDITOR EXTENSION FUNCTIONALITY */
 
     /** BEGIN PYTHON SERVER FUNCTIONALITY */
