@@ -89,5 +89,5 @@ class ServableEmbedding:
                     threading.Timer(5, attempt_start, [retries_left - 1]).start()
             else:
                 pass
-        threading.Timer(5, attempt_start).start()
+        threading.Timer(20, attempt_start).start()
 
