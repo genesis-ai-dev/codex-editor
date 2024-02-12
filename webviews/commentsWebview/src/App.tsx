@@ -1,15 +1,12 @@
 import { useState, useEffect } from "react";
-import {
-    VSCodeButton,
-    VSCodeTextField,
-} from "@vscode/webview-ui-toolkit/react";
+import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import "./App.css";
 import { NotebookCommentThread, CommentPostMessages } from "../../../types";
 import VerseRefNavigation from "./components/verseRefNavigation";
+import { CommentTextForm } from "./components/CommentTextForm";
 const vscode = acquireVsCodeApi();
 type Comment = NotebookCommentThread["comments"][0];
 function App() {
-    // const [comment, setComment] = useState<Comment>();
     const [verseRef, setVerseRef] = useState<string>("GEN 1:1");
     const [uri, setUri] = useState<string>();
     const [commentThreadArray, setCommentThread] = useState<
@@ -50,40 +47,8 @@ function App() {
             window.removeEventListener("message", handleMessage);
         };
     }, []); // The empty array means this effect runs once on mount and cleanup on unmount
-    // useEffect(() => {
-    //     const uri: any = "";
-    //     if (comment && verseRef) {
-    //         const updatedCommentThread: NotebookCommentThread = {
-    //             uri: uri,
-    //             canReply: true,
-    //             comments: [comment],
-    //             verseRef,
-    //             collapsibleState: 0,
-    //         };
-    //         vscode.postMessage({
-    //             command: "updateCommentThread",
-    //             comment: updatedCommentThread,
-    //         } as CommentPostMessages);
-    //     }
-    // }, [comment, commentThreadArray]);
-    // const [formState, setFormState] = useState<string | undefined>();
+
     function handleSubmit(submittedCommentValue: string) {
-        // if (message) {
-        // const currentMessageLog = [...messageLog, message];
-        // setMessageLog(currentMessageLog);
-        // console.log({
-        //     formState,
-        //     // "CommentCommandNames.updateCommentThread":
-        //     //     CommentCommandNames.updateCommentThread,
-        // });
-        // const id = 1; // FIXME: use unique id count
-        // setComment({
-        //     id,
-        //     contextValue: "canDelete",
-        //     body: formState || "",
-        //     mode: 1,
-        //     author: { name: "vscode" },
-        // });
         if (!uri) {
             console.error("uri not found");
             return;
@@ -107,45 +72,7 @@ function App() {
             command: "updateCommentThread",
             comment: updatedCommentThread,
         } as CommentPostMessages);
-
-        // setFormState(undefined);
     }
-    // console.log("getState", vscode.getState());
-    // window.addEventListener(
-    //     "message",
-    //     (
-    //         event: MessageEvent<{
-    //             command: "response";
-    //             finished: boolean;
-    //             text: string;
-    //         }>,
-    //     ) => {
-    //         // const message = event.data; // The JSON data our extension sent
-    //         console.log({ event, message });
-    //         if (!event.data.finished) {
-    //             const messageContent =
-    //                 (message?.content || "") + (event.data.text || "");
-    //             setMessage({
-    //                 role: "system",
-    //                 content: messageContent,
-    //             });
-    //         } else {
-    //             if (message) {
-    //                 setMessageLog([...messageLog, message]);
-    //             }
-    //             setMessage(undefined);
-    //         }
-    //         // switch (message.command) {
-    //         //   case "setState": {
-    //         //     // Handle the 'setState' message and update webview state
-    //         //     const state = message.data;
-    //         //     console.log({ state });
-    //         //     // Use the state to update your webview content
-    //         //     break;
-    //         //   }
-    //         // }
-    //     },
-    // );
 
     return (
         <main
@@ -189,45 +116,7 @@ function App() {
                 </div>
             </div>
             {/* Input for sending messages */}
-            <form
-                className="comments-input"
-                style={{
-                    position: "sticky",
-                    bottom: 0,
-                    width: "100%",
-                    display: "flex",
-                    flexWrap: "nowrap",
-                }}
-                onSubmit={(e) => {
-                    e.preventDefault();
-                    const formData = new FormData(e.target as HTMLFormElement);
-                    const formValue = formData.get("comment") as string;
-                    console.log("Form submitted with value:", formValue);
-                    handleSubmit(formValue);
-                    (e.target as HTMLFormElement).reset();
-                }}
-            >
-                <VSCodeTextField
-                    name="comment"
-                    placeholder="Type a message..."
-                    // value={formState}
-                    // onChange={
-                    //     (e) => {
-                    //         // console.log(
-                    //         //     { e },
-                    //         //     (e.target as HTMLInputElement).value,
-                    //         //     { formState },
-                    //         // );
-                    //         setFormState((e.target as HTMLInputElement).value);
-                    //     }
-                    //     // handleSubmit((e.target as HTMLInputElement).value)
-                    // }
-                    style={{ width: "100%" }}
-                />
-                {/* {formState && formState?.length > 0 && ( */}
-                <VSCodeButton type="submit">Save</VSCodeButton>
-                {/* )} */}
-            </form>
+            <CommentTextForm handleSubmit={handleSubmit} />
         </main>
     );
 }
