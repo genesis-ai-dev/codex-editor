@@ -201,6 +201,7 @@ export class CustomWebviewProvider {
                                 ),
                                 commentsFile,
                             );
+                            sendCommentsToWebview(webviewView);
                             break;
                         }
                         case "fetchComments": {
