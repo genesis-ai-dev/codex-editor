@@ -12,7 +12,7 @@ interface FrontEndMessage {
 }
 type CommentThread = vscode.CommentThread;
 interface NotebookCommentThread {
-    uri: string;
+    uri?: string;
     verseRef: string;
     comments: {
         id: number;

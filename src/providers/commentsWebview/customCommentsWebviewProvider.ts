@@ -3,7 +3,7 @@ import {
     FileHandler,
     serializeCommentThreadArray,
 } from "../../commentsProvider";
-import { globalStateEmitter } from "../../globalState";
+import { globalStateEmitter, updateGlobalState } from "../../globalState";
 import {
     CommentPostMessages,
     NotebookCommentThread,
@@ -142,10 +142,10 @@ async function writeSerializedData(serializedData: string, filename: string) {
     }
 }
 export class CustomWebviewProvider {
-    _extensionUri: any;
+    _context: vscode.ExtensionContext;
     selectionChangeListener: any;
-    constructor(extensionUri: vscode.Uri) {
-        this._extensionUri = extensionUri;
+    constructor(context: vscode.ExtensionContext) {
+        this._context = context;
     }
 
     resolveWebviewView(webviewView: vscode.WebviewView) {
@@ -160,7 +160,7 @@ export class CustomWebviewProvider {
                 }
             },
         );
-        loadWebviewHtml(webviewView, this._extensionUri);
+        loadWebviewHtml(webviewView, this._context.extensionUri);
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
                 sendCommentsToWebview(webviewView);
@@ -183,7 +183,40 @@ export class CustomWebviewProvider {
         // TODO: find out if the above code was needed. Find out why comments are not loading sometime at first
         // Find out why new comments are not being created
         // create a system of share types so message posting is easier to deal with.
-
+        const findUriForVerseRef = async (
+            verseRef: string,
+        ): Promise<string | null> => {
+            let uri = null;
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            const draftsFolderUri = workspaceFolders
+                ? vscode.Uri.joinPath(workspaceFolders[0].uri, "drafts")
+                : undefined;
+            if (draftsFolderUri) {
+                const codexFiles = await vscode.workspace.findFiles(
+                    new vscode.RelativePattern(
+                        draftsFolderUri,
+                        "target/*.codex",
+                    ),
+                );
+                for (const file of codexFiles) {
+                    const document =
+                        await vscode.workspace.openTextDocument(file);
+                    const text = document.getText();
+                    if (text.includes(verseRef)) {
+                        uri = file.toString();
+                        updateGlobalState(this._context, {
+                            key: "verseRef",
+                            value: {
+                                verseRef,
+                                uri,
+                            },
+                        });
+                        break;
+                    }
+                }
+            }
+            return uri;
+        };
         webviewView.webview.onDidReceiveMessage(
             async (message: CommentPostMessages) => {
                 console.log({ message }, "onDidReceiveMessage");
@@ -193,19 +226,41 @@ export class CustomWebviewProvider {
                             const commentsFile = "notebook-comments.json";
                             const existingComments =
                                 await getCommentsFromFile(commentsFile);
-                            await writeSerializedData(
-                                JSON.stringify(
-                                    [...existingComments, message.comment],
-                                    null,
-                                    4,
-                                ),
-                                commentsFile,
-                            );
+
+                            // NOTE: When the panel fist load the verseRef defaults to GEn 1:1 but there is no way for the webview to know the uri
+                            if (!message.comment.uri) {
+                                const uriForVerseRef = await findUriForVerseRef(
+                                    message.comment.verseRef,
+                                );
+                                if (!uriForVerseRef) {
+                                    vscode.window.showInformationMessage(
+                                        `No file found with the verse reference: ${message.comment.verseRef}`,
+                                    );
+                                    return;
+                                }
+                                message.comment.uri = uriForVerseRef;
+                                await writeSerializedData(
+                                    JSON.stringify(
+                                        [...existingComments, message.comment],
+                                        null,
+                                        4,
+                                    ),
+                                    commentsFile,
+                                );
+                            } else {
+                                await writeSerializedData(
+                                    JSON.stringify(
+                                        [...existingComments, message.comment],
+                                        null,
+                                        4,
+                                    ),
+                                    commentsFile,
+                                );
+                            }
                             sendCommentsToWebview(webviewView);
                             break;
                         }
                         case "fetchComments": {
-                            console.log({ message }, "fetchComments");
                             sendCommentsToWebview(webviewView);
                             break;
                         }
@@ -231,7 +286,7 @@ export function registerCommentsWebviewProvider(
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(
             "comments-sidebar",
-            new CustomWebviewProvider(context.extensionUri),
+            new CustomWebviewProvider(context),
         ),
     );
     item.show();
