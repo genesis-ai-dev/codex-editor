@@ -7,7 +7,6 @@ import lsprotocol.types as lsp_types
 import time
 
 
-
 class ServerFunctions:
     def __init__(self, server: LanguageServer, data_path: str):
         self.server = server
@@ -17,13 +16,14 @@ class ServerFunctions:
         self.initialize_functions = []
         self.close_functions = []
         self.open_functions = []
+        self.on_selected_functions = []
 
 
         self.completion = None
         self.diagnostic = None
         self.action = None
         self.data_path = data_path 
-        self.last_closed = time.time() # yes, none in quotes is intentional
+        self.last_closed = time.time()
     
     def add_diagnostic(self, function: Callable):#, #trigger_characters: List):
         self.diagnostic_functions.append((function, None))
@@ -39,6 +39,9 @@ class ServerFunctions:
     
     def add_open_function(self, function: Callable):
         self.open_functions.append(function)
+    
+    def add_selected_text_functiosn(self, function: Callable):
+        self.on_selected_functions.append(function)
 
 
 
@@ -101,10 +104,19 @@ class ServerFunctions:
                 for function in self.close_functions:
                     function(ls, params, self)
         
+    
+        
         @self.server.feature(TEXT_DOCUMENT_DID_OPEN)
         def on_open(ls, params: DidOpenTextDocumentParams):
             for function in self.open_functions:
                 function(ls, params, self)
+        
 
+    
+
+    def on_selected(self, text):
+        self.server.show_message("Text selected: "+text)
+        for f in self.on_selected_functions:
+            f(text)
     def initialize(self, server, params, fs):        
         self.data_path = server.workspace.root_path + self.data_path
