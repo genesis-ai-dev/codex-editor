@@ -19,9 +19,12 @@
         "noUnusedLocals": true,
         "noUnusedParameters": true,
         "noFallthroughCasesInSwitch": true,
-        "noImplicitAny": true
+        "baseUrl": "src",
+        "paths": {
+            "@shared/*": ["../../src/shared/*"],
+            "@/*": ["*"]
+        }
     },
-    "exclude": ["build"],
-    "include": ["src/*", "../types/index.d.ts"],
+    "include": ["src", "../src/shared"],
     "references": [{ "path": "./tsconfig.node.json" }]
 }
