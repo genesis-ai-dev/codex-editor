@@ -128,7 +128,7 @@ class DataBase:
         Returns:
             list: A list of search results.
         """
-        results = self.embeddings.search(query, limit) # TODO: #2 return citations as well (cf: https://github.com/neuml/txtai/blob/3861b818ae7ab89299dd5b3e0ff969d9a047449e/examples/52_Build_RAG_pipelines_with_txtai.ipynb#L445)
+        results = self.embeddings.search(query, limit)
         results = [result for result in results if result['score'] > .1]
         return results
 
