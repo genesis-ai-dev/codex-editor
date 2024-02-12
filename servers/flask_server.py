@@ -2,8 +2,10 @@ from flask import Flask, request, jsonify
 from tools.embedding2 import DataBase  # Updated import path
 from enum import Enum
 from typing import Dict
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app, origins='*')  # Allow requests from any origin
 databases: Dict[str, DataBase] = {}
 
 class DatabaseName(Enum):
