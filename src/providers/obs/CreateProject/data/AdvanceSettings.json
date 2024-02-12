@@ -1,0 +1,253 @@
+{
+  "canonSpecification": [
+    {
+      "id": 1,
+      "title": "All Books",
+      "currentScope": [
+        "GEN",
+        "EXO",
+        "LEV",
+        "NUM",
+        "DEU",
+        "JOS",
+        "JDG",
+        "RUT",
+        "1SA",
+        "2SA",
+        "1KI",
+        "2KI",
+        "1CH",
+        "2CH",
+        "EZR",
+        "NEH",
+        "EST",
+        "JOB",
+        "PSA",
+        "PRO",
+        "ECC",
+        "SNG",
+        "ISA",
+        "JER",
+        "LAM",
+        "EZK",
+        "DAN",
+        "HOS",
+        "JOL",
+        "AMO",
+        "OBA",
+        "JON",
+        "MIC",
+        "NAM",
+        "HAB",
+        "ZEP",
+        "HAG",
+        "ZEC",
+        "MAL",
+        "MAT",
+        "MRK",
+        "LUK",
+        "JHN",
+        "ACT",
+        "ROM",
+        "1CO",
+        "2CO",
+        "GAL",
+        "EPH",
+        "PHP",
+        "COL",
+        "1TH",
+        "2TH",
+        "1TI",
+        "2TI",
+        "TIT",
+        "PHM",
+        "HEB",
+        "JAS",
+        "1PE",
+        "2PE",
+        "1JN",
+        "2JN",
+        "3JN",
+        "JUD",
+        "REV"
+      ],
+      "locked": true
+    },
+    {
+      "id": 2,
+      "title": "Old Testament (OT)",
+      "currentScope": [
+        "GEN",
+        "EXO",
+        "LEV",
+        "NUM",
+        "DEU",
+        "JOS",
+        "JDG",
+        "RUT",
+        "1SA",
+        "2SA",
+        "1KI",
+        "2KI",
+        "1CH",
+        "2CH",
+        "EZR",
+        "NEH",
+        "EST",
+        "JOB",
+        "PSA",
+        "PRO",
+        "ECC",
+        "SNG",
+        "ISA",
+        "JER",
+        "LAM",
+        "EZK",
+        "DAN",
+        "HOS",
+        "JOL",
+        "AMO",
+        "OBA",
+        "JON",
+        "MIC",
+        "NAM",
+        "HAB",
+        "ZEP",
+        "HAG",
+        "ZEC",
+        "MAL"
+      ],
+      "locked": true
+    },
+    {
+      "id": 3,
+      "title": "New Testament (NT)",
+      "currentScope": [
+        "MAT",
+        "MRK",
+        "LUK",
+        "JHN",
+        "ACT",
+        "ROM",
+        "1CO",
+        "2CO",
+        "GAL",
+        "EPH",
+        "PHP",
+        "COL",
+        "1TH",
+        "2TH",
+        "1TI",
+        "2TI",
+        "TIT",
+        "PHM",
+        "HEB",
+        "JAS",
+        "1PE",
+        "2PE",
+        "1JN",
+        "2JN",
+        "3JN",
+        "JUD",
+        "REV"
+      ],
+      "locked": true
+    }
+  ],
+  "copyright": [
+    {
+      "title": "CC BY-SA",
+      "id": "Attribution-ShareAlike",
+      "licence": "",
+      "locked": true
+    },
+    {
+      "title": "CC BY",
+      "id": "Attribution",
+      "licence": "",
+      "locked": true
+    },
+    {
+      "title": "CC BY-ND",
+      "id": "Attribution-NoDerivatives",
+      "licence": "",
+      "locked": true
+    },
+    {
+      "title": "CC BY-NC",
+      "id": "Attribution-NonCommercial",
+      "licence": "",
+      "locked": true
+    },
+    {
+      "title": "CC BY-NC-SA",
+      "id": "Attribution-NonCommercial-ShareAlike",
+      "licence": "",
+      "locked": true
+    },
+    {
+      "title": "CC BY-NC-ND",
+      "id": "Attribution-NonCommercial-NoDerivatives",
+      "licence": "",
+      "locked": true
+    },
+    {
+      "title": "CC0",
+      "id": "CC0",
+      "licence": "",
+      "locked": true
+    }
+  ],
+  "versification": [
+    {
+      "title": "ENG"
+    },
+    {
+      "title": "LXX"
+    },
+    {
+      "title": "ORG"
+    },
+    {
+      "title": "RSC"
+    },
+    {
+      "title": "RSO"
+    },
+    {
+      "title": "VUL"
+    }
+  ],
+  "languages": [
+    {
+      "id": 1,
+      "title": "English",
+      "scriptDirection": "LTR",
+      "locked": true
+    },
+    {
+      "id": 2,
+      "title": "Hindi",
+      "scriptDirection": "LTR",
+      "locked": true
+    },
+    {
+      "id": 3,
+      "title": "Malayalam",
+      "scriptDirection": "LTR",
+      "locked": true
+    },
+    {
+      "id": 4,
+      "title": "Tamil",
+      "scriptDirection": "LTR",
+      "locked": true
+    },
+    {
+      "id": 5,
+      "title": "Odia",
+      "scriptDirection": "LTR",
+      "locked": true
+    }
+  ]
+}

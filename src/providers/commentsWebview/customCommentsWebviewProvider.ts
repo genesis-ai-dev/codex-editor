@@ -4,7 +4,11 @@ import {
     serializeCommentThreadArray,
 } from "../../commentsProvider";
 import { globalStateEmitter } from "../../globalState";
-import { CommentPostMessages, VerseRefGlobalState } from "../../../types";
+import {
+    CommentPostMessages,
+    NotebookCommentThread,
+    VerseRefGlobalState,
+} from "../../../types";
 
 const abortController: AbortController | null = null;
 
@@ -84,6 +88,25 @@ const loadWebviewHtml = (
 
     webviewView.webview.html = html;
 };
+const getCommentsFromFile = async (
+    fileName: string,
+): Promise<NotebookCommentThread[]> => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        console.log({ workspaceFolders });
+        const filePath = workspaceFolders
+            ? vscode.Uri.joinPath(workspaceFolders[0].uri, fileName).fsPath
+            : "";
+
+        const uri = vscode.Uri.file(filePath);
+        const fileContentUint8Array = await vscode.workspace.fs.readFile(uri);
+        const fileContent = new TextDecoder().decode(fileContentUint8Array);
+        return JSON.parse(fileContent);
+    } catch (error) {
+        console.error(error);
+        throw new Error("Failed to parse notebook comments from file");
+    }
+};
 const sendCommentsToWebview = async (webviewView: vscode.WebviewView) => {
     console.log("sendCommentsToWebview was called");
     const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -108,10 +131,7 @@ const sendCommentsToWebview = async (webviewView: vscode.WebviewView) => {
     }
 };
 
-async function writeSerializedData(
-    serializedData: string,
-    filename: string = "notebook-comments.json",
-) {
+async function writeSerializedData(serializedData: string, filename: string) {
     const fileHandler = new FileHandler();
 
     try {
@@ -141,13 +161,15 @@ export class CustomWebviewProvider {
             },
         );
         loadWebviewHtml(webviewView, this._extensionUri);
-        sendCommentsToWebview(webviewView);
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
                 sendCommentsToWebview(webviewView);
                 // webviewView.webview.postMessage({ command: "reload" });
             }
         });
+        if (webviewView.visible) {
+            sendCommentsToWebview(webviewView);
+        }
 
         // vscode.window.onDidChangeActiveTextEditor(() => {
         //     // When the active editor changes, remove the old listener and add a new one
@@ -162,35 +184,39 @@ export class CustomWebviewProvider {
         // Find out why new comments are not being created
         // create a system of share types so message posting is easier to deal with.
 
-        webviewView.webview.onDidReceiveMessage(async (message) => {
-            console.log({ message }, "onDidReceiveMessage");
-            try {
-                switch (message.command) {
-                    case "updateCommentThread": {
-                        await writeSerializedData(
-                            message.comments,
-                            "notebook-comments.json",
-                        );
-                        break;
-                    }
-                    case "fetchComments": {
-                        console.log({ message }, "fetchComments");
-                        sendCommentsToWebview(webviewView);
-                        break;
-                    }
-                    case "abort-fetch":
-                        if (abortController) {
-                            abortController.abort();
+        webviewView.webview.onDidReceiveMessage(
+            async (message: CommentPostMessages) => {
+                console.log({ message }, "onDidReceiveMessage");
+                try {
+                    switch (message.command) {
+                        case "updateCommentThread": {
+                            const commentsFile = "notebook-comments.json";
+                            const existingComments =
+                                await getCommentsFromFile(commentsFile);
+                            await writeSerializedData(
+                                JSON.stringify(
+                                    [...existingComments, message.comment],
+                                    null,
+                                    4,
+                                ),
+                                commentsFile,
+                            );
+                            break;
                         }
-                        break;
-                    default:
-                        break;
+                        case "fetchComments": {
+                            console.log({ message }, "fetchComments");
+                            sendCommentsToWebview(webviewView);
+                            break;
+                        }
+                        default:
+                            break;
+                    }
+                } catch (error) {
+                    console.error("Error:", error);
+                    vscode.window.showErrorMessage("Service access failed.");
                 }
-            } catch (error) {
-                console.error("Error:", error);
-                vscode.window.showErrorMessage("Service access failed.");
-            }
-        });
+            },
+        );
     }
 }
 
