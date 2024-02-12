@@ -69,7 +69,10 @@ class Dictionary:
         """
         try:
             with open(self.path, 'r') as file:
-                data = json.load(file)
+                try:
+                    data = json.load(file)
+                except json.decoder.JSONDecodeError:
+                    data = {"entries": []}
                 return data
         except FileNotFoundError:
             # Create the directory if it does not exist
