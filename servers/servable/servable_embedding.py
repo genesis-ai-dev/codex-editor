@@ -20,8 +20,6 @@ class ServableEmbedding:
     def __init__(self, sf: ServerFunctions):
         self.database = None 
         self.sf = sf
-        self.sf.close_functions.append(self.on_close)
-        self.sf.initialize_functions.append(self.start)
         self.last_served = []
         self.time_last_served = time.time()
 
@@ -78,16 +76,4 @@ class ServableEmbedding:
         # }
         text = search_result['text']
         return CompletionItem(label=text[:20], text_edit=TextEdit(range=range, new_text=text))
-    def start(self, params, server: LanguageServer, sf):
-        def attempt_start(retries_left=5):
-            nonlocal sf
-            if retries_left > 0:
-                response = requests.get("http://localhost:5554/start", params={"data_path": sf.data_path})  # Updated to use params for GET request
-                if response.status_code == 200:
-                    return
-                else:
-                    threading.Timer(5, attempt_start, [retries_left - 1]).start()
-            else:
-                pass
-        threading.Timer(20, attempt_start).start()
 
