@@ -44,7 +44,6 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
 
         // Retrieve project metadata
         const projectMetadata = await getProjectMetadata();
-        const targetLanguage = projectMetadata.languages.filter((language: LanguageMetadata) => language.projectStatus === LanguageProjectStatus.TARGET)[0].tag;
 
         if (element) {
             if (element.type === "notebook") {
@@ -52,7 +51,7 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
                 const notebookPath = path.join(
                     this.workspaceRoot,
                     "drafts",
-                    targetLanguage,
+                    "target",
                     `${element.label}.codex`,
                 );
                 const chapters = this.getChaptersInNotebook(notebookPath);
@@ -67,7 +66,7 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
             const notebooksPath = path.join(
                 this.workspaceRoot,
                 "drafts",
-                targetLanguage,
+                "target",
             );
             const notebooks = this.getNotebooksInDirectory(notebooksPath);
             return Promise.resolve(notebooks);

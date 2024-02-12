@@ -38,6 +38,8 @@ def start_flask_server() -> NoReturn:
     """Start the Flask server if the designated port is not in use.
 
     If the port is in use, attempt to kill the process that is using it.
+    
+    FIXME: This needs to work across platforms.
     """
     FLASK_PORT = 5554  # Flask server port
     if is_port_in_use(FLASK_PORT):
