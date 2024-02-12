@@ -23,11 +23,11 @@ def initialize_databases() -> tuple:
     Returns:
         A tuple containing a JSON response and an HTTP status code.
     """
-    work_path = request.args.get("data_path")
+    work_path = request.args.get("data_path").replace('file://', '')
     print(work_path)
     for name in DatabaseName:
         print(work_path+'/' + name.value)
-        databases[name.value] = DataBase(work_path+'/' + name.value)
+        databases[name.value] = DataBase(work_path+'/embeddings/' + name.value)
     return jsonify("Databases initialized successfully"), 200
 
 @app.route('/upsert_codex_file', methods=['POST'])

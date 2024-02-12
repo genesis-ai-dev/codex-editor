@@ -3,6 +3,7 @@
 import * as vscode from "vscode";
 import { CodexKernel } from "./controller";
 import { CodexContentSerializer } from "./serializer";
+import { registerTextSelectionHandler } from './pygls_commands/textSelectionHandler';
 
 import {
     NOTEBOOK_TYPE,
@@ -97,6 +98,7 @@ export async function activate(context: vscode.ExtensionContext) {
     registerChatProvider(context);
     registerCommentsWebviewProvider(context);
     registerDictionaryTableProvider(context);
+    registerTextSelectionHandler(context);
     context.subscriptions.push(CreateProjectProvider.register(context));
 
     // Add .bible files to the files.readonlyInclude glob pattern to make them readonly without overriding existing patterns
@@ -161,29 +163,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
 
 
-    let selectionTimeout: NodeJS.Timeout | undefined;
-    context.subscriptions.push(vscode.window.onDidChangeTextEditorSelection((event: vscode.TextEditorSelectionChangeEvent) => {
-        if (selectionTimeout) {
-            clearTimeout(selectionTimeout);
-        }
-        selectionTimeout = setTimeout(() => {
-            const selectedText: string = event.textEditor.document.getText(event.selections[0]);
-            if (selectedText) {
-                vscode.commands.executeCommand("pygls.server.textSelected", selectedText);
-                // Perform the search using the selected text
-                fetch(`http://localhost:5554/search?db_name=drafts&query=${encodeURIComponent(selectedText)}`)
-                    .then((response: Response) => response.json())
-                    .then((data: any) => {
-                        // Display the search results as a notification
-                        vscode.window.showInformationMessage(`Search results: ${JSON.stringify(data)}`);
-                    })
-                    .catch((error: any) => {
-                        console.error('Error performing search:', error);
-                        vscode.window.showErrorMessage(error.toString());
-                    });
-            }
-        }, 500); // Adjust delay as needed
-    }));
+    
 
 
 

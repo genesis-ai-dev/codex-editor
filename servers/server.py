@@ -9,9 +9,10 @@ try:
     from tools.ls_tools import ServerFunctions
     from servable.spelling import ServableSpelling
     from servable.servable_wb import wb_line_diagnostic
-    from servable.servable_embedding import ServableEmbedding
     from servable.verse_validator import ServableVrefs
-    import flask
+    from servable.servable_embedding import ServableEmbedding
+
+    import flask # forces install if it is not installed
     import sys
 except ImportError:
     import sys
@@ -39,21 +40,28 @@ def start_flask_server() -> NoReturn:
 
     If the port is in use, attempt to kill the process that is using it.
     
-    FIXME: This needs to work across platforms.
+    This version works across platforms including Windows.
     """
     FLASK_PORT = 5554  # Flask server port
     if is_port_in_use(FLASK_PORT):
         try:
-            result = subprocess.run(["lsof", "-i", f":{FLASK_PORT}"], capture_output=True, text=True)
-            for line in result.stdout.splitlines():
-                if "LISTEN" in line:
-                    pid = int(line.split()[1])
-                    subprocess.run(["kill", "-9", str(pid)])
-                    # No print statement here
-                    break
-        except Exception:
-            # No print statement here
-            pass
+            if os.name == 'nt':  # Windows
+                result = subprocess.run(["netstat", "-aon"], capture_output=True, text=True)
+                for line in result.stdout.splitlines():
+                    if f":{FLASK_PORT}" in line and 'LISTENING' in line:
+                        pid = line.rstrip().split()[-1]
+                        subprocess.run(["taskkill", "/F", "/PID", pid])
+                        break
+            else:  # Unix/Linux
+                result = subprocess.run(["lsof", "-i", f":{FLASK_PORT}"], capture_output=True, text=True)
+                for line in result.stdout.splitlines():
+                    if "LISTEN" in line:
+                        pid = int(line.split()[1])
+                        subprocess.run(["kill", "-9", str(pid)])
+                        break
+        except Exception as e:
+            pass  # Optionally, log the exception e
+
     flask_server_path = os.path.join(os.path.dirname(__file__), "flask_server.py")
     with open(os.devnull, 'w') as devnull:
         subprocess.Popen([sys.executable, flask_server_path], stdout=devnull, stderr=devnull)
@@ -65,7 +73,6 @@ server = LanguageServer("code-action-server", "v0.1")  # TODO: #1 Dynamically po
 # Create server functions and servables
 server_functions = ServerFunctions(server=server, data_path='/drafts')
 spelling = ServableSpelling(sf=server_functions, relative_checking=True)
-embedding = ServableEmbedding(sf=server_functions) #I don't think this will be needed anymore?
 vrefs = ServableVrefs(sf=server_functions)
 
 # Register completions, diagnostics, and actions with the server
@@ -75,9 +82,13 @@ server_functions.add_diagnostic(spelling.spell_diagnostic)
 server_functions.add_diagnostic(wb_line_diagnostic)
 server_functions.add_diagnostic(vrefs.vref_diagnostics)
 
+
 server_functions.add_action(spelling.spell_action)
 server_functions.add_action(vrefs.vref_code_actions)
 
+
+embedding = ServableEmbedding(sf=server_functions)
+server_functions.add_close_function(embedding.on_close)
 def add_dictionary(args: list) -> bool:
     """Add a dictionary to the spelling servable.
 
@@ -89,12 +100,15 @@ def add_dictionary(args: list) -> bool:
     """
     return spelling.add_dictionary(args)
 
-def on_highlight(params):
-    return server_functions.on_selected(str(params[0]))
 
 # Register the add_dictionary command with the server
 server.command("pygls.server.add_dictionary")(add_dictionary)
-server.command("pygls.server.textSelected")(on_highlight)#server_functions.on_selected)
+
+def on_highlight(params):
+    return server_functions.on_selected(str(params[0]))
+
+server.command("pygls.server.textSelected")(on_highlight) #server_functions.on_selected)
+
 
 if __name__ == "__main__":
     print('Running server...')
