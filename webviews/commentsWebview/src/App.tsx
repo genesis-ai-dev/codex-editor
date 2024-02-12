@@ -49,10 +49,6 @@ function App() {
     }, []); // The empty array means this effect runs once on mount and cleanup on unmount
 
     function handleSubmit(submittedCommentValue: string) {
-        if (!uri) {
-            console.error("uri not found");
-            return;
-        }
         const comment: Comment = {
             id: 1,
             contextValue: "canDelete",
