@@ -63,12 +63,12 @@ server = LanguageServer("code-action-server", "v0.1")  # TODO: #1 Dynamically po
 # Create server functions and servables
 server_functions = ServerFunctions(server=server, data_path='/drafts')
 spelling = ServableSpelling(sf=server_functions, relative_checking=True)
-#embedding = ServableEmbedding(sf=server_functions) I don't think this will be needed anymore?
+embedding = ServableEmbedding(sf=server_functions) #I don't think this will be needed anymore?
 vrefs = ServableVrefs(sf=server_functions)
 
 # Register completions, diagnostics, and actions with the server
 server_functions.add_completion(spelling.spell_completion)
-#server_functions.add_completion(embedding.embed_completion)
+
 server_functions.add_diagnostic(spelling.spell_diagnostic)
 server_functions.add_diagnostic(wb_line_diagnostic)
 server_functions.add_diagnostic(vrefs.vref_diagnostics)
@@ -87,8 +87,12 @@ def add_dictionary(args: list) -> bool:
     """
     return spelling.add_dictionary(args)
 
+def on_highlight(params):
+    return server_functions.on_selected(str(params[0]))
+
 # Register the add_dictionary command with the server
 server.command("pygls.server.add_dictionary")(add_dictionary)
+server.command("pygls.server.textSelected")(on_highlight)#server_functions.on_selected)
 
 if __name__ == "__main__":
     print('Running server...')

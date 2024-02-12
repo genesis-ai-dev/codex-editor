@@ -74,7 +74,8 @@ class DataBase:
         reader = CodexReader(verse_chunk_size=verse_chunk_size)
         results = reader.get_embed_format(path)
         for result in results:
-            self.upsert_data(text=result['text'], book=result['data']['book'], chapter=result['data']['chapter'],verse=result['data']['verse'], uri=path)
+            if len(result['text']) > 2:
+                self.upsert_data(text=result['text'], book=result['data']['book'], chapter=result['data']['chapter'],verse=result['data']['verse'], uri=path)
 
     def save(self):
         self.embeddings.save(self.path)
@@ -82,13 +83,13 @@ class DataBase:
 
 # Example/Test
 if __name__ == "__main__":
-    db_path = "dbs/db5"
+    db_path = "dbs/db6"
     database = DataBase(db_path)
 
     # Inserting new data
-    database.upsert_data(text="the elephant went to the store", uri="http://example.com", metadata={"author": "John Doe"},
-                         book="Test Book", chapter=1, verse=1)
-
+   # database.upsert_data(text="the elephant went to the store", uri="http://example.com", metadata={"author": "John Doe"},
+    #                     book="Test Book", chapter=1, verse=1)
+    database.upsert_codex_file(path='/Users/daniellosey/Desktop/code/biblica/example_workspace/drafts/eng/1CH.codex')
     # Searching for a text
     search_results = database.simple_search(query="store")
     print("Search Results:", search_results)
