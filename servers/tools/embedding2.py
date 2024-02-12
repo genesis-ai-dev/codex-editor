@@ -17,9 +17,9 @@ embeddings = Embeddings(path="sentence-transformers/nli-mpnet-base-v2", content=
 class DataBase:
     def __init__(self, path: str) -> None:
         self.path = path
-        self.query = "select text, uri, timestamp, book, chapter, verse, metadata from txtai where similar('{query}')"
+        self.query = "select text, uri, createdAt, book, chapter, verse, metadata from txtai where similar('{query}')"
         self.min_score_query = self.query + " and score >= {score}"
-        self.search_by_attribute = "select text, uri, timestamp, book, chapter, verse, metadata from txtai where {attribute}={query}"
+        self.search_by_attribute = "select text, uri, createdAt, book, chapter, verse, metadata from txtai where {attribute}={query}"
         self.embeddings = Embeddings(path="sentence-transformers/nli-mpnet-base-v2", content=True, objects=True)
         try:
             self.embeddings.load(path=path)
@@ -30,7 +30,7 @@ class DataBase:
     def upsert_data(self, text: str, uri: str='', metadata: Union[dict, str] = {}, book: str = "", chapter: int = -1,
                     verse: str = ""):
         # Search for existing text in the database
-        existing_items = self.embeddings.search(query=f"select id, text, uri, timestamp, book, chapter, verse, metadata from txtai where text='{text}'")
+        existing_items = self.embeddings.search(query=f"select id, text, uri, createdAt, book, chapter, verse, metadata from txtai where text='{text}'")
         if existing_items:
             # If text exists, update metadata of the first matching item
             self.embeddings.delete(existing_items[0]['id'])
@@ -39,7 +39,7 @@ class DataBase:
         # If text does not exist, create a new item
         new_item = (None, {"text":text,
             "uri": uri,
-            "timestamp": str(datetime.datetime.now()),
+            "createdAt": str(datetime.datetime.now()),
             "book": book,
             "chapter": str(chapter),
             "verse": str(verse),
