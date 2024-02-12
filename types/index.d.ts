@@ -25,6 +25,7 @@ interface NotebookCommentThread {
     }[];
     collapsibleState: number;
     canReply: boolean;
+    threadTitle?: string;
 }
 
 interface VerseRefGlobalState {

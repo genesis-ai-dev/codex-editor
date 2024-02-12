@@ -17,20 +17,24 @@ function App() {
     >([]);
 
     useEffect(() => {
+        if (commentThreadArray.length === 0) {
+            vscode.postMessage({
+                command: "fetchComments",
+            } as CommentPostMessages);
+        }
         const handleMessage = (event: MessageEvent) => {
             const message: CommentPostMessages = event.data;
-            console.log({ message }, "lkdjsfad;o");
             switch (message.command) {
                 case "commentsFromWorkspace": {
                     if (message.content) {
                         const comments = JSON.parse(message.content);
                         setCommentThread(comments);
-                        console.log({ comments });
+                        // console.log({ comments });
                     }
                     break;
                 }
                 case "reload": {
-                    console.log(verseRef, message.data?.verseRef);
+                    // console.log(verseRef, message.data?.verseRef);
                     setVerseRef(message.data?.verseRef);
                     setUri(message.data?.uri);
                     break;
@@ -62,16 +66,16 @@ function App() {
     //         } as CommentPostMessages);
     //     }
     // }, [comment, commentThreadArray]);
-    const [formState, setFormState] = useState<string>("");
-    function handleSubmit() {
+    // const [formState, setFormState] = useState<string | undefined>();
+    function handleSubmit(submittedCommentValue: string) {
         // if (message) {
         // const currentMessageLog = [...messageLog, message];
         // setMessageLog(currentMessageLog);
-        console.log({
-            formState,
-            // "CommentCommandNames.updateCommentThread":
-            //     CommentCommandNames.updateCommentThread,
-        });
+        // console.log({
+        //     formState,
+        //     // "CommentCommandNames.updateCommentThread":
+        //     //     CommentCommandNames.updateCommentThread,
+        // });
         // const id = 1; // FIXME: use unique id count
         // setComment({
         //     id,
@@ -87,7 +91,7 @@ function App() {
         const comment: Comment = {
             id: 1,
             contextValue: "canDelete",
-            body: formState || "",
+            body: submittedCommentValue || "",
             mode: 1,
             author: { name: "vscode" },
         };
@@ -103,8 +107,8 @@ function App() {
             command: "updateCommentThread",
             comment: updatedCommentThread,
         } as CommentPostMessages);
-        // setMessage(undefined);
-        // }
+
+        // setFormState(undefined);
     }
     // console.log("getState", vscode.getState());
     // window.addEventListener(
@@ -172,11 +176,15 @@ function App() {
                 )}
                 <div className="comments-content">
                     {commentThreadArray.map((commentThread) => {
-                        return (
-                            <p>
-                                {JSON.stringify(commentThread.comments[0].body)}
-                            </p>
-                        );
+                        if (commentThread.verseRef === verseRef) {
+                            return (
+                                <p>
+                                    {JSON.stringify(
+                                        commentThread.comments[0].body,
+                                    )}
+                                </p>
+                            );
+                        }
                     })}
                 </div>
             </div>
@@ -191,26 +199,34 @@ function App() {
                     flexWrap: "nowrap",
                 }}
                 onSubmit={(e) => {
-                    console.log({ e });
                     e.preventDefault();
-                    handleSubmit();
+                    const formData = new FormData(e.target as HTMLFormElement);
+                    const formValue = formData.get("comment") as string;
+                    console.log("Form submitted with value:", formValue);
+                    handleSubmit(formValue);
+                    (e.target as HTMLFormElement).reset();
                 }}
             >
                 <VSCodeTextField
+                    name="comment"
                     placeholder="Type a message..."
-                    value={formState}
-                    onChange={
-                        (e) => {
-                            setFormState(
-                                formState +
-                                    (e.target as HTMLInputElement).value,
-                            );
-                        }
-                        // handleSubmit((e.target as HTMLInputElement).value)
-                    }
+                    // value={formState}
+                    // onChange={
+                    //     (e) => {
+                    //         // console.log(
+                    //         //     { e },
+                    //         //     (e.target as HTMLInputElement).value,
+                    //         //     { formState },
+                    //         // );
+                    //         setFormState((e.target as HTMLInputElement).value);
+                    //     }
+                    //     // handleSubmit((e.target as HTMLInputElement).value)
+                    // }
                     style={{ width: "100%" }}
                 />
-                <VSCodeButton type="submit">Send</VSCodeButton>
+                {/* {formState && formState?.length > 0 && ( */}
+                <VSCodeButton type="submit">Save</VSCodeButton>
+                {/* )} */}
             </form>
         </main>
     );
