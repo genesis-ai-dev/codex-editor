@@ -148,10 +148,7 @@ export async function createProjectNotebooks(
             )
             .then((notebookFile) => {
                 // Save the notebook using generateFiles
-                const sourceLanguageTag = project.languages.filter(
-                    language => language.projectStatus === LanguageProjectStatus.TARGET
-                )[0].tag;
-                const filePath = `drafts/${sourceLanguageTag}/${book}.codex`;
+                const filePath = `drafts/target/${book}.codex`;
                 return generateFile({
                     filepath: filePath,
                     fileContent: notebookFile,

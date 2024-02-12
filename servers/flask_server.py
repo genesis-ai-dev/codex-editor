@@ -61,6 +61,17 @@ def upsert_data() -> tuple:
 
     Returns:
         A tuple containing a JSON response and an HTTP status code.
+        
+    Example:
+        {
+            "db_name": "drafts",
+            "text": "This is a test.",
+            "uri": "test.md",
+            "metadata": {"author": "John Doe"},
+            "book": "Genesis",
+            "chapter": 1,
+            "verse": "1"
+        }
     """
     data = request.json
     db_name = data.get('db_name')
@@ -96,7 +107,8 @@ def search() -> tuple:
         results = databases[db_name].simple_search(query, limit, min_score)
         return jsonify(results), 200
     else:
-        return jsonify({"error": "Database name and query are required"}), 400
+        database_names_string = ', '.join(databases.keys())
+        return jsonify({"error": "Database name and query are required", "databases": f'{database_names_string}'}), 400
 
 @app.route('/save', methods=['POST'])
 def save() -> tuple:
@@ -115,6 +127,17 @@ def save() -> tuple:
         return jsonify({"message": f"Database '{db_name}' state saved"}), 200
     else:
         return jsonify({"error": "Database name is required"}), 400
+
+@app.route('/heartbeat', methods=['GET'])
+def heartbeat() -> tuple:
+    """
+    Returns a simple JSON response to indicate that the server is running.
+
+    Returns:
+        A tuple containing a JSON response and an HTTP status code.
+    """
+    database_names_string = ', '.join(databases.keys())
+    return jsonify({"message": "Server is running", "databases": f'{database_names_string}'}), 200
 
 if __name__ == "__main__":
     app.run(port=5554, debug=False)
