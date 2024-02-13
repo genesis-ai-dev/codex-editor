@@ -6,4 +6,5 @@ imagehash
 pillow
 flask
 flask_cors
+urllib
 swig
