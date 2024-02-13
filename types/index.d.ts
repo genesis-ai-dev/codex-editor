@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 interface ChatMessage {
-    role: "system" | "user" | "assistant";
+    role: "system" | "user" | "assistant" | "context";
     content: string;
 }
 
@@ -12,7 +12,7 @@ interface FrontEndMessage {
 }
 type CommentThread = vscode.CommentThread;
 interface NotebookCommentThread {
-    uri: string;
+    uri?: string;
     verseRef: string;
     comments: {
         id: number;
@@ -38,11 +38,16 @@ type CommentPostMessages =
     | { command: "reload"; data: VerseRefGlobalState }
     | { command: "updateCommentThread"; comment: NotebookCommentThread }
     | { command: "fetchComments" };
+interface SelectedTextDataWithContext {
+    selection: string;
+    completeLineContent: string | null;
+    vrefAtStartOfLine: string | null;
+}
 
 type ChatPostMessages =
     | { command: "response"; finished: boolean; text: string }
     | { command: "reload" }
-    | { command: "select"; text: string }
+    | { command: "select"; textDataWithContext: SelectedTextDataWithContext }
     | { command: "fetch"; messages: string };
 
 // enum CommentCommandNames {
