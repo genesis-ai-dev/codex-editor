@@ -12,6 +12,7 @@ interface FrontEndMessage {
 }
 type CommentThread = vscode.CommentThread;
 interface NotebookCommentThread {
+    id: string;
     uri?: string;
     verseRef: string;
     comments: {
@@ -36,7 +37,7 @@ interface VerseRefGlobalState {
 type CommentPostMessages =
     | { command: "commentsFromWorkspace"; content: string }
     | { command: "reload"; data: VerseRefGlobalState }
-    | { command: "updateCommentThread"; comment: NotebookCommentThread }
+    | { command: "updateCommentThread"; commentThread: NotebookCommentThread }
     | { command: "fetchComments" };
 interface SelectedTextDataWithContext {
     selection: string;

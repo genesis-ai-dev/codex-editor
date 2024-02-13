@@ -3,7 +3,12 @@ import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import "./App.css";
 import { NotebookCommentThread, CommentPostMessages } from "../../../types";
 import VerseRefNavigation from "./components/verseRefNavigation";
-import { CommentTextForm } from "./components/CommentTextForm";
+import {
+    CommentTextForm,
+    CommentTextFormProps,
+} from "./components/CommentTextForm";
+import { v4 as uuidv4 } from "uuid";
+import React from "react";
 const vscode = acquireVsCodeApi();
 type Comment = NotebookCommentThread["comments"][0];
 function App() {
@@ -48,27 +53,39 @@ function App() {
         };
     }, []); // The empty array means this effect runs once on mount and cleanup on unmount
 
-    function handleSubmit(submittedCommentValue: string) {
+    const handleSubmit: CommentTextFormProps["handleSubmit"] = ({
+        comment: submittedCommentValue,
+        title,
+        threadId,
+    }) => {
+        const exitingThread = commentThreadArray.find(
+            (commentThread) => commentThread.id === threadId,
+        );
+        const lastComment =
+            exitingThread?.comments[exitingThread.comments.length - 1];
+        const commentId = lastComment?.id ? lastComment.id + 1 : 1;
+
         const comment: Comment = {
-            id: 1,
+            id: commentId,
             contextValue: "canDelete",
             body: submittedCommentValue || "",
             mode: 1,
             author: { name: "vscode" },
         };
-
         const updatedCommentThread: NotebookCommentThread = {
+            id: threadId || uuidv4(),
             uri: uri,
             canReply: true,
             comments: [comment],
             verseRef,
             collapsibleState: 0,
+            threadTitle: title || "",
         };
         vscode.postMessage({
             command: "updateCommentThread",
-            comment: updatedCommentThread,
+            commentThread: updatedCommentThread,
         } as CommentPostMessages);
-    }
+    };
 
     return (
         <main
@@ -122,19 +139,28 @@ function App() {
                                     <h3>
                                         {commentThread.threadTitle || "Note:"}
                                     </h3>
-                                    <hr
-                                        style={{
-                                            width: "100%",
-                                            border: "0",
-                                            borderBottom:
-                                                "1px solid var(--vscode-editor-foreground)",
-                                        }}
+                                    {commentThread.comments.map(
+                                        (comment, index) => (
+                                            <React.Fragment key={comment.id}>
+                                                {index > 0 && (
+                                                    <hr
+                                                        style={{
+                                                            width: "100%",
+                                                            border: "0",
+                                                            borderBottom:
+                                                                "1px solid var(--vscode-editor-foreground)",
+                                                        }}
+                                                    />
+                                                )}
+                                                <p>{comment.body}</p>
+                                            </React.Fragment>
+                                        ),
+                                    )}
+                                    <CommentTextForm
+                                        handleSubmit={handleSubmit}
+                                        showTitleInput={false}
+                                        threadId={commentThread.id}
                                     />
-                                    <p>
-                                        {JSON.stringify(
-                                            commentThread.comments[0].body,
-                                        )}
-                                    </p>
                                 </div>
                             );
                         }
@@ -142,7 +168,11 @@ function App() {
                 </div>
             </div>
             {/* Input for sending messages */}
-            <CommentTextForm handleSubmit={handleSubmit} />
+            <CommentTextForm
+                handleSubmit={handleSubmit}
+                showTitleInput={true}
+                threadId={null}
+            />
         </main>
     );
 }
