@@ -68,8 +68,8 @@ def spell_hash(text: str, font_path: str = "servers/expirements/unifont-15.1.04.
     # Return the counts in the desired format
     return Hash('-'.join(pixel_counts))
 
-dais = spell_hash('dais')
-bark = spell_hash("bark")
-days = spell_hash("days")
-print(dais - days)
-print(dais - bark)
+# dais = spell_hash('dais')
+# bark = spell_hash("bark")
+# days = spell_hash("days")
+# print(dais - days)
+# print(dais - bark)
