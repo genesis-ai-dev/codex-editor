@@ -11,7 +11,7 @@ type CommentTextFormProps = {
     selectedText: string;
 };
 
-export const CommentTextForm: React.FC<CommentTextFormProps> = ({
+export const ChatInputTextForm: React.FC<CommentTextFormProps> = ({
     handleSubmit,
     contextItems,
     selectedText,
