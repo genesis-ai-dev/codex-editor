@@ -1,29 +1,29 @@
 from PIL import Image, ImageDraw, ImageFont
+import numpy as np
 
 
 class Hash:
     def __init__(self, h: str):
-      self.h = [int(i) for i in h.split("-")]
+      self.h = [float(i) for i in h.split("-")]
     
     def __sub__(self, other):
-        diff = 0
+        all = []
         for a, b in list(zip(self.h, other.h)):
-            diff += abs(float(a) - float(b))
-        return diff
+            all.append(abs(float(a) - float(b)))
+        return int(sum(all)/len(all))
     def __str__(self):
-        return "-".join(self.h)
+       return "-".join([str(a) for a in self.h])
 
 def divide_text_into_chunks(text, n):
-    n = n -1
-    # Calculate the length of each chunk
-    chunk_size = len(text) // n
+  # Calculate the length of each chunk
+  chunk_size = max(1, len(text) // n)
 
-    # Split the text into chunks
-    chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
-    while len(chunks)-1 < n:
-        chunks.append(text[-1])
+  # Split the text into chunks
+  chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
+  while len(chunks)-1 < n:
+    chunks.append(',') # TODO: figure out the most neutral character
 
-    return chunks
+  return chunks
 def spell_hash(text: str, font_path: str = "servers/expirements/unifont-15.1.04.otf", font_size: int = 100) -> str:
     """
     Convert each letter in text to an image, count the number of black pixels per letter,
@@ -37,8 +37,7 @@ def spell_hash(text: str, font_path: str = "servers/expirements/unifont-15.1.04.
     Returns:
     str: A string representing the normalized number of black pixels per letter in the format NUMBER-NUMBER-NUMBER.
     """
-    text = divide_text_into_chunks(text, 4)
-    print(text)
+    text = divide_text_into_chunks(text, 3)
     if font_path:
         font = ImageFont.truetype(font_path, font_size)
     else:
@@ -55,32 +54,22 @@ def spell_hash(text: str, font_path: str = "servers/expirements/unifont-15.1.04.
         # Calculate the width of the letter
         letter_width = d.textlength(letter, font=font)
         
-        # Convert the image to binary (1 for black, 0 for white)
-        binary_img = img.convert('1')
+        # Convert the image to binary (1 for black, 0 for white) and use numpy for efficient pixel counting
+        binary_img = np.array(img.convert('1'))
         
         # Count the number of black pixels
-        black_pixels = sum(1 for pixel in binary_img.getdata() if pixel == 0)
-        
+        black_pixels = np.sum(binary_img == 0)
+        white_pixels = np.sum(binary_img == 1)
+
         # Normalize the count by the width of the letter
-        normalized_count = black_pixels / letter_width if letter_width > 0 else 0
-        pixel_counts.append(f"{int(normalized_count**2)}")
+        normalized_count = black_pixels - white_pixels
+        pixel_counts.append(f"{float(normalized_count)}")
     
     # Return the counts in the desired format
     return Hash('-'.join(pixel_counts))
 
-
-
-
-# Example usage:
-if __name__ == "__main__":
-    namaste = spell_hash("नमस्ते")
-    wrong1 = spell_hash("नमस्तैतै")
-    wrong2 = spell_hash("नमस्तेय")
-    paanee = spell_hash("पानी")
-
-    print("result: ", namaste-wrong1)
-    # returns 1  
-    print("result: ", namaste-wrong2)
-    # returns 7
-    print("result: ", namaste-paanee)
-    # returns 15
+dais = spell_hash('dais')
+bark = spell_hash("bark")
+days = spell_hash("days")
+print(dais - days)
+print(dais - bark)
