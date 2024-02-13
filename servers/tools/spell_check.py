@@ -9,7 +9,7 @@ import json
 import os
 from typing import List, Dict
 import uuid
-import expirements.hash_check as hash_check
+import expirements.hash_check2 as hash_check
 import tools.edit_distance as edit_distance
 import re
 import string
@@ -20,7 +20,7 @@ translator = str.maketrans('', '', string.punctuation)
 USE_IMAGE_HASH = False
 
 
-def criteria(dictionary_word: Dict, word: str) -> float:
+def criteria(dictionary_word: Dict, word: str, dictionary) -> float:
     """
     Calculates the criteria for spell checking by comparing a word against a dictionary entry.
 
@@ -35,7 +35,14 @@ def criteria(dictionary_word: Dict, word: str) -> float:
     float: The difference between the word and the dictionary entry as a float. A lower value indicates a closer match.
     """
     if USE_IMAGE_HASH:
-        hash1 = hash_check.imagehash.hex_to_hash(dictionary_word['hash'])
+        # try:
+        hash1 = hash_check.Hash(dictionary_word['hash'])
+        # except:
+        #     h =  hash_check.spell_hash(dictionary_word['headWord'])
+        #     dictionary.dictionary['entries'][dictionary.dictionary['entries'].index(dictionary_word)]['hash'] = str(h)
+        #     dictionary.save_dictionary()
+        #     hash1 = h
+            
         hash2 = hash_check.spell_hash(word)
         return hash1 - hash2
     else:
@@ -99,9 +106,10 @@ class Dictionary:
             word (str): The word to add to the dictionary.
         """
         word = remove_punctuation(word)
+
         
         # Add a word if it does not already exist
-        if not any(entry['headWord'] == word for entry in self.dictionary['entries']):
+        if not any(entry['headWord'] == word for entry in self.dictionary['entries']) and word != '' and word != ' ':
             new_entry = {
                 'headWord': word, 
                 'id': str(uuid.uuid4()),
@@ -180,7 +188,7 @@ class SpellCheck:
 
         entries = self.dictionary.dictionary['entries']
         possibilities = [
-            (entry['headWord'], criteria(entry, word))
+            (entry['headWord'], criteria(entry, word, self.dictionary))
             for entry in entries
         ]
 
@@ -222,6 +230,6 @@ if __name__ == "__main__":
     path = 'C:\\Users\\danie\\example_workspace\\project_data'
     d = Dictionary(path)
     s = SpellCheck(d, True)
-    print(s.complete('comp'))
+    print(s.complete('is'))
 
 
