@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { VSCodeButton, VSCodeTag } from "@vscode/webview-ui-toolkit/react";
-import { CommentTextForm } from "../components/CommentTextForm";
-import "./App.css";
-import { ChatMessage, ChatPostMessages } from "../../../types";
+import { ChatInputTextForm } from "../../components/ChatInputTextForm";
+import "../App.css";
+import { ChatMessage, ChatPostMessages } from "../../../../types";
 
 const FLASK_ENDPOINT = "http://localhost:5554";
 const vscode = acquireVsCodeApi();
@@ -357,7 +357,7 @@ function App() {
                     <MessageItem messageItem={pendingMessage} />
                 ) : null}
             </div>
-            <CommentTextForm
+            <ChatInputTextForm
                 contextItems={contextItems}
                 selectedText={selectedTextContext}
                 handleSubmit={handleSubmit}
