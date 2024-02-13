@@ -40,7 +40,7 @@ const loadWebviewHtml = (
         vscode.Uri.joinPath(
             extensionUri,
             "webviews",
-            "ChatSideBar",
+            "codex-webviews",
             "dist",
             "ChatView",
             "index.js",
@@ -50,7 +50,7 @@ const loadWebviewHtml = (
         vscode.Uri.joinPath(
             extensionUri,
             "webviews",
-            "ChatSideBar",
+            "codex-webviews",
             "dist",
             "ChatView",
             "index.css",
@@ -76,9 +76,8 @@ const loadWebviewHtml = (
       Use a content security policy to only allow loading images from https or from our extension directory,
       and only allow scripts that have a specific nonce.
     -->
-    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${
-        webviewView.webview.cspSource
-    }; script-src 'nonce-${nonce}';">
+    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${webviewView.webview.cspSource
+        }; script-src 'nonce-${nonce}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="${styleResetUri}" rel="stylesheet">
     <link href="${styleVSCodeUri}" rel="stylesheet">
@@ -207,13 +206,13 @@ export class CustomWebviewProvider {
                 vscode.window.onDidChangeTextEditorSelection((e) => {
                     if (e.textEditor === activeEditor) {
                         const selectedTextDataToAddToChat: SelectedTextDataWithContext =
-                            {
-                                selection: activeEditor.document.getText(
-                                    e.selections[0],
-                                ),
-                                completeLineContent: null,
-                                vrefAtStartOfLine: null,
-                            };
+                        {
+                            selection: activeEditor.document.getText(
+                                e.selections[0],
+                            ),
+                            completeLineContent: null,
+                            vrefAtStartOfLine: null,
+                        };
 
                         const selectedText = activeEditor.document.getText(
                             e.selections[0],
