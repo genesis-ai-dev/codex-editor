@@ -85,6 +85,7 @@ if (!ROOT_PATH) {
     vscode.window.showErrorMessage("No workspace found");
 }
 
+let isExtensionInitialized = false;
 let client: LanguageClient | undefined;
 let clientStarting = false;
 let python: PythonExtension;
@@ -92,14 +93,6 @@ let pyglsLogger: vscode.LogOutputChannel;
 
 export async function activate(context: vscode.ExtensionContext) {
     /** BEGIN CODEX EDITOR EXTENSION FUNCTIONALITY */
-    registerReferencesCodeLens(context);
-    registerSourceCodeLens(context);
-    registerCommentsProvider(context);
-    registerChatProvider(context);
-    registerCommentsWebviewProvider(context);
-    registerDictionaryTableProvider(context);
-    registerTextSelectionHandler(context);
-    context.subscriptions.push(CreateProjectProvider.register(context));
 
     // Add .bible files to the files.readonlyInclude glob pattern to make them readonly without overriding existing patterns
     const config = vscode.workspace.getConfiguration();
@@ -163,7 +156,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
 
 
-    
+
 
 
 
@@ -428,6 +421,19 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         }),
     );
+
+    // Let's set the extension as initialized so that we can defer the 
+    // starting of certain functionality until the extension is ready
+    isExtensionInitialized = true;
+
+    registerReferencesCodeLens(context);
+    registerSourceCodeLens(context);
+    registerCommentsProvider(context);
+    registerChatProvider(context);
+    registerCommentsWebviewProvider(context);
+    registerDictionaryTableProvider(context);
+    registerTextSelectionHandler(context);
+    context.subscriptions.push(CreateProjectProvider.register(context));
 }
 
 export function deactivate(): Thenable<void> {
