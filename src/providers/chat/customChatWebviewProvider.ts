@@ -41,8 +41,8 @@ const loadWebviewHtml = (
             extensionUri,
             "webviews",
             "ChatSideBar",
-            "build",
-            "assets",
+            "dist",
+            "ChatView",
             "index.js",
         ),
     );
@@ -51,8 +51,8 @@ const loadWebviewHtml = (
             extensionUri,
             "webviews",
             "ChatSideBar",
-            "build",
-            "assets",
+            "dist",
+            "ChatView",
             "index.css",
         ),
     );
@@ -76,8 +76,9 @@ const loadWebviewHtml = (
       Use a content security policy to only allow loading images from https or from our extension directory,
       and only allow scripts that have a specific nonce.
     -->
-    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${webviewView.webview.cspSource
-        }; script-src 'nonce-${nonce}';">
+    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${
+        webviewView.webview.cspSource
+    }; script-src 'nonce-${nonce}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="${styleResetUri}" rel="stylesheet">
     <link href="${styleVSCodeUri}" rel="stylesheet">
@@ -166,7 +167,10 @@ export class CustomWebviewProvider {
         this._extensionUri = extensionUri;
     }
 
-    sendSelectMessage(webviewView: vscode.WebviewView, selectedText: SelectedTextDataWithContext) {
+    sendSelectMessage(
+        webviewView: vscode.WebviewView,
+        selectedText: SelectedTextDataWithContext,
+    ) {
         /*
         Send the text currently selected in the active editor to the webview.
         Also sends the full line, and the vref if any is found at the start 
@@ -177,7 +181,8 @@ export class CustomWebviewProvider {
 
         :return: None
         */
-        const { selection, completeLineContent, vrefAtStartOfLine } = selectedText;
+        const { selection, completeLineContent, vrefAtStartOfLine } =
+            selectedText;
         let selectedTextToSend = selection;
 
         // Shorten the length of selectedText
@@ -201,11 +206,14 @@ export class CustomWebviewProvider {
             this.selectionChangeListener =
                 vscode.window.onDidChangeTextEditorSelection((e) => {
                     if (e.textEditor === activeEditor) {
-                        const selectedTextDataToAddToChat: SelectedTextDataWithContext = {
-                            selection: activeEditor.document.getText(e.selections[0]),
-                            completeLineContent: null,
-                            vrefAtStartOfLine: null,
-                        };
+                        const selectedTextDataToAddToChat: SelectedTextDataWithContext =
+                            {
+                                selection: activeEditor.document.getText(
+                                    e.selections[0],
+                                ),
+                                completeLineContent: null,
+                                vrefAtStartOfLine: null,
+                            };
 
                         const selectedText = activeEditor.document.getText(
                             e.selections[0],
@@ -225,7 +233,10 @@ export class CustomWebviewProvider {
                                 vrefAtStartOfLine;
                         }
 
-                        this.sendSelectMessage(webviewView, selectedTextDataToAddToChat);
+                        this.sendSelectMessage(
+                            webviewView,
+                            selectedTextDataToAddToChat,
+                        );
                     }
                 });
         }

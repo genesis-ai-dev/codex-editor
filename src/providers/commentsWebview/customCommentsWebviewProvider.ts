@@ -32,9 +32,9 @@ const loadWebviewHtml = (
         vscode.Uri.joinPath(
             extensionUri,
             "webviews",
-            "commentsWebview",
-            "build",
-            "assets",
+            "ChatSideBar",
+            "dist",
+            "CommentsView",
             "index.js",
         ),
     );
@@ -42,9 +42,9 @@ const loadWebviewHtml = (
         vscode.Uri.joinPath(
             extensionUri,
             "webviews",
-            "commentsWebview",
-            "build",
-            "assets",
+            "ChatSideBar",
+            "dist",
+            "CommentsView",
             "index.css",
         ),
     );
