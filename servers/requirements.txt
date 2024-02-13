@@ -5,4 +5,5 @@ codex_python_types
 imagehash
 pillow
 flask
+flask_cors
 swig

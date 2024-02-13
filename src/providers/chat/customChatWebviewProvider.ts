@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
-import { ChatPostMessages } from "../../../types";
+import { ChatPostMessages, SelectedTextDataWithContext } from "../../../types";
+import { extractVerseRefFromLine } from "../../utils/verseRefUtils";
 
 const config = vscode.workspace.getConfiguration("translators-copilot");
 const endpoint = config.get("llmEndpoint"); // NOTE: config.endpoint is reserved so we must have unique name
@@ -165,22 +166,33 @@ export class CustomWebviewProvider {
         this._extensionUri = extensionUri;
     }
 
-    sendSelectMessage(webviewView: vscode.WebviewView, selectedText: string) {
-        const activeEditor = vscode.window.activeTextEditor;
-        let languageId = "";
-        if (activeEditor) {
-            languageId = activeEditor.document.languageId;
-        }
+    sendSelectMessage(webviewView: vscode.WebviewView, selectedText: SelectedTextDataWithContext) {
+        /*
+        Send the text currently selected in the active editor to the webview.
+        Also sends the full line, and the vref if any is found at the start 
+        of the line.
+
+        :param webviewView: The webview to send the message to.
+        :param selectedText: The text currently selected in the active editor.
+
+        :return: None
+        */
+        const { selection, completeLineContent, vrefAtStartOfLine } = selectedText;
+        let selectedTextToSend = selection;
+
         // Shorten the length of selectedText
-        if (selectedText.length > maxLength - 100) {
-            selectedText = selectedText.substring(0, maxLength - 100);
+        if (selection.length > maxLength - 100) {
+            selectedTextToSend = selection.substring(0, maxLength - 100);
         }
-        const formattedCode =
-            "```" + languageId + "\r\n" + selectedText + "\r\n```";
+
         webviewView.webview.postMessage({
             command: "select",
-            text: selectedText ? formattedCode : "",
-        } as ChatPostMessages);
+            textDataWithContext: {
+                selectedText: selectedTextToSend,
+                completeLineContent,
+                vrefAtStartOfLine,
+            },
+        });
     }
 
     saveSelectionChanges(webviewView: vscode.WebviewView) {
@@ -189,10 +201,31 @@ export class CustomWebviewProvider {
             this.selectionChangeListener =
                 vscode.window.onDidChangeTextEditorSelection((e) => {
                     if (e.textEditor === activeEditor) {
+                        const selectedTextDataToAddToChat: SelectedTextDataWithContext = {
+                            selection: activeEditor.document.getText(e.selections[0]),
+                            completeLineContent: null,
+                            vrefAtStartOfLine: null,
+                        };
+
                         const selectedText = activeEditor.document.getText(
                             e.selections[0],
                         );
-                        this.sendSelectMessage(webviewView, selectedText);
+
+                        const currentLine = activeEditor.document.lineAt(
+                            e.selections[0].active,
+                        );
+                        selectedTextDataToAddToChat.completeLineContent =
+                            currentLine.text;
+
+                        const vrefAtStartOfLine = extractVerseRefFromLine(
+                            currentLine.text,
+                        );
+                        if (vrefAtStartOfLine) {
+                            selectedTextDataToAddToChat.vrefAtStartOfLine =
+                                vrefAtStartOfLine;
+                        }
+
+                        this.sendSelectMessage(webviewView, selectedTextDataToAddToChat);
                     }
                 });
         }
