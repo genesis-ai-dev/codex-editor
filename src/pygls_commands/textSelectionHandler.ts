@@ -12,6 +12,7 @@ async function checkServerHeartbeat() {
         if (data.databases === "") {
             const dataPath = vscode.workspace.workspaceFolders?.[0]?.uri.toString();
             if (dataPath) {
+                vscode.window.showInformationMessage('Server databases are empty. Attempting to start the server with data path: ' + dataPath);
                 await fetch(`http://localhost:5554/start?data_path=${encodeURIComponent(dataPath)}`, { method: 'GET' });
             } else {
                 console.error('No workspace folder found to start the server with.');
@@ -23,7 +24,7 @@ async function checkServerHeartbeat() {
 }
 
 export function registerTextSelectionHandler(context: vscode.ExtensionContext) {
-    let selectionTimeout: ReturnType<typeof setTimeout> | undefined;
+    let selectionTimeout: NodeJS.Timeout | undefined;
     context.subscriptions.push(vscode.window.onDidChangeTextEditorSelection(async (event: vscode.TextEditorSelectionChangeEvent) => {
         if (selectionTimeout) {
             clearTimeout(selectionTimeout);
