@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { VSCodeDropdown, VSCodeOption } from "@vscode/webview-ui-toolkit/react";
-import bibleBooksLookup from "../src/assets/bible-books-lookup.json";
+import bibleBooksLookup from "../assets/bible-books-lookup.json";
 
 interface VerseRefNavigationProps {
     verseRef: string; // Expected format: "Book Chapter:Verse"

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { VSCodeButton, VSCodeTag } from "@vscode/webview-ui-toolkit/react";
-import { ChatInputTextForm } from "../../components/ChatInputTextForm";
+import { ChatInputTextForm } from "../components/ChatInputTextForm";
 import "../App.css";
 import { ChatMessage, ChatPostMessages } from "../../../../types";
 

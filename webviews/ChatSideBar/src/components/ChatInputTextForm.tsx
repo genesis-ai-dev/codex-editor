@@ -4,7 +4,6 @@ import {
     VSCodeTextArea,
     VSCodeTextField,
 } from "@vscode/webview-ui-toolkit/react";
-import "../src/App.css";
 
 type CommentTextFormProps = {
     handleSubmit: (comment: string) => void;

@@ -23,11 +23,11 @@ export const CommentTextForm: React.FC<CommentTextFormProps> = ({
         <form
             className="comments-input"
             style={{
-                position: "sticky",
                 bottom: 0,
                 width: "100%",
                 display: "flex",
                 flexWrap: "nowrap",
+                flexFlow: "column",
                 boxShadow:
                     "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
             }}
