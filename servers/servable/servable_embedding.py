@@ -2,7 +2,7 @@ import requests
 from lsprotocol.types import DidCloseTextDocumentParams, Range, Position, CompletionList, CompletionItem, CompletionItemKind, TextEdit
 from tools.ls_tools import ServerFunctions
 from pygls.server import LanguageServer
-from typing import List
+from typing import List, Any
 from time import sleep
 import time
 import urllib
@@ -20,7 +20,7 @@ class ServableEmbedding:
     def __init__(self, sf: ServerFunctions):
         self.database = None 
         self.sf = sf
-        self.last_served = []
+        self.last_served: List[Any] = []
         self.time_last_served = time.time()
 
     def embed_document(self, params, sf):
@@ -34,7 +34,7 @@ class ServableEmbedding:
             if response.status_code == 200:
                 sf.server.show_message(message=f"The Codex file '{path}' has been upserted into 'drafts' database")
             else:
-                sf.server.show_message(message=f"Failed to upsert the Codex file '{path}'")
+                sf.server.show_message(message=f"Failed to upsert the Codex file '{path}'. Error: {response.text}")
 
     def on_close(self, ls, params: DidCloseTextDocumentParams, fs):
         path = uri_to_filepath(params.text_document.uri)
@@ -59,7 +59,7 @@ class ServableEmbedding:
                 completion_items = [self.create_completion_item(result, range) for result in results]
                 return completion_items
             else:
-                sf.server.show_message_log("Search request failed.")
+                sf.server.show_message_log(f"Search request failed. Error: {response.text}")
                 return []
         else:
             # If the last served line is the same and it has not been 2 seconds, return the last served results

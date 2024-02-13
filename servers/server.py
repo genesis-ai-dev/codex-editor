@@ -13,6 +13,7 @@ try:
     from servable.servable_embedding import ServableEmbedding
 
     import flask # forces install if it is not installed
+    import flask_cors # forces install if it is not installed
     import sys
 except ImportError:
     import sys

@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 interface ChatMessage {
-    role: "system" | "user" | "assistant" | "context";
+    role: "system" | "user" | "assistant";
     content: string;
 }
 
