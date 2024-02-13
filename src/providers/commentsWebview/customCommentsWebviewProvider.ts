@@ -217,44 +217,59 @@ export class CustomWebviewProvider {
             }
             return uri;
         };
+        const commentsFile = "notebook-comments.json";
+
+        const serializeCommentsToDisk = async (
+            existingCommentsThreads: NotebookCommentThread[],
+            newCommentThread: NotebookCommentThread,
+        ) => {
+            const threadIndex = existingCommentsThreads.findIndex(
+                (thread) => thread.id === newCommentThread.id,
+            );
+            if (threadIndex !== -1) {
+                existingCommentsThreads[threadIndex].comments = [
+                    ...existingCommentsThreads[threadIndex].comments,
+                    ...newCommentThread.comments,
+                ];
+                existingCommentsThreads[threadIndex].threadTitle =
+                    newCommentThread.threadTitle;
+            } else {
+                existingCommentsThreads.push(newCommentThread);
+            }
+            await writeSerializedData(
+                JSON.stringify(existingCommentsThreads, null, 4),
+                commentsFile,
+            );
+        };
         webviewView.webview.onDidReceiveMessage(
             async (message: CommentPostMessages) => {
                 console.log({ message }, "onDidReceiveMessage");
                 try {
                     switch (message.command) {
                         case "updateCommentThread": {
-                            const commentsFile = "notebook-comments.json";
-                            const existingComments =
+                            const existingCommentsThreads =
                                 await getCommentsFromFile(commentsFile);
 
                             // NOTE: When the panel fist load the verseRef defaults to GEn 1:1 but there is no way for the webview to know the uri
-                            if (!message.comment.uri) {
+                            if (!message.commentThread.uri) {
                                 const uriForVerseRef = await findUriForVerseRef(
-                                    message.comment.verseRef,
+                                    message.commentThread.verseRef,
                                 );
                                 if (!uriForVerseRef) {
                                     vscode.window.showInformationMessage(
-                                        `No file found with the verse reference: ${message.comment.verseRef}`,
+                                        `No file found with the verse reference: ${message.commentThread.verseRef}`,
                                     );
                                     return;
                                 }
-                                message.comment.uri = uriForVerseRef;
-                                await writeSerializedData(
-                                    JSON.stringify(
-                                        [...existingComments, message.comment],
-                                        null,
-                                        4,
-                                    ),
-                                    commentsFile,
+                                message.commentThread.uri = uriForVerseRef;
+                                await serializeCommentsToDisk(
+                                    existingCommentsThreads,
+                                    message.commentThread,
                                 );
                             } else {
-                                await writeSerializedData(
-                                    JSON.stringify(
-                                        [...existingComments, message.comment],
-                                        null,
-                                        4,
-                                    ),
-                                    commentsFile,
+                                await serializeCommentsToDisk(
+                                    existingCommentsThreads,
+                                    message.commentThread,
                                 );
                             }
                             sendCommentsToWebview(webviewView);
