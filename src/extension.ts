@@ -3,11 +3,12 @@
 import * as vscode from "vscode";
 import { CodexKernel } from "./controller";
 import { CodexContentSerializer } from "./serializer";
-import { registerTextSelectionHandler } from './pygls_commands/textSelectionHandler';
+import { registerTextSelectionHandler } from "./pygls_commands/textSelectionHandler";
 
 import {
     NOTEBOOK_TYPE,
     createCodexNotebook,
+    createProjectCommentFiles,
     createProjectNotebooks,
 } from "./utils/codexNotebookUtils";
 import { CodexNotebookProvider } from "./tree-view/scriptureTreeViewProvider";
@@ -154,12 +155,6 @@ export async function activate(context: vscode.ExtensionContext) {
         ),
     );
 
-
-
-
-
-
-
     // Register a command called openChapter that opens a specific .codex notebook to a specific chapter
     context.subscriptions.push(
         vscode.commands.registerCommand(
@@ -276,11 +271,17 @@ export async function activate(context: vscode.ExtensionContext) {
                                 shouldOverWrite: true,
                                 books,
                             });
+                            await createProjectCommentFiles({
+                                shouldOverWrite: true,
+                            });
                         } else if (overwriteConfirmation === "No") {
                             vscode.window.showInformationMessage(
                                 "Creating Codex Project without overwrite.",
                             );
                             await createProjectNotebooks({ books });
+                            await createProjectCommentFiles({
+                                shouldOverWrite: false,
+                            });
                         }
                     } else {
                         vscode.window.showErrorMessage(
@@ -335,18 +336,32 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Check and create missing project files or directories as specified in PATHS_TO_POPULATE
     if (ROOT_PATH) {
-        vscode.window.showInformationMessage("Checking for missing project files...");
+        vscode.window.showInformationMessage(
+            "Checking for missing project files...",
+        );
         for (const pathToPopulate of PATHS_TO_POPULATE) {
-            const fullPath = vscode.Uri.joinPath(vscode.Uri.file(ROOT_PATH), pathToPopulate);
+            const fullPath = vscode.Uri.joinPath(
+                vscode.Uri.file(ROOT_PATH),
+                pathToPopulate,
+            );
             try {
                 await vscode.workspace.fs.stat(fullPath);
             } catch (error) {
                 // Determine if the missing path is a file or a directory based on its name
-                if (pathToPopulate.includes('.')) { // Assuming it's a file if there's an extension
-                    vscode.window.showInformationMessage(`Creating file: ${pathToPopulate}`);
-                    await vscode.workspace.fs.writeFile(fullPath, new Uint8Array()); // Create an empty file
-                } else { // Assuming it's a directory if there's no file extension
-                    vscode.window.showInformationMessage(`Creating directory: ${pathToPopulate}`);
+                if (pathToPopulate.includes(".")) {
+                    // Assuming it's a file if there's an extension
+                    vscode.window.showInformationMessage(
+                        `Creating file: ${pathToPopulate}`,
+                    );
+                    await vscode.workspace.fs.writeFile(
+                        fullPath,
+                        new Uint8Array(),
+                    ); // Create an empty file
+                } else {
+                    // Assuming it's a directory if there's no file extension
+                    vscode.window.showInformationMessage(
+                        `Creating directory: ${pathToPopulate}`,
+                    );
                     await vscode.workspace.fs.createDirectory(fullPath);
                 }
             }
@@ -422,7 +437,7 @@ export async function activate(context: vscode.ExtensionContext) {
         }),
     );
 
-    // Let's set the extension as initialized so that we can defer the 
+    // Let's set the extension as initialized so that we can defer the
     // starting of certain functionality until the extension is ready
     isExtensionInitialized = true;
 
