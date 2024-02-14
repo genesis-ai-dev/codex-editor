@@ -1,6 +1,5 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import path from "path";
 
 // Use an environment variable to specify the app to build
 const appToBuild = process.env.APP_NAME;
@@ -18,10 +17,5 @@ export default defineConfig({
             },
         },
         outDir: appToBuild ? `dist/${appToBuild}` : "dist",
-    },
-    resolve: {
-        alias: {
-            "@": path.resolve(__dirname, "./src"),
-        },
     },
 });
