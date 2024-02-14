@@ -4,7 +4,6 @@ import {
     VSCodeTextArea,
     VSCodeTextField,
 } from "@vscode/webview-ui-toolkit/react";
-import "../src/App.css";
 
 type CommentTextFormProps = {
     handleSubmit: (comment: string) => void;
@@ -12,7 +11,7 @@ type CommentTextFormProps = {
     selectedText: string;
 };
 
-export const CommentTextForm: React.FC<CommentTextFormProps> = ({
+export const ChatInputTextForm: React.FC<CommentTextFormProps> = ({
     handleSubmit,
     contextItems,
     selectedText,
@@ -45,25 +44,32 @@ export const CommentTextForm: React.FC<CommentTextFormProps> = ({
                     display: "flex",
                     flexDirection: "column",
                     gap: "0.5em",
+                    width: "100%",
                 }}
             >
-                {contextItems.length > 0 && (
-                    <VSCodeTextArea
-                        readOnly
-                        title="Context Items"
-                        value={contextItems?.join("\n")}
-                        placeholder="Context Items..."
-                        style={{ flexGrow: 1, marginBottom: "0.5em" }}
-                    />
-                )}
+                {contextItems.length > 0 &&
+                    contextItems.map((currentContextItem) => (
+                        <VSCodeTextArea
+                            readOnly
+                            cols={1000}
+                            title="Context Items"
+                            value={currentContextItem}
+                            placeholder="Context Items..."
+                            // style={{ flexGrow: 1, marginBottom: "0.5em" }}
+                        />
+                    ))}
+                hereuiuiu:{" "}
                 {selectedText && (
-                    <VSCodeTextArea
+                    <VSCodeTextField
                         readOnly
+                        // cols={1000}
                         title="Selected Text"
                         value={selectedText}
                         placeholder="Selected Text..."
-                        style={{ flexGrow: 1 }}
-                    />
+                        // style={{ flexGrow: 1 }}
+                    >
+                        This is a label
+                    </VSCodeTextField>
                 )}
             </div>
             <div
@@ -71,9 +77,11 @@ export const CommentTextForm: React.FC<CommentTextFormProps> = ({
                     display: "flex",
                     flexDirection: "row",
                     gap: "0.5em",
+                    width: "100%",
                 }}
             >
                 <VSCodeButton
+                    appearance="icon"
                     aria-label="Attach"
                     onClick={() => console.log("Attach clicked")}
                 >
@@ -84,13 +92,15 @@ export const CommentTextForm: React.FC<CommentTextFormProps> = ({
                     placeholder="Type a message..."
                     style={{
                         flexGrow: 1,
+                        width: "100%",
                         borderRadius: "5em",
                     }}
                 />
-                <VSCodeButton type="submit">
+                <VSCodeButton appearance="icon" type="submit">
                     <i className="codicon codicon-send"></i>
                 </VSCodeButton>
                 <VSCodeButton
+                    appearance="icon"
                     aria-label="Record"
                     onClick={() => console.log("Record clicked")}
                 >

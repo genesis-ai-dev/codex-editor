@@ -40,9 +40,9 @@ const loadWebviewHtml = (
         vscode.Uri.joinPath(
             extensionUri,
             "webviews",
-            "ChatSideBar",
-            "build",
-            "assets",
+            "codex-webviews",
+            "dist",
+            "ChatView",
             "index.js",
         ),
     );
@@ -50,9 +50,9 @@ const loadWebviewHtml = (
         vscode.Uri.joinPath(
             extensionUri,
             "webviews",
-            "ChatSideBar",
-            "build",
-            "assets",
+            "codex-webviews",
+            "dist",
+            "ChatView",
             "index.css",
         ),
     );
@@ -166,7 +166,10 @@ export class CustomWebviewProvider {
         this._extensionUri = extensionUri;
     }
 
-    sendSelectMessage(webviewView: vscode.WebviewView, selectedText: SelectedTextDataWithContext) {
+    sendSelectMessage(
+        webviewView: vscode.WebviewView,
+        selectedText: SelectedTextDataWithContext,
+    ) {
         /*
         Send the text currently selected in the active editor to the webview.
         Also sends the full line, and the vref if any is found at the start 
@@ -177,7 +180,8 @@ export class CustomWebviewProvider {
 
         :return: None
         */
-        const { selection, completeLineContent, vrefAtStartOfLine } = selectedText;
+        const { selection, completeLineContent, vrefAtStartOfLine } =
+            selectedText;
         let selectedTextToSend = selection;
 
         // Shorten the length of selectedText
@@ -201,8 +205,11 @@ export class CustomWebviewProvider {
             this.selectionChangeListener =
                 vscode.window.onDidChangeTextEditorSelection((e) => {
                     if (e.textEditor === activeEditor) {
-                        const selectedTextDataToAddToChat: SelectedTextDataWithContext = {
-                            selection: activeEditor.document.getText(e.selections[0]),
+                        const selectedTextDataToAddToChat: SelectedTextDataWithContext =
+                        {
+                            selection: activeEditor.document.getText(
+                                e.selections[0],
+                            ),
                             completeLineContent: null,
                             vrefAtStartOfLine: null,
                         };
@@ -225,7 +232,10 @@ export class CustomWebviewProvider {
                                 vrefAtStartOfLine;
                         }
 
-                        this.sendSelectMessage(webviewView, selectedTextDataToAddToChat);
+                        this.sendSelectMessage(
+                            webviewView,
+                            selectedTextDataToAddToChat,
+                        );
                     }
                 });
         }

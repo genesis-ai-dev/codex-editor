@@ -30,7 +30,7 @@ import {
 import { checkTaskStatus, indexVrefs } from "./commands/indexVrefsCommand";
 
 /* -------------------------------------------------------------------------
- * NOTE: This file's invokation of a python server is a derivative work of
+ * NOTE: This file's invocation of a python server is a derivative work of
  * "extension.ts" from the vscode-python, whose original notice is below.
  *
  * Original work Copyright (c) Microsoft Corporation. All rights reserved.

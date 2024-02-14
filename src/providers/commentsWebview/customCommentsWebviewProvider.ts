@@ -32,9 +32,9 @@ const loadWebviewHtml = (
         vscode.Uri.joinPath(
             extensionUri,
             "webviews",
-            "commentsWebview",
-            "build",
-            "assets",
+            "codex-webviews",
+            "dist",
+            "CommentsView",
             "index.js",
         ),
     );
@@ -42,9 +42,9 @@ const loadWebviewHtml = (
         vscode.Uri.joinPath(
             extensionUri,
             "webviews",
-            "commentsWebview",
-            "build",
-            "assets",
+            "codex-webviews",
+            "dist",
+            "CommentsView",
             "index.css",
         ),
     );
@@ -68,9 +68,8 @@ const loadWebviewHtml = (
       Use a content security policy to only allow loading images from https or from our extension directory,
       and only allow scripts that have a specific nonce.
     -->
-    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${
-        webviewView.webview.cspSource
-    }; script-src 'nonce-${nonce}';">
+    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${webviewView.webview.cspSource
+        }; script-src 'nonce-${nonce}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="${styleResetUri}" rel="stylesheet">
     <link href="${styleVSCodeUri}" rel="stylesheet">
@@ -113,7 +112,7 @@ const sendCommentsToWebview = async (webviewView: vscode.WebviewView) => {
     console.log({ workspaceFolders });
     const filePath = workspaceFolders
         ? vscode.Uri.joinPath(workspaceFolders[0].uri, "notebook-comments.json")
-              .fsPath
+            .fsPath
         : "";
     console.log({ filePath });
     try {
@@ -217,44 +216,59 @@ export class CustomWebviewProvider {
             }
             return uri;
         };
+        const commentsFile = "notebook-comments.json";
+
+        const serializeCommentsToDisk = async (
+            existingCommentsThreads: NotebookCommentThread[],
+            newCommentThread: NotebookCommentThread,
+        ) => {
+            const threadIndex = existingCommentsThreads.findIndex(
+                (thread) => thread.id === newCommentThread.id,
+            );
+            if (threadIndex !== -1) {
+                existingCommentsThreads[threadIndex].comments = [
+                    ...existingCommentsThreads[threadIndex].comments,
+                    ...newCommentThread.comments,
+                ];
+                existingCommentsThreads[threadIndex].threadTitle =
+                    newCommentThread.threadTitle;
+            } else {
+                existingCommentsThreads.push(newCommentThread);
+            }
+            await writeSerializedData(
+                JSON.stringify(existingCommentsThreads, null, 4),
+                commentsFile,
+            );
+        };
         webviewView.webview.onDidReceiveMessage(
             async (message: CommentPostMessages) => {
                 console.log({ message }, "onDidReceiveMessage");
                 try {
                     switch (message.command) {
                         case "updateCommentThread": {
-                            const commentsFile = "notebook-comments.json";
-                            const existingComments =
+                            const existingCommentsThreads =
                                 await getCommentsFromFile(commentsFile);
 
                             // NOTE: When the panel fist load the verseRef defaults to GEn 1:1 but there is no way for the webview to know the uri
-                            if (!message.comment.uri) {
+                            if (!message.commentThread.uri) {
                                 const uriForVerseRef = await findUriForVerseRef(
-                                    message.comment.verseRef,
+                                    message.commentThread.verseRef,
                                 );
                                 if (!uriForVerseRef) {
                                     vscode.window.showInformationMessage(
-                                        `No file found with the verse reference: ${message.comment.verseRef}`,
+                                        `No file found with the verse reference: ${message.commentThread.verseRef}`,
                                     );
                                     return;
                                 }
-                                message.comment.uri = uriForVerseRef;
-                                await writeSerializedData(
-                                    JSON.stringify(
-                                        [...existingComments, message.comment],
-                                        null,
-                                        4,
-                                    ),
-                                    commentsFile,
+                                message.commentThread.uri = uriForVerseRef;
+                                await serializeCommentsToDisk(
+                                    existingCommentsThreads,
+                                    message.commentThread,
                                 );
                             } else {
-                                await writeSerializedData(
-                                    JSON.stringify(
-                                        [...existingComments, message.comment],
-                                        null,
-                                        4,
-                                    ),
-                                    commentsFile,
+                                await serializeCommentsToDisk(
+                                    existingCommentsThreads,
+                                    message.commentThread,
                                 );
                             }
                             sendCommentsToWebview(webviewView);

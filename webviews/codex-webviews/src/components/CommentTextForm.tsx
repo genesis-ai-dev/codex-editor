@@ -4,55 +4,66 @@ import {
     VSCodeTextField,
 } from "@vscode/webview-ui-toolkit/react";
 
-type CommentTextFormProps = {
-    handleSubmit: (comment: string) => void;
+export type CommentTextFormProps = {
+    handleSubmit: (args: {
+        comment: string;
+        title: string;
+        threadId: string | null;
+    }) => void;
+    showTitleInput?: boolean;
+    threadId: string | null;
 };
 
 export const CommentTextForm: React.FC<CommentTextFormProps> = ({
     handleSubmit,
+    showTitleInput,
+    threadId,
 }) => {
     return (
         <form
             className="comments-input"
             style={{
-                position: "sticky",
                 bottom: 0,
                 width: "100%",
                 display: "flex",
                 flexWrap: "nowrap",
+                flexFlow: "column",
                 boxShadow:
                     "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
             }}
             onSubmit={(e) => {
                 e.preventDefault();
                 const formData = new FormData(e.target as HTMLFormElement);
-                const formValue = formData.get("comment") as string;
-                console.log("Form submitted with value:", formValue);
-                handleSubmit(formValue);
+                const comment = formData.get("comment") as string;
+                const title = formData.get("title") as string;
+
+                handleSubmit({ comment, title, threadId });
                 (e.target as HTMLFormElement).reset();
             }}
         >
-            <div
-                style={{
-                    display: "flex",
-                    flexFlow: "column nowrap",
-                    padding: "0.5em 0",
-                    width: "100%",
-                }}
-            >
-                <label
-                    htmlFor="title"
-                    style={{ display: "block", marginBottom: "0.5em" }}
+            {showTitleInput && (
+                <div
+                    style={{
+                        display: "flex",
+                        flexFlow: "column nowrap",
+                        padding: "0.5em 0",
+                        width: "100%",
+                    }}
                 >
-                    Title:
-                </label>
-                <VSCodeTextField
-                    id="title"
-                    name="title"
-                    placeholder="Type the title..."
-                    style={{ width: "100%", marginBottom: "1em" }}
-                />
-            </div>
+                    <label
+                        htmlFor="title"
+                        style={{ display: "block", marginBottom: "0.5em" }}
+                    >
+                        Title:
+                    </label>
+                    <VSCodeTextField
+                        id="title"
+                        name="title"
+                        placeholder="Type the title..."
+                        style={{ width: "100%", marginBottom: "1em" }}
+                    />
+                </div>
+            )}
             <div style={{ padding: "0.5em 0", width: "100%" }}>
                 <label
                     htmlFor="comment"
