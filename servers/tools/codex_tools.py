@@ -63,7 +63,7 @@ class CodexReader:
         return {"chapters": chapters}
 
     def split_verses(self, scripture_text):
-        marker_match = re.search(r'([A-Z]+) \d+:\d+', scripture_text)
+        marker_match = re.search(r'(\d?[A-Z]+) \d+:\d+', scripture_text)
         if marker_match:
             marker = marker_match.group(1)
             # Split the verses and keep the markers
@@ -85,8 +85,8 @@ class CodexReader:
         return [self.combine_verses(verses[i:i+self.verse_chunk_size], language) for i in range(0, len(verses), self.verse_chunk_size)]
 
     def combine_verses(self, verse_chunk, language):
-        first_verse_info = re.search(r'([A-Z]+) (\d+:\d+)', verse_chunk[0])
-        last_verse_info = re.search(r'([A-Z]+) (\d+:\d+)', verse_chunk[-1])
+        first_verse_info = re.search(r'(\d?[A-Z]{2,3}) (\d+:\d+)', verse_chunk[0])
+        last_verse_info = re.search(r'(\d?[A-Z]{2,3}) (\d+:\d+)', verse_chunk[-1])
 
         if first_verse_info and last_verse_info and first_verse_info.group(1) == last_verse_info.group(1):
             chunk_name = f"{language} {first_verse_info.group(1)} {first_verse_info.group(2)} - {last_verse_info.group(2)}"

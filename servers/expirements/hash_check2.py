@@ -4,7 +4,7 @@ import numpy as np
 
 class Hash:
     def __init__(self, h: str):
-      self.h = [float(i) for i in h.split("-")]
+      self.h = [float(i) for i in h.split("::")]
     
     def __sub__(self, other):
         all = []
@@ -12,7 +12,7 @@ class Hash:
             all.append(abs(float(a) - float(b)))
         return int(sum(all)/len(all))
     def __str__(self):
-       return "-".join([str(a) for a in self.h])
+       return "::".join([str(a) for a in self.h])
 
 def divide_text_into_chunks(text, n):
   # Calculate the length of each chunk
@@ -63,10 +63,10 @@ def spell_hash(text: str, font_path: str = "servers/expirements/unifont-15.1.04.
 
         # Normalize the count by the width of the letter
         normalized_count = black_pixels - white_pixels
-        pixel_counts.append(f"{float(normalized_count)}")
+        pixel_counts.append(float(normalized_count))
     
     # Return the counts in the desired format
-    return Hash('-'.join(pixel_counts))
+    return Hash('::'.join([str(i) for i in pixel_counts]))
 
 # dais = spell_hash('dais')
 # bark = spell_hash("bark")
