@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { VSCodeButton, VSCodeTag } from "@vscode/webview-ui-toolkit/react";
-import { CommentTextForm } from "../components/CommentTextForm";
-import "./App.css";
-import { ChatMessage, ChatPostMessages } from "../../../types";
+import { ChatInputTextForm } from "../components/ChatInputTextForm";
+import "../App.css";
+import { ChatMessage, ChatPostMessages } from "../../../../types";
 
 const FLASK_ENDPOINT = "http://localhost:5554";
 const vscode = acquireVsCodeApi();
@@ -14,17 +14,19 @@ const ChatRoleLabel = {
 };
 
 function messageWithContext({
+    messageHistory,
     userPrompt,
     selectedText,
     contextItems,
 }: {
+    messageHistory: string;
     userPrompt: string;
     selectedText?: string;
     contextItems?: string[];
 }): ChatMessage {
-    let content = `### Instructions:\nPlease use the context below to respond to the user's message. If the answer is in the context, please quote the wording of the source. If the answer is not in the context, avoid making up anything and instead say "your documents do not seem to mention anything about that."`;
+    let content = `### Instructions:\nPlease use the context below to respond to the user's message. If you know the answer, be concise. If the answer is in the context, please quote the wording of the source. If the answer is not in the context, avoid making up anything.`;
 
-    if (selectedText || (contextItems && contextItems.length > 0)) {
+    if (selectedText || (contextItems && contextItems?.length > 0)) {
         content += `\n\n### Context:`;
     }
 
@@ -32,15 +34,20 @@ function messageWithContext({
         content += `\nThe user has selected the following text in their current document:\n${selectedText}`;
     }
 
-    if (contextItems && contextItems.length > 0) {
+    if (contextItems && contextItems?.length > 0) {
         content += `\n\nAnd here are some other relevant context items from their project and reference resources:\n${contextItems.join(
             "\n",
         )}`;
     }
 
+    if (messageHistory) {
+        content += `\n\n### Chat History:\n${messageHistory}`;
+    }
+
     content += `\n\n### User's message: ${userPrompt}`;
 
     return {
+        // FIXME: since we're passing in the conversation history, should we be using a completions endpoint rather than a chat one?
         role: "user",
         content: content,
     };
@@ -149,80 +156,15 @@ function App() {
 
     const SHOW_SENDER_ROLE_LABELS = false;
 
-    // async function handleSubmit(submittedMessageValue: string) {
-    //     let contextItemsFromServer: string[] = [];
-    //     try {
-    //         const response = await fetch(
-    //             `${FLASK_ENDPOINT}/search?db_name=drafts&query=${encodeURIComponent(
-    //                 submittedMessageValue,
-    //             )}`,
-    //         );
-    //         if (!response.ok) {
-    //             console.error(
-    //                 "Server responded with a non-200 status code while fetching context items.",
-    //             );
-    //             console.error(`RYDER: Server error: ${response.status}`);
-    //         }
-    //         const data = await response.json();
-    //         if (Array.isArray(data) && data.length > 0) {
-    //             contextItemsFromServer = data.map(
-    //                 (item) =>
-    //                     `${item.book} ${item.chapter}:${item.verse} - ${item.text}`,
-    //             );
-    //             console.log(
-    //                 "Additional metadata:",
-    //                 data
-    //                     .filter((item) => item.metadata)
-    //                     .map((item) => item.metadata),
-    //             );
-    //         } else {
-    //             console.warn(
-    //                 "No context items found. Proceeding with an empty array.",
-    //             );
-    //         }
-    //     } catch (error) {
-    //         console.error(
-    //             "Failed to fetch context items due to an error:",
-    //             error,
-    //         );
-    //         vscode.postMessage({
-    //             command: "error",
-    //             message: `Failed to fetch context items. ${JSON.stringify(
-    //                 error,
-    //             )}`,
-    //             messages: [], // Adding an empty string for the 'messages' property to match the expected type
-    //         } as unknown as ChatPostMessages); // Casting to 'unknown' first as suggested by the lint context
-    //         return; // Early return to prevent further execution
-    //     }
-
-    //     setContextItems(contextItemsFromServer as string[]); // Explicitly typing 'contextItemsFromServer' to resolve the implicit 'any[]' type issue
-
-    //     const pendingMessage: ChatMessage = messageWithContext({
-    //         userPrompt: submittedMessageValue,
-    //         selectedText: selectedTextContext,
-    //         contextItems: contextItemsFromServer,
-    //     });
-
-    //     const currentMessageLog = [...messageLog, pendingMessage];
-    //     setMessageLog(currentMessageLog);
-
-    //     setSelectedTextContext(""); // Clear the selected text context after submission
-
-    //     vscode.postMessage({
-    //         command: "fetch",
-    //         messages: JSON.stringify(currentMessageLog),
-    //     } as ChatPostMessages);
-    // }
-
     async function fetchContextItems(query: string): Promise<string[]> {
-        const CONTEXT_RETRIEVAL_STILL_IN_PROGRESS = true;
+        const CONTEXT_RETRIEVAL_FEATURE_STILL_IN_PROGRESS = true; // NOTE: just temporary
         // FIXME: finish implementing this function.
         // The Flask server is either crashing or not starting sometimes
         // and we need a more graceful way to handle using context items.
 
         // Also, need to truncate retrieved items to reasonable length based on count
         // and length of the items.
-        if (CONTEXT_RETRIEVAL_STILL_IN_PROGRESS) {
+        if (CONTEXT_RETRIEVAL_FEATURE_STILL_IN_PROGRESS) {
             return [];
         }
         const response = await fetch(
@@ -243,20 +185,38 @@ function App() {
         );
     }
 
-    function updateMessageLogWithPendingMessage(pendingMessage: ChatMessage) {
+    function formatMessageLogToString(messages: ChatMessage[]): string {
+        return messages
+            .map((message) => {
+                return `${ChatRoleLabel[message.role]}: ${message.content}`;
+            })
+            .join("\n");
+    }
+
+    function getResponseToUserNewMessage(newMessageTextContent: string) {
+        const pendingMessage: ChatMessage = {
+            role: "user",
+            content: newMessageTextContent,
+        };
+
         const updatedMessageLog = [...messageLog, pendingMessage];
-        // FIXME: we're adding a lot to the prompt, so we should
-        // adjust to only show the user their message, not the underlying
-        // complete prompt.
+
+        const contextItemsFromState = contextItems;
+
+        const formattedPrompt: ChatMessage[] = [
+            messageWithContext({
+                messageHistory: formatMessageLogToString(messageLog),
+                userPrompt: newMessageTextContent,
+                selectedText: selectedTextContext,
+                contextItems: contextItemsFromState,
+            }),
+        ];
+        console.log("Formatted prompt -->", formattedPrompt);
         setMessageLog(updatedMessageLog);
         vscode.postMessage({
             command: "fetch",
-            messages: JSON.stringify(updatedMessageLog),
+            messages: JSON.stringify(formattedPrompt),
         } as ChatPostMessages);
-    }
-
-    function clearSelectedTextContext() {
-        setSelectedTextContext("");
     }
 
     async function handleSubmit(submittedMessageValue: string) {
@@ -265,15 +225,8 @@ function App() {
                 submittedMessageValue,
             );
             setContextItems(contextItemsFromServer);
-
-            const pendingMessage: ChatMessage = messageWithContext({
-                userPrompt: submittedMessageValue,
-                selectedText: selectedTextContext,
-                contextItems: contextItemsFromServer,
-            });
-
-            updateMessageLogWithPendingMessage(pendingMessage);
-            clearSelectedTextContext();
+            getResponseToUserNewMessage(submittedMessageValue);
+            setSelectedTextContext("");
         } catch (error) {
             console.error(
                 "Failed to fetch context items due to an error:",
@@ -295,12 +248,26 @@ function App() {
             event: MessageEvent<{
                 command: "response" | "select";
                 finished: boolean;
-                text: string;
+                text?: string;
+                textDataWithContext?: {
+                    completeLineContent: string;
+                    selectedText: string;
+                    vrefAtStartOfLine: string;
+                };
             }>,
         ) => {
             const messageInfo = event.data; // The JSON data our extension sent
-            if (messageInfo?.command === "select") {
+            if (
+                messageInfo?.command === "select" &&
+                messageInfo.textDataWithContext
+            ) {
                 console.log("Received a select command", messageInfo);
+                const { completeLineContent, selectedText, vrefAtStartOfLine } =
+                    messageInfo.textDataWithContext;
+                setSelectedTextContext(
+                    `Reference: ${vrefAtStartOfLine}, Selected: ${selectedText}, Line: ${completeLineContent}`,
+                );
+                console.log("Selected text context -->", selectedTextContext);
             } else if (!event.data.finished) {
                 const messageContent =
                     (pendingMessage?.content || "") + (event.data.text || "");
@@ -390,7 +357,7 @@ function App() {
                     <MessageItem messageItem={pendingMessage} />
                 ) : null}
             </div>
-            <CommentTextForm
+            <ChatInputTextForm
                 contextItems={contextItems}
                 selectedText={selectedTextContext}
                 handleSubmit={handleSubmit}
