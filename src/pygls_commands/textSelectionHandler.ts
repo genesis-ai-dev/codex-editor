@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 
-async function checkServerHeartbeat() {
+export async function checkServerHeartbeat() {
     try {
         const response = await fetch('http://localhost:5554/heartbeat');
         if (!response.ok) {

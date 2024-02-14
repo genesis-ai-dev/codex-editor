@@ -3,7 +3,7 @@
 import * as vscode from "vscode";
 import { CodexKernel } from "./controller";
 import { CodexContentSerializer } from "./serializer";
-import { registerTextSelectionHandler } from "./pygls_commands/textSelectionHandler";
+import { registerTextSelectionHandler, checkServerHeartbeat } from "./pygls_commands/textSelectionHandler";
 
 import {
     NOTEBOOK_TYPE,
@@ -100,6 +100,10 @@ export async function activate(context: vscode.ExtensionContext) {
     const config = vscode.workspace.getConfiguration();
     const existingPatterns = config.get("files.readonlyInclude") || {};
     const updatedPatterns = { ...existingPatterns, "**/*.bible": true };
+
+
+    checkServerHeartbeat();
+
     config.update(
         "files.readonlyInclude",
         updatedPatterns,
@@ -515,6 +519,10 @@ async function startLangServer(context: vscode.ExtensionContext) {
             );
         }
     }
+    setInterval(() => {
+        checkServerHeartbeat();
+    }, 10000);
+
 }
 
 async function stopLangServer(): Promise<void> {
