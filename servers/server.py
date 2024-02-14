@@ -36,7 +36,7 @@ def is_port_in_use(port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         return s.connect_ex(('localhost', port)) == 0
 
-def start_flask_server() -> NoReturn:
+def start_flask_server() -> None:
     """Start the Flask server if the designated port is not in use.
 
     If the port is in use, attempt to kill the process that is using it.
@@ -57,8 +57,8 @@ def start_flask_server() -> NoReturn:
                 result = subprocess.run(["lsof", "-i", f":{FLASK_PORT}"], capture_output=True, text=True)
                 for line in result.stdout.splitlines():
                     if "LISTEN" in line:
-                        pid = int(line.split()[1])
-                        subprocess.run(["kill", "-9", str(pid)])
+                        pid = line.split()[1]
+                        subprocess.run(["kill", "-9", pid])
                         break
         except Exception as e:
             pass  # Optionally, log the exception e

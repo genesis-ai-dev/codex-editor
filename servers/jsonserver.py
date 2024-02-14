@@ -21,7 +21,7 @@ import re
 import time
 import uuid
 from json import JSONDecodeError
-from typing import Optional
+from typing import List, Optional, Union, cast
 from lsprotocol import types as lsp
 from pygls.server import LanguageServer
 
@@ -124,7 +124,7 @@ def workspace_diagnostic(
             )
         ]
 
-    return lsp.WorkspaceDiagnosticReport(items=items)
+    return lsp.WorkspaceDiagnosticReport(items=cast(List[Union[lsp.WorkspaceFullDocumentDiagnosticReport, lsp.WorkspaceUnchangedDocumentDiagnosticReport]], items))
 
 
 @json_server.feature(

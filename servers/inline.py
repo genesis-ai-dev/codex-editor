@@ -103,12 +103,12 @@ def inlay_hints(params: types.InlayHintParams):
 
 @server.feature(types.INLAY_HINT_RESOLVE)
 def inlay_hint_resolve(hint: types.InlayHint):
-    try:
-        n = int(hint.label[1:], 2)
-        hint.tooltip = f"Binary representation of the number: {n}"
-    except Exception:
-        pass
-
+    if isinstance(hint.label, str):
+        try:
+            n = int(hint.label[1:], 2)
+            hint.tooltip = f"Binary representation of the number: {n}"
+        except ValueError:
+            pass
     return hint
 
 

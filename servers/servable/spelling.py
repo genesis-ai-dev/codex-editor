@@ -29,10 +29,10 @@ class ServableSpelling:
             sf (ServerFunctions): The server functions object that provides access to server-related utilities.
             relative_checking (bool, optional): Flag to determine if relative checking is enabled. Defaults to False.
         """
-        self.dictionary = None 
-        self.spell_check = None
+        self.dictionary: Dictionary = None
+        self.spell_check: SpellCheck = None
         self.relative_checking = relative_checking
-        self.sf = sf
+        self.sf: ServerFunctions = sf
         self.sf.initialize_functions.append(self.initialize)
 
     def spell_completion(self, server: LanguageServer, params: CompletionParams, range: Range, sf: ServerFunctions) -> List:
