@@ -1,10 +1,11 @@
 try:
     import wildebeest.wb_analysis as analyze
     from lsprotocol.types import Diagnostic, DiagnosticOptions, DocumentDiagnosticParams, Position, Range, DiagnosticSeverity
+    from typing import List
     import time
 
     last_call_time = 0
-    last_diagnostics = []
+    last_diagnostics: List[Diagnostic] = []
     def wb_line_diagnostic(ls, params: DocumentDiagnosticParams, sf):
         global last_call_time, last_diagnostics
         current_time = time.time()
@@ -28,7 +29,7 @@ try:
                     diagnostics.append(Diagnostic(range=range, message=str(element), severity=DiagnosticSeverity.Error, source='Wildebeest'))
         
         # Update the last call time
-        last_call_time = current_time
+        last_call_time = int(current_time)
         last_diagnostics = diagnostics
         return diagnostics
 except ImportError:
