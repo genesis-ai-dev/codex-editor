@@ -5,6 +5,6 @@ codex_python_types
 imagehash
 pillow
 flask
-flask_cors
-urllib
+urllib3
+flask-cors
 swig
