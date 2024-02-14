@@ -23,13 +23,16 @@ export const CommentTextForm: React.FC<CommentTextFormProps> = ({
         <form
             className="comments-input"
             style={{
-                bottom: 0,
                 width: "100%",
                 display: "flex",
-                flexWrap: "nowrap",
-                flexFlow: "column",
+                flexDirection: "column",
                 boxShadow:
                     "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
+                padding: "20px",
+                borderRadius: "5px",
+                backgroundColor: "var(--vscode-dropdown-background)",
+                color: "var(--vscode-dropdown-foreground)",
+                boxSizing: "border-box",
             }}
             onSubmit={(e) => {
                 e.preventDefault();
@@ -45,9 +48,8 @@ export const CommentTextForm: React.FC<CommentTextFormProps> = ({
                 <div
                     style={{
                         display: "flex",
-                        flexFlow: "column nowrap",
-                        padding: "0.5em 0",
-                        width: "100%",
+                        flexDirection: "column",
+                        marginBottom: "1em",
                     }}
                 >
                     <label
@@ -60,11 +62,11 @@ export const CommentTextForm: React.FC<CommentTextFormProps> = ({
                         id="title"
                         name="title"
                         placeholder="Type the title..."
-                        style={{ width: "100%", marginBottom: "1em" }}
+                        style={{ width: "100%" }}
                     />
                 </div>
             )}
-            <div style={{ padding: "0.5em 0", width: "100%" }}>
+            <div style={{ marginBottom: "1em" }}>
                 <label
                     htmlFor="comment"
                     style={{ display: "block", marginBottom: "0.5em" }}
@@ -75,10 +77,10 @@ export const CommentTextForm: React.FC<CommentTextFormProps> = ({
                     id="comment"
                     name="comment"
                     placeholder="Type your comment..."
-                    style={{ width: "100%", marginBottom: "1em" }}
+                    style={{ width: "100%" }}
                 />
             </div>
-            <VSCodeButton type="submit" style={{ padding: "0.5em" }}>
+            <VSCodeButton type="submit" style={{ alignSelf: "flex-end" }}>
                 Save
             </VSCodeButton>
         </form>

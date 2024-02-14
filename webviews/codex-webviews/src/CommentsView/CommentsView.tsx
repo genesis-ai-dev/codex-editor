@@ -94,12 +94,21 @@ function App() {
                 flexDirection: "column",
                 height: "100vh",
                 width: "100%",
+                padding: "10px",
+                boxSizing: "border-box",
+                backgroundColor: "var(--vscode-editorWidget-background)",
+                color: "var(--vscode-editorWidget-foreground)",
             }}
         >
             <VerseRefNavigation verseRef={verseRef} callback={setVerseRef} />
             <div
                 className="comments-container"
-                style={{ flex: 1, overflowY: "auto", width: "100%" }}
+                style={{
+                    flex: 1,
+                    overflowY: "auto",
+                    width: "100%",
+                    marginTop: "10px",
+                }}
             >
                 {commentThreadArray.length === 0 && (
                     <VSCodeButton
@@ -109,6 +118,10 @@ function App() {
                                 command: "fetchComments",
                             } as CommentPostMessages);
                         }}
+                        style={{
+                            margin: "0 auto",
+                            display: "block",
+                        }}
                     >
                         Fetch Comments
                     </VSCodeButton>
@@ -117,8 +130,8 @@ function App() {
                     className="comments-content"
                     style={{
                         display: "flex",
-                        flexFlow: "column nowrap",
-                        justifyContent: "stretch",
+                        flexDirection: "column",
+                        gap: "10px",
                     }}
                 >
                     {commentThreadArray.map((commentThread) => {
@@ -127,16 +140,13 @@ function App() {
                                 <div
                                     style={{
                                         backgroundColor:
-                                            "var(--vscode-button-background)",
-                                        paddingTop: "20px",
-                                        paddingRight: "15px",
-                                        paddingLeft: "15px",
-                                        paddingBottom: "30px",
-                                        borderRadius: "20px",
-                                        margin: "20px",
+                                            "var(--vscode-dropdown-background)",
+                                        padding: "20px",
+                                        borderRadius: "5px",
+                                        boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
                                     }}
                                 >
-                                    <h3>
+                                    <h3 style={{ margin: "0 0 10px 0" }}>
                                         {commentThread.threadTitle || "Note:"}
                                     </h3>
                                     {commentThread.comments.map(
@@ -149,10 +159,17 @@ function App() {
                                                             border: "0",
                                                             borderBottom:
                                                                 "1px solid var(--vscode-editor-foreground)",
+                                                            margin: "10px 0",
                                                         }}
                                                     />
                                                 )}
-                                                <p>{comment.body}</p>
+                                                <p
+                                                    style={{
+                                                        margin: "0 0 10px 0",
+                                                    }}
+                                                >
+                                                    {comment.body}
+                                                </p>
                                             </React.Fragment>
                                         ),
                                     )}
