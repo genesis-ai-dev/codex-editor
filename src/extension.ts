@@ -68,6 +68,7 @@ import { registerChatProvider } from "./providers/chat/customChatWebviewProvider
 import { registerCommentsWebviewProvider } from "./providers/commentsWebview/customCommentsWebviewProvider";
 import { registerDictionaryTableProvider } from "./providers/dictionaryTable/dictionaryTableProvider";
 import { CreateProjectProvider } from "./providers/obs/CreateProject/CreateProjectProvider";
+import { registerDictionarySummaryProvider } from "./providers/dictionaryTable/dictionarySummaryProvider";
 
 const MIN_PYTHON = semver.parse("3.7.9");
 const ROOT_PATH = getWorkSpaceFolder();
@@ -432,6 +433,7 @@ export async function activate(context: vscode.ExtensionContext) {
     registerChatProvider(context);
     registerCommentsWebviewProvider(context);
     registerDictionaryTableProvider(context);
+    registerDictionarySummaryProvider(context);
     registerTextSelectionHandler(context);
     context.subscriptions.push(CreateProjectProvider.register(context));
 }

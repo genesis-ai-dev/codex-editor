@@ -13,7 +13,8 @@
     ],
     "activationEvents": [
         "onNotebook:codex-type",
-        "onStartupFinished"
+        "onStartupFinished",
+        "onCommand:dictionaryTable.showDictionaryTable"
     ],
     "main": "./out/extension.js",
     "contributes": {
@@ -43,7 +44,7 @@
                 {
                     "type": "webview",
                     "id": "comments-sidebar",
-                    "name": "Comments",
+                    "name": "Comments", 
                     "icon": "src/media/note.svg",
                     "contextualTitle": "Comments"
                 }
@@ -71,6 +72,15 @@
                     "icon": "src/media/obsIcon.svg",
                     "type": "webview",
                     "contextualTitle": "Scribe Obs"
+                }
+            ],
+            "dictionary-summary": [
+                {
+                    "type": "webview",
+                    "id": "dictionary-side-panel",
+                    "name": "Dictionary Table",
+                    "icon": "src/media/dictionary.svg",
+                    "contextualTitle": "Dictionary Table"
                 }
             ]
         },
@@ -100,6 +110,11 @@
                     "id": "scribe-vsc-obs-sidebar",
                     "title": "Obs Editor",
                     "icon": "src/media/obsIcon.svg"
+                },
+                {
+                    "id": "dictionary-summary",
+                    "title": "Dictionary Summary",
+                    "icon": "src/media/dictionary.svg"
                 }
             ]
         },
@@ -113,6 +128,18 @@
                 {
                     "command": "scripture-explorer-activity-bar.refreshEntry",
                     "when": "view == scripture-explorer-activity-bar",
+                    "group": "navigation"
+                },
+                {
+                    "command": "dictionaryTable.showDictionaryTable",
+                    "when": "view == dictionaryTable",
+                    "group": "navigation"
+                }
+            ],
+            "view/item/context": [
+                {
+                    "command": "dictionaryTable.showDictionaryTable",
+                    "when": "view == dictionaryTable",
                     "group": "navigation"
                 }
             ],
@@ -299,8 +326,8 @@
                 "title": "Remove All Notes"
             },
             {
-                "command": "react.showDictionaryTable",
-                "title": "Dictionary Table (React + Vite): Show"
+                "command": "dictionaryTable.showDictionaryTable",
+                "title": "Dictionary Table: Show"
             }
         ],
         "notebooks": [
@@ -458,6 +485,8 @@
                 }
             }
         ]
+        
+
     },
     "scripts": {
         "vscode:prepublish": "npm run compile",
