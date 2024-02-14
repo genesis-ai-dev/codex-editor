@@ -14,11 +14,11 @@ export enum CellTypes {
 
 /**
  * Interface representing a Codex cell with optional metadata.
- * 
+ *
  * This interface extends the vscode.NotebookCellData with additional metadata that
  * specifies the type of cell and associated data. The metadata includes the type of the cell,
  * which is defined by the CellTypes enum, and data that contains the chapter information.
- * 
+ *
  * @property {CellTypes} [type] - The type of the cell, as defined by the CellTypes enum.
  * @property {Object} [data] - An object containing additional data for the cell.
  * @property {string} [chapter] - The chapter number or identifier associated with the cell.
@@ -37,25 +37,25 @@ export const createCodexNotebook = async (
 ) => {
     /**
      * Creates a Codex notebook with the provided cell data.
-     * 
+     *
      * This function takes an array of NotebookCellData objects and uses them to create a new Codex notebook.
      * If no cells are provided, an empty array is used by default. Each cell in the array is transformed into
      * a NotebookCellData object, which is then used to create the notebook data. A new notebook document is
      * opened with this data in the Codex-specific notebook type.
-     * 
+     *
      * @param {vscode.NotebookCellData[]} cells - An array of NotebookCellData objects to populate the notebook.
      * @returns {Promise<vscode.NotebookDocument>} A promise that resolves to the created NotebookDocument.
      */
     const cellData =
         cells.length > 0
             ? cells.map(
-                (cell) =>
-                    new vscode.NotebookCellData(
-                        cell.kind,
-                        cell.value,
-                        cell.languageId,
-                    ),
-            )
+                  (cell) =>
+                      new vscode.NotebookCellData(
+                          cell.kind,
+                          cell.value,
+                          cell.languageId,
+                      ),
+              )
             : [];
     const data = new vscode.NotebookData(cellData);
     const doc = await vscode.workspace.openNotebookDocument(
@@ -67,25 +67,24 @@ export const createCodexNotebook = async (
 
 /**
  * Creates a Codex notebook for each book in the Bible.
- * 
- * This function generates a Codex notebook for each book in the Bible. If a list of books is provided, 
+ *
+ * This function generates a Codex notebook for each book in the Bible. If a list of books is provided,
  * notebooks will only be created for those books. Otherwise, notebooks will be created for all books.
- * Each notebook contains a code cell for each chapter in the book. Each chapter cell is preceded by a 
+ * Each notebook contains a code cell for each chapter in the book. Each chapter cell is preceded by a
  * markdown cell with the chapter number and followed by a markdown cell for notes for the chapter.
- * 
+ *
  * @param {Object} options - An object containing options for the notebook creation.
  * @param {boolean} options.shouldOverWrite - A boolean indicating whether existing notebooks should be overwritten.
  * @param {string[]} options.books - An array of book names for which to create notebooks. If not provided, notebooks will be created for all books.
  * @returns {Promise<void>} A promise that resolves when all notebooks have been created.
  */
-export async function createProjectNotebooks(
-    {
-        shouldOverWrite = false,
-        books = undefined
-    }: {
-        shouldOverWrite?: boolean;
-        books?: string[] | undefined;
-    } = {}) {
+export async function createProjectNotebooks({
+    shouldOverWrite = false,
+    books = undefined,
+}: {
+    shouldOverWrite?: boolean;
+    books?: string[] | undefined;
+} = {}) {
     const notebookCreationPromises = [];
 
     const allBooks = books ? books : getAllBookRefs();
@@ -116,8 +115,13 @@ export async function createProjectNotebooks(
             cells.push(cell);
 
             // Generate a code cell for the chapter
-            const numberOfVrefsForChapter = vrefData[book].chapterVerseCountPairings[chapter];
-            const vrefsString = getAllVrefs(book, chapter, numberOfVrefsForChapter);
+            const numberOfVrefsForChapter =
+                vrefData[book].chapterVerseCountPairings[chapter];
+            const vrefsString = getAllVrefs(
+                book,
+                chapter,
+                numberOfVrefsForChapter,
+            );
 
             cells.push(
                 new vscode.NotebookCellData(
@@ -158,4 +162,23 @@ export async function createProjectNotebooks(
         notebookCreationPromises.push(notebookCreationPromise);
     }
     await Promise.all(notebookCreationPromises);
+}
+export async function createProjectCommentFiles({
+    shouldOverWrite = false,
+}: {
+    shouldOverWrite?: boolean;
+} = {}) {
+    // Save the notebook using generateFiles
+    const commentsFilePath = `comments.json`;
+    const notebookCommentsFilePath = `notebook-comments.json`;
+    await generateFile({
+        filepath: commentsFilePath,
+        fileContent: new TextEncoder().encode("[]"),
+        shouldOverWrite,
+    });
+    await generateFile({
+        filepath: notebookCommentsFilePath,
+        fileContent: new TextEncoder().encode("[]"),
+        shouldOverWrite,
+    });
 }
