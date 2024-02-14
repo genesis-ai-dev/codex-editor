@@ -19,7 +19,7 @@ class DataBase:
         self.path = path
         self.query = "select text, uri, createdAt, book, chapter, verse, metadata from txtai where similar('{query}')"
         self.min_score_query = self.query + " and score >= {score}"
-        self.search_by_attribute = "select text, uri, createdAt, book, chapter, verse, metadata from txtai where {attribute}={query}"
+        self.search_by_attribute_query = "select text, uri, createdAt, book, chapter, verse, metadata from txtai where {attribute}={value}"
         self.embeddings = Embeddings(path="sentence-transformers/nli-mpnet-base-v2", content=True, objects=True)
         try:
             self.embeddings.load(path=path)
@@ -49,7 +49,7 @@ class DataBase:
 
         self.save()
 
-    def simple_search(self, query: str, limit: int = 5, min_score: float = None):
+    def simple_search(self, query: str, limit: int = 5, min_score: float | None = None):
         if min_score:
             results = self.embeddings.search(query=self.min_score_query.format(query=query, score=min_score),
                                              limit=limit)
@@ -58,7 +58,7 @@ class DataBase:
         return results
 
     def search_by_attribute(self, attribute: str, value: str, limit: int = 5):
-        return self.embeddings.search(query=self.search_by_attribute.format(attribute=attribute, query=value), limit=limit)
+        return self.embeddings.search(query=self.search_by_attribute_query.format(attribute=attribute, query=value), limit=limit)
 
     def upsert_codex_file(self, path: str, verse_chunk_size: int = 4) -> None:
         """
