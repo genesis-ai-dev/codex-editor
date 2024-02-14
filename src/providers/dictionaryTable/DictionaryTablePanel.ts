@@ -4,16 +4,7 @@ import { getNonce } from "./utilities/getNonce";
 import * as vscode from "vscode";
 import { Dictionary } from "codex-types";
 
-/**
- * This class manages the state and behavior of HelloWorld webview panels.
- *
- * It contains all the data and methods for:
- *
- * - Creating and rendering HelloWorld webview panels
- * - Properly cleaning up and disposing of webview resources when the panel is closed
- * - Setting the HTML (and by proxy CSS/JavaScript) content of the webview panel
- * - Setting message listeners so data can be passed between the webview and extension
- */
+
 export class DictionaryTablePanel {
   public static currentPanel: DictionaryTablePanel | undefined;
   private readonly _panel: WebviewPanel;
@@ -30,15 +21,11 @@ export class DictionaryTablePanel {
     this._panel = panel;
 
     const initAsync = async () => {
-      // const uri = vscode.Uri.joinPath(extensionUri, 'dictionary.dictionary');
-      // const fileData = await (vscode.workspace.fs.readFile(uri));
-      // const data = new TextDecoder().decode(fileData);
-      const { data, uri } = await FileHandler.readFile('Dictionary/dictionary.dictionary');
+      const { data, uri } = await FileHandler.readFile('drafts/project.dictionary');
       // return if no data
       if (!data) {
         return;
       }
-      console.log("Decoded, unparsed dictionary data:", data);
       const dictionary: Dictionary = JSON.parse(data);
       console.log("Parsed dictionary:", dictionary);
       
@@ -49,7 +36,6 @@ export class DictionaryTablePanel {
       this._setWebviewMessageListener(this._panel.webview, uri);
 
       // Post message to app
-      console.log("Sending dictionary to webview:", dictionary);
       this._panel.webview.postMessage({ command: "sendData", data: dictionary });
     };
 
@@ -62,13 +48,10 @@ export class DictionaryTablePanel {
     this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
   }
 
-  /**
-   * Renders the current webview panel if it exists otherwise a new webview panel
-   * will be created and displayed.
-   *
+  /*
    * @param extensionUri The URI of the directory containing the extension.
    */
-  public static render(extensionUri: Uri) {
+  public static render(extensionUri: Uri): DictionaryTablePanel {
     if (DictionaryTablePanel.currentPanel) {
       // If the webview panel already exists reveal it
       DictionaryTablePanel.currentPanel._panel.reveal(ViewColumn.One);
@@ -76,7 +59,8 @@ export class DictionaryTablePanel {
       // If a webview panel does not already exist create and show a new one
       const panel = window.createWebviewPanel(
         // Panel view type
-        "showDictionaryTable",
+        // "showDictionaryTable",
+        "dictionary-table",
         // Panel title
         "Dictionary Table",
         // The editor column the panel should be displayed in
@@ -93,7 +77,18 @@ export class DictionaryTablePanel {
 
       DictionaryTablePanel.currentPanel = new DictionaryTablePanel(panel, extensionUri);
     }
+    return DictionaryTablePanel.currentPanel;
   }
+
+  public static createOrShow(documentUri: vscode.Uri, extensionUri: vscode.Uri, webviewPanel?: vscode.WebviewPanel): DictionaryTablePanel {
+    const column = vscode.window.activeTextEditor ? vscode.window.activeTextEditor.viewColumn : undefined;
+    if (DictionaryTablePanel.currentPanel) {
+        DictionaryTablePanel.currentPanel._panel.reveal(column);
+        return DictionaryTablePanel.currentPanel;
+    }
+    const panel = webviewPanel || vscode.window.createWebviewPanel('dictionary-table', "Dictionary Table", column || vscode.ViewColumn.One, { enableScripts: true });
+    return new DictionaryTablePanel(panel, extensionUri);
+}
 
   /**
    * Cleans up and disposes of webview resources when the webview panel is closed.
