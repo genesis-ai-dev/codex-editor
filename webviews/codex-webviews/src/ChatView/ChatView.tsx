@@ -5,6 +5,7 @@ import "../App.css";
 import { ChatMessage, ChatPostMessages } from "../../../../types";
 
 const FLASK_ENDPOINT = "http://localhost:5554";
+
 const vscode = acquireVsCodeApi();
 
 const ChatRoleLabel = {
@@ -157,16 +158,12 @@ function App() {
     const SHOW_SENDER_ROLE_LABELS = false;
 
     async function fetchContextItems(query: string): Promise<string[]> {
-        const CONTEXT_RETRIEVAL_FEATURE_STILL_IN_PROGRESS = true; // NOTE: just temporary
         // FIXME: finish implementing this function.
         // The Flask server is either crashing or not starting sometimes
         // and we need a more graceful way to handle using context items.
 
         // Also, need to truncate retrieved items to reasonable length based on count
         // and length of the items.
-        if (CONTEXT_RETRIEVAL_FEATURE_STILL_IN_PROGRESS) {
-            return [];
-        }
         const response = await fetch(
             `${FLASK_ENDPOINT}/search?db_name=drafts&query=${encodeURIComponent(
                 query,
@@ -176,6 +173,7 @@ function App() {
             throw new Error(`Server error: ${response.status}`);
         }
         const data = await response.json();
+        console.log("fhe8w9hew98h Context items response -->", response);
         if (!Array.isArray(data) || data.length === 0) {
             return [];
         }
