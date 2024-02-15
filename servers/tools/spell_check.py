@@ -14,7 +14,6 @@ import tools.edit_distance as edit_distance
 import re
 import string
 
-
 translator = str.maketrans('', '', string.punctuation)
 
 USE_IMAGE_HASH = False
