@@ -4,6 +4,9 @@ from enum import Enum
 from typing import Dict
 from flask_cors import CORS
 from urllib import parse as url_parse
+import logging
+from typing import TextIO
+import sys
 
 app = Flask(__name__)
 CORS(app, origins='*')  # Allow requests from any origin
@@ -14,6 +17,43 @@ class DatabaseName(Enum):
     DRAFTS = 'drafts'
     USER_RESOURCES = 'user_resources'
     REFERENCE_MATERIALS = 'reference_materials'
+
+
+
+class DebugHandler(logging.Handler):
+    def __init__(self, level=logging.NOTSET):
+        super().__init__(level)
+        self.records = []
+
+    def emit(self, record):
+        self.records.append(self.format(record))
+
+# Redirect Flask's default logger to our custom handler
+debug_handler = DebugHandler()
+app.logger.removeHandler(app.logger.handlers[0])
+app.logger.addHandler(debug_handler)
+
+# Capture stdout and stderr
+class StdoutStderrWrapper:
+    def __init__(self, stream, handler):
+        self.stream = stream
+        self.handler = handler
+
+    def write(self, message):
+        self.stream.write(message)
+        self.handler.emit(logging.LogRecord(
+            'stdout/stderr', logging.INFO, '', 0, message, (), None))
+
+    def flush(self):
+        self.stream.flush()
+
+sys.stdout = StdoutStderrWrapper(sys.stdout, debug_handler)
+sys.stderr = StdoutStderrWrapper(sys.stderr, debug_handler)
+
+# Route to display all debug information
+@app.route('/debug')
+def debug():
+    return '<br>'.join(debug_handler.records)
 
 @app.route("/start", methods=['GET'])
 def initialize_databases() -> tuple:
@@ -47,7 +87,7 @@ def upsert_codex_file() -> tuple:
     Returns:
         A tuple containing a JSON response and an HTTP status code.
     """
-    data = request.json
+    data: Dict = request.json
     db_name = data.get('db_name')
     path = data.get('path')
     if not db_name or not path:
@@ -80,12 +120,12 @@ def upsert_data() -> tuple:
             "verse": "1"
         }
     """
-    data = request.json
+    data: Dict = request.json
     db_name = data.get('db_name')
     text = data.get('text')
     if not db_name or not text:
         return jsonify({"error": "Both 'db_name' and 'text' are required parameters"}), 400
-    uri = data.get('uri', default="", type=str)
+    uri: str = data.get('uri', "")
     metadata = data.get('metadata', {})
     book = data.get('book', "")
     chapter = data.get('chapter', -1)
@@ -154,4 +194,4 @@ def heartbeat() -> tuple:
     return jsonify({"message": "Server is running", "databases": f'{database_names_string}'}), 200
 
 if __name__ == "__main__":
-    app.run(port=5554, debug=False)
+    app.run(port=5554, debug=True)

@@ -92,7 +92,7 @@ class TextGenerator:
         Returns:
             List[Tuple[str, float]]: A combined list of words and scores.
         """
-        combined_scores = defaultdict(float)
+        combined_scores: Dict = defaultdict(float)
         for word_list in lists:
             for word, score in word_list:
                 combined_scores[word] += score
@@ -161,7 +161,7 @@ class TextGenerator:
         sentence = seed_sentence
         for _ in range(length):
             probs = self.find_all_probs(sentence)
-            combined_list = self._combine_lists(probs.values(), sentence)
+            combined_list = self._combine_lists([list(v) for v in probs.values()], sentence)
             if combined_list:  # Check if there are any words to choose from
                 words, scores = zip(*combined_list)
                 new_word = random.choices(words, weights=[score ** 4 for score in scores], k=1)[0]
@@ -187,13 +187,13 @@ class TextGenerator:
                 all_sentences.add(sentence)
                 return
             probs = self.find_all_probs(sentence)
-            combined_list = self._combine_lists(probs.values(), sentence)
+            combined_list = self._combine_lists([list(v) for v in probs.values()], sentence)
             for word, _ in combined_list:
                 if len(all_sentences) >= max_samples:
                     break
                 generate(depth - 1, sentence + " " + word, all_sentences)
 
-        all_sentences = set()
+        all_sentences: Set = set()
         generate(generate_length, seed_sentence, all_sentences)
         return list(all_sentences)[:max_samples]
 

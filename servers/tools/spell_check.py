@@ -7,7 +7,7 @@ provide auto-completion suggestions for partially typed words.
 """
 import json
 import os
-from typing import List, Dict
+from typing import List, Dict, AnyStr
 import uuid
 import expirements.hash_check2 as hash_check
 import tools.edit_distance as edit_distance
@@ -86,7 +86,7 @@ class Dictionary:
             os.makedirs(os.path.dirname(self.path), exist_ok=True)
 
             # Create the dictionary and write it to the file
-            new_dict = {"entries": []}
+            new_dict: dict[str, list] = {"entries": []}
             with open(self.path, 'w') as file:
                 json.dump(new_dict, file)
             return new_dict
