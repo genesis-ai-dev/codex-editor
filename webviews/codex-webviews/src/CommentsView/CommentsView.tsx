@@ -71,6 +71,7 @@ function App() {
             body: submittedCommentValue || "",
             mode: 1,
             author: { name: "vscode" },
+            deleted: false,
         };
         const updatedCommentThread: NotebookCommentThread = {
             id: threadId || uuidv4(),
@@ -80,10 +81,27 @@ function App() {
             verseRef,
             collapsibleState: 0,
             threadTitle: title || "",
+            deleted: false,
         };
         vscode.postMessage({
             command: "updateCommentThread",
             commentThread: updatedCommentThread,
+        } as CommentPostMessages);
+    };
+
+    const handleThreadDeletion = (commentThreadId: string) => {
+        vscode.postMessage({
+            command: "deleteCommentThread",
+            commentThreadId,
+        } as CommentPostMessages);
+    };
+    const handleCommentDeletion = (
+        commentId: number,
+        commentThreadId: string,
+    ) => {
+        vscode.postMessage({
+            command: "deleteComment",
+            args: { commentId, commentThreadId },
         } as CommentPostMessages);
     };
 
@@ -135,7 +153,10 @@ function App() {
                     }}
                 >
                     {commentThreadArray.map((commentThread) => {
-                        if (commentThread.verseRef === verseRef) {
+                        if (
+                            commentThread.verseRef === verseRef &&
+                            !commentThread.deleted
+                        ) {
                             return (
                                 <div
                                     style={{
@@ -146,32 +167,70 @@ function App() {
                                         boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
                                     }}
                                 >
+                                    <VSCodeButton
+                                        aria-label="Clear"
+                                        appearance="icon"
+                                        title="Delete Comment Thread"
+                                        onClick={() =>
+                                            handleThreadDeletion(
+                                                commentThread.id,
+                                            )
+                                        }
+                                        style={{
+                                            backgroundColor:
+                                                "var(--vscode-button-background)",
+                                            color: "var(--vscode-button-foreground)",
+                                        }}
+                                    >
+                                        <i className="codicon codicon-trash"></i>
+                                    </VSCodeButton>
                                     <h3 style={{ margin: "0 0 10px 0" }}>
                                         {commentThread.threadTitle || "Note:"}
                                     </h3>
                                     {commentThread.comments.map(
-                                        (comment, index) => (
-                                            <React.Fragment key={comment.id}>
-                                                {index > 0 && (
-                                                    <hr
-                                                        style={{
-                                                            width: "100%",
-                                                            border: "0",
-                                                            borderBottom:
-                                                                "1px solid var(--vscode-editor-foreground)",
-                                                            margin: "10px 0",
-                                                        }}
-                                                    />
-                                                )}
-                                                <p
-                                                    style={{
-                                                        margin: "0 0 10px 0",
-                                                    }}
+                                        (comment, index) =>
+                                            !comment.deleted && (
+                                                <React.Fragment
+                                                    key={comment.id}
                                                 >
-                                                    {comment.body}
-                                                </p>
-                                            </React.Fragment>
-                                        ),
+                                                    {index > 0 && (
+                                                        <hr
+                                                            style={{
+                                                                width: "100%",
+                                                                border: "0",
+                                                                borderBottom:
+                                                                    "1px solid var(--vscode-editor-foreground)",
+                                                                margin: "10px 0",
+                                                            }}
+                                                        />
+                                                    )}
+                                                    <p
+                                                        style={{
+                                                            margin: "0 0 10px 0",
+                                                        }}
+                                                    >
+                                                        {comment.body}
+                                                    </p>
+                                                    <VSCodeButton
+                                                        aria-label="Clear"
+                                                        appearance="icon"
+                                                        title="Delete Comment"
+                                                        onClick={() =>
+                                                            handleCommentDeletion(
+                                                                comment.id,
+                                                                commentThread.id,
+                                                            )
+                                                        }
+                                                        style={{
+                                                            backgroundColor:
+                                                                "var(--vscode-button-background)",
+                                                            color: "var(--vscode-button-foreground)",
+                                                        }}
+                                                    >
+                                                        <i className="codicon codicon-trash"></i>
+                                                    </VSCodeButton>
+                                                </React.Fragment>
+                                            ),
                                     )}
                                     <CommentTextForm
                                         handleSubmit={handleSubmit}
