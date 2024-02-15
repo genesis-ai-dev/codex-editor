@@ -7,7 +7,8 @@
         "dev": "vite",
         "build:ChatView": "APP_NAME=ChatView vite build",
         "build:CommentsView": "APP_NAME=CommentsView vite build",
-        "build:all": "npm run build:ChatView && npm run build:CommentsView",
+        "build:ParallelView": "APP_NAME=ParallelView vite build",
+        "build:all": "npm run build:ChatView && npm run build:CommentsView && npm run build:ParallelView",
         "watch": "nodemon --watch src --ext ts,tsx --exec npm run build:all",
         "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
         "preview": "vite preview"
