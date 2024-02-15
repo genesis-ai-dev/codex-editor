@@ -68,8 +68,9 @@ const loadWebviewHtml = (
       Use a content security policy to only allow loading images from https or from our extension directory,
       and only allow scripts that have a specific nonce.
     -->
-    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${webviewView.webview.cspSource
-        }; script-src 'nonce-${nonce}';">
+    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${
+        webviewView.webview.cspSource
+    }; script-src 'nonce-${nonce}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="${styleResetUri}" rel="stylesheet">
     <link href="${styleVSCodeUri}" rel="stylesheet">
@@ -112,7 +113,7 @@ const sendCommentsToWebview = async (webviewView: vscode.WebviewView) => {
     console.log({ workspaceFolders });
     const filePath = workspaceFolders
         ? vscode.Uri.joinPath(workspaceFolders[0].uri, "notebook-comments.json")
-            .fsPath
+              .fsPath
         : "";
     console.log({ filePath });
     try {
@@ -290,7 +291,7 @@ export class CustomWebviewProvider {
     }
 }
 
-export function registerCommentsWebviewProvider(
+export function registerParallelViewWebviewProvider(
     context: vscode.ExtensionContext,
 ) {
     const item = vscode.window.createStatusBarItem(
@@ -299,7 +300,7 @@ export function registerCommentsWebviewProvider(
 
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(
-            "parallel-passages-view",
+            "parallel-passages-sidebar",
             new CustomWebviewProvider(context),
         ),
     );
