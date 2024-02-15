@@ -17,6 +17,16 @@ function App() {
     const [commentThreadArray, setCommentThread] = useState<
         NotebookCommentThread[]
     >([]);
+    const [showCommentForm, setShowCommentForm] = useState<{
+        [key: string]: boolean;
+    }>({});
+
+    const handleToggleCommentForm = (threadId: string) => {
+        setShowCommentForm((prev) => ({
+            ...prev,
+            [threadId]: !prev[threadId],
+        }));
+    };
 
     useEffect(() => {
         if (commentThreadArray.length === 0) {
@@ -128,22 +138,6 @@ function App() {
                     marginTop: "10px",
                 }}
             >
-                {commentThreadArray.length === 0 && (
-                    <VSCodeButton
-                        type="button"
-                        onClick={() => {
-                            vscode.postMessage({
-                                command: "fetchComments",
-                            } as CommentPostMessages);
-                        }}
-                        style={{
-                            margin: "0 auto",
-                            display: "block",
-                        }}
-                    >
-                        Fetch Comments
-                    </VSCodeButton>
-                )}
                 <div
                     className="comments-content"
                     style={{
@@ -232,11 +226,35 @@ function App() {
                                                 </React.Fragment>
                                             ),
                                     )}
-                                    <CommentTextForm
-                                        handleSubmit={handleSubmit}
-                                        showTitleInput={false}
-                                        threadId={commentThread.id}
-                                    />
+                                    {!showCommentForm[commentThread.id] && (
+                                        <VSCodeButton
+                                            onClick={() =>
+                                                handleToggleCommentForm(
+                                                    commentThread.id,
+                                                )
+                                            }
+                                        >
+                                            +
+                                        </VSCodeButton>
+                                    )}
+                                    {showCommentForm[commentThread.id] && (
+                                        <div>
+                                            <CommentTextForm
+                                                handleSubmit={handleSubmit}
+                                                showTitleInput={false}
+                                                threadId={commentThread.id}
+                                            />
+                                            <VSCodeButton
+                                                onClick={() =>
+                                                    handleToggleCommentForm(
+                                                        commentThread.id,
+                                                    )
+                                                }
+                                            >
+                                                Cancel
+                                            </VSCodeButton>
+                                        </div>
+                                    )}
                                 </div>
                             );
                         }
