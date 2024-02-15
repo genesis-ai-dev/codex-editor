@@ -40,6 +40,15 @@
                     "contextualTitle": "Genesis Translator"
                 }
             ],
+            "parallel-passages-view": [
+                {
+                    "type": "webview",
+                    "id": "parallel-passages-sidebar",
+                    "name": "Parallel Passages",
+                    "icon": "$(eye)",
+                    "contextualTitle": "Parallel Passages"
+                }
+            ],
             "comments-sidebar-view": [
                 {
                     "type": "webview",
@@ -90,6 +99,11 @@
                     "id": "scripture-explorer-activity-bar",
                     "title": "Scripture Explorer",
                     "icon": "$(open-editors-view-icon)"
+                },
+                {
+                    "id": "parallel-passages-view",
+                    "title": "Scripture Explorer",
+                    "icon": "$(eye)"
                 },
                 {
                     "id": "resource-explorer",
