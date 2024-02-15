@@ -3,7 +3,10 @@
 import * as vscode from "vscode";
 import { CodexKernel } from "./controller";
 import { CodexContentSerializer } from "./serializer";
-import { registerTextSelectionHandler, checkServerHeartbeat } from "./pygls_commands/textSelectionHandler";
+import {
+    registerTextSelectionHandler,
+    checkServerHeartbeat,
+} from "./pygls_commands/textSelectionHandler";
 
 import {
     NOTEBOOK_TYPE,
@@ -67,6 +70,7 @@ import {
 import { registerCommentsProvider } from "./commentsProvider";
 import { registerChatProvider } from "./providers/chat/customChatWebviewProvider";
 import { registerCommentsWebviewProvider } from "./providers/commentsWebview/customCommentsWebviewProvider";
+import { registerParallelViewWebviewProvider } from "./providers/parallelPassagesWebview/customParallelPassagesWebviewProvider";
 import { registerDictionaryTableProvider } from "./providers/dictionaryTable/dictionaryTableProvider";
 import { CreateProjectProvider } from "./providers/obs/CreateProject/CreateProjectProvider";
 import { registerDictionarySummaryProvider } from "./providers/dictionaryTable/dictionarySummaryProvider";
@@ -100,8 +104,6 @@ export async function activate(context: vscode.ExtensionContext) {
     const config = vscode.workspace.getConfiguration();
     const existingPatterns = config.get("files.readonlyInclude") || {};
     const updatedPatterns = { ...existingPatterns, "**/*.bible": true };
-
-
 
     config.update(
         "files.readonlyInclude",
@@ -450,6 +452,7 @@ export async function activate(context: vscode.ExtensionContext) {
     registerCommentsProvider(context);
     registerChatProvider(context);
     registerCommentsWebviewProvider(context);
+    registerParallelViewWebviewProvider(context);
     registerDictionaryTableProvider(context);
     registerDictionarySummaryProvider(context);
     context.subscriptions.push(CreateProjectProvider.register(context));
@@ -520,7 +523,6 @@ async function startLangServer(context: vscode.ExtensionContext) {
     setInterval(() => {
         checkServerHeartbeat(context);
     }, 10000);
-
 }
 
 async function stopLangServer(): Promise<void> {
