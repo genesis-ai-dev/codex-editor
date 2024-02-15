@@ -24,7 +24,7 @@ def divide_text_into_chunks(text, n):
         chunks.append(text[-1])
 
     return chunks
-def spell_hash(text: str, font_path: str = "servers/expirements/unifont-15.1.04.otf", font_size: int = 100) -> str:
+def spell_hash(text: str, font_path: str = "servers/expirements/unifont-15.1.04.otf", font_size: int = 100) -> Hash:
     """
     Convert each letter in text to an image, count the number of black pixels per letter,
     divide the count by the width of the letter, and return it in the format NUMBER-NUMBER-NUMBER for a word.
@@ -73,10 +73,10 @@ def spell_hash(text: str, font_path: str = "servers/expirements/unifont-15.1.04.
 
 # Example usage:
 if __name__ == "__main__":
-    namaste = spell_hash("नमस्ते")
-    wrong1 = spell_hash("नमस्तैतै")
-    wrong2 = spell_hash("नमस्तेय")
-    paanee = spell_hash("पानी")
+    namaste: Hash = spell_hash("नमस्ते")
+    wrong1: Hash = spell_hash("नमस्तैतै")
+    wrong2: Hash = spell_hash("नमस्तेय")
+    paanee: Hash = spell_hash("पानी")
 
     print("result: ", namaste-wrong1)
     # returns 1  

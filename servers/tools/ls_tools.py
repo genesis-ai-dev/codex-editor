@@ -10,13 +10,13 @@ import time
 class ServerFunctions:
     def __init__(self, server: LanguageServer, data_path: str):
         self.server = server
-        self.completion_functions = []
-        self.diagnostic_functions = []
-        self.action_functions = []
-        self.initialize_functions = []
-        self.close_functions = []
-        self.open_functions = []
-        self.on_selected_functions = []
+        self.completion_functions: List[Callable] = []
+        self.diagnostic_functions: List[Callable] = []
+        self.action_functions: List[Callable] = []
+        self.initialize_functions: List[Callable] = []
+        self.close_functions: List[Callable] = []
+        self.open_functions: List[Callable] = []
+        self.on_selected_functions: List[Callable] = []
 
 
         self.completion = None
@@ -26,13 +26,13 @@ class ServerFunctions:
         self.last_closed = time.time()
     
     def add_diagnostic(self, function: Callable):#, #trigger_characters: List):
-        self.diagnostic_functions.append((function, None))
+        self.diagnostic_functions.append(function)
 
-    def add_completion(self, function: Callable, kind: lsp_types.CompletionItemKind = lsp_types.CompletionItemKind.Text):
-        self.completion_functions.append((function, kind))
+    def add_completion(self, function: Callable):
+        self.completion_functions.append(function)
 
-    def add_action(self, function: Callable, kind: lsp_types.CodeAction = lsp_types.CodeActionKind.QuickFix):
-        self.action_functions.append((function, kind))
+    def add_action(self, function: Callable):
+        self.action_functions.append(function)
     
     def add_close_function(self, function: Callable):
         self.close_functions.append(function)
@@ -48,7 +48,6 @@ class ServerFunctions:
     def start(self):
         @self.server.feature(
             lsp_types.TEXT_DOCUMENT_CODE_ACTION,
-            lsp_types.CodeActionOptions(code_action_kinds=[action[1] for action in self.action_functions]),
         )
         def actions(params: lsp_types.CodeAction):
             items = []
@@ -64,7 +63,7 @@ class ServerFunctions:
                         end=Position(line=start_line + idx, character=len(line) - 1),
                     )
                 for action_function in self.action_functions:
-                    items.extend(action_function[0](self.server, params, range, self))
+                    items.extend(action_function(self.server, params, range, self))
             return items
         self.action = actions
 
@@ -73,7 +72,7 @@ class ServerFunctions:
             document_uri = params.text_document.uri
             all_diagnostics = []
             for diagnostic_function in self.diagnostic_functions:
-                all_diagnostics.extend(diagnostic_function[0](ls, params, self))
+                all_diagnostics.extend(diagnostic_function(ls, params, self))
             error_diagnostics = [diagnostic for diagnostic in all_diagnostics if diagnostic.severity == DiagnosticSeverity.Error]
             if error_diagnostics:
                 ls.publish_diagnostics(document_uri, error_diagnostics)
@@ -87,7 +86,7 @@ class ServerFunctions:
                           end=Position(line=params.position.line, character=params.position.character + 5))
             completions = []
             for completion_function in self.completion_functions:
-                completions.extend(completion_function[0](ls, params, range, self))
+                completions.extend(completion_function(ls, params, range, self))
             return lsp_types.CompletionList(items = completions, is_incomplete=False)
         self.completion = completions
 
