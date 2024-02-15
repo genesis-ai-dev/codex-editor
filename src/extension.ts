@@ -102,7 +102,6 @@ export async function activate(context: vscode.ExtensionContext) {
     const updatedPatterns = { ...existingPatterns, "**/*.bible": true };
 
 
-    checkServerHeartbeat();
 
     config.update(
         "files.readonlyInclude",
@@ -453,7 +452,6 @@ export async function activate(context: vscode.ExtensionContext) {
     registerCommentsWebviewProvider(context);
     registerDictionaryTableProvider(context);
     registerDictionarySummaryProvider(context);
-    registerTextSelectionHandler(context);
     context.subscriptions.push(CreateProjectProvider.register(context));
 }
 
@@ -520,7 +518,7 @@ async function startLangServer(context: vscode.ExtensionContext) {
         }
     }
     setInterval(() => {
-        checkServerHeartbeat();
+        checkServerHeartbeat(context);
     }, 10000);
 
 }

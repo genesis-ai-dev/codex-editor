@@ -1,6 +1,10 @@
 import * as vscode from 'vscode';
 
-export async function checkServerHeartbeat() {
+
+let registered: boolean = false;
+
+
+export async function checkServerHeartbeat(context: vscode.ExtensionContext) {
     try {
         const response = await fetch('http://localhost:5554/heartbeat');
         if (!response.ok) {
@@ -14,6 +18,10 @@ export async function checkServerHeartbeat() {
             if (dataPath) {
                 vscode.window.showInformationMessage('Server databases are empty. Attempting to start the server with data path: ' + dataPath);
                 await fetch(`http://localhost:5554/start?data_path=${encodeURIComponent(dataPath)}`, { method: 'GET' });
+                if (!registered){
+                    registerTextSelectionHandler(context);
+                    registered = true;
+                }
             } else {
                 console.error('No workspace folder found to start the server with.');
             }
@@ -33,8 +41,6 @@ export function registerTextSelectionHandler(context: vscode.ExtensionContext) {
             const selectedText: string = event.textEditor.document.getText(event.selections[0]);
             if (selectedText) {
                 vscode.commands.executeCommand("pygls.server.textSelected", selectedText);
-                // Check server heartbeat before performing the search
-                await checkServerHeartbeat();
                 // Perform the search using the selected text
                 fetch(`http://localhost:5554/search?db_name=drafts&query=${encodeURIComponent(selectedText)}`)
                     .then((response: Response) => response.json())
