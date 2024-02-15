@@ -134,7 +134,6 @@ const processFetchResponse = (
                         if (jsonString.length > 0) {
                             try {
                                 const payload = JSON.parse(jsonString);
-                                // console.log("29u3089u", { payload });
                                 const payloadTemp = payload["choices"]?.[0];
                                 const sendChunk = payloadTemp["message"]
                                     ? payloadTemp["message"]["content"]
@@ -146,7 +145,16 @@ const processFetchResponse = (
                                         text: sendChunk,
                                     } as ChatPostMessages);
                             } catch (error) {
-                                console.log("Error:", error);
+                                if (error instanceof SyntaxError && error.message.includes("Unexpected token 'D'")) {
+                                    console.log("Error: Received a '[DONE]' message which is not valid JSON.");
+                                    webviewView.webview.postMessage({
+                                        command: "response",
+                                        finished: true,
+                                        text: "Processing complete.",
+                                    } as ChatPostMessages);
+                                } else {
+                                    console.log("Error:", error);
+                                }
                             }
                         }
                     });
