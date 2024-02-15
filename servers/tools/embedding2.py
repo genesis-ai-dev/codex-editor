@@ -10,7 +10,13 @@ except:
 embeddings = Embeddings(path="sentence-transformers/nli-mpnet-base-v2", content=True, objects=True)
 
 # Data to index
-
+def sql_safe(text):
+    # Replace single quotes with two single quotes
+    text = text.replace("'", '"')
+    # Replace backslashes with two backslashes
+    text = text.replace("\\", "/")
+    # Return the sql safe text
+    return text
 
 
 
@@ -37,13 +43,13 @@ class DataBase:
 
 
         # If text does not exist, create a new item
-        new_item = (None, {"text":text,
+        new_item = (None, {"text": f"{sql_safe(text)}",
             "uri": uri,
             "createdAt": str(datetime.datetime.now()),
-            "book": book,
-            "chapter": str(chapter),
-            "verse": str(verse),
-            "metadata": str(metadata)
+            "book": sql_safe(book),
+            "chapter": sql_safe(str(chapter)),
+            "verse": sql_safe(str(verse)),
+            "metadata": sql_safe(str(metadata))
         }, None)
         self.embeddings.index([new_item])
 
@@ -51,10 +57,10 @@ class DataBase:
 
     def simple_search(self, query: str, limit: int = 5, min_score: float | None = None):
         if min_score:
-            results = self.embeddings.search(query=self.min_score_query.format(query=query, score=min_score),
+            results = self.embeddings.search(query=self.min_score_query.format(query=sql_safe(query), score=min_score),
                                              limit=limit)
         else:
-            results = self.embeddings.search(query=self.query.format(query=query), limit=limit)
+            results = self.embeddings.search(query=self.query.format(query=sql_safe(query)), limit=limit)
         return results
 
     def search_by_attribute(self, attribute: str, value: str, limit: int = 5):

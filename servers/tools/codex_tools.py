@@ -105,7 +105,7 @@ class CodexReader:
             for chunk in chapter['verse_chunks']:
                 item = list(list(chunk.items())[0])
                 item[0] = (parse_scripture(item[0]))
-                chunks.append({"data": item[0], "text": item[1]})
+                chunks.append({"data": item[0], "text": item[1].replace("'", "")})
         return chunks
 
 

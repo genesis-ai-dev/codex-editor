@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 from tools.embedding2 import DataBase  # Updated import path
 from enum import Enum
-from typing import Dict
+from typing import Dict, Any, AnyStr
 from flask_cors import CORS
 from urllib import parse as url_parse
 import logging
@@ -87,7 +87,7 @@ def upsert_codex_file() -> tuple:
     Returns:
         A tuple containing a JSON response and an HTTP status code.
     """
-    data: Dict = request.json
+    data: Dict | Any = request.json
     db_name = data.get('db_name')
     path = data.get('path')
     if not db_name or not path:
@@ -120,7 +120,7 @@ def upsert_data() -> tuple:
             "verse": "1"
         }
     """
-    data: Dict = request.json
+    data: Dict | Any = request.json
     db_name = data.get('db_name')
     text = data.get('text')
     if not db_name or not text:
@@ -174,7 +174,8 @@ def save() -> tuple:
     Returns:
         A tuple containing a JSON response and an HTTP status code.
     """
-    db_name = request.json.get('db_name')
+    data: Dict | Any = request.json
+    db_name: str | Any = data.get('db_name')
     if not db_name:
         return jsonify({"error": "Missing 'db_name' parameter"}), 400
     if db_name not in databases:
