@@ -289,7 +289,8 @@ function App() {
                 flexDirection: "column",
                 height: "100vh",
                 width: "100%",
-                backgroundImage: "linear-gradient(to bottom, #f5f5f5, #e0e0e0)", // FIXME: use vscode theme colors
+                backgroundImage:
+                    "linear-gradient(45deg, var(--vscode-sideBar-background), transparent)",
                 backgroundSize: "cover",
                 overflowX: "hidden",
             }}

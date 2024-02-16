@@ -63,13 +63,15 @@ const VerseRefNavigation: React.FC<VerseRefNavigationProps> = ({
             className="navigation-bar"
             style={{
                 display: "flex",
-                justifyContent: "space-between",
-                padding: "10px",
+                flexFlow: "row wrap",
+                padding: "0.25em",
+                gap: "0.25em",
                 alignItems: "center",
             }}
         >
             <VSCodeDropdown
                 value={selectedBook}
+                style={{ minWidth: "max-content" }}
                 onInput={(e: any) => {
                     console.log({ e });
                     console.log((e.target as HTMLSelectElement).value);
@@ -86,6 +88,7 @@ const VerseRefNavigation: React.FC<VerseRefNavigationProps> = ({
             </VSCodeDropdown>
             <VSCodeDropdown
                 value={selectedChapter}
+                style={{ minWidth: "max-content" }}
                 disabled={!selectedBook}
                 onInput={(e: any) => {
                     console.log({ e });
@@ -105,6 +108,7 @@ const VerseRefNavigation: React.FC<VerseRefNavigationProps> = ({
             </VSCodeDropdown>
             <VSCodeDropdown
                 value={selectedVerse}
+                style={{ minWidth: "max-content" }}
                 disabled={!selectedChapter}
                 onInput={(e: any) => {
                     console.log({ e });

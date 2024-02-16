@@ -48,6 +48,15 @@ const loadWebviewHtml = (
             "index.css",
         ),
     );
+    const codiconsUri = webviewView.webview.asWebviewUri(
+        vscode.Uri.joinPath(
+            extensionUri,
+            "node_modules",
+            "@vscode/codicons",
+            "dist",
+            "codicon.css",
+        ),
+    );
     function getNonce() {
         let text = "";
         const possible =
@@ -68,12 +77,14 @@ const loadWebviewHtml = (
       Use a content security policy to only allow loading images from https or from our extension directory,
       and only allow scripts that have a specific nonce.
     -->
-    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${webviewView.webview.cspSource
-        }; script-src 'nonce-${nonce}';">
+    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${
+        webviewView.webview.cspSource
+    }; script-src 'nonce-${nonce}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="${styleResetUri}" rel="stylesheet">
     <link href="${styleVSCodeUri}" rel="stylesheet">
     <link href="${styleUri}" rel="stylesheet">
+    <link href="${codiconsUri}" rel="stylesheet" />
     <script nonce="${nonce}">
       // const vsCodeApi = acquireVsCodeApi();
       const apiBaseUrl = ${JSON.stringify("http://localhost:3002")}
@@ -112,7 +123,7 @@ const sendCommentsToWebview = async (webviewView: vscode.WebviewView) => {
     console.log({ workspaceFolders });
     const filePath = workspaceFolders
         ? vscode.Uri.joinPath(workspaceFolders[0].uri, "notebook-comments.json")
-            .fsPath
+              .fsPath
         : "";
     console.log({ filePath });
     try {
@@ -185,7 +196,7 @@ export class CustomWebviewProvider {
         const findUriForVerseRef = async (
             verseRef: string,
         ): Promise<string | null> => {
-            let uri = null;
+            let uri: string | null = null;
             const workspaceFolders = vscode.workspace.workspaceFolders;
             const draftsFolderUri = workspaceFolders
                 ? vscode.Uri.joinPath(workspaceFolders[0].uri, "drafts")
@@ -226,12 +237,27 @@ export class CustomWebviewProvider {
                 (thread) => thread.id === newCommentThread.id,
             );
             if (threadIndex !== -1) {
-                existingCommentsThreads[threadIndex].comments = [
-                    ...existingCommentsThreads[threadIndex].comments,
-                    ...newCommentThread.comments,
-                ];
+                newCommentThread.comments.forEach((newComment) => {
+                    const existingCommentIndex = existingCommentsThreads[
+                        threadIndex
+                    ].comments.findIndex(
+                        (existingComment) =>
+                            existingComment.id === newComment.id,
+                    );
+                    if (existingCommentIndex !== -1) {
+                        existingCommentsThreads[threadIndex].comments[
+                            existingCommentIndex
+                        ] = newComment;
+                    } else {
+                        existingCommentsThreads[threadIndex].comments.push(
+                            newComment,
+                        );
+                    }
+                });
                 existingCommentsThreads[threadIndex].threadTitle =
                     newCommentThread.threadTitle;
+                existingCommentsThreads[threadIndex].deleted =
+                    newCommentThread.deleted;
             } else {
                 existingCommentsThreads.push(newCommentThread);
             }
@@ -269,6 +295,68 @@ export class CustomWebviewProvider {
                                 await serializeCommentsToDisk(
                                     existingCommentsThreads,
                                     message.commentThread,
+                                );
+                            }
+                            sendCommentsToWebview(webviewView);
+                            break;
+                        }
+                        case "deleteCommentThread": {
+                            const commentThreadId = message.commentThreadId;
+                            const existingCommentsThreads =
+                                await getCommentsFromFile(commentsFile);
+                            const indexOfCommentToMarkAsDeleted =
+                                existingCommentsThreads.findIndex(
+                                    (commentThread) =>
+                                        commentThread.id === commentThreadId,
+                                );
+                            const commentThreadToMarkAsDeleted =
+                                existingCommentsThreads[
+                                    indexOfCommentToMarkAsDeleted
+                                ];
+                            await serializeCommentsToDisk(
+                                existingCommentsThreads,
+                                {
+                                    ...commentThreadToMarkAsDeleted,
+                                    deleted: true,
+                                    comments: [],
+                                },
+                            );
+                            sendCommentsToWebview(webviewView);
+                            break;
+                        }
+                        case "deleteComment": {
+                            const commentId = message.args.commentId;
+                            const commentThreadId =
+                                message.args.commentThreadId;
+                            const existingCommentsThreads =
+                                await getCommentsFromFile(commentsFile);
+                            const indexOfCommentToMarkAsDeleted =
+                                existingCommentsThreads.findIndex(
+                                    (commentThread) =>
+                                        commentThread.id === commentThreadId,
+                                );
+                            const commentThreadToMarkAsDeleted =
+                                existingCommentsThreads[
+                                    indexOfCommentToMarkAsDeleted
+                                ];
+                            const commentToMarkAsDeleted =
+                                existingCommentsThreads[
+                                    indexOfCommentToMarkAsDeleted
+                                ].comments.find(
+                                    (comment) => comment.id === commentId,
+                                );
+                            if (commentToMarkAsDeleted) {
+                                await serializeCommentsToDisk(
+                                    existingCommentsThreads,
+                                    {
+                                        ...commentThreadToMarkAsDeleted,
+                                        comments: [
+                                            {
+                                                ...commentToMarkAsDeleted,
+                                                deleted: true,
+                                            },
+                                        ],
+                                    },
                                 );
                             }
                             sendCommentsToWebview(webviewView);

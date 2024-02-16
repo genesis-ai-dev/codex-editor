@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
     VSCodeButton,
     VSCodeTextField,
@@ -19,6 +19,8 @@ export const CommentTextForm: React.FC<CommentTextFormProps> = ({
     showTitleInput,
     threadId,
 }) => {
+    const [commentFieldIsPopulated, setCommentFieldIsPopulated] =
+        useState<boolean>(false);
     return (
         <form
             className="comments-input"
@@ -78,9 +80,17 @@ export const CommentTextForm: React.FC<CommentTextFormProps> = ({
                     name="comment"
                     placeholder="Type your comment..."
                     style={{ width: "100%" }}
+                    onInput={(e) => {
+                        const target = e.target as HTMLInputElement;
+                        setCommentFieldIsPopulated(!!target.value);
+                    }}
                 />
             </div>
-            <VSCodeButton type="submit" style={{ alignSelf: "flex-end" }}>
+            <VSCodeButton
+                type="submit"
+                style={{ alignSelf: "flex-end" }}
+                disabled={!commentFieldIsPopulated}
+            >
                 Save
             </VSCodeButton>
         </form>
