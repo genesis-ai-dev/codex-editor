@@ -3,14 +3,27 @@ import re
 
 
 def parse_scripture(scripture):
-    pattern = r"scripture\s+([0-9]*\w+)\s+(\d+):(\d+)\s+-\s+(\d+):(\d+)"
+    # Adjusted pattern to match both ranges and single scripture references
+    pattern = r"([0-9]*\w+)\s+(\d+):(\d+)(?:\s+-\s+(\d+):(\d+))?"
     match = re.match(pattern, scripture)
     if match:
         book_abbr, start_chapter, start_verse, end_chapter, end_verse = match.groups()
-        return {"book": book_abbr, "chapter": start_chapter, "verse": f"{start_verse}-{end_verse}"}
+        # Handle cases where there is no end chapter and verse
+        if not end_chapter or not end_verse:
+            return {"book": book_abbr, "chapter": start_chapter, "verse": start_verse}
+        else:
+            return {"book": book_abbr, "chapter": start_chapter, "verse": f"{start_verse}-{end_verse}"}
     else:
         return None
 
+# Data to index
+def sql_safe(text):
+    # Replace single quotes with two single quotes
+    text = text.replace("'", "''")
+    # Replace backslashes with two backslashes
+    text = text.replace("\\", "/")
+    # Return the sql safe text
+    return text
 
 class CodexReader:
     """
@@ -63,21 +76,11 @@ class CodexReader:
         return {"chapters": chapters}
 
     def split_verses(self, scripture_text):
-        marker_match = re.search(r'(\d?[A-Z]+) \d+:\d+', scripture_text)
-        if marker_match:
-            marker = marker_match.group(1)
-            # Split the verses and keep the markers
-            parts = re.split(f'({marker} \\d+:\\d+)', scripture_text)
-            # Re-combine markers with verses
-            verses = [parts[i] + parts[i + 1] for i in range(0, len(parts) - 1, 2)]
-            if len(parts) % 2 != 0:
-                verses.append(parts[-1])
-        else:
-            
-            parts = re.split(r'(\w+ \d+:\d+)', scripture_text)
-            verses = [parts[i] + parts[i + 1] for i in range(0, len(parts) - 1, 2)]
-            if len(parts) % 2 != 0:
-                verses.append(parts[-1])
+        # Adjusted to handle scripture text without markers more gracefully
+        parts = re.split(r'(\d?[A-Z]+ \d+:\d+)', scripture_text)
+        verses = [parts[i] + parts[i + 1] for i in range(0, len(parts) - 1, 2)]
+        if len(parts) % 2 != 0:
+            verses.append(parts[-1])
         return verses
 
     def chunk_verses(self, verses, language):
@@ -85,18 +88,23 @@ class CodexReader:
         return [self.combine_verses(verses[i:i+self.verse_chunk_size], language) for i in range(0, len(verses), self.verse_chunk_size)]
 
     def combine_verses(self, verse_chunk, language):
-        first_verse_info = re.search(r'(\d?[A-Z]{2,3}) (\d+:\d+)', verse_chunk[0])
-        last_verse_info = re.search(r'(\d?[A-Z]{2,3}) (\d+:\d+)', verse_chunk[-1])
-
-        if first_verse_info and last_verse_info and first_verse_info.group(1) == last_verse_info.group(1):
-            chunk_name = f"{language} {first_verse_info.group(1)} {first_verse_info.group(2)} - {last_verse_info.group(2)}"
+        # Adjusted to handle single verse chunks correctly
+        if len(verse_chunk) == 1:
+            single_verse_info = re.search(r'(\d?[A-Z]{2,3}) (\d+:\d+)', verse_chunk[0])
+            if single_verse_info:
+                chunk_name = f"{language} {single_verse_info.group(1)} {single_verse_info.group(2)}"
+                combined_text = ''.join(re.sub(r'[A-Z]+\s\d+:\d+\n?', '', verse) for verse in verse_chunk)
+                return {chunk_name: combined_text.strip()}
         else:
-            chunk_name = f"{language} Chunk (problematic schema)"
+            first_verse_info = re.search(r'(\d?[A-Z]{2,3}) (\d+:\d+)', verse_chunk[0])
+            last_verse_info = re.search(r'(\d?[A-Z]{2,3}) (\d+:\d+)', verse_chunk[-1])
+            if first_verse_info and last_verse_info and first_verse_info.group(1) == last_verse_info.group(1):
+                chunk_name = f"{language} {first_verse_info.group(1)} {first_verse_info.group(2)} - {last_verse_info.group(2)}"
+            else:
+                chunk_name = f"{language} Chunk (problematic schema)"
+            combined_text = ''.join(re.sub(r'[A-Z]+\s\d+:\d+\n?', '', verse) for verse in verse_chunk)
+            return {chunk_name: combined_text.strip()}
 
-        combined_text = ''.join(re.sub(r'[A-Z]+\s\d+:\d+\n?', '', verse) for verse in verse_chunk)
-        combined_text = combined_text.replace('\r', '').replace('1\n', '').replace('\n1', '') # bunch of random characters get replaced
-        return {chunk_name: combined_text.strip()}
-    
     def get_embed_format(self, filename):
         result = self.read_file(filename=filename)
         chapters = result['chapters']
@@ -104,15 +112,17 @@ class CodexReader:
         for chapter in chapters:
             for chunk in chapter['verse_chunks']:
                 item = list(list(chunk.items())[0])
-                item[0] = (parse_scripture(item[0]))
-                chunks.append({"data": item[0], "text": item[1].replace("'", "")})
+                scripture = parse_scripture(item[0])
+                if scripture:  # Ensure scripture parsing was successful
+                    chunks.append({"data": scripture, "text": sql_safe(item[1])})
         return chunks
 
 
 if __name__ == "__main__":
     reader = CodexReader(verse_chunk_size=5)
-    result = reader.get_embed_format("/Users/daniellosey/Desktop/code/biblica/example_workspace/drafts/eng/GEN.codex")
+    result = reader.get_embed_format("/Users/daniellosey/Desktop/code/biblica/example_workspace/drafts/target/ZEP.codex")
 
     for i in result:
         print(i)
         
+
