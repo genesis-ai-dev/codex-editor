@@ -20,6 +20,7 @@ interface NotebookCommentThread {
         body: string;
         mode: number;
         contextValue: "canDelete";
+        deleted: boolean;
         author: {
             name: string;
         };
@@ -27,6 +28,7 @@ interface NotebookCommentThread {
     collapsibleState: number;
     canReply: boolean;
     threadTitle?: string;
+    deleted: boolean;
 }
 
 interface VerseRefGlobalState {
@@ -38,6 +40,11 @@ type CommentPostMessages =
     | { command: "commentsFromWorkspace"; content: string }
     | { command: "reload"; data: VerseRefGlobalState }
     | { command: "updateCommentThread"; commentThread: NotebookCommentThread }
+    | { command: "deleteCommentThread"; commentThreadId: string }
+    | {
+          command: "deleteComment";
+          args: { commentId: number; commentThreadId: string };
+      }
     | { command: "fetchComments" };
 interface SelectedTextDataWithContext {
     selection: string;
@@ -50,8 +57,3 @@ type ChatPostMessages =
     | { command: "reload" }
     | { command: "select"; textDataWithContext: SelectedTextDataWithContext }
     | { command: "fetch"; messages: string };
-
-// enum CommentCommandNames {
-//     updateCommentThread = "updateCommentThread",
-// }
-// fixme: enums so the types compile when they are used

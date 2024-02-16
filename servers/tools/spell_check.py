@@ -9,7 +9,7 @@ import json
 import os
 from typing import List, Dict, AnyStr
 import uuid
-import expirements.hash_check2 as hash_check
+import experiments.hash_check2 as hash_check
 import tools.edit_distance as edit_distance
 import re
 import string

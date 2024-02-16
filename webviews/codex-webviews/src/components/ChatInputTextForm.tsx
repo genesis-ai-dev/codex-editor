@@ -47,7 +47,9 @@ export const ChatInputTextForm: React.FC<CommentTextFormProps> = ({
                     width: "100%",
                 }}
             >
-                {contextItems.length > 0 &&
+                {contextItems.length > 0 && (
+                        <>Relevant content from resources</>
+                    ) &&
                     contextItems.map((currentContextItem) => (
                         <VSCodeTextArea
                             readOnly
@@ -58,18 +60,19 @@ export const ChatInputTextForm: React.FC<CommentTextFormProps> = ({
                             // style={{ flexGrow: 1, marginBottom: "0.5em" }}
                         />
                     ))}
-                hereuiuiu:{" "}
+
                 {selectedText && (
-                    <VSCodeTextField
-                        readOnly
-                        // cols={1000}
-                        title="Selected Text"
-                        value={selectedText}
-                        placeholder="Selected Text..."
-                        // style={{ flexGrow: 1 }}
-                    >
-                        This is a label
-                    </VSCodeTextField>
+                    <>
+                        Text selected in editor:
+                        <VSCodeTextField
+                            readOnly
+                            // cols={1000}
+                            title="Selected Text"
+                            value={selectedText}
+                            placeholder="Selected Text..."
+                            // style={{ flexGrow: 1 }}
+                        ></VSCodeTextField>
+                    </>
                 )}
             </div>
             <div
