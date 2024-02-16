@@ -161,6 +161,7 @@ def search() -> tuple:
     if db_name not in databases:
         return jsonify({"error": f"Database '{db_name}' not found"}), 404
     results = databases[db_name].simple_search(query_decoded, limit, min_score)
+    print(results)
     return jsonify(results), 200
 
 @app.route('/save', methods=['POST'])

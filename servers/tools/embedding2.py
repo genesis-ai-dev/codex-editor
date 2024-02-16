@@ -2,21 +2,13 @@ from txtai import Embeddings
 import datetime
 from typing import Union
 try:
-    from tools.codex_tools import CodexReader
+    from tools.codex_tools import CodexReader, sql_safe
 except:
-    from codex_tools import CodexReader
+    from codex_tools import CodexReader, sql_safe
 
 # Create embeddings index
 embeddings = Embeddings(path="sentence-transformers/nli-mpnet-base-v2", content=True, objects=True)
 
-# Data to index
-def sql_safe(text):
-    # Replace single quotes with two single quotes
-    text = text.replace("'", '"')
-    # Replace backslashes with two backslashes
-    text = text.replace("\\", "/")
-    # Return the sql safe text
-    return text
 
 
 
@@ -36,22 +28,30 @@ class DataBase:
     def upsert_data(self, text: str, uri: str='', metadata: Union[dict, str] = {}, book: str = "", chapter: int = -1,
                     verse: str = ""):
         # Search for existing text in the database
-        existing_items = self.embeddings.search(query=f"select id, text, uri, createdAt, book, chapter, verse, metadata from txtai where text='{text}'")
+        existing_items = self.embeddings.search(query=f"select id, text, uri, createdAt, book, chapter, verse, metadata from txtai where book='{sql_safe(book)}' and chapter='{sql_safe(chapter)}' and verse='{sql_safe(verse)}'")
         if existing_items:
             # If text exists, update metadata of the first matching item
-            self.embeddings.delete(existing_items[0]['id'])
-
-
-        # If text does not exist, create a new item
-        new_item = (None, {"text": f"{sql_safe(text)}",
-            "uri": uri,
-            "createdAt": str(datetime.datetime.now()),
-            "book": sql_safe(book),
-            "chapter": sql_safe(str(chapter)),
-            "verse": sql_safe(str(verse)),
-            "metadata": sql_safe(str(metadata))
-        }, None)
-        self.embeddings.index([new_item])
+            existing_id = existing_items[0]['id']
+            updated_item = {"text": f"{text}",
+                            "uri": uri,
+                            "createdAt": str(datetime.datetime.now()),
+                            "book": sql_safe(book),
+                            "chapter": sql_safe(str(chapter)),
+                            "verse": sql_safe(str(verse)),
+                            "metadata": sql_safe(str(metadata))
+                            }
+            self.embeddings.upsert([(existing_id, updated_item, None)])
+        else:
+            # If text does not exist, create a new item
+            new_item = (None, {"text": f"{text}",
+                               "uri": uri,
+                               "createdAt": str(datetime.datetime.now()),
+                               "book": sql_safe(book),
+                               "chapter": sql_safe(str(chapter)),
+                               "verse": sql_safe(str(verse)),
+                               "metadata": sql_safe(str(metadata))
+                               }, None)
+            self.embeddings.upsert([new_item])
 
         self.save()
 
@@ -95,7 +95,7 @@ if __name__ == "__main__":
     # Inserting new data
    # database.upsert_data(text="the elephant went to the store", uri="http://example.com", metadata={"author": "John Doe"},
     #                     book="Test Book", chapter=1, verse=1)
-    database.upsert_codex_file(path='/Users/daniellosey/Desktop/code/biblica/example_workspace/drafts/eng/1CH.codex')
+    database.upsert_codex_file(path='/Users/daniellosey/Desktop/code/biblica/example_workspace/drafts/target/GEN.codex')
     # Searching for a text
     search_results = database.simple_search(query="store")
     print("Search Results:", search_results)

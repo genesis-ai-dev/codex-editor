@@ -4,7 +4,6 @@ import * as vscode from "vscode";
 import { CodexKernel } from "./controller";
 import { CodexContentSerializer } from "./serializer";
 import {
-    registerTextSelectionHandler,
     checkServerHeartbeat,
 } from "./pygls_commands/textSelectionHandler";
 

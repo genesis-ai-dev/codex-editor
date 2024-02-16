@@ -9,6 +9,7 @@ import {
     NotebookCommentThread,
     VerseRefGlobalState,
 } from "../../../types";
+import { registerTextSelectionHandler } from "../../pygls_commands/textSelectionHandler";
 
 const abortController: AbortController | null = null;
 
@@ -88,204 +89,33 @@ const loadWebviewHtml = (
 
     webviewView.webview.html = html;
 };
-const getCommentsFromFile = async (
-    fileName: string,
-): Promise<NotebookCommentThread[]> => {
-    try {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        console.log({ workspaceFolders });
-        const filePath = workspaceFolders
-            ? vscode.Uri.joinPath(workspaceFolders[0].uri, fileName).fsPath
-            : "";
 
-        const uri = vscode.Uri.file(filePath);
-        const fileContentUint8Array = await vscode.workspace.fs.readFile(uri);
-        const fileContent = new TextDecoder().decode(fileContentUint8Array);
-        return JSON.parse(fileContent);
-    } catch (error) {
-        console.error(error);
-        throw new Error("Failed to parse notebook comments from file");
-    }
-};
-const sendCommentsToWebview = async (webviewView: vscode.WebviewView) => {
-    console.log("sendCommentsToWebview was called");
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    console.log({ workspaceFolders });
-    const filePath = workspaceFolders
-        ? vscode.Uri.joinPath(workspaceFolders[0].uri, "notebook-comments.json")
-              .fsPath
-        : "";
-    console.log({ filePath });
-    try {
-        const uri = vscode.Uri.file(filePath);
-        const fileContentUint8Array = await vscode.workspace.fs.readFile(uri);
-        const fileContent = new TextDecoder().decode(fileContentUint8Array);
-        console.log({ fileContent });
-        webviewView.webview.postMessage({
-            command: "commentsFromWorkspace",
-            content: fileContent,
-        } as CommentPostMessages);
-    } catch (error) {
-        console.error("Error reading file:", error);
-        vscode.window.showErrorMessage(`Error reading file: ${filePath}`);
-    }
-};
-
-async function writeSerializedData(serializedData: string, filename: string) {
-    const fileHandler = new FileHandler();
-
-    try {
-        await fileHandler.writeFile(filename, serializedData);
-        console.log("Write operation completed.");
-    } catch (error) {
-        console.error("Error writing file:", error);
-    }
-}
 export class CustomWebviewProvider {
     _context: vscode.ExtensionContext;
     selectionChangeListener: any;
     constructor(context: vscode.ExtensionContext) {
         this._context = context;
     }
-
+ 
     resolveWebviewView(webviewView: vscode.WebviewView) {
-        globalStateEmitter.on(
-            "changed",
-            ({ key, value }: { key: string; value: VerseRefGlobalState }) => {
-                if (webviewView.visible && key === "verseRef") {
-                    webviewView.webview.postMessage({
-                        command: "reload",
-                        data: { verseRef: value.verseRef, uri: value.uri },
-                    } as CommentPostMessages);
-                }
-            },
-        );
         loadWebviewHtml(webviewView, this._context.extensionUri);
-        webviewView.onDidChangeVisibility(() => {
-            if (webviewView.visible) {
-                sendCommentsToWebview(webviewView);
-                // webviewView.webview.postMessage({ command: "reload" });
-            }
+
+        registerTextSelectionHandler(this._context, (data: JSON)=>{
+            webviewView.webview.postMessage({
+                command: "searchResults",
+                data: data
+            });
         });
         if (webviewView.visible) {
-            sendCommentsToWebview(webviewView);
+           // sendCommentsToWebview(webviewView);
+            // TODO: send verse parallels
+
         }
 
-        // vscode.window.onDidChangeActiveTextEditor(() => {
-        //     // When the active editor changes, remove the old listener and add a new one
-        //     if (this.selectionChangeListener) {
-        //         this.selectionChangeListener.dispose();
-        //     }
-
-        //     sendCommentsToWebview(webviewView);
-        // });
-
-        // TODO: find out if the above code was needed. Find out why comments are not loading sometime at first
-        // Find out why new comments are not being created
-        // create a system of share types so message posting is easier to deal with.
-        const findUriForVerseRef = async (
-            verseRef: string,
-        ): Promise<string | null> => {
-            let uri = null;
-            const workspaceFolders = vscode.workspace.workspaceFolders;
-            const draftsFolderUri = workspaceFolders
-                ? vscode.Uri.joinPath(workspaceFolders[0].uri, "drafts")
-                : undefined;
-            if (draftsFolderUri) {
-                const codexFiles = await vscode.workspace.findFiles(
-                    new vscode.RelativePattern(
-                        draftsFolderUri,
-                        "target/*.codex",
-                    ),
-                );
-                for (const file of codexFiles) {
-                    const document =
-                        await vscode.workspace.openTextDocument(file);
-                    const text = document.getText();
-                    if (text.includes(verseRef)) {
-                        uri = file.toString();
-                        updateGlobalState(this._context, {
-                            key: "verseRef",
-                            value: {
-                                verseRef,
-                                uri,
-                            },
-                        });
-                        break;
-                    }
-                }
-            }
-            return uri;
-        };
-        const commentsFile = "notebook-comments.json";
-
-        const serializeCommentsToDisk = async (
-            existingCommentsThreads: NotebookCommentThread[],
-            newCommentThread: NotebookCommentThread,
-        ) => {
-            const threadIndex = existingCommentsThreads.findIndex(
-                (thread) => thread.id === newCommentThread.id,
-            );
-            if (threadIndex !== -1) {
-                existingCommentsThreads[threadIndex].comments = [
-                    ...existingCommentsThreads[threadIndex].comments,
-                    ...newCommentThread.comments,
-                ];
-                existingCommentsThreads[threadIndex].threadTitle =
-                    newCommentThread.threadTitle;
-            } else {
-                existingCommentsThreads.push(newCommentThread);
-            }
-            await writeSerializedData(
-                JSON.stringify(existingCommentsThreads, null, 4),
-                commentsFile,
-            );
-        };
         webviewView.webview.onDidReceiveMessage(
             async (message: CommentPostMessages) => {
                 console.log({ message }, "onDidReceiveMessage");
-                try {
-                    switch (message.command) {
-                        case "updateCommentThread": {
-                            const existingCommentsThreads =
-                                await getCommentsFromFile(commentsFile);
-
-                            // NOTE: When the panel fist load the verseRef defaults to GEn 1:1 but there is no way for the webview to know the uri
-                            if (!message.commentThread.uri) {
-                                const uriForVerseRef = await findUriForVerseRef(
-                                    message.commentThread.verseRef,
-                                );
-                                if (!uriForVerseRef) {
-                                    vscode.window.showInformationMessage(
-                                        `No file found with the verse reference: ${message.commentThread.verseRef}`,
-                                    );
-                                    return;
-                                }
-                                message.commentThread.uri = uriForVerseRef;
-                                await serializeCommentsToDisk(
-                                    existingCommentsThreads,
-                                    message.commentThread,
-                                );
-                            } else {
-                                await serializeCommentsToDisk(
-                                    existingCommentsThreads,
-                                    message.commentThread,
-                                );
-                            }
-                            sendCommentsToWebview(webviewView);
-                            break;
-                        }
-                        case "fetchComments": {
-                            sendCommentsToWebview(webviewView);
-                            break;
-                        }
-                        default:
-                            break;
-                    }
-                } catch (error) {
-                    console.error("Error:", error);
-                    vscode.window.showErrorMessage("Service access failed.");
-                }
+                
             },
         );
     }
