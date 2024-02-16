@@ -36,7 +36,7 @@
                     "type": "webview",
                     "id": "genesis-translator-sidebar",
                     "name": "Genesis Translator",
-                    "icon": "src/media/copilot.svg",
+                    "icon": "$(comment-discussion)",
                     "contextualTitle": "Genesis Translator"
                 }
             ],
@@ -53,8 +53,8 @@
                 {
                     "type": "webview",
                     "id": "comments-sidebar",
-                    "name": "Comments", 
-                    "icon": "src/media/note.svg",
+                    "name": "Comments",
+                    "icon": "$(note)",
                     "contextualTitle": "Comments"
                 }
             ],
@@ -113,12 +113,12 @@
                 {
                     "id": "genesis-translator-sidebar-view",
                     "title": "Genesis Translator Bar",
-                    "icon": "src/media/copilot.svg"
+                    "icon": "$(comment-discussion)"
                 },
                 {
                     "id": "comments-sidebar-view",
                     "title": "Comments",
-                    "icon": "src/media/note.svg"
+                    "icon": "$(note)"
                 },
                 {
                     "id": "scribe-vsc-obs-sidebar",
