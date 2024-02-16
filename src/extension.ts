@@ -3,9 +3,7 @@
 import * as vscode from "vscode";
 import { CodexKernel } from "./controller";
 import { CodexContentSerializer } from "./serializer";
-import {
-    checkServerHeartbeat,
-} from "./pygls_commands/textSelectionHandler";
+import { checkServerHeartbeat } from "./pygls_commands/textSelectionHandler";
 
 import {
     NOTEBOOK_TYPE,
@@ -14,17 +12,9 @@ import {
     createProjectNotebooks,
 } from "./utils/codexNotebookUtils";
 import { CodexNotebookProvider } from "./tree-view/scriptureTreeViewProvider";
-import {
-    getAllBookRefs,
-    getProjectMetadata,
-    getWorkSpaceFolder,
-    jumpToCellInNotebook,
-} from "./utils";
+import { getWorkSpaceFolder, jumpToCellInNotebook } from "./utils";
 import { registerReferencesCodeLens } from "./referencesCodeLensProvider";
 import { registerSourceCodeLens } from "./sourceCodeLensProvider";
-import { LanguageMetadata, LanguageProjectStatus, Project } from "codex-types";
-import { nonCanonicalBookRefs } from "./utils/verseRefUtils/verseData";
-import { LanguageCodes } from "./utils/languageUtils";
 import { ResourceProvider } from "./tree-view/resourceTreeViewProvider";
 import {
     initializeProjectMetadata,
@@ -55,7 +45,6 @@ import { checkTaskStatus, indexVrefs } from "./commands/indexVrefsCommand";
  * ----------------------------------------------------------------------- */
 
 import * as net from "net";
-import * as path from "path";
 import * as semver from "semver";
 
 import { PythonExtension } from "@vscode/python-extension";
@@ -73,6 +62,7 @@ import { registerParallelViewWebviewProvider } from "./providers/parallelPassage
 import { registerDictionaryTableProvider } from "./providers/dictionaryTable/dictionaryTableProvider";
 import { CreateProjectProvider } from "./providers/obs/CreateProject/CreateProjectProvider";
 import { registerDictionarySummaryProvider } from "./providers/dictionaryTable/dictionarySummaryProvider";
+import { CreateNewProjectProvider } from "./providers/obs/CreateProject/CreateNewProjectProvider";
 
 const MIN_PYTHON = semver.parse("3.7.9");
 const ROOT_PATH = getWorkSpaceFolder();
@@ -233,7 +223,7 @@ export async function activate(context: vscode.ExtensionContext) {
                             const projectName = metadata.projectName;
                             const confirmDelete =
                                 await vscode.window.showInputBox({
-                                    prompt: `A project named ${projectName} already already exists. Type the project name to confirm deletion.`,
+                                    prompt: `A project named ${projectName} already exists. Type the project name to confirm deletion.`,
                                     placeHolder: "Project name",
                                 });
                             if (confirmDelete !== projectName) {
@@ -455,6 +445,7 @@ export async function activate(context: vscode.ExtensionContext) {
     registerDictionaryTableProvider(context);
     registerDictionarySummaryProvider(context);
     context.subscriptions.push(CreateProjectProvider.register(context));
+    context.subscriptions.push(CreateNewProjectProvider.register(context));
 }
 
 export function deactivate(): Thenable<void> {

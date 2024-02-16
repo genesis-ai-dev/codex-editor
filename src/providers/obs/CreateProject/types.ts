@@ -10,6 +10,7 @@ export enum MessageType {
     TEST_MESSAGE = "testMessage",
     SEARCH_QUERY = "searchQuery",
     SEARCH_RESULTS = "searchResults",
+    createNewProject = "createNewProject",
 }
 
 export type Language = {

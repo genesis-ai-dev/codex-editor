@@ -53,7 +53,7 @@
                 {
                     "type": "webview",
                     "id": "comments-sidebar",
-                    "name": "Comments", 
+                    "name": "Comments",
                     "icon": "src/media/note.svg",
                     "contextualTitle": "Comments"
                 }
@@ -79,6 +79,13 @@
                     "id": "scribe-vsc.obs-create-project",
                     "name": "Obs Editor",
                     "icon": "src/media/obsIcon.svg",
+                    "type": "webview",
+                    "contextualTitle": "Scribe Obs"
+                },
+                {
+                    "id": "scribe-vsc.obs-create-new-project",
+                    "name": "New Project",
+                    "icon": "src/media/new-project.svg",
                     "type": "webview",
                     "contextualTitle": "Scribe Obs"
                 }
@@ -499,8 +506,6 @@
                 }
             }
         ]
-        
-
     },
     "scripts": {
         "vscode:prepublish": "npm run compile",
@@ -539,6 +544,7 @@
     "dependencies": {
         "@vscode/codicons": "^0.0.35",
         "@vscode/python-extension": "^1.0.5",
+        "@vscode/vsce": "^2.23.0",
         "codex-types": "^0.0.2",
         "html-loader": "^4.2.0",
         "jszip": "^3.10.1",
