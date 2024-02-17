@@ -27,7 +27,7 @@ export async function checkServerHeartbeat(context: vscode.ExtensionContext) {
 }
 
 export function registerTextSelectionHandler(context: vscode.ExtensionContext, callback: CallableFunction): any {
-    let selectionTimeout: NodeJS.Timeout | undefined;
+    let selectionTimeout: ReturnType<typeof setTimeout> | undefined;
     context.subscriptions.push(vscode.window.onDidChangeTextEditorSelection(async (event: vscode.TextEditorSelectionChangeEvent) => {
         if (selectionTimeout) {
             clearTimeout(selectionTimeout);
