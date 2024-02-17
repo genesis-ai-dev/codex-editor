@@ -10,8 +10,110 @@ import {
     VerseRefGlobalState,
 } from "../../../types";
 import { registerTextSelectionHandler } from "../../pygls_commands/textSelectionHandler";
+import { jumpToCellInNotebook } from "../../utils";
+
 
 const abortController: AbortController | null = null;
+let loading: boolean = false;
+
+interface OpenFileMessage {
+    command: "openFileAtLocation";
+    uri: string;
+    word: string;
+}
+
+
+
+async function upsertAllCodexFiles(webview: vscode.Webview): Promise<void> {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+
+    if (!workspaceFolders) {
+        return;
+    }
+
+    let totalFiles = 0;
+    let processedFiles = 0;
+
+    // First, count all codex files to determine total steps for progress update
+    for (const folder of workspaceFolders) {
+        const pattern = new vscode.RelativePattern(folder, "**/*.codex");
+        const files = await vscode.workspace.findFiles(pattern);
+        totalFiles += files.length;
+    }
+
+    // Then, process each file
+    for (const folder of workspaceFolders) {
+        const pattern = new vscode.RelativePattern(folder, "**/*.codex");
+        const files = await vscode.workspace.findFiles(pattern);
+
+        for (const file of files) {
+            // Upsert each codex file
+            const filePath = file.fsPath;
+            const db_name = "drafts"; // Assuming the database name is known and static
+            const upsertData = { db_name, path: filePath };
+
+            try {
+                const response = await fetch('http://localhost:5554/upsert_codex_file', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(upsertData),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                // Successfully upserted a file, increment processed files count
+                processedFiles++;
+
+                // Send a message to the webview to update the loading progress
+                webview.postMessage({
+                    command: "loadingProgress",
+                    currentStep: processedFiles,
+                    totalSteps: totalFiles,
+                });
+            } catch (error) {
+                console.error("Failed to upsert codex file:", error);
+            }
+        }
+    }
+
+    // After all files have been processed, reset the progress steps
+    loading = false;
+    webview.postMessage({
+        command: "loadingProgress",
+        currentStep: 0,
+        totalSteps: 0,
+    });
+}
+
+
+async function jumpToFirstOccurrence(uri: string, word: string) {
+
+    const chapter = word.split(":");
+    jumpToCellInNotebook(uri, parseInt(chapter[0], 10));
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+        return;
+    }
+
+    const document = editor.document;
+    const text = document.getText();
+    const wordIndex = text.indexOf(word);
+
+    if (wordIndex === -1) {
+        return;
+    }
+
+    const position = document.positionAt(wordIndex);
+    editor.selection = new vscode.Selection(position, position);
+    editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+
+    vscode.window.showInformationMessage(`Jumped to the first occurrence of "${word}"`);
+}
+
 
 const loadWebviewHtml = (
     webviewView: vscode.WebviewView,
@@ -88,6 +190,27 @@ const loadWebviewHtml = (
   </html>`;
 
     webviewView.webview.html = html;
+    webviewView.webview.onDidReceiveMessage(
+        async (message: OpenFileMessage) => {
+            if (message.command === "openFileAtLocation") {
+                vscode.window.showInformationMessage(message.uri);
+                // vscode.commands.executeCommand('vscode.open', vscode.Uri.parse(message.uri), {
+                //     selection: new vscode.Range(
+                //         new vscode.Position(0, 0),
+                //         new vscode.Position(0, 0)
+                //     )
+                
+                // });
+                jumpToFirstOccurrence(message.uri, message.word);
+            }
+            else if (message.command === "embedAllDocuments") {
+                upsertAllCodexFiles(webviewView.webview);
+
+                vscode.window.showWarningMessage("Embedding already in progress.");
+            
+        }
+        },
+    );
 };
 
 export class CustomWebviewProvider {
@@ -112,12 +235,6 @@ export class CustomWebviewProvider {
 
         }
 
-        webviewView.webview.onDidReceiveMessage(
-            async (message: CommentPostMessages) => {
-                console.log({ message }, "onDidReceiveMessage");
-                
-            },
-        );
     }
 }
 
@@ -134,5 +251,6 @@ export function registerParallelViewWebviewProvider(
             new CustomWebviewProvider(context),
         ),
     );
+    
     item.show();
 }
