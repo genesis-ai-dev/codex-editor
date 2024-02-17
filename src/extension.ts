@@ -78,7 +78,7 @@ const MIN_PYTHON = semver.parse("3.7.9");
 const ROOT_PATH = getWorkSpaceFolder();
 
 const PATHS_TO_POPULATE = [
-    "metadata.json", // This is where we store the project metadata in scripture burrito format
+    // "metadata.json", // This is where we store the project metadata in scripture burrito format, but we create this using the project initialization command
     "comments.json", // This is where we store the VS Code comments api comments, such as on .bible files
     "notebook-comments.json", // We can't use the VS Code comments api for notebooks (.codex files), so a second files avoids overwriting conflicts
     "drafts/", // This is where we store the project drafts, including project.dictionary and embedding dbs
@@ -87,7 +87,42 @@ const PATHS_TO_POPULATE = [
 ];
 
 if (!ROOT_PATH) {
-    vscode.window.showErrorMessage("No workspace found");
+    vscode.window.showInformationMessage("No project found. You need to select a project folder for your new project, or open an existing project folder.",
+        { modal: true },
+        "Select a Folder")
+        .then((result) => {
+            if (result === "Select a Folder") {
+                openWorkspace();
+                vscode.commands.executeCommand("codex-editor-extension.initializeNewProject");
+            } else {
+                vscode.commands.executeCommand("workbench.action.quit");
+            }
+        });
+} else {
+    const metadataPath = path.join(ROOT_PATH, "metadata.json");
+    if (!vscode.workspace.fs.stat(vscode.Uri.file(metadataPath))) {
+        vscode.commands.executeCommand("codex-editor-extension.initializeNewProject");
+    }
+}
+
+async function openWorkspace() {
+    let workspaceFolder;
+    const openFolder = await vscode.window.showOpenDialog({
+        canSelectFolders: true,
+        canSelectFiles: false,
+        canSelectMany: false,
+        openLabel: "Choose project folder",
+    });
+    if (openFolder && openFolder.length > 0) {
+        await vscode.commands.executeCommand('vscode.openFolder', openFolder[0], false);
+        workspaceFolder = vscode.workspace.workspaceFolders
+            ? vscode.workspace.workspaceFolders[0]
+            : undefined;
+    }
+    if (!workspaceFolder) {
+        vscode.window.showErrorMessage("No workspace opened.");
+        return;
+    }
 }
 
 let isExtensionInitialized = false;
@@ -196,22 +231,23 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             "codex-editor-extension.initializeNewProject",
             async () => {
+
+                const workspaceFolder = vscode.workspace.workspaceFolders
+                    ? vscode.workspace.workspaceFolders[0]
+                    : undefined;
+                if (!workspaceFolder) {
+                    vscode.window.showErrorMessage(
+                        "No workspace folder found. Please open a folder to store your project in.",
+                    );
+                    return;
+                }
+
                 vscode.window.showInformationMessage(
                     "Initializing new project...",
                 );
                 try {
                     const projectDetails = await promptForProjectDetails();
                     if (projectDetails) {
-                        const workspaceFolder = vscode.workspace
-                            .workspaceFolders
-                            ? vscode.workspace.workspaceFolders[0]
-                            : undefined;
-                        if (!workspaceFolder) {
-                            vscode.window.showErrorMessage(
-                                "No workspace found",
-                            );
-                            return;
-                        }
                         const projectFilePath = await vscode.Uri.joinPath(
                             workspaceFolder.uri,
                             "metadata.json",
@@ -298,6 +334,9 @@ export async function activate(context: vscode.ExtensionContext) {
                         `Failed to initialize new project: ${error}`,
                     );
                 }
+                await vscode.commands.executeCommand(
+                    "scripture-explorer-activity-bar.refreshEntry"
+                );
             },
         ),
     );
