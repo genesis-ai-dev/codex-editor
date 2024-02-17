@@ -5,8 +5,8 @@ import React, { useState, useEffect } from "react";
 
 interface SearchResult {
   book: string;
-  chapter: number;
-  verse: number;
+  chapter: string;
+  verse: string;
   text: string;
   createdAt: string; // Assuming createdAt is a string that can be converted to a Date
   uri: string;
