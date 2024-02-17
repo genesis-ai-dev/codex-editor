@@ -13,7 +13,7 @@ const HideOptionsButton: React.FC<HideOptionsButtonProps> = ({ children }) => {
     };
 
     return (
-        <div style={{ display: "flex", gap: "15px" }}>
+        <div style={{ display: "flex", gap: "0.25em", height: "fit-content" }}>
             {!isHidden && children}
             <VSCodeButton
                 aria-label="More options"

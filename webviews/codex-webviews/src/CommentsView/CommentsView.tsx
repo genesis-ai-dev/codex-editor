@@ -81,7 +81,7 @@ function App() {
             contextValue: "canDelete",
             body: submittedCommentValue || "",
             mode: 1,
-            author: { name: "vscode" },
+            author: { name: "vscode" }, // FIXME: Get the author from the vscode workspace
             deleted: false,
         };
         const updatedCommentThread: NotebookCommentThread = {
@@ -169,6 +169,7 @@ function App() {
                                             display: "flex",
                                             flexFlow: "row nowrap",
                                             justifyContent: "space-between",
+                                            maxHeight: "min-content",
                                             gap: "10px",
                                         }}
                                     >
@@ -189,6 +190,7 @@ function App() {
                                                 backgroundColor:
                                                     "var(--vscode-button-background)",
                                                 color: "var(--vscode-button-foreground)",
+                                                maxHeight: "min-content",
                                             }}
                                         >
                                             <i className="codicon codicon-trash"></i>
