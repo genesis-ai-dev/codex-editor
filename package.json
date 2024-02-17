@@ -18,6 +18,12 @@
     ],
     "main": "./out/extension.js",
     "contributes": {
+        "viewsWelcome": [
+            {
+                "view": "scripture-explorer-activity-bar",
+                "contents": "Welcome to the Codex Scripture Editor! Please setup a new translation project by clicking the button below.\n\n[Setup a New Project](command:codex-editor-extension.initializeNewProject)"
+            }
+        ],
         "notebookEditorDecorations": [
             {
                 "type": "codex-type",
