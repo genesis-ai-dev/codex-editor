@@ -63,7 +63,7 @@ class DataBase:
         results = extract_verses(path)
 
         for result in results:
-            if len(result['text']) > 9: # 000 00:000  
+            if len(result['text']) > 11: # 000 000:000  
                 text = result['text']
                 book = result['book']
                 chapter = result['chapter']
