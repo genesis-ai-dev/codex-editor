@@ -32,7 +32,6 @@ class DatabaseName(Enum):
 - **Payload Parameters:**
   - `db_name` (string): The name of the database.
   - `path` (string): The path to the .codex file.
-  - `verse_chunk_size` (integer, optional): The size of verse chunks. Defaults to 4.
 - **Returns:** A JSON response indicating success or error and an HTTP status code.
 
 ### 2. Upsert Data (`/upsert_data`)

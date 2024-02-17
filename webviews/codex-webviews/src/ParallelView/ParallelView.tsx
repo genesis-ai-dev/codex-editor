@@ -5,22 +5,23 @@ import React, { useState, useEffect } from "react";
 const vscode = acquireVsCodeApi();
 
 interface SearchResult {
-    book: string;
-    chapter: number;
-    verse: number;
-    text: string;
-    createdAt: string; // Assuming createdAt is a string that can be converted to a Date
-    uri: string;
+  book: string;
+  chapter: string;
+  verse: string;
+  text: string;
+  createdAt: string; // Assuming createdAt is a string that can be converted to a Date
+  uri: string;
 }
 
 interface OpenFileMessage {
     command: "openFileAtLocation";
     uri: string;
-    position: { line: number; character: number };
+    word: string;
 }
 
 function App() {
     const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+    const [loadingProgress, setLoadingProgress] = useState<{currentStep: number, totalSteps: number} | null>(null);
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
@@ -28,6 +29,9 @@ function App() {
             switch (message.command) {
                 case "searchResults":
                     setSearchResults(message.data);
+                    break;
+                case "loadingProgress":
+                    setLoadingProgress({currentStep: message.currentStep, totalSteps: message.totalSteps});
                     break;
                 // Handle other cases
             }
@@ -41,15 +45,35 @@ function App() {
         };
     }, []);
 
-    const handleUriClick = (uri: string) => {
+    const handleUriClick = (uri: string, word: string) => {
         // Placeholder for callback function
         console.log(`URI clicked: ${uri}`);
         // TODO: Open the document with the given URI *at* the passage
         vscode.postMessage({
             command: "openFileAtLocation",
             uri,
-            position: { line: 0, character: 0 }, // FIXME: Replace with actual position
+            word: word, // FIXME: Replace with actual position
         } as OpenFileMessage);
+    };
+    const handleEmbedAllDocuments = () => {
+        console.log("Embedding all documents...");
+        vscode.postMessage({
+            command: "embedAllDocuments",
+        });
+    };
+
+    const renderProgressBar = () => {
+        if (!loadingProgress || loadingProgress.totalSteps == 0 || loadingProgress.currentStep >= loadingProgress.totalSteps) {
+            return null;
+        }
+        const progressPercentage = (loadingProgress.currentStep / loadingProgress.totalSteps) * 100;
+        return (
+            <div style={{height: "10px", backgroundColor: "grey", margin: "10px auto", width: "90%"}}>
+                <div style={{height: "100%", width: `${progressPercentage}%`, backgroundColor: "var(--vscode-sideBar-dropBackground)"}}></div>
+                {progressPercentage < 100 && <p style={{textAlign: "center"}}>Loading, please do not close this tab.</p>}
+                <br></br>
+            </div>
+        );
     };
 
     return (
@@ -57,6 +81,19 @@ function App() {
             <h2 style={{ textAlign: "center", margin: "20px 0" }}>
                 Parallel Passages
             </h2>
+            {loadingProgress && loadingProgress.currentStep < loadingProgress.totalSteps ? null : (
+                <button
+                    onClick={handleEmbedAllDocuments}
+                    style={{
+                        display: "block",
+                        margin: "10px auto",
+                        padding: "5px 10px",
+                    }}
+                >
+                    Embed all documents
+                </button>
+            )}
+            {renderProgressBar()}
             {searchResults.length > 0 ? (
                 <div>
                     {searchResults.map((result, index) => (
@@ -75,7 +112,7 @@ function App() {
                             <p
                                 style={{
                                     background:
-                                        "var( --vscode-sideBar-dropBackground)",
+                                        "var(--vscode-sideBar-dropBackground)",
                                     borderRadius: "10px",
                                     margin: "10px",
                                     padding: "5px",
@@ -88,13 +125,13 @@ function App() {
                                 {new Date(result.createdAt).toLocaleString()}
                             </p>
                             <button
-                                onClick={() => handleUriClick(result.uri)}
+                                onClick={() => handleUriClick(result.uri, `${result.chapter}:${result.verse}`)}
                                 style={{
                                     marginTop: "10px",
                                     padding: "5px 10px",
                                 }}
                             >
-                                Open
+                                Open 
                             </button>
                         </div>
                     ))}

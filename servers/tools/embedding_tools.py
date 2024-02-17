@@ -17,7 +17,7 @@ class DataBase:
         __init__(name: str) -> None:
             Initializes a new database with the specified name and loads existing embeddings if available.
 
-        upsert_codex_file(path: str, verse_chunk_size: int = 4) -> None:
+        upsert_codex_file(path: str) -> None:
             Reads a Codex file, extracts embeddings, and upserts relevant data into the database.
 
         index_all(data: list) -> None:
@@ -53,18 +53,17 @@ class DataBase:
         except:
             print("No embeddings to load yet")
 
-    def upsert_codex_file(self, path: str, verse_chunk_size: int = 4) -> None:
+    def upsert_codex_file(self, path: str) -> None:
         """
         Reads a Codex file, extracts embeddings, and upserts relevant data into the database.
 
         Args:
             path (str): The path to the Codex file.
-            verse_chunk_size (int): The size of verse chunks for grouping scripture verses.
 
         Returns:
             None
         """
-        reader = CodexReader(verse_chunk_size=verse_chunk_size)
+        reader = CodexReader()
         results = reader.get_embed_format(path)
         self.upsert_all(results)
 

@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-from tools.embedding2 import DataBase  # Updated import path
+from tools.embedding3 import DataBase  # Updated import path
 from enum import Enum
 from typing import Dict, Any, AnyStr
 from flask_cors import CORS
@@ -81,7 +81,7 @@ def upsert_codex_file() -> tuple:
     """
     Upserts a codex file into the specified database.
 
-    Expects 'db_name', 'path', and optionally 'verse_chunk_size' in the JSON payload of the request.
+    Expects 'db_name', 'path', and optionally in the JSON payload of the request.
     If the required parameters are present, it calls the upsert_codex_file method of the DataBase instance.
 
     Returns:
@@ -92,10 +92,9 @@ def upsert_codex_file() -> tuple:
     path = data.get('path')
     if not db_name or not path:
         return jsonify({"error": "Both 'db_name' and 'path' are required parameters"}), 400
-    verse_chunk_size = data.get('verse_chunk_size', 4)
     if db_name not in databases:
         return jsonify({"error": f"Database '{db_name}' not found"}), 404
-    databases[db_name].upsert_codex_file(path, verse_chunk_size)
+    databases[db_name].upsert_codex_file(path)
     return jsonify({"message": "Codex file upserted"}), 200
 
 @app.route('/upsert_data', methods=['POST'])
@@ -132,7 +131,8 @@ def upsert_data() -> tuple:
     verse = data.get('verse', "")
     if db_name not in databases:
         return jsonify({"error": f"Database '{db_name}' not found"}), 404
-    databases[db_name].upsert_data(text, uri, metadata, book, chapter, verse)
+    reference = f'{book} {chapter}:{verse}'
+    databases[db_name].upsert_data(text=text, uri=uri, metadata=metadata, book=book, chapter=chapter, verse=verse, reference=reference)
     return jsonify({"message": "Data upserted into database"}), 200
 
 @app.route('/search', methods=['GET'])
@@ -157,12 +157,14 @@ def search() -> tuple:
     except Exception as e:
         return jsonify({"error": f"Failed to decode query parameter: {str(e)}"}), 400
     limit = request.args.get('limit', default=5, type=int)
-    min_score = request.args.get('min_score', default=None, type=float)
+    #min_score = request.args.get('min_score', default=None, type=float)
     if db_name not in databases:
         return jsonify({"error": f"Database '{db_name}' not found"}), 404
-    results = databases[db_name].simple_search(query_decoded, limit, min_score)
+    results = databases[db_name].search(query_decoded, limit)
+    # results = [result['data'] for result in results]
     print(results)
-    return jsonify(results), 200
+    result =  jsonify(results)
+    return result, 200
 
 @app.route('/save', methods=['POST'])
 def save() -> tuple:
