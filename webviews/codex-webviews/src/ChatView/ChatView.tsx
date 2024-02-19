@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { VSCodeButton, VSCodeTag } from "@vscode/webview-ui-toolkit/react";
 import { ChatInputTextForm } from "../components/ChatInputTextForm";
+import { WebviewHeader } from "../components/WebviewHeader";
 import "../App.css";
 import { ChatMessage, ChatPostMessages } from "../../../../types";
 
@@ -282,6 +283,29 @@ function App() {
         },
     );
 
+    function clearChat() {
+        setMessageLog([systemMessage]);
+    }
+
+    interface ClearChatButtonProps {
+        callback: () => void;
+    }
+
+    const ClearChatButton: React.FC<ClearChatButtonProps> = ({ callback }) => (
+        <VSCodeButton
+            aria-label="Clear"
+            appearance="icon"
+            title="Clear Current Chat"
+            onClick={callback}
+            style={{
+                backgroundColor: "var(--vscode-button-background)",
+                color: "var(--vscode-button-foreground)",
+            }}
+        >
+            <i className="codicon codicon-trash"></i>
+        </VSCodeButton>
+    );
+
     return (
         <main
             style={{
@@ -295,42 +319,9 @@ function App() {
                 overflowX: "hidden",
             }}
         >
-            <div
-                className="chat-header"
-                style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    width: "100%",
-                    alignItems: "center",
-                    padding: "0.25em 1em",
-                    borderBottom:
-                        "2px solid var(--vscode-editorGroupHeader-tabsBorder)",
-                    backgroundColor: "var(--vscode-sideBar-background)",
-                    color: "var(--vscode-sideBar-foreground)",
-                }}
-            >
-                <h2
-                    style={{
-                        margin: 0,
-                        textTransform: "uppercase",
-                        fontSize: "1rem",
-                    }}
-                >
-                    Translator's Copilot Chat
-                </h2>
-                <VSCodeButton
-                    aria-label="Clear"
-                    appearance="icon"
-                    title="Clear Current Chat"
-                    onClick={() => setMessageLog([systemMessage])}
-                    style={{
-                        backgroundColor: "var(--vscode-button-background)",
-                        color: "var(--vscode-button-foreground)",
-                    }}
-                >
-                    <i className="codicon codicon-trash"></i>
-                </VSCodeButton>
-            </div>
+            <WebviewHeader title="Translator's Copilot Chat">
+                <ClearChatButton callback={clearChat} />
+            </WebviewHeader>
             <div
                 className="chat-container"
                 style={{

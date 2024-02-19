@@ -1,16 +1,18 @@
 import React, { useState, useEffect } from "react";
+import { WebviewHeader } from "../components/WebviewHeader";
+import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 
 // Import other necessary modules and components
 
 const vscode = acquireVsCodeApi();
 
 interface SearchResult {
-  book: string;
-  chapter: string;
-  verse: string;
-  text: string;
-  createdAt: string; // Assuming createdAt is a string that can be converted to a Date
-  uri: string;
+    book: string;
+    chapter: string;
+    verse: string;
+    text: string;
+    createdAt: string; // Assuming createdAt is a string that can be converted to a Date
+    uri: string;
 }
 
 interface OpenFileMessage {
@@ -21,7 +23,10 @@ interface OpenFileMessage {
 
 function App() {
     const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-    const [loadingProgress, setLoadingProgress] = useState<{currentStep: number, totalSteps: number} | null>(null);
+    const [loadingProgress, setLoadingProgress] = useState<{
+        currentStep: number;
+        totalSteps: number;
+    } | null>(null);
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
@@ -31,7 +36,10 @@ function App() {
                     setSearchResults(message.data);
                     break;
                 case "loadingProgress":
-                    setLoadingProgress({currentStep: message.currentStep, totalSteps: message.totalSteps});
+                    setLoadingProgress({
+                        currentStep: message.currentStep,
+                        totalSteps: message.totalSteps,
+                    });
                     break;
                 // Handle other cases
             }
@@ -63,39 +71,91 @@ function App() {
     };
 
     const renderProgressBar = () => {
-        if (!loadingProgress || loadingProgress.totalSteps == 0 || loadingProgress.currentStep >= loadingProgress.totalSteps) {
+        if (
+            !loadingProgress ||
+            loadingProgress.totalSteps == 0 ||
+            loadingProgress.currentStep >= loadingProgress.totalSteps
+        ) {
             return null;
         }
-        const progressPercentage = (loadingProgress.currentStep / loadingProgress.totalSteps) * 100;
+        const progressPercentage =
+            (loadingProgress.currentStep / loadingProgress.totalSteps) * 100;
         return (
-            <div style={{height: "10px", backgroundColor: "grey", margin: "10px auto", width: "90%"}}>
-                <div style={{height: "100%", width: `${progressPercentage}%`, backgroundColor: "var(--vscode-sideBar-dropBackground)"}}></div>
-                {progressPercentage < 100 && <p style={{textAlign: "center"}}>Loading, please do not close this tab.</p>}
+            <div
+                style={{
+                    height: "10px",
+                    backgroundColor: "grey",
+                    margin: "10px auto",
+                    width: "90%",
+                }}
+            >
+                <div
+                    style={{
+                        height: "100%",
+                        width: `${progressPercentage}%`,
+                        backgroundColor: "var(--vscode-sideBar-dropBackground)",
+                    }}
+                ></div>
+                {progressPercentage < 100 && (
+                    <p style={{ textAlign: "center" }}>
+                        Loading, please do not close this tab.
+                    </p>
+                )}
                 <br></br>
             </div>
         );
     };
 
+    const EmbedAllDocumentsButton = ({
+        callback,
+    }: {
+        callback: () => void;
+    }) => (
+        <VSCodeButton
+            aria-label="Clear"
+            appearance="icon"
+            title="Refresh parallel passages index"
+            onClick={callback}
+            style={{
+                backgroundColor: "var(--vscode-button-background)",
+                color: "var(--vscode-button-foreground)",
+            }}
+        >
+            <i className="codicon codicon-refresh"></i>
+        </VSCodeButton>
+    );
+
     return (
-        <div>
-            <h2 style={{ textAlign: "center", margin: "20px 0" }}>
+        <div
+            style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "1em",
+                alignItems: "center",
+            }}
+        >
+            {/* <h2 style={{ textAlign: "center", margin: "20px 0" }}>
                 Parallel Passages
-            </h2>
-            {loadingProgress && loadingProgress.currentStep < loadingProgress.totalSteps ? null : (
-                <button
-                    onClick={handleEmbedAllDocuments}
-                    style={{
-                        display: "block",
-                        margin: "10px auto",
-                        padding: "5px 10px",
-                    }}
-                >
+            </h2> */}
+            <WebviewHeader title="Parallel Passages">
+                <EmbedAllDocumentsButton callback={handleEmbedAllDocuments} />
+            </WebviewHeader>
+            {loadingProgress &&
+            loadingProgress.currentStep < loadingProgress.totalSteps ? null : (
+                <VSCodeButton onClick={handleEmbedAllDocuments} style={{}}>
                     Embed all documents
-                </button>
+                </VSCodeButton>
             )}
             {renderProgressBar()}
             {searchResults.length > 0 ? (
-                <div>
+                <div
+                    style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        gap: "1em",
+                    }}
+                >
                     {searchResults.map((result, index) => (
                         <div
                             key={index}
@@ -125,13 +185,18 @@ function App() {
                                 {new Date(result.createdAt).toLocaleString()}
                             </p>
                             <button
-                                onClick={() => handleUriClick(result.uri, `${result.chapter}:${result.verse}`)}
+                                onClick={() =>
+                                    handleUriClick(
+                                        result.uri,
+                                        `${result.chapter}:${result.verse}`,
+                                    )
+                                }
                                 style={{
                                     marginTop: "10px",
                                     padding: "5px 10px",
                                 }}
                             >
-                                Open 
+                                Open
                             </button>
                         </div>
                     ))}
