@@ -63,8 +63,8 @@ const EditAndDeleteOptions: React.FC<{
                         title="Cancel Delete"
                         onClick={cancelDelete}
                         style={{
-                            backgroundColor: "var(--vscode-button-background)",
-                            color: "var(--vscode-button-foreground)",
+                            backgroundColor: "var(--vscode-errorForeground)",
+                            color: "var(--vscode-editor-background)",
                         }}
                     >
                         <i className="codicon codicon-close"></i>

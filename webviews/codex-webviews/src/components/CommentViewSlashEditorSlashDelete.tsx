@@ -79,7 +79,7 @@ const CommentViewSlashEditorSlashDelete: React.FC<CommentProps> = ({
                     />
                 )}
                 {showHorizontalLine && (
-                    <HideOptionsButton>
+                    <HideOptionsButton outerDivStyles={{ gap: "10px" }}>
                         <div style={{ display: "flex", gap: "10px" }}>
                             <EditButtonWithCancelOption
                                 editModeIsActive={editMode}
