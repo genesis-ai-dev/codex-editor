@@ -50,10 +50,13 @@ interface SelectedTextDataWithContext {
     selection: string;
     completeLineContent: string | null;
     vrefAtStartOfLine: string | null;
+    selectedText: string | null;
 }
 
 type ChatPostMessages =
     | { command: "response"; finished: boolean; text: string }
     | { command: "reload" }
     | { command: "select"; textDataWithContext: SelectedTextDataWithContext }
-    | { command: "fetch"; messages: string };
+    | { command: "fetch"; messages: string }
+    | { command: "fetchThread" }
+    | { command: "abort-fetch" };
