@@ -1,14 +1,15 @@
 import * as vscode from "vscode";
-import {
-    FileHandler,
-    serializeCommentThreadArray,
-} from "../../commentsProvider";
 import { globalStateEmitter, updateGlobalState } from "../../globalState";
 import {
     CommentPostMessages,
     NotebookCommentThread,
     VerseRefGlobalState,
 } from "../../../types";
+import {
+    FileHandler,
+    getCommentsFromFile,
+    writeSerializedData,
+} from "../../utils/fileUtils";
 
 const abortController: AbortController | null = null;
 
@@ -98,26 +99,10 @@ const loadWebviewHtml = (
 
     webviewView.webview.html = html;
 };
-const getCommentsFromFile = async (
-    fileName: string,
-): Promise<NotebookCommentThread[]> => {
-    try {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        console.log({ workspaceFolders });
-        const filePath = workspaceFolders
-            ? vscode.Uri.joinPath(workspaceFolders[0].uri, fileName).fsPath
-            : "";
 
-        const uri = vscode.Uri.file(filePath);
-        const fileContentUint8Array = await vscode.workspace.fs.readFile(uri);
-        const fileContent = new TextDecoder().decode(fileContentUint8Array);
-        return JSON.parse(fileContent);
-    } catch (error) {
-        console.error(error);
-        throw new Error("Failed to parse notebook comments from file");
-    }
-};
-const sendCommentsToWebview = async (webviewView: vscode.WebviewView) => {
+export const sendCommentsToWebview = async (
+    webviewView: vscode.WebviewView,
+) => {
     console.log("sendCommentsToWebview was called");
     const workspaceFolders = vscode.workspace.workspaceFolders;
     console.log({ workspaceFolders });
@@ -125,12 +110,10 @@ const sendCommentsToWebview = async (webviewView: vscode.WebviewView) => {
         ? vscode.Uri.joinPath(workspaceFolders[0].uri, "notebook-comments.json")
               .fsPath
         : "";
-    console.log({ filePath });
     try {
         const uri = vscode.Uri.file(filePath);
         const fileContentUint8Array = await vscode.workspace.fs.readFile(uri);
         const fileContent = new TextDecoder().decode(fileContentUint8Array);
-        console.log({ fileContent });
         webviewView.webview.postMessage({
             command: "commentsFromWorkspace",
             content: fileContent,
@@ -141,16 +124,6 @@ const sendCommentsToWebview = async (webviewView: vscode.WebviewView) => {
     }
 };
 
-async function writeSerializedData(serializedData: string, filename: string) {
-    const fileHandler = new FileHandler();
-
-    try {
-        await fileHandler.writeFile(filename, serializedData);
-        console.log("Write operation completed.");
-    } catch (error) {
-        console.error("Error writing file:", error);
-    }
-}
 export class CustomWebviewProvider {
     _context: vscode.ExtensionContext;
     selectionChangeListener: any;
@@ -227,7 +200,7 @@ export class CustomWebviewProvider {
             }
             return uri;
         };
-        const commentsFile = "notebook-comments.json";
+        const commentsFileName = "notebook-comments.json";
 
         const serializeCommentsToDisk = async (
             existingCommentsThreads: NotebookCommentThread[],
@@ -263,7 +236,7 @@ export class CustomWebviewProvider {
             }
             await writeSerializedData(
                 JSON.stringify(existingCommentsThreads, null, 4),
-                commentsFile,
+                commentsFileName,
             );
         };
         webviewView.webview.onDidReceiveMessage(
@@ -273,7 +246,7 @@ export class CustomWebviewProvider {
                     switch (message.command) {
                         case "updateCommentThread": {
                             const existingCommentsThreads =
-                                await getCommentsFromFile(commentsFile);
+                                await getCommentsFromFile(commentsFileName);
 
                             // NOTE: When the panel fist load the verseRef defaults to GEn 1:1 but there is no way for the webview to know the uri
                             if (!message.commentThread.uri) {
@@ -303,7 +276,7 @@ export class CustomWebviewProvider {
                         case "deleteCommentThread": {
                             const commentThreadId = message.commentThreadId;
                             const existingCommentsThreads =
-                                await getCommentsFromFile(commentsFile);
+                                await getCommentsFromFile(commentsFileName);
                             const indexOfCommentToMarkAsDeleted =
                                 existingCommentsThreads.findIndex(
                                     (commentThread) =>
@@ -329,7 +302,7 @@ export class CustomWebviewProvider {
                             const commentThreadId =
                                 message.args.commentThreadId;
                             const existingCommentsThreads =
-                                await getCommentsFromFile(commentsFile);
+                                await getCommentsFromFile(commentsFileName);
                             const indexOfCommentToMarkAsDeleted =
                                 existingCommentsThreads.findIndex(
                                     (commentThread) =>

@@ -159,29 +159,43 @@ function App() {
     const SHOW_SENDER_ROLE_LABELS = false;
 
     async function fetchContextItems(query: string): Promise<string[]> {
-        // FIXME: finish implementing this function.
-        // The Flask server is either crashing or not starting sometimes
-        // and we need a more graceful way to handle using context items.
+        try {
+            // FIXME: finish implementing this function.
+            // The Flask server is either crashing or not starting sometimes
+            // and we need a more graceful way to handle using context items.
 
-        // Also, need to truncate retrieved items to reasonable length based on count
-        // and length of the items.
-        const response = await fetch(
-            `${FLASK_ENDPOINT}/search?db_name=drafts&query=${encodeURIComponent(
-                query,
-            )}`,
-        );
-        if (!response.ok) {
-            throw new Error(`Server error: ${response.status}`);
-        }
-        const data = await response.json();
-        console.log("fhe8w9hew98h Context items response -->", response);
-        if (!Array.isArray(data) || data.length === 0) {
+            // Also, need to truncate retrieved items to reasonable length based on count
+            // and length of the items.
+            const response = await fetch(
+                `${FLASK_ENDPOINT}/search?db_name=drafts&query=${encodeURIComponent(
+                    query,
+                )}`,
+            );
+            if (!response.ok) {
+                throw new Error(`Server error: ${response.status}`);
+            }
+            const data = await response.json();
+            console.log("fhe8w9hew98h Context items response -->", response);
+            if (!Array.isArray(data) || data.length === 0) {
+                return [];
+            }
+            return data.map(
+                (item) =>
+                    `${item.book} ${item.chapter}:${item.verse} - ${item.text}`,
+            );
+        } catch (error) {
+            console.error(
+                "Failed to fetch context items due to an error:",
+                error,
+            );
+            vscode.postMessage({
+                command: "error",
+                message: `Failed to fetch context items due to an error: ${
+                    (error as Error).message
+                }`,
+            });
             return [];
         }
-        return data.map(
-            (item) =>
-                `${item.book} ${item.chapter}:${item.verse} - ${item.text}`,
-        );
     }
 
     function formatMessageLogToString(messages: ChatMessage[]): string {
@@ -243,42 +257,45 @@ function App() {
 
     window.addEventListener(
         "message",
-        (
-            event: MessageEvent<{
-                command: "response" | "select";
-                finished: boolean;
-                text?: string;
-                textDataWithContext?: {
-                    completeLineContent: string;
-                    selectedText: string;
-                    vrefAtStartOfLine: string;
-                };
-            }>,
-        ) => {
+        (event: MessageEvent<ChatPostMessages>) => {
             const messageInfo = event.data; // The JSON data our extension sent
-            if (
-                messageInfo?.command === "select" &&
-                messageInfo.textDataWithContext
-            ) {
-                console.log("Received a select command", messageInfo);
-                const { completeLineContent, selectedText, vrefAtStartOfLine } =
-                    messageInfo.textDataWithContext;
-                setSelectedTextContext(
-                    `Reference: ${vrefAtStartOfLine}, Selected: ${selectedText}, Line: ${completeLineContent}`,
-                );
-                console.log("Selected text context -->", selectedTextContext);
-            } else if (!event.data.finished) {
-                const messageContent =
-                    (pendingMessage?.content || "") + (event.data.text || "");
-                setPendingMessage({
-                    role: "assistant",
-                    content: messageContent,
-                });
-            } else {
-                if (pendingMessage) {
-                    setMessageLog([...messageLog, pendingMessage]);
-                }
-                setPendingMessage(undefined);
+            console.log({ event });
+            switch (messageInfo?.command) {
+                case "select":
+                    if (messageInfo.textDataWithContext) {
+                        console.log("Received a select command", messageInfo);
+                        const {
+                            completeLineContent,
+                            selectedText,
+                            vrefAtStartOfLine,
+                        } = messageInfo.textDataWithContext;
+                        setSelectedTextContext(
+                            `Reference: ${vrefAtStartOfLine}, Selected: ${selectedText}, Line: ${completeLineContent}`,
+                        );
+                        console.log(
+                            "Selected text context -->",
+                            selectedTextContext,
+                        );
+                    }
+                    break;
+                case "response":
+                    if (!messageInfo.finished) {
+                        const messageContent =
+                            (pendingMessage?.content || "") +
+                            (messageInfo.text || "");
+                        setPendingMessage({
+                            role: "assistant",
+                            content: messageContent,
+                        });
+                    } else {
+                        if (pendingMessage) {
+                            setMessageLog([...messageLog, pendingMessage]);
+                        }
+                        setPendingMessage(undefined);
+                    }
+                    break;
+                default:
+                    break;
             }
         },
     );
