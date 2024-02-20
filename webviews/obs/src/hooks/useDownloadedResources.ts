@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { vscode } from "@/utilities/vscode";
-import { MessageType } from "@/types";
-import { DownloadedResource } from "@/types";
+import { DownloadedResource, MessageType } from "../types";
 
 export const useDownloadedResource = () => {
     const [downloadedResources, setDownloadedResources] = useState<
@@ -10,7 +9,6 @@ export const useDownloadedResource = () => {
 
     useEffect(() => {
         vscode.setMessageListeners((event) => {
-            console.log("event.data.type -> ", event.data.type);
             switch (event.data.type) {
                 case MessageType.SYNC_DOWNLOADED_RESOURCES:
                     setDownloadedResources(
@@ -24,7 +22,6 @@ export const useDownloadedResource = () => {
             type: MessageType.SYNC_DOWNLOADED_RESOURCES,
             payload: {},
         });
-        console.log("useDownloadedResource -> useEffect -> postMessage");
     }, []);
 
     return { downloadedResources };

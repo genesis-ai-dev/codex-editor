@@ -3,9 +3,7 @@
 import * as vscode from "vscode";
 import { CodexKernel } from "./controller";
 import { CodexContentSerializer } from "./serializer";
-import {
-    checkServerHeartbeat,
-} from "./pygls_commands/textSelectionHandler";
+import { checkServerHeartbeat } from "./pygls_commands/textSelectionHandler";
 
 import {
     NOTEBOOK_TYPE,
@@ -73,6 +71,8 @@ import { registerParallelViewWebviewProvider } from "./providers/parallelPassage
 import { registerDictionaryTableProvider } from "./providers/dictionaryTable/dictionaryTableProvider";
 import { CreateProjectProvider } from "./providers/obs/CreateProject/CreateProjectProvider";
 import { registerDictionarySummaryProvider } from "./providers/dictionaryTable/dictionarySummaryProvider";
+import { ResourcesProvider } from "./providers/obs/resources/resourcesProvider";
+import { StoryOutlineProvider } from "./providers/obs/storyOutline/storyOutlineProvider";
 
 const MIN_PYTHON = semver.parse("3.7.9");
 const ROOT_PATH = getWorkSpaceFolder();
@@ -87,13 +87,18 @@ const PATHS_TO_POPULATE = [
 ];
 
 if (!ROOT_PATH) {
-    vscode.window.showInformationMessage("No project found. You need to select a project folder for your new project, or open an existing project folder.",
-        { modal: true },
-        "Select a Folder")
+    vscode.window
+        .showInformationMessage(
+            "No project found. You need to select a project folder for your new project, or open an existing project folder.",
+            { modal: true },
+            "Select a Folder",
+        )
         .then((result) => {
             if (result === "Select a Folder") {
                 openWorkspace();
-                vscode.commands.executeCommand("codex-editor-extension.initializeNewProject");
+                vscode.commands.executeCommand(
+                    "codex-editor-extension.initializeNewProject",
+                );
             } else {
                 vscode.commands.executeCommand("workbench.action.quit");
             }
@@ -101,7 +106,9 @@ if (!ROOT_PATH) {
 } else {
     const metadataPath = path.join(ROOT_PATH, "metadata.json");
     if (!vscode.workspace.fs.stat(vscode.Uri.file(metadataPath))) {
-        vscode.commands.executeCommand("codex-editor-extension.initializeNewProject");
+        vscode.commands.executeCommand(
+            "codex-editor-extension.initializeNewProject",
+        );
     }
 }
 
@@ -114,7 +121,11 @@ async function openWorkspace() {
         openLabel: "Choose project folder",
     });
     if (openFolder && openFolder.length > 0) {
-        await vscode.commands.executeCommand('vscode.openFolder', openFolder[0], false);
+        await vscode.commands.executeCommand(
+            "vscode.openFolder",
+            openFolder[0],
+            false,
+        );
         workspaceFolder = vscode.workspace.workspaceFolders
             ? vscode.workspace.workspaceFolders[0]
             : undefined;
@@ -231,7 +242,6 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             "codex-editor-extension.initializeNewProject",
             async () => {
-
                 const workspaceFolder = vscode.workspace.workspaceFolders
                     ? vscode.workspace.workspaceFolders[0]
                     : undefined;
@@ -335,7 +345,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     );
                 }
                 await vscode.commands.executeCommand(
-                    "scripture-explorer-activity-bar.refreshEntry"
+                    "scripture-explorer-activity-bar.refreshEntry",
                 );
             },
         ),
@@ -494,6 +504,8 @@ export async function activate(context: vscode.ExtensionContext) {
     registerDictionaryTableProvider(context);
     registerDictionarySummaryProvider(context);
     context.subscriptions.push(CreateProjectProvider.register(context));
+    context.subscriptions.push(ResourcesProvider.register(context));
+    context.subscriptions.push(StoryOutlineProvider.register(context));
 }
 
 export function deactivate(): Thenable<void> {

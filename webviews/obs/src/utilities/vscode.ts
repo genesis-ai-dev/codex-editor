@@ -1,5 +1,5 @@
 import type { WebviewApi } from "vscode-webview";
-import { MessageType } from "@/types";
+import { MessageType } from "../types";
 
 class VSCodeAPIWrapper {
     private readonly vsCodeApi: WebviewApi<unknown> | undefined;
