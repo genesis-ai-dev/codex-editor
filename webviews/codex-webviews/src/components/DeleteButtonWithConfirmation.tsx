@@ -50,8 +50,9 @@ const EditAndDeleteOptions: React.FC<{
                         title="Confirm Delete"
                         onClick={confirmDelete}
                         style={{
-                            backgroundColor: "var(--vscode-button-foreground)",
-                            color: "var(--vscode-button-background)",
+                            color: "var(--vscode-button-foreground)",
+                            backgroundColor:
+                                "var(--vscode-symbolIcon-eventForeground)",
                         }}
                     >
                         <i className="codicon codicon-check"></i>
