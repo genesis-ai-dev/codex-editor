@@ -1,25 +1,32 @@
 import React, { useState } from "react";
-import {
-    VSCodeButton,
-    VSCodeTextField,
-} from "@vscode/webview-ui-toolkit/react";
+import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { WrappedVSCodeTextField } from "./WrapedVSCodeTextField";
 
 export type CommentTextFormProps = {
     handleSubmit: (args: {
         comment: string;
-        title: string;
+        title: string | null;
         threadId: string | null;
+        commentId: number | null;
     }) => void;
     showTitleInput?: boolean;
+    titleValue?: string | undefined;
+    commentValue?: string | undefined;
     threadId: string | null;
+    commentId: number | null;
 };
 
 export const CommentTextForm: React.FC<CommentTextFormProps> = ({
     handleSubmit,
     showTitleInput,
     threadId,
+    commentId,
+    commentValue,
+    titleValue,
 }) => {
     const [commentFieldIsPopulated, setCommentFieldIsPopulated] =
+        useState<boolean>(false);
+    const [titleFieldIsPopulated, setTitleFieldIsPopulated] =
         useState<boolean>(false);
     return (
         <form
@@ -42,7 +49,7 @@ export const CommentTextForm: React.FC<CommentTextFormProps> = ({
                 const comment = formData.get("comment") as string;
                 const title = formData.get("title") as string;
 
-                handleSubmit({ comment, title, threadId });
+                handleSubmit({ comment, title, threadId, commentId });
                 (e.target as HTMLFormElement).reset();
             }}
         >
@@ -60,11 +67,16 @@ export const CommentTextForm: React.FC<CommentTextFormProps> = ({
                     >
                         Title:
                     </label>
-                    <VSCodeTextField
+                    <WrappedVSCodeTextField
                         id="title"
                         name="title"
                         placeholder="Type the title..."
                         style={{ width: "100%" }}
+                        value={titleValue}
+                        onInput={(e) => {
+                            const target = e.target as HTMLInputElement;
+                            setTitleFieldIsPopulated(!!target.value);
+                        }}
                     />
                 </div>
             )}
@@ -75,7 +87,7 @@ export const CommentTextForm: React.FC<CommentTextFormProps> = ({
                 >
                     Comment:
                 </label>
-                <VSCodeTextField
+                <WrappedVSCodeTextField
                     id="comment"
                     name="comment"
                     placeholder="Type your comment..."
@@ -84,12 +96,17 @@ export const CommentTextForm: React.FC<CommentTextFormProps> = ({
                         const target = e.target as HTMLInputElement;
                         setCommentFieldIsPopulated(!!target.value);
                     }}
+                    value={commentValue}
                 />
             </div>
             <VSCodeButton
                 type="submit"
                 style={{ alignSelf: "flex-end" }}
-                disabled={!commentFieldIsPopulated}
+                disabled={
+                    showTitleInput
+                        ? !commentFieldIsPopulated && !titleFieldIsPopulated
+                        : !commentFieldIsPopulated
+                }
             >
                 Save
             </VSCodeButton>

@@ -3,8 +3,8 @@ import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import "../App.css";
 import { NotebookCommentThread, CommentPostMessages } from "../../../../types";
 import VerseRefNavigation from "../components/verseRefNavigation";
-import HideOptionsButton from "../components/HideOptionsButton";
-import EditAndDeleteOptions from "../components/EditAndDeleteOptions";
+import UpdateAndViewCommentThreadTitle from "../components/UpdateAndViewCommentThreadTitle";
+import CommentViewSlashEditorSlashDelete from "../components/CommentViewSlashEditorSlashDelete";
 import {
     CommentTextForm,
     CommentTextFormProps,
@@ -68,20 +68,24 @@ function App() {
         comment: submittedCommentValue,
         title,
         threadId,
+        commentId: commentIdForUpdating,
     }) => {
         const exitingThread = commentThreadArray.find(
             (commentThread) => commentThread.id === threadId,
         );
         const lastComment =
             exitingThread?.comments[exitingThread.comments.length - 1];
-        const commentId = lastComment?.id ? lastComment.id + 1 : 1;
+        let commentId = commentIdForUpdating;
+        if (!commentId) {
+            commentId = lastComment?.id ? lastComment.id + 1 : 1;
+        }
 
         const comment: Comment = {
             id: commentId,
             contextValue: "canDelete",
             body: submittedCommentValue || "",
             mode: 1,
-            author: { name: "vscode" }, // FIXME: Get the author from the vscode workspace
+            author: { name: "vscode" },
             deleted: false,
         };
         const updatedCommentThread: NotebookCommentThread = {
@@ -164,93 +168,35 @@ function App() {
                                         flexFlow: "column nowrap",
                                     }}
                                 >
-                                    <div
-                                        style={{
-                                            display: "flex",
-                                            flexFlow: "row nowrap",
-                                            justifyContent: "space-between",
-                                            maxHeight: "min-content",
-                                            gap: "10px",
-                                        }}
-                                    >
-                                        <h3 style={{ margin: "0 0 10px 0" }}>
-                                            {commentThread.threadTitle ||
-                                                "Note:"}
-                                        </h3>
-                                        <VSCodeButton
-                                            aria-label="Clear"
-                                            appearance="icon"
-                                            title="Delete Comment Thread"
-                                            onClick={() =>
-                                                handleThreadDeletion(
-                                                    commentThread.id,
-                                                )
-                                            }
-                                            style={{
-                                                backgroundColor:
-                                                    "var(--vscode-button-background)",
-                                                color: "var(--vscode-button-foreground)",
-                                                maxHeight: "min-content",
-                                            }}
-                                        >
-                                            <i className="codicon codicon-trash"></i>
-                                        </VSCodeButton>
-                                    </div>
+                                    <UpdateAndViewCommentThreadTitle
+                                        commentThread={commentThread}
+                                        handleCommentThreadDeletion={() =>
+                                            handleThreadDeletion(
+                                                commentThread.id,
+                                            )
+                                        }
+                                        handleCommentUpdate={(args) =>
+                                            handleSubmit(args)
+                                        }
+                                    />
                                     {commentThread.comments.map(
                                         (comment, index) =>
                                             !comment.deleted && (
-                                                <div
-                                                    style={{
-                                                        display: "flex",
-                                                        flex: 1,
-                                                        flexFlow:
-                                                            "column nowrap",
-                                                    }}
-                                                    key={comment.id}
-                                                >
-                                                    {index > 0 && (
-                                                        <hr
-                                                            style={{
-                                                                width: "100%",
-                                                                border: "0",
-                                                                borderBottom:
-                                                                    "1px solid var(--vscode-editor-foreground)",
-                                                                margin: "10px 0",
-                                                            }}
-                                                        />
-                                                    )}
-                                                    <div
-                                                        style={{
-                                                            display: "flex",
-                                                            justifyContent:
-                                                                "space-between",
-                                                            gap: "10px",
-                                                            flexFlow:
-                                                                "row nowrap",
-                                                        }}
-                                                    >
-                                                        <p
-                                                            style={{
-                                                                margin: "0 0 10px 0",
-                                                            }}
-                                                        >
-                                                            {comment.body}
-                                                        </p>
-                                                        {index > 0 && (
-                                                            <HideOptionsButton>
-                                                                <EditAndDeleteOptions
-                                                                    handleDeleteButtonClick={() => {
-                                                                        handleCommentDeletion(
-                                                                            comment.id,
-                                                                            commentThread.id,
-                                                                        );
-                                                                    }}
-                                                                    handleEditButtonClick={() => {}}
-                                                                />
-                                                            </HideOptionsButton>
-                                                        )}
-                                                    </div>
-                                                </div>
+                                                <CommentViewSlashEditorSlashDelete
+                                                    comment={comment}
+                                                    commentThreadId={
+                                                        commentThread.id
+                                                    }
+                                                    showHorizontalLine={
+                                                        index !== 0
+                                                    }
+                                                    handleCommentDeletion={
+                                                        handleCommentDeletion
+                                                    }
+                                                    handleCommentUpdate={
+                                                        handleSubmit
+                                                    }
+                                                />
                                             ),
                                     )}
                                     {!showCommentForm[commentThread.id] && (
@@ -270,6 +216,7 @@ function App() {
                                                 handleSubmit={handleSubmit}
                                                 showTitleInput={false}
                                                 threadId={commentThread.id}
+                                                commentId={null}
                                             />
                                             <VSCodeButton
                                                 onClick={() =>
@@ -293,6 +240,7 @@ function App() {
                 handleSubmit={handleSubmit}
                 showTitleInput={true}
                 threadId={null}
+                commentId={null}
             />
         </main>
     );
