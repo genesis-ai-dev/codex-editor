@@ -179,27 +179,35 @@ function App() {
                                             handleSubmit(args)
                                         }
                                     />
-                                    {commentThread.comments.map(
-                                        (comment, index) =>
-                                            !comment.deleted && (
-                                                <CommentViewSlashEditorSlashDelete
-                                                    comment={comment}
-                                                    commentThreadId={
-                                                        commentThread.id
-                                                    }
-                                                    showHorizontalLine={
-                                                        index !== 0
-                                                    }
-                                                    handleCommentDeletion={
-                                                        handleCommentDeletion
-                                                    }
-                                                    handleCommentUpdate={
-                                                        handleSubmit
-                                                    }
-                                                />
-                                            ),
-                                    )}
-                                    {!showCommentForm[commentThread.id] && (
+                                    <div
+                                        style={{
+                                            display: "flex",
+                                            flexFlow: "column nowrap",
+                                            marginBottom: 20,
+                                        }}
+                                    >
+                                        {commentThread.comments.map(
+                                            (comment, index) =>
+                                                !comment.deleted && (
+                                                    <CommentViewSlashEditorSlashDelete
+                                                        comment={comment}
+                                                        commentThreadId={
+                                                            commentThread.id
+                                                        }
+                                                        showHorizontalLine={
+                                                            index !== 0
+                                                        }
+                                                        handleCommentDeletion={
+                                                            handleCommentDeletion
+                                                        }
+                                                        handleCommentUpdate={
+                                                            handleSubmit
+                                                        }
+                                                    />
+                                                ),
+                                        )}
+                                    </div>
+                                    {!showCommentForm[commentThread.id] ? (
                                         <VSCodeButton
                                             onClick={() =>
                                                 handleToggleCommentForm(
@@ -209,8 +217,7 @@ function App() {
                                         >
                                             +
                                         </VSCodeButton>
-                                    )}
-                                    {showCommentForm[commentThread.id] && (
+                                    ) : (
                                         <div>
                                             <CommentTextForm
                                                 handleSubmit={handleSubmit}
