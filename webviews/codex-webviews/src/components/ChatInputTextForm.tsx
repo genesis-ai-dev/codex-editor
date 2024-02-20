@@ -47,20 +47,6 @@ export const ChatInputTextForm: React.FC<CommentTextFormProps> = ({
                     width: "100%",
                 }}
             >
-                {contextItems.length > 0 && (
-                        <>Relevant content from resources</>
-                    ) &&
-                    contextItems.map((currentContextItem) => (
-                        <VSCodeTextArea
-                            readOnly
-                            cols={1000}
-                            title="Context Items"
-                            value={currentContextItem}
-                            placeholder="Context Items..."
-                            // style={{ flexGrow: 1, marginBottom: "0.5em" }}
-                        />
-                    ))}
-
                 {selectedText && (
                     <>
                         Text selected in editor:

@@ -58,11 +58,13 @@ function messageWithContext({
 interface MessageItemProps {
     messageItem: ChatMessage;
     showSenderRoleLabels?: boolean;
+    showSeeSourcesLink?: boolean; // New prop
 }
 
 const MessageItem: React.FC<MessageItemProps> = ({
     messageItem,
     showSenderRoleLabels = false,
+    showSeeSourcesLink = false, // Handle the new prop
 }) => {
     return (
         <>
@@ -128,6 +130,17 @@ const MessageItem: React.FC<MessageItemProps> = ({
                     </VSCodeTag>
                 )}
                 <div style={{ display: "flex" }}>{messageItem.content}</div>
+                {showSeeSourcesLink && messageItem.role === "assistant" && (
+                    <a
+                        href="#"
+                        style={{
+                            color: "skyblue",
+                            textDecoration: "underline",
+                        }}
+                    >
+                        See Sources
+                    </a>
+                )}
             </div>
         </>
     );
@@ -139,21 +152,27 @@ function App() {
         content: "You are are helpful Bible translation assistant.",
         // TODO: allow user to modify the system message
     };
-    const dummyUserMessage: ChatMessage = {
-        role: "user",
-        content: "How do we normally translate cases like this?",
-    };
+    // const dummyUserMessage: ChatMessage = {
+    //     role: "user",
+    //     content: "How do we normally translate cases like this?",
+    // };
     const dummyAssistantMessage: ChatMessage = {
         role: "assistant",
-        content: "Let me check your current translation drafts...",
+        content: "Hi there! I'm here to help you with your translation.",
+    };
+    const dummyAssistantMessage2: ChatMessage = {
+        role: "assistant",
+        content:
+            "You can use the plus (+) button below to add any project resources to the chat.",
     };
     const [pendingMessage, setPendingMessage] = useState<ChatMessage>();
     const [selectedTextContext, setSelectedTextContext] = useState<string>("");
     const [contextItems, setContextItems] = useState<string[]>([]); // TODO: fetch from RAG server
     const [messageLog, setMessageLog] = useState<ChatMessage[]>([
         systemMessage,
-        dummyUserMessage,
+        // dummyUserMessage,
         dummyAssistantMessage,
+        dummyAssistantMessage2,
     ]);
 
     const SHOW_SENDER_ROLE_LABELS = false;
@@ -274,9 +293,22 @@ function App() {
                     role: "assistant",
                     content: messageContent,
                 });
+            } else if (event.data.finished) {
+                // When the response is finished, we want to add the 'show sources' link to the message
+                if (pendingMessage) {
+                    const updatedMessageLog = [
+                        ...messageLog,
+                        { ...pendingMessage, showSeeSourcesLink: true },
+                    ]; // Set the flag for the last message
+                    setMessageLog(updatedMessageLog);
+                }
+                setPendingMessage(undefined);
             } else {
                 if (pendingMessage) {
-                    setMessageLog([...messageLog, pendingMessage]);
+                    setMessageLog([
+                        ...messageLog,
+                        { ...pendingMessage, showSeeSourcesLink: true },
+                    ]);
                 }
                 setPendingMessage(undefined);
             }
@@ -340,6 +372,7 @@ function App() {
                         key={index}
                         messageItem={messageLogItem}
                         showSenderRoleLabels={SHOW_SENDER_ROLE_LABELS}
+                        showSeeSourcesLink={messageLogItem.showSeeSourcesLink}
                     />
                 ))}
                 {pendingMessage?.role === "assistant" &&

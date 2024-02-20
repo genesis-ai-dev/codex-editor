@@ -2,6 +2,13 @@ import * as vscode from "vscode";
 interface ChatMessage {
     role: "system" | "user" | "assistant";
     content: string;
+    showSeeSourcesLink?: boolean; // Whether or not to show the "See sources" link
+}
+
+interface ChatMessageWithMetadata extends ChatMessage {
+    id: string;
+    timestamp: number;
+    contextItems: string[];
 }
 
 interface FrontEndMessage {
