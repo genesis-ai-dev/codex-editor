@@ -4,11 +4,8 @@ import DeleteButtonWithConfirmation from "./DeleteButtonWithConfirmation";
 
 const EditAndDeleteOptions: React.FC<{
     handleDeleteButtonClick: () => void;
-    handleEditButtonClick: () => void;
-}> = ({
-    handleDeleteButtonClick: handleCommentDeletion,
-    handleEditButtonClick: handleCommentEdit,
-}) => {
+    handleEditButtonClick: (editModeIsEnabled: boolean) => void;
+}> = ({ handleDeleteButtonClick: handleCommentDeletion }) => {
     return (
         <div
             style={{
@@ -20,7 +17,6 @@ const EditAndDeleteOptions: React.FC<{
                 aria-label="Edit"
                 appearance="icon"
                 title="Edit"
-                onClick={() => handleCommentEdit()}
                 style={{
                     backgroundColor: "var(--vscode-button-background)",
                     color: "var(--vscode-button-foreground)",
