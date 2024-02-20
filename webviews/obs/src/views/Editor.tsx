@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
-import "react-virtualized/styles.css";
-import "./App.css";
-import { vscode } from "./utilities/vscode";
-import { markdownToStories, storiesToMarkdown } from "./utilities/editor";
-import ObsEditorPanel from "./components/ObsEditorPanel";
-import { useDocument } from "./hooks/useDocument";
-import ObsReadonlyPanel from "./components/ObsReadonlyPanel";
-import { MessageType } from "./types";
+import { vscode } from "../utilities/vscode";
+import { markdownToStories, storiesToMarkdown } from "../utilities/editor";
+import ObsEditorPanel from "../components/ObsEditorPanel";
+import { useDocument } from "../hooks/useDocument";
+import ObsReadonlyPanel from "../components/ObsReadonlyPanel";
+import { renderToPage } from "../utilities/main-vscode";
+import { MessageType } from "../types";
 
 function App() {
     const [stories, setStories] = useState([]);
@@ -43,7 +42,6 @@ function App() {
     return (
         <>
             <div className="card">
-                {/* <VSCodeButton onClick={handleHowdyClick}>Howdy!</VSCodeButton> */}
                 <div>
                     <ObsEditorPanel
                         obsStory={stories}
@@ -54,5 +52,6 @@ function App() {
         </>
     );
 }
-
 export default App;
+
+renderToPage(<App />);

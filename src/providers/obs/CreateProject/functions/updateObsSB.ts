@@ -1,4 +1,4 @@
-import burrito from "../data/OBSTemplate.json";
+import burrito from "../../data/OBSTemplate.json";
 
 export const updateVersion = (metadata: Record<string, any>) => {
     const sb = metadata;

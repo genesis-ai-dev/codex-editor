@@ -1,5 +1,5 @@
 import moment from "moment";
-import burrito from "../data/OBSTemplate.json";
+import burrito from "../../data/OBSTemplate.json";
 
 const createObsSB = (
     username: any,

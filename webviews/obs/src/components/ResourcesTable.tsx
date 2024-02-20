@@ -2,14 +2,30 @@
 import { useQuery } from "@tanstack/react-query";
 import fetchResource from "../utilities/fetchResources";
 import { vscode } from "../utilities/vscode";
-import { MessageType } from "@/types";
 import { useDownloadedResource } from "../hooks/useDownloadedResources";
+import { useState } from "react";
+import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { TRANSLATION_RESOURCE_TYPES } from "../utilities/fetchTranslationResource";
+import { MessageType } from "../types";
 
+const RESOURCE_TYPES = [
+    {
+        label: "OBS",
+        key: "obs",
+    },
+    {
+        label: "Bible",
+        key: "bible",
+    },
+    ...TRANSLATION_RESOURCE_TYPES,
+] as const;
 const ResourcesTable = () => {
-    const { data } = useQuery({
-        queryKey: ["resources"],
+    const [resourceType, setResourceType] =
+        useState<(typeof RESOURCE_TYPES)[number]["key"]>("obs");
+    const { data: resources } = useQuery({
+        queryKey: ["resources", resourceType],
         queryFn: () => {
-            return fetchResource(false, [], [], "obs");
+            return fetchResource(false, [], [], resourceType);
         },
     });
 
@@ -40,8 +56,18 @@ const ResourcesTable = () => {
         });
     };
 
+    console.log("resources", resources?.[0]);
+
     return (
         <div>
+            <div className="flex justify-center gap-3">
+                Main Resources
+                {RESOURCE_TYPES.map((type) => (
+                    <VSCodeButton onClick={() => setResourceType(type.key)}>
+                        {type.label}
+                    </VSCodeButton>
+                ))}
+            </div>
             <table className="table-auto">
                 <thead>
                     <tr>
@@ -54,7 +80,7 @@ const ResourcesTable = () => {
                 </thead>
 
                 <tbody className="gap-3">
-                    {data?.data?.map((resource: any) => (
+                    {resources?.map((resource: any) => (
                         <tr>
                             <td>{resource.name}</td>
                             <td>{resource.subject}</td>

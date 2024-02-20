@@ -1,25 +1,24 @@
 import * as vscode from "vscode";
-import { MessageType } from "./types";
-import { createObsProject } from "./functions/createObsProject";
-import { getUri } from "./utilities/getUri";
-import { getNonce } from "./utilities/getNonce";
-import staticLangs from "../data/langNames.json";
 
-export class CreateProjectProvider implements vscode.WebviewViewProvider {
+import { getNonce, getUri } from "../utilities";
+import { ResourcesProvider } from "../resources/resourcesProvider";
+import { MessageType } from "../CreateProject/types";
+
+export class StoryOutlineProvider implements vscode.WebviewViewProvider {
     private _webviewView: vscode.WebviewView | undefined;
     private _context: vscode.ExtensionContext | undefined;
     public static register(
         context: vscode.ExtensionContext,
     ): vscode.Disposable {
-        const provider = new CreateProjectProvider(context);
+        const provider = new StoryOutlineProvider(context);
         const providerRegistration = vscode.window.registerWebviewViewProvider(
-            CreateProjectProvider.viewType,
+            StoryOutlineProvider.viewType,
             provider,
         );
         return providerRegistration;
     }
 
-    private static readonly viewType = "scribe-vsc.obs-create-project";
+    private static readonly viewType = "scribe-vsc.obs-outline";
 
     constructor(private readonly context: vscode.ExtensionContext) {
         this._context = context;
@@ -43,21 +42,47 @@ export class CreateProjectProvider implements vscode.WebviewViewProvider {
         webviewPanel.webview.onDidReceiveMessage(
             async (e: { type: MessageType; payload: unknown }) => {
                 switch (e.type) {
-                    case MessageType.createProject:
-                        await createObsProject(e.payload as any);
-                        break;
-                    case MessageType.SEARCH_QUERY: {
-                        const query = e.payload as string;
-                        const filteredLanguages = staticLangs.filter(
-                            (language) =>
-                                (language.ang || language.lc)
-                                    .toLowerCase()
-                                    .includes(query.toLowerCase()),
+                    case MessageType.openStory: {
+                        if (!vscode.workspace.workspaceFolders?.length) {
+                            return vscode.window.showErrorMessage(
+                                "No workspace opened",
+                            );
+                        }
+
+                        if (!(e.payload as Record<string, any>).storyNumber) {
+                            return vscode.window.showErrorMessage(
+                                "No story number provided",
+                            );
+                        }
+                        const storyURI = vscode.Uri.joinPath(
+                            vscode.workspace.workspaceFolders?.[0].uri,
+                            "ingredients",
+                            `${(e.payload as Record<string, any>).storyNumber}.md`,
                         );
-                        webviewPanel.webview.postMessage({
-                            type: MessageType.SEARCH_RESULTS,
-                            payload: filteredLanguages,
-                        });
+                        await vscode.commands.executeCommand(
+                            "vscode.openWith",
+                            storyURI,
+                            "default",
+                            {
+                                preserveFocus: true,
+                                preview: false,
+                                viewColumn: vscode.ViewColumn.One,
+                            },
+                        );
+                        await this._context?.workspaceState.update(
+                            "currentStoryId",
+                            (e.payload as Record<string, any>).storyNumber,
+                        );
+
+                        if (!this._context) {
+                            return;
+                        }
+
+                        await ResourcesProvider.syncOpenResourcesWithStory(
+                            this._context,
+                            (e.payload as Record<string, any>).storyNumber,
+                        );
+
                         break;
                     }
                     default:
@@ -113,7 +138,7 @@ export class CreateProjectProvider implements vscode.WebviewViewProvider {
             "build",
             "assets",
             "views",
-            "CreateProject.js",
+            "StoriesOutline.js",
         ]);
 
         const nonce = getNonce();

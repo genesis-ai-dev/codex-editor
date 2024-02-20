@@ -1,3 +1,7 @@
+import {
+  TRANSLATION_RESOURCE_TYPES,
+  fetchTranslationResource,
+} from "./fetchTranslationResource";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export type Language = {
   lc: string;
@@ -47,8 +51,17 @@ const fetchResource = async (
     id: number;
     name: string;
   }[],
-  selectResource: "bible" | "obs"
+  selectResource:
+    | "bible"
+    | "obs"
+    | (typeof TRANSLATION_RESOURCE_TYPES)[number]["key"]
 ) => {
+  if (!["obs", "bible"].includes(selectResource)) {
+    return fetchTranslationResource(
+      selectResource as (typeof TRANSLATION_RESOURCE_TYPES)[number]["key"]
+    );
+  }
+
   const subjectTypeArray = {
     bible: [
       { id: 1, name: "Aligned Bible" },
@@ -100,7 +113,7 @@ const fetchResource = async (
   }
   const response = await fetch(url);
   const data = await response.json();
-  return data;
+  return data?.data;
 };
 
 export default fetchResource;
