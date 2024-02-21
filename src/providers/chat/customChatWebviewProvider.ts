@@ -1,6 +1,8 @@
 import * as vscode from "vscode";
 import {
+    ChatMessage,
     ChatMessageThread,
+    ChatMessageWithContext,
     ChatPostMessages,
     SelectedTextDataWithContext,
 } from "../../../types";
@@ -323,7 +325,17 @@ export class CustomWebviewProvider {
                                 max_tokens: maxTokens,
                                 temperature: temperature,
                                 stream: true,
-                                messages: JSON.parse(message.messages),
+                                messages: (
+                                    JSON.parse(
+                                        message.messages,
+                                    ) as ChatMessageWithContext[]
+                                ).map((message) => {
+                                    const messageForAi: ChatMessage = {
+                                        content: message.content,
+                                        role: message.role,
+                                    };
+                                    return messageForAi;
+                                }),
                                 model: undefined as any,
                                 stop: ["\n\n", "###", "<|endoftext|>"], // ? Not sure if it matters if we pass this here.
                             };
@@ -383,6 +395,8 @@ export class CustomWebviewProvider {
                                     collapsibleState: 0,
                                     messages: [message.message],
                                     deleted: false,
+                                    threadTitle: message.threadTitle,
+                                    createdAt: new Date().toISOString(),
                                 };
                                 await writeSerializedData(
                                     JSON.stringify(
