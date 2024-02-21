@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-import { getNonce, getUri } from "../utilities";
+import { VIEW_TYPES, getNonce, getUri } from "../utilities";
 import { ResourcesProvider } from "../resources/resourcesProvider";
 import { MessageType } from "../CreateProject/types";
 
@@ -62,7 +62,7 @@ export class StoryOutlineProvider implements vscode.WebviewViewProvider {
                         await vscode.commands.executeCommand(
                             "vscode.openWith",
                             storyURI,
-                            "default",
+                            VIEW_TYPES.EDITOR,
                             {
                                 preserveFocus: true,
                                 preview: false,

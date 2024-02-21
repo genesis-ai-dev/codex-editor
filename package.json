@@ -518,6 +518,17 @@
                     }
                 }
             }
+        ],
+        "customEditors": [
+            {
+                "viewType": "codex.obs.editor",
+                "displayName": "Obs Editor",
+                "selector": [
+                    {
+                        "filenamePattern": "**/ingredients/??.md"
+                    }
+                ]
+            }
         ]
     },
     "scripts": {

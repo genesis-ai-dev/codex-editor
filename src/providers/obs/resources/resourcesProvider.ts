@@ -2,7 +2,6 @@ import path from "node:path";
 import * as vscode from "vscode";
 import { MessageType } from "../CreateProject/types";
 import { downloadResource } from "./functions/download";
-// import { ObsProvider } from "./obs";
 import {
     addDownloadedResourceToProjectConfig,
     getDownloadedResourcesFromProjectConfig,
@@ -16,6 +15,7 @@ import {
 import { getUri } from "../CreateProject/utilities/getUri";
 import { getNonce } from "../CreateProject/utilities/getNonce";
 import { DownloadedResource, OpenResource } from "./types";
+import { VIEW_TYPES } from "../utilities";
 
 export class ResourcesProvider implements vscode.WebviewViewProvider {
     private _webviewView: vscode.WebviewView | undefined;
@@ -278,11 +278,7 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
         //   (resource) => resource.type === "obs"
         // );
 
-        console.log("Open resources in sync open resources: ", openResources);
-
         openResources.forEach(async (resource) => {
-            console.log("Resource: ", resource);
-
             const workspaceRootUri = vscode.workspace.workspaceFolders?.[0].uri;
 
             if (!workspaceRootUri) {
@@ -303,13 +299,14 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
                 `${storyId}.md`,
             );
 
-            console.log("Opening resource:", resourceStoryUri);
-
             await vscode.commands.executeCommand(
                 "vscode.openWith",
                 resourceStoryUri,
-                "default", // use resource type to load the according view
-                { viewColumn: resource.viewColumn, preview: true },
+                VIEW_TYPES.EDITOR, // use resource type to load the according view
+                {
+                    viewColumn: resource.viewColumn ?? vscode.ViewColumn.Beside,
+                    preview: true,
+                },
             );
         });
     }

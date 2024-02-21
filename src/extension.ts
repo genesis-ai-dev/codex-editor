@@ -73,6 +73,7 @@ import { CreateProjectProvider } from "./providers/obs/CreateProject/CreateProje
 import { registerDictionarySummaryProvider } from "./providers/dictionaryTable/dictionarySummaryProvider";
 import { ResourcesProvider } from "./providers/obs/resources/resourcesProvider";
 import { StoryOutlineProvider } from "./providers/obs/storyOutline/storyOutlineProvider";
+import { ObsEditorProvider } from "./providers/obs/editor/ObsEditorProvider";
 
 const MIN_PYTHON = semver.parse("3.7.9");
 const ROOT_PATH = getWorkSpaceFolder();
@@ -506,6 +507,7 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(CreateProjectProvider.register(context));
     context.subscriptions.push(ResourcesProvider.register(context));
     context.subscriptions.push(StoryOutlineProvider.register(context));
+    context.subscriptions.push(ObsEditorProvider.register(context));
 }
 
 export function deactivate(): Thenable<void> {
