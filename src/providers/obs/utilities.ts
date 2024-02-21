@@ -36,3 +36,9 @@ export function getUri(
 ) {
     return webview.asWebviewUri(Uri.joinPath(extensionUri, ...pathList));
 }
+
+export const VIEW_TYPES = {
+    EDITOR: "codex.obs.editor",
+    RESOURCES: "codex.resources",
+    CREATE_PROJECT: "codex.obs.createProject",
+} as const;
