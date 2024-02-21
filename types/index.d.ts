@@ -2,6 +2,9 @@ import * as vscode from "vscode";
 interface ChatMessage {
     role: "system" | "user" | "assistant";
     content: string;
+}
+
+interface ChatMessageWithContext extends ChatMessage {
     context?: any; // FixMe: discuss what context could be. Cound it be a link to a note?
 }
 
@@ -14,7 +17,7 @@ interface FrontEndMessage {
 type CommentThread = vscode.CommentThread;
 interface ChatMessageThread {
     id: string;
-    messages: ChatMessage[];
+    messages: ChatMessageWithContext[];
     collapsibleState: number;
     canReply: boolean;
     threadTitle?: string;
