@@ -87,6 +87,20 @@
                     "icon": "src/media/obsIcon.svg",
                     "type": "webview",
                     "contextualTitle": "Scribe Obs"
+                },
+                {
+                    "id": "scribe-vsc.obs-resources",
+                    "name": "Resources",
+                    "icon": "src/media/obsIcon.svg",
+                    "type": "webview",
+                    "contextualTitle": "Scribe Obs Story Resources"
+                },
+                {
+                    "id": "scribe-vsc.obs-outline",
+                    "name": "Stories Outline",
+                    "icon": "assets/obsIcon.svg",
+                    "type": "webview",
+                    "contextualTitle": "Scribe Obs Story Outline"
                 }
             ],
             "dictionary-summary": [
@@ -504,9 +518,18 @@
                     }
                 }
             }
+        ],
+        "customEditors": [
+            {
+                "viewType": "codex.obs.editor",
+                "displayName": "Obs Editor",
+                "selector": [
+                    {
+                        "filenamePattern": "**/ingredients/??.md"
+                    }
+                ]
+            }
         ]
-        
-
     },
     "scripts": {
         "vscode:prepublish": "npm run compile",
@@ -554,9 +577,7 @@
         "moment": "^2.30.1",
         "path": "^0.12.7",
         "semver": "^7.6.0",
-        "sinon": "^17.0.1",
-        "uuid": "^9.0.1",
-        "vscode-languageclient": "^9.0.1"
+        "sinon": "^17.0.1"
     },
     "overrides": {
         "minimatch": "5.1.2",

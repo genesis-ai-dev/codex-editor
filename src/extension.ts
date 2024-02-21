@@ -3,9 +3,7 @@
 import * as vscode from "vscode";
 import { CodexKernel } from "./controller";
 import { CodexContentSerializer } from "./serializer";
-import {
-    checkServerHeartbeat,
-} from "./pygls_commands/textSelectionHandler";
+import { checkServerHeartbeat } from "./pygls_commands/textSelectionHandler";
 
 import {
     NOTEBOOK_TYPE,
@@ -73,27 +71,36 @@ import { registerParallelViewWebviewProvider } from "./providers/parallelPassage
 import { registerDictionaryTableProvider } from "./providers/dictionaryTable/dictionaryTableProvider";
 import { CreateProjectProvider } from "./providers/obs/CreateProject/CreateProjectProvider";
 import { registerDictionarySummaryProvider } from "./providers/dictionaryTable/dictionarySummaryProvider";
+import { ResourcesProvider } from "./providers/obs/resources/resourcesProvider";
+import { StoryOutlineProvider } from "./providers/obs/storyOutline/storyOutlineProvider";
+import { ObsEditorProvider } from "./providers/obs/editor/ObsEditorProvider";
 
 const MIN_PYTHON = semver.parse("3.7.9");
 const ROOT_PATH = getWorkSpaceFolder();
 
 const PATHS_TO_POPULATE = [
     // "metadata.json", // This is where we store the project metadata in scripture burrito format, but we create this using the project initialization command
-    "comments.json", // This is where we store the VS Code comments api comments, such as on .bible files
-    "notebook-comments.json", // We can't use the VS Code comments api for notebooks (.codex files), so a second files avoids overwriting conflicts
-    "drafts/", // This is where we store the project drafts, including project.dictionary and embedding dbs
-    "drafts/target/", // This is where we store the drafted scripture in particular as .codex files
-    "drafts/project.dictionary", // This is where we store the project dictionary
+    { filePath: "comments.json", defaultContent: "" }, // This is where we store the VS Code comments api comments, such as on .bible files
+    { filePath: "notebook-comments.json", defaultContent: "[]" }, // We can't use the VS Code comments api for notebooks (.codex files), so a second files avoids overwriting conflicts
+    { filePath: "chat-threads.json", defaultContent: "[]" }, // This is where chat thread conversations are saved
+    { filePath: "drafts/" }, // This is where we store the project drafts, including project.dictionary and embedding dbs
+    { filePath: "drafts/target/" }, // This is where we store the drafted scripture in particular as .codex files
+    { filePath: "drafts/project.dictionary", defaultContent: "" }, // This is where we store the project dictionary
 ];
 
 if (!ROOT_PATH) {
-    vscode.window.showInformationMessage("No project found. You need to select a project folder for your new project, or open an existing project folder.",
-        { modal: true },
-        "Select a Folder")
+    vscode.window
+        .showInformationMessage(
+            "No project found. You need to select a project folder for your new project, or open an existing project folder.",
+            { modal: true },
+            "Select a Folder",
+        )
         .then((result) => {
             if (result === "Select a Folder") {
                 openWorkspace();
-                vscode.commands.executeCommand("codex-editor-extension.initializeNewProject");
+                vscode.commands.executeCommand(
+                    "codex-editor-extension.initializeNewProject",
+                );
             } else {
                 vscode.commands.executeCommand("workbench.action.quit");
             }
@@ -101,7 +108,9 @@ if (!ROOT_PATH) {
 } else {
     const metadataPath = path.join(ROOT_PATH, "metadata.json");
     if (!vscode.workspace.fs.stat(vscode.Uri.file(metadataPath))) {
-        vscode.commands.executeCommand("codex-editor-extension.initializeNewProject");
+        vscode.commands.executeCommand(
+            "codex-editor-extension.initializeNewProject",
+        );
     }
 }
 
@@ -114,7 +123,11 @@ async function openWorkspace() {
         openLabel: "Choose project folder",
     });
     if (openFolder && openFolder.length > 0) {
-        await vscode.commands.executeCommand('vscode.openFolder', openFolder[0], false);
+        await vscode.commands.executeCommand(
+            "vscode.openFolder",
+            openFolder[0],
+            false,
+        );
         workspaceFolder = vscode.workspace.workspaceFolders
             ? vscode.workspace.workspaceFolders[0]
             : undefined;
@@ -231,7 +244,6 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             "codex-editor-extension.initializeNewProject",
             async () => {
-
                 const workspaceFolder = vscode.workspace.workspaceFolders
                     ? vscode.workspace.workspaceFolders[0]
                     : undefined;
@@ -335,7 +347,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     );
                 }
                 await vscode.commands.executeCommand(
-                    "scripture-explorer-activity-bar.refreshEntry"
+                    "scripture-explorer-activity-bar.refreshEntry",
                 );
             },
         ),
@@ -383,28 +395,30 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.window.showInformationMessage(
             "Checking for missing project files...",
         );
-        for (const pathToPopulate of PATHS_TO_POPULATE) {
+        for (const fileToPopulate of PATHS_TO_POPULATE) {
             const fullPath = vscode.Uri.joinPath(
                 vscode.Uri.file(ROOT_PATH),
-                pathToPopulate,
+                fileToPopulate.filePath,
             );
             try {
                 await vscode.workspace.fs.stat(fullPath);
             } catch (error) {
                 // Determine if the missing path is a file or a directory based on its name
-                if (pathToPopulate.includes(".")) {
+                if (fileToPopulate.filePath.includes(".")) {
                     // Assuming it's a file if there's an extension
                     vscode.window.showInformationMessage(
-                        `Creating file: ${pathToPopulate}`,
+                        `Creating file: ${fileToPopulate}`,
                     );
                     await vscode.workspace.fs.writeFile(
                         fullPath,
-                        new Uint8Array(),
+                        new TextEncoder().encode(
+                            fileToPopulate.defaultContent || "",
+                        ),
                     ); // Create an empty file
                 } else {
                     // Assuming it's a directory if there's no file extension
                     vscode.window.showInformationMessage(
-                        `Creating directory: ${pathToPopulate}`,
+                        `Creating directory: ${fileToPopulate}`,
                     );
                     await vscode.workspace.fs.createDirectory(fullPath);
                 }
@@ -494,6 +508,9 @@ export async function activate(context: vscode.ExtensionContext) {
     registerDictionaryTableProvider(context);
     registerDictionarySummaryProvider(context);
     context.subscriptions.push(CreateProjectProvider.register(context));
+    context.subscriptions.push(ResourcesProvider.register(context));
+    context.subscriptions.push(StoryOutlineProvider.register(context));
+    context.subscriptions.push(ObsEditorProvider.register(context));
 }
 
 export function deactivate(): Thenable<void> {

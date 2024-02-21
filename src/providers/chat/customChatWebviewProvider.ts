@@ -1,6 +1,14 @@
 import * as vscode from "vscode";
-import { ChatPostMessages, SelectedTextDataWithContext } from "../../../types";
+import {
+    ChatMessageThread,
+    ChatPostMessages,
+    SelectedTextDataWithContext,
+} from "../../../types";
 import { extractVerseRefFromLine } from "../../utils/verseRefUtils";
+import {
+    getChatMessagesFromFile,
+    writeSerializedData,
+} from "../../utils/fileUtils";
 
 const config = vscode.workspace.getConfiguration("translators-copilot");
 const endpoint = config.get("llmEndpoint"); // NOTE: config.endpoint is reserved so we must have unique name
@@ -10,6 +18,28 @@ const maxTokens = config.get("max_tokens");
 const temperature = config.get("temperature");
 const maxLength = 2048;
 let abortController: AbortController | null = null;
+
+const sendChatThreadToWebview = async (webviewView: vscode.WebviewView) => {
+    console.log("sendCommentsToWebview was called");
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    console.log({ workspaceFolders });
+    const filePath = workspaceFolders
+        ? vscode.Uri.joinPath(workspaceFolders[0].uri, "chat-threads.json") // fix this so it is a diffent note book
+              .fsPath
+        : "";
+    try {
+        const uri = vscode.Uri.file(filePath);
+        const fileContentUint8Array = await vscode.workspace.fs.readFile(uri);
+        const fileContent = new TextDecoder().decode(fileContentUint8Array);
+        webviewView.webview.postMessage({
+            command: "threadsFromWorkspace",
+            content: JSON.parse(fileContent),
+        } as ChatPostMessages);
+    } catch (error) {
+        console.error("Error reading file:", error);
+        vscode.window.showErrorMessage(`Error reading file: ${filePath}`);
+    }
+};
 
 const loadWebviewHtml = (
     webviewView: vscode.WebviewView,
@@ -76,8 +106,9 @@ const loadWebviewHtml = (
       Use a content security policy to only allow loading images from https or from our extension directory,
       and only allow scripts that have a specific nonce.
     -->
-    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${webviewView.webview.cspSource
-        }; script-src 'nonce-${nonce}';">
+    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${
+        webviewView.webview.cspSource
+    }; script-src 'nonce-${nonce}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="${styleResetUri}" rel="stylesheet">
     <link href="${styleVSCodeUri}" rel="stylesheet">
@@ -145,8 +176,15 @@ const processFetchResponse = (
                                         text: sendChunk,
                                     } as ChatPostMessages);
                             } catch (error) {
-                                if (error instanceof SyntaxError && error.message.includes("Unexpected token 'D'")) {
-                                    console.log("Error: Received a '[DONE]' message which is not valid JSON.");
+                                if (
+                                    error instanceof SyntaxError &&
+                                    error.message.includes(
+                                        "Unexpected token 'D'",
+                                    )
+                                ) {
+                                    console.log(
+                                        "Error: Received a '[DONE]' message which is not valid JSON.",
+                                    );
                                     webviewView.webview.postMessage({
                                         command: "response",
                                         finished: true,
@@ -214,13 +252,14 @@ export class CustomWebviewProvider {
                 vscode.window.onDidChangeTextEditorSelection((e) => {
                     if (e.textEditor === activeEditor) {
                         const selectedTextDataToAddToChat: SelectedTextDataWithContext =
-                        {
-                            selection: activeEditor.document.getText(
-                                e.selections[0],
-                            ),
-                            completeLineContent: null,
-                            vrefAtStartOfLine: null,
-                        };
+                            {
+                                selection: activeEditor.document.getText(
+                                    e.selections[0],
+                                ),
+                                completeLineContent: null,
+                                vrefAtStartOfLine: null,
+                                selectedText: "placeHolder test",
+                            };
 
                         const selectedText = activeEditor.document.getText(
                             e.selections[0],
@@ -272,56 +311,103 @@ export class CustomWebviewProvider {
             this.saveSelectionChanges(webviewView);
         });
 
-        webviewView.webview.onDidReceiveMessage(async (message) => {
-            console.log({ message }, "onDidReceiveMessage in chat");
-            try {
-                switch (message.command) {
-                    case "fetch": {
-                        abortController = new AbortController();
-                        const url = endpoint + "/chat/completions";
-                        const data = {
-                            max_tokens: maxTokens,
-                            temperature: temperature,
-                            stream: true,
-                            messages: JSON.parse(message.messages),
-                            model: undefined as any,
-                            stop: ["\n\n", "###", "<|endoftext|>"], // ? Not sure if it matters if we pass this here.
-                        };
-                        if (model) {
-                            data.model = model;
+        webviewView.webview.onDidReceiveMessage(
+            async (message: ChatPostMessages) => {
+                console.log({ message }, "onDidReceiveMessage in chat");
+                try {
+                    switch (message.command) {
+                        case "fetch": {
+                            abortController = new AbortController();
+                            const url = endpoint + "/chat/completions";
+                            const data = {
+                                max_tokens: maxTokens,
+                                temperature: temperature,
+                                stream: true,
+                                messages: JSON.parse(message.messages),
+                                model: undefined as any,
+                                stop: ["\n\n", "###", "<|endoftext|>"], // ? Not sure if it matters if we pass this here.
+                            };
+                            if (model) {
+                                data.model = model;
+                            }
+                            const headers = {
+                                "Content-Type": "application/json",
+                            };
+                            if (apiKey) {
+                                // @ts-expect-error needed
+                                headers["Authorization"] = "Bearer " + apiKey;
+                            }
+                            console.log({ data });
+                            const response = await fetch(url, {
+                                method: "POST",
+                                headers,
+                                body: JSON.stringify(data),
+                                signal: abortController.signal,
+                            });
+                            console.log({ response });
+                            await processFetchResponse(webviewView, response);
+                            break;
                         }
-                        const headers = {
-                            "Content-Type": "application/json",
-                        };
-                        if (apiKey) {
-                            // @ts-expect-error needed
-                            headers["Authorization"] = "Bearer " + apiKey;
+                        case "abort-fetch":
+                            if (abortController) {
+                                abortController.abort();
+                            }
+                            break;
+
+                        case "fetchThread": {
+                            sendChatThreadToWebview(webviewView);
+                            break;
                         }
-                        console.log({ data });
-                        const response = await fetch(url, {
-                            method: "POST",
-                            headers,
-                            body: JSON.stringify(data),
-                            signal: abortController.signal,
-                        });
-                        console.log({ response });
-                        await processFetchResponse(webviewView, response);
-                        break;
+                        case "saveMessageToThread": {
+                            const fileName = "chat-threads.json";
+                            const exitingMessages =
+                                await getChatMessagesFromFile(fileName);
+                            const messageThreadId = message.threadId;
+                            let threadToSaveMessage:
+                                | ChatMessageThread
+                                | undefined = exitingMessages.find(
+                                (thread) => thread.id === messageThreadId,
+                            );
+                            if (threadToSaveMessage) {
+                                threadToSaveMessage.messages.push(
+                                    message.message,
+                                );
+                                await writeSerializedData(
+                                    JSON.stringify(exitingMessages, null, 4),
+                                    fileName,
+                                );
+                            } else {
+                                threadToSaveMessage = {
+                                    id: messageThreadId,
+                                    canReply: true,
+                                    collapsibleState: 0,
+                                    messages: [message.message],
+                                    deleted: false,
+                                };
+                                await writeSerializedData(
+                                    JSON.stringify(
+                                        [
+                                            ...exitingMessages,
+                                            threadToSaveMessage,
+                                        ],
+                                        null,
+                                        4,
+                                    ),
+                                    fileName,
+                                );
+                            }
+                            break;
+                        }
+                        default:
+                            break;
                     }
-                    case "abort-fetch":
-                        if (abortController) {
-                            abortController.abort();
-                        }
-                        break;
-                    default:
-                        break;
+                } catch (error) {
+                    sendFinishMessage(webviewView);
+                    console.error("Error:", error);
+                    vscode.window.showErrorMessage("Service access failed.");
                 }
-            } catch (error) {
-                sendFinishMessage(webviewView);
-                console.error("Error:", error);
-                vscode.window.showErrorMessage("Service access failed.");
-            }
-        });
+            },
+        );
     }
 }
 

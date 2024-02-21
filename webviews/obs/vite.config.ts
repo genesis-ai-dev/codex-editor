@@ -32,7 +32,6 @@ export default defineConfig({
         entryFileNames: `assets/[name].js`,
         chunkFileNames: `assets/[name].js`,
         assetFileNames: (asset) => {
-          console.log(asset);
           return `assets/index.[ext]`; //TODO: fix this to use the correct filename
         },
       },

@@ -1,4 +1,4 @@
-import { environment } from "../data/environment";
+import { environment } from "../../data/environment";
 import { Language } from "../types";
 
 const fetchResource = async (

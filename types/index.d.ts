@@ -4,6 +4,10 @@ interface ChatMessage {
     content: string;
 }
 
+interface ChatMessageWithContext extends ChatMessage {
+    context?: any; // FixMe: discuss what context could be. Cound it be a link to a note?
+}
+
 interface FrontEndMessage {
     command: {
         name: string; // use enum
@@ -11,6 +15,15 @@ interface FrontEndMessage {
     };
 }
 type CommentThread = vscode.CommentThread;
+interface ChatMessageThread {
+    id: string;
+    messages: ChatMessageWithContext[];
+    collapsibleState: number;
+    canReply: boolean;
+    threadTitle?: string;
+    deleted: boolean;
+}
+
 interface NotebookCommentThread {
     id: string;
     uri?: string;
@@ -50,10 +63,16 @@ interface SelectedTextDataWithContext {
     selection: string;
     completeLineContent: string | null;
     vrefAtStartOfLine: string | null;
+    selectedText: string | null;
 }
 
 type ChatPostMessages =
+    | { command: "threadsFromWorkspace"; content: ChatMessageThread[] }
     | { command: "response"; finished: boolean; text: string }
     | { command: "reload" }
     | { command: "select"; textDataWithContext: SelectedTextDataWithContext }
-    | { command: "fetch"; messages: string };
+    | { command: "fetch"; messages: string }
+    | { command: "notifyUserError"; message: string }
+    | { command: "saveMessageToThread"; message: ChatMessage; threadId: string }
+    | { command: "fetchThread" }
+    | { command: "abort-fetch" };
