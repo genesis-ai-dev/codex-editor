@@ -1,9 +1,19 @@
 import { useState, useEffect } from "react";
-import { VSCodeButton, VSCodeTag } from "@vscode/webview-ui-toolkit/react";
+import {
+    VSCodeTag,
+    VSCodeButton,
+    VSCodeDropdown,
+    VSCodeOption,
+} from "@vscode/webview-ui-toolkit/react";
 import { ChatInputTextForm } from "../components/ChatInputTextForm";
+import DeleteButtonWithConfirmation from "../components/DeleteButtonWithConfirmation";
 import { WebviewHeader } from "../components/WebviewHeader";
 import "../App.css";
-import { ChatMessage, ChatPostMessages } from "../../../../types";
+import {
+    ChatMessageThread,
+    ChatMessageWithContext,
+    ChatPostMessages,
+} from "../../../../types";
 import { v4 as uuidv4 } from "uuid";
 
 const FLASK_ENDPOINT = "http://localhost:5554";
@@ -26,7 +36,7 @@ function messageWithContext({
     userPrompt: string;
     selectedText?: string;
     contextItems?: string[];
-}): ChatMessage {
+}): ChatMessageWithContext {
     let content = `### Instructions:\nPlease use the context below to respond to the user's message. If you know the answer, be concise. If the answer is in the context, please quote the wording of the source. If the answer is not in the context, avoid making up anything.`;
 
     if (selectedText || (contextItems && contextItems?.length > 0)) {
@@ -53,11 +63,12 @@ function messageWithContext({
         // FIXME: since we're passing in the conversation history, should we be using a completions endpoint rather than a chat one?
         role: "user",
         content: content,
+        createdAt: new Date().toISOString(),
     };
 }
 
 interface MessageItemProps {
-    messageItem: ChatMessage;
+    messageItem: ChatMessageWithContext;
     showSenderRoleLabels?: boolean;
 }
 
@@ -66,17 +77,45 @@ const MessageItem: React.FC<MessageItemProps> = ({
     showSenderRoleLabels = false,
 }) => {
     return (
-        <>
+        <div
+            style={{
+                display: messageItem.role === "system" ? "none" : "flex",
+                flexDirection: "column",
+                gap: "0.5em",
+                justifyContent:
+                    messageItem.role === "user"
+                        ? "flex-start"
+                        : messageItem.role === "assistant"
+                          ? "flex-end"
+                          : "center",
+                padding: "0.5em 1em",
+                // maxWidth: messageItem.role === "context" ? "100%" : "80%", // full width for 'context' messages
+                alignSelf:
+                    messageItem.role === "assistant"
+                        ? "flex-start"
+                        : messageItem.role === "user"
+                          ? "flex-end"
+                          : "center",
+            }}
+        >
             {(messageItem.role === "user" ||
                 messageItem.role === "assistant") && (
                 <div
                     style={{
-                        fontSize: "0.8em",
+                        fontSize: "0.7em",
                         color: "lightgrey",
                         marginBottom: "0.2em",
+                        marginLeft:
+                            messageItem.role === "assistant" ? "9px" : "0px",
+                        marginRight:
+                            messageItem.role === "user" ? "9px" : "0px",
+                        alignSelf:
+                            messageItem.role === "assistant"
+                                ? "flex-start"
+                                : "flex-end",
                     }}
                 >
-                    {new Date().toLocaleTimeString()}{" "}
+                    {new Date(messageItem.createdAt).toLocaleTimeString()}{" "}
                     {/* FIXME: add actual timestamps */}
                 </div>
             )}
@@ -84,37 +123,37 @@ const MessageItem: React.FC<MessageItemProps> = ({
                 style={{
                     display: messageItem.role === "system" ? "none" : "flex",
                     flexDirection:
-                        messageItem.role === "user"
+                        messageItem.role === "assistant"
                             ? "row"
-                            : messageItem.role === "assistant"
+                            : messageItem.role === "user"
                               ? "row-reverse"
                               : "column",
                     gap: "0.5em",
                     justifyContent:
-                        messageItem.role === "user"
+                        messageItem.role === "assistant"
                             ? "flex-start"
-                            : messageItem.role === "assistant"
+                            : messageItem.role === "user"
                               ? "flex-end"
                               : "center",
                     borderRadius: "20px",
                     backgroundColor:
-                        messageItem.role === "user"
+                        messageItem.role === "assistant"
                             ? "var(--vscode-editor-background)"
-                            : messageItem.role === "assistant"
+                            : messageItem.role === "user"
                               ? "var(--vscode-button-background)"
                               : "lightblue", // distinct style for 'context' messages
                     color:
-                        messageItem.role === "user"
+                        messageItem.role === "assistant"
                             ? "var(--vscode-editor-foreground)"
-                            : messageItem.role === "assistant"
+                            : messageItem.role === "user"
                               ? "var(--vscode-button-foreground)"
                               : "black", // distinct style for 'context' messages
                     padding: "0.5em 1em",
                     // maxWidth: messageItem.role === "context" ? "100%" : "80%", // full width for 'context' messages
                     alignSelf:
-                        messageItem.role === "user"
+                        messageItem.role === "assistant"
                             ? "flex-start"
-                            : messageItem.role === "assistant"
+                            : messageItem.role === "user"
                               ? "flex-end"
                               : "center",
                 }}
@@ -130,28 +169,32 @@ const MessageItem: React.FC<MessageItemProps> = ({
                 )}
                 <div style={{ display: "flex" }}>{messageItem.content}</div>
             </div>
-        </>
+        </div>
     );
 };
 
 function App() {
-    const systemMessage: ChatMessage = {
+    const systemMessage: ChatMessageWithContext = {
         role: "system",
         content: "You are are helpful Bible translation assistant.",
+        createdAt: new Date().toISOString(),
         // TODO: allow user to modify the system message
     };
-    const dummyUserMessage: ChatMessage = {
+    const dummyUserMessage: ChatMessageWithContext = {
         role: "user",
         content: "How do we normally translate cases like this?",
+        createdAt: new Date().toISOString(),
     };
-    const dummyAssistantMessage: ChatMessage = {
+    const dummyAssistantMessage: ChatMessageWithContext = {
         role: "assistant",
         content: "Let me check your current translation drafts...",
+        createdAt: new Date().toISOString(),
     };
-    const [pendingMessage, setPendingMessage] = useState<ChatMessage>();
+    const [pendingMessage, setPendingMessage] =
+        useState<ChatMessageWithContext>();
     const [selectedTextContext, setSelectedTextContext] = useState<string>("");
     const [contextItems, setContextItems] = useState<string[]>([]); // TODO: fetch from RAG server
-    const [messageLog, setMessageLog] = useState<ChatMessage[]>([
+    const [messageLog, setMessageLog] = useState<ChatMessageWithContext[]>([
         systemMessage,
         dummyUserMessage,
         dummyAssistantMessage,
@@ -159,6 +202,11 @@ function App() {
 
     const [currentMessageThreadId, setCurrentMessageThreadId] =
         useState<string>();
+    const [currentMessageThreadTitle, setCurrentMessageThreadTitle] =
+        useState<string>();
+
+    const [availableMessageThreads, setAvailableMessageThreads] =
+        useState<ChatMessageThread[]>();
 
     const SHOW_SENDER_ROLE_LABELS = false;
 
@@ -202,7 +250,9 @@ function App() {
         }
     }
 
-    function formatMessageLogToString(messages: ChatMessage[]): string {
+    function formatMessageLogToString(
+        messages: ChatMessageWithContext[],
+    ): string {
         return messages
             .map((message) => {
                 return `${ChatRoleLabel[message.role]}: ${message.content}`;
@@ -211,9 +261,10 @@ function App() {
     }
 
     function getResponseToUserNewMessage(newMessageTextContent: string) {
-        const pendingMessage: ChatMessage = {
+        const pendingMessage: ChatMessageWithContext = {
             role: "user",
             content: newMessageTextContent,
+            createdAt: new Date().toISOString(),
         };
         vscode.postMessage({
             command: "saveMessageToThread",
@@ -224,7 +275,7 @@ function App() {
 
         const contextItemsFromState = contextItems;
 
-        const formattedPrompt: ChatMessage[] = [
+        const formattedPrompt: ChatMessageWithContext[] = [
             messageWithContext({
                 messageHistory: formatMessageLogToString(messageLog),
                 userPrompt: newMessageTextContent,
@@ -300,6 +351,7 @@ function App() {
                         setPendingMessage({
                             role: "assistant",
                             content: messageContent,
+                            createdAt: new Date().toISOString(),
                         });
                     } else {
                         if (pendingMessage) {
@@ -320,6 +372,9 @@ function App() {
                             messageThreadArray[messageThreadArray.length - 1]
                                 ?.id;
                         const messageThreadsExist = !!lastMessageThreadId;
+                        if (messageThreadsExist) {
+                            setAvailableMessageThreads(messageThreadArray);
+                        }
 
                         let messageThreadIdToUse: string;
 
@@ -333,6 +388,17 @@ function App() {
 
                         if (!currentMessageThreadId) {
                             setCurrentMessageThreadId(messageThreadIdToUse);
+                            const currentMessageThreadToUse =
+                                messageThreadArray.find(
+                                    (messageThread) =>
+                                        messageThread.id ===
+                                        currentMessageThreadId,
+                                );
+                            if (currentMessageThreadToUse) {
+                                setCurrentMessageThreadTitle(
+                                    currentMessageThreadToUse.threadTitle,
+                                );
+                            }
                         }
 
                         const messageThreadForContext = messageThreadArray.find(
@@ -362,19 +428,78 @@ function App() {
     }
 
     const ClearChatButton: React.FC<ClearChatButtonProps> = ({ callback }) => (
-        <VSCodeButton
-            aria-label="Clear"
-            appearance="icon"
-            title="Clear Current Chat"
-            onClick={callback}
-            style={{
-                backgroundColor: "var(--vscode-button-background)",
-                color: "var(--vscode-button-foreground)",
-            }}
-        >
-            <i className="codicon codicon-trash"></i>
-        </VSCodeButton>
+        <DeleteButtonWithConfirmation handleDeleteButtonClick={callback} />
     );
+    interface NavigateChatHistoryProps {
+        callback: (newMessageThreadId: string) => void;
+    }
+    const NavigateChatHistoryButton: React.FC<
+        NavigateChatHistoryProps
+    > = () => {
+        const [threadSelectorIsVisable, setThreadSelectorIsVisable] =
+            useState(false);
+
+        return (
+            <>
+                <VSCodeButton
+                    aria-label="Start New Thread"
+                    appearance="icon"
+                    title="⨁"
+                    onClick={() => {
+                        setCurrentMessageThreadId(uuidv4());
+                    }}
+                    style={{
+                        backgroundColor: "var(--vscode-button-background)",
+                        color: "var(--vscode-button-foreground)",
+                    }}
+                >
+                    <i className="codicon codicon-add"></i>
+                </VSCodeButton>
+                {threadSelectorIsVisable && (
+                    <VSCodeDropdown
+                        value={currentMessageThreadId}
+                        style={{ minWidth: "max-content" }}
+                        // disabled={!selectedBook}
+                        onInput={(e: any) => {
+                            console.log({ e });
+                            console.log((e.target as HTMLSelectElement).value);
+                            setCurrentMessageThreadId(
+                                (e.target as HTMLSelectElement).value,
+                            );
+                        }}
+                    >
+                        {availableMessageThreads?.map((messageThread) => (
+                            <VSCodeOption
+                                key={messageThread.id}
+                                selected={
+                                    messageThread.id === currentMessageThreadId
+                                }
+                            >
+                                {messageThread.threadTitle ||
+                                    new Date(
+                                        messageThread.createdAt,
+                                    ).toLocaleTimeString()}
+                            </VSCodeOption>
+                        ))}
+                    </VSCodeDropdown>
+                )}
+                <VSCodeButton
+                    aria-label="History"
+                    appearance="icon"
+                    title="📖"
+                    onClick={() =>
+                        setThreadSelectorIsVisable(!threadSelectorIsVisable)
+                    }
+                    style={{
+                        backgroundColor: "var(--vscode-button-background)",
+                        color: "var(--vscode-button-foreground)",
+                    }}
+                >
+                    <i className="codicon codicon-history"></i>
+                </VSCodeButton>
+            </>
+        );
+    };
 
     return (
         <main
@@ -389,8 +514,22 @@ function App() {
                 overflowX: "hidden",
             }}
         >
-            <WebviewHeader title="Translator's Copilot Chat">
-                <ClearChatButton callback={clearChat} />
+            <WebviewHeader
+                title={currentMessageThreadTitle || "Translator's Copilot Chat"}
+            >
+                <div
+                    style={{
+                        display: "flex",
+                        gap: 10,
+                    }}
+                >
+                    <NavigateChatHistoryButton
+                        callback={(newMessageThreadId) =>
+                            setCurrentMessageThreadId(newMessageThreadId)
+                        }
+                    />
+                    <ClearChatButton callback={clearChat} />
+                </div>
             </WebviewHeader>
             <div
                 className="chat-container"

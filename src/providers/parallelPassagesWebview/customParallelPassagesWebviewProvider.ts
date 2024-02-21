@@ -1,17 +1,6 @@
 import * as vscode from "vscode";
-import {
-    FileHandler,
-    serializeCommentThreadArray,
-} from "../../commentsProvider";
-import { globalStateEmitter, updateGlobalState } from "../../globalState";
-import {
-    CommentPostMessages,
-    NotebookCommentThread,
-    VerseRefGlobalState,
-} from "../../../types";
 import { registerTextSelectionHandler } from "../../pygls_commands/textSelectionHandler";
 import { jumpToCellInNotebook } from "../../utils";
-
 
 const abortController: AbortController | null = null;
 let loading: boolean = false;
@@ -21,8 +10,6 @@ interface OpenFileMessage {
     uri: string;
     word: string;
 }
-
-
 
 async function upsertAllCodexFiles(webview: vscode.Webview): Promise<void> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -53,13 +40,16 @@ async function upsertAllCodexFiles(webview: vscode.Webview): Promise<void> {
             const upsertData = { db_name, path: filePath };
 
             try {
-                const response = await fetch('http://localhost:5554/upsert_codex_file', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
+                const response = await fetch(
+                    "http://localhost:5554/upsert_codex_file",
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify(upsertData),
                     },
-                    body: JSON.stringify(upsertData),
-                });
+                );
 
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
@@ -89,9 +79,7 @@ async function upsertAllCodexFiles(webview: vscode.Webview): Promise<void> {
     });
 }
 
-
 async function jumpToFirstOccurrence(uri: string, word: string) {
-
     const chapter = word.split(":");
     jumpToCellInNotebook(uri, parseInt(chapter[0], 10));
     const editor = vscode.window.activeTextEditor;
@@ -109,11 +97,15 @@ async function jumpToFirstOccurrence(uri: string, word: string) {
 
     const position = document.positionAt(wordIndex);
     editor.selection = new vscode.Selection(position, position);
-    editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+    editor.revealRange(
+        new vscode.Range(position, position),
+        vscode.TextEditorRevealType.InCenter,
+    );
 
-    vscode.window.showInformationMessage(`Jumped to the first occurrence of "${word}"`);
+    vscode.window.showInformationMessage(
+        `Jumped to the first occurrence of "${word}"`,
+    );
 }
-
 
 const loadWebviewHtml = (
     webviewView: vscode.WebviewView,
@@ -199,16 +191,16 @@ const loadWebviewHtml = (
                 //         new vscode.Position(0, 0),
                 //         new vscode.Position(0, 0)
                 //     )
-                
+
                 // });
                 jumpToFirstOccurrence(message.uri, message.word);
-            }
-            else if (message.command === "embedAllDocuments") {
+            } else if (message.command === "embedAllDocuments") {
                 upsertAllCodexFiles(webviewView.webview);
 
-                vscode.window.showWarningMessage("Embedding already in progress.");
-            
-        }
+                vscode.window.showWarningMessage(
+                    "Embedding already in progress.",
+                );
+            }
         },
     );
 };
@@ -219,22 +211,20 @@ export class CustomWebviewProvider {
     constructor(context: vscode.ExtensionContext) {
         this._context = context;
     }
- 
+
     resolveWebviewView(webviewView: vscode.WebviewView) {
         loadWebviewHtml(webviewView, this._context.extensionUri);
 
-        registerTextSelectionHandler(this._context, (data: JSON)=>{
+        registerTextSelectionHandler(this._context, (data: JSON) => {
             webviewView.webview.postMessage({
                 command: "searchResults",
-                data: data
+                data: data,
             });
         });
         if (webviewView.visible) {
-           // sendCommentsToWebview(webviewView);
+            // sendCommentsToWebview(webviewView);
             // TODO: send verse parallels
-
         }
-
     }
 }
 
@@ -251,6 +241,6 @@ export function registerParallelViewWebviewProvider(
             new CustomWebviewProvider(context),
         ),
     );
-    
+
     item.show();
 }

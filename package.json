@@ -577,7 +577,9 @@
         "moment": "^2.30.1",
         "path": "^0.12.7",
         "semver": "^7.6.0",
-        "sinon": "^17.0.1"
+        "sinon": "^17.0.1",
+        "uuid": "^9.0.1",
+        "vscode-languageclient": "^9.0.1"
     },
     "overrides": {
         "minimatch": "5.1.2",
