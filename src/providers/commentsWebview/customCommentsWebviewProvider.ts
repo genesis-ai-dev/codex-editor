@@ -100,9 +100,7 @@ const loadWebviewHtml = (
     webviewView.webview.html = html;
 };
 
-export const sendCommentsToWebview = async (
-    webviewView: vscode.WebviewView,
-) => {
+const sendCommentsToWebview = async (webviewView: vscode.WebviewView) => {
     console.log("sendCommentsToWebview was called");
     const workspaceFolders = vscode.workspace.workspaceFolders;
     console.log({ workspaceFolders });
