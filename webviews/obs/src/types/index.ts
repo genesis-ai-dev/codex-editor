@@ -4,6 +4,7 @@ export enum MessageType {
     openFile = "openFile",
     OPEN_RESOURCE = "openResource",
     createProject = "createProject",
+    createObsProject = "createObsProject",
     openStory = "openStory",
     DOWNLOAD_RESOURCE = "downloadResource",
     SYNC_DOWNLOADED_RESOURCES = "syncDownloadedResources",

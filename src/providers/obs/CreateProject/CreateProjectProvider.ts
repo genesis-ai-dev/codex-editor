@@ -3,7 +3,8 @@ import { MessageType } from "./types";
 import { createObsProject } from "./functions/createObsProject";
 import { getUri } from "./utilities/getUri";
 import { getNonce } from "./utilities/getNonce";
-import staticLangs from "../data/langNames.json";
+import { initializeNewProject } from "./functions/initializeNewProject";
+import { ProjectDetails } from "../../../utils/projectUtils";
 
 export class CreateProjectProvider implements vscode.WebviewViewProvider {
     private _webviewView: vscode.WebviewView | undefined;
@@ -43,23 +44,13 @@ export class CreateProjectProvider implements vscode.WebviewViewProvider {
         webviewPanel.webview.onDidReceiveMessage(
             async (e: { type: MessageType; payload: unknown }) => {
                 switch (e.type) {
-                    case MessageType.createProject:
+                    case MessageType.createObsProject:
                         await createObsProject(e.payload as any);
                         break;
-                    case MessageType.SEARCH_QUERY: {
-                        const query = e.payload as string;
-                        const filteredLanguages = staticLangs.filter(
-                            (language) =>
-                                (language.ang || language.lc)
-                                    .toLowerCase()
-                                    .includes(query.toLowerCase()),
-                        );
-                        webviewPanel.webview.postMessage({
-                            type: MessageType.SEARCH_RESULTS,
-                            payload: filteredLanguages,
-                        });
+                    case MessageType.createProject:
+                        await initializeNewProject(e.payload as ProjectDetails);
+
                         break;
-                    }
                     default:
                         break;
                 }
