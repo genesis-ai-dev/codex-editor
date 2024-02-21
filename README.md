@@ -17,19 +17,42 @@ git clone https://github.com/genesis-ai-dev/codex-editor.git
 cd codex-editor
 ```
 
+Make sure you have the python extension loaded into vsCode
+
 ```bash
 
 Note: Before running the extension, you need to install the dependencies for **both** the extension itself, and any children webviews, such as the `ChatSideBar`. To do this, open a terminal and run the following command:
 
 ```bash
 # First let's install the dependencies for the extension
-pnpm install # if you're using pnpm, or npm install if you're using npm
+pnpm i # if you're using pnpm, or npm install if you're using npm
 
 # Next, let's install the dependencies for the webview 
 #FIXME: we can just add this step to a setup script 
-codex-editor % cd webviews/ChatSideBar
-ChatSideBar % pnpm i
-ChatSideBar % pnpm run watch
+## build the codex-webviews
+codex-editor % cd webviews/codex-webviews
+codex-webviews % pnpm i
+codex-webviews % pnpm run build:all
+
+## build the dictionary-side-panel
+codex-webviews % cd ../dictionary-side-panel
+dictionary-side-panel % pnpm i
+dictionary-side-panel % pnpm run build
+
+## build the editable-react-table
+#FIXME: if you get this error - 
+#         you may have to do:
+#           `pnpm add @types/react`
+#           `pnpm add @types/react-dom`
+#         and then run build command again
+dictionary-side-panel % cd ../editable-react-table
+editable-react-table % pnpm i
+editable-react-table % pnpm run build
+
+## build the obs
+editable-react-table % cd ../obs
+dictionary-side-panel % pnpm i
+dictionary-side-panel % pnpm run build
 
 # Now, let's go back to the root of the project and start the extension
 ChatSideBar % cd ../..
