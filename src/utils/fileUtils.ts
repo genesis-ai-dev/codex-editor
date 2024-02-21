@@ -2,7 +2,7 @@
 import * as vscode from "vscode";
 import { getWorkSpaceFolder } from ".";
 import * as path from "path";
-import { NotebookCommentThread } from "../../types";
+import { ChatMessageThread, NotebookCommentThread } from "../../types";
 
 export const generateFiles = async ({
     filepath,
@@ -127,6 +127,25 @@ export const getCommentsFromFile = async (
     try {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         console.log({ workspaceFolders });
+        const filePath = workspaceFolders
+            ? vscode.Uri.joinPath(workspaceFolders[0].uri, fileName).fsPath
+            : "";
+
+        const uri = vscode.Uri.file(filePath);
+        const fileContentUint8Array = await vscode.workspace.fs.readFile(uri);
+        const fileContent = new TextDecoder().decode(fileContentUint8Array);
+        return JSON.parse(fileContent);
+    } catch (error) {
+        console.error(error);
+        throw new Error("Failed to parse notebook comments from file");
+    }
+};
+
+export const getChatMessagesFromFile = async (
+    fileName: string,
+): Promise<ChatMessageThread[]> => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
         const filePath = workspaceFolders
             ? vscode.Uri.joinPath(workspaceFolders[0].uri, fileName).fsPath
             : "";

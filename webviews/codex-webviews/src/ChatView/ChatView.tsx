@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { VSCodeButton, VSCodeTag } from "@vscode/webview-ui-toolkit/react";
 import { ChatInputTextForm } from "../components/ChatInputTextForm";
 import { WebviewHeader } from "../components/WebviewHeader";
 import "../App.css";
 import { ChatMessage, ChatPostMessages } from "../../../../types";
+import { v4 as uuidv4 } from "uuid";
 
 const FLASK_ENDPOINT = "http://localhost:5554";
 
@@ -156,6 +157,9 @@ function App() {
         dummyAssistantMessage,
     ]);
 
+    const [currentMessageThreadId, setCurrentMessageThreadId] =
+        useState<string>();
+
     const SHOW_SENDER_ROLE_LABELS = false;
 
     async function fetchContextItems(query: string): Promise<string[]> {
@@ -189,11 +193,11 @@ function App() {
                 error,
             );
             vscode.postMessage({
-                command: "error",
+                command: "notifyUserError",
                 message: `Failed to fetch context items due to an error: ${
                     (error as Error).message
                 }`,
-            });
+            } as ChatPostMessages);
             return [];
         }
     }
@@ -211,7 +215,11 @@ function App() {
             role: "user",
             content: newMessageTextContent,
         };
-
+        vscode.postMessage({
+            command: "saveMessageToThread",
+            message: pendingMessage,
+            threadId: currentMessageThreadId,
+        } as ChatPostMessages);
         const updatedMessageLog = [...messageLog, pendingMessage];
 
         const contextItemsFromState = contextItems;
@@ -255,20 +263,26 @@ function App() {
         }
     }
 
+    useEffect(() => {
+        vscode.postMessage({
+            command: "fetchThread",
+        } as ChatPostMessages);
+    }, []);
+
     window.addEventListener(
         "message",
         (event: MessageEvent<ChatPostMessages>) => {
-            const messageInfo = event.data; // The JSON data our extension sent
+            const message = event.data; // The JSON data our extension sent
             console.log({ event });
-            switch (messageInfo?.command) {
+            switch (message?.command) {
                 case "select":
-                    if (messageInfo.textDataWithContext) {
-                        console.log("Received a select command", messageInfo);
+                    if (message.textDataWithContext) {
+                        console.log("Received a select command", message);
                         const {
                             completeLineContent,
                             selectedText,
                             vrefAtStartOfLine,
-                        } = messageInfo.textDataWithContext;
+                        } = message.textDataWithContext;
                         setSelectedTextContext(
                             `Reference: ${vrefAtStartOfLine}, Selected: ${selectedText}, Line: ${completeLineContent}`,
                         );
@@ -279,19 +293,58 @@ function App() {
                     }
                     break;
                 case "response":
-                    if (!messageInfo.finished) {
+                    if (!message.finished) {
                         const messageContent =
                             (pendingMessage?.content || "") +
-                            (messageInfo.text || "");
+                            (message.text || "");
                         setPendingMessage({
                             role: "assistant",
                             content: messageContent,
                         });
                     } else {
                         if (pendingMessage) {
+                            vscode.postMessage({
+                                command: "saveMessageToThread",
+                                message: pendingMessage,
+                                threadId: currentMessageThreadId,
+                            } as ChatPostMessages);
                             setMessageLog([...messageLog, pendingMessage]);
                         }
                         setPendingMessage(undefined);
+                    }
+                    break;
+                case "threadsFromWorkspace":
+                    if (message.content) {
+                        const messageThreadArray = message.content;
+                        const lastMessageThreadId =
+                            messageThreadArray[messageThreadArray.length - 1]
+                                ?.id;
+                        const messageThreadsExist = !!lastMessageThreadId;
+
+                        let messageThreadIdToUse: string;
+
+                        if (currentMessageThreadId) {
+                            messageThreadIdToUse = currentMessageThreadId;
+                        } else if (messageThreadsExist) {
+                            messageThreadIdToUse = lastMessageThreadId;
+                        } else {
+                            messageThreadIdToUse = uuidv4();
+                        }
+
+                        if (!currentMessageThreadId) {
+                            setCurrentMessageThreadId(messageThreadIdToUse);
+                        }
+
+                        const messageThreadForContext = messageThreadArray.find(
+                            (thread) => thread.id === messageThreadIdToUse,
+                        );
+
+                        if (
+                            messageThreadForContext?.messages?.length &&
+                            messageThreadForContext?.messages?.length > 0
+                        ) {
+                            setMessageLog(messageThreadForContext.messages);
+                        }
                     }
                     break;
                 default:

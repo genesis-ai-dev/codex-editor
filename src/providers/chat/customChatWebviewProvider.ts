@@ -1,7 +1,14 @@
 import * as vscode from "vscode";
-import { ChatPostMessages, SelectedTextDataWithContext } from "../../../types";
+import {
+    ChatMessageThread,
+    ChatPostMessages,
+    SelectedTextDataWithContext,
+} from "../../../types";
 import { extractVerseRefFromLine } from "../../utils/verseRefUtils";
-import { sendCommentsToWebview } from "../commentsWebview/customCommentsWebviewProvider";
+import {
+    getChatMessagesFromFile,
+    writeSerializedData,
+} from "../../utils/fileUtils";
 
 const config = vscode.workspace.getConfiguration("translators-copilot");
 const endpoint = config.get("llmEndpoint"); // NOTE: config.endpoint is reserved so we must have unique name
@@ -11,6 +18,28 @@ const maxTokens = config.get("max_tokens");
 const temperature = config.get("temperature");
 const maxLength = 2048;
 let abortController: AbortController | null = null;
+
+const sendChatThreadToWebview = async (webviewView: vscode.WebviewView) => {
+    console.log("sendCommentsToWebview was called");
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    console.log({ workspaceFolders });
+    const filePath = workspaceFolders
+        ? vscode.Uri.joinPath(workspaceFolders[0].uri, "chat-threads.json") // fix this so it is a diffent note book
+              .fsPath
+        : "";
+    try {
+        const uri = vscode.Uri.file(filePath);
+        const fileContentUint8Array = await vscode.workspace.fs.readFile(uri);
+        const fileContent = new TextDecoder().decode(fileContentUint8Array);
+        webviewView.webview.postMessage({
+            command: "threadsFromWorkspace",
+            content: JSON.parse(fileContent),
+        } as ChatPostMessages);
+    } catch (error) {
+        console.error("Error reading file:", error);
+        vscode.window.showErrorMessage(`Error reading file: ${filePath}`);
+    }
+};
 
 const loadWebviewHtml = (
     webviewView: vscode.WebviewView,
@@ -326,7 +355,47 @@ export class CustomWebviewProvider {
                             break;
 
                         case "fetchThread": {
-                            sendCommentsToWebview(webviewView);
+                            sendChatThreadToWebview(webviewView);
+                            break;
+                        }
+                        case "saveMessageToThread": {
+                            const fileName = "chat-threads.json";
+                            const exitingMessages =
+                                await getChatMessagesFromFile(fileName);
+                            const messageThreadId = message.threadId;
+                            let threadToSaveMessage:
+                                | ChatMessageThread
+                                | undefined = exitingMessages.find(
+                                (thread) => thread.id === messageThreadId,
+                            );
+                            if (threadToSaveMessage) {
+                                threadToSaveMessage.messages.push(
+                                    message.message,
+                                );
+                                await writeSerializedData(
+                                    JSON.stringify(exitingMessages, null, 4),
+                                    fileName,
+                                );
+                            } else {
+                                threadToSaveMessage = {
+                                    id: messageThreadId,
+                                    canReply: true,
+                                    collapsibleState: 0,
+                                    messages: [message.message],
+                                    deleted: false,
+                                };
+                                await writeSerializedData(
+                                    JSON.stringify(
+                                        [
+                                            ...exitingMessages,
+                                            threadToSaveMessage,
+                                        ],
+                                        null,
+                                        4,
+                                    ),
+                                    fileName,
+                                );
+                            }
                             break;
                         }
                         default:

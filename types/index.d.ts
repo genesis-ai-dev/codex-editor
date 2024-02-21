@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 interface ChatMessage {
     role: "system" | "user" | "assistant";
     content: string;
+    context?: any; // FixMe: discuss what context could be. Cound it be a link to a note?
 }
 
 interface FrontEndMessage {
@@ -11,6 +12,15 @@ interface FrontEndMessage {
     };
 }
 type CommentThread = vscode.CommentThread;
+interface ChatMessageThread {
+    id: string;
+    messages: ChatMessage[];
+    collapsibleState: number;
+    canReply: boolean;
+    threadTitle?: string;
+    deleted: boolean;
+}
+
 interface NotebookCommentThread {
     id: string;
     uri?: string;
@@ -54,9 +64,12 @@ interface SelectedTextDataWithContext {
 }
 
 type ChatPostMessages =
+    | { command: "threadsFromWorkspace"; content: ChatMessageThread[] }
     | { command: "response"; finished: boolean; text: string }
     | { command: "reload" }
     | { command: "select"; textDataWithContext: SelectedTextDataWithContext }
     | { command: "fetch"; messages: string }
+    | { command: "notifyUserError"; message: string }
+    | { command: "saveMessageToThread"; message: ChatMessage; threadId: string }
     | { command: "fetchThread" }
     | { command: "abort-fetch" };
