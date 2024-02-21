@@ -206,21 +206,22 @@ class SpellCheck:
     
     def complete(self, word: str) -> List[str]:
         """
-        Provide auto-completion suggestions for a given word fragment.
+        Provide auto-completion suggestions for a given word fragment by returning the portions of each word that complete the given word fragment.
 
         Args:
             word (str): The word fragment to complete.
 
         Returns:
-            List[str]: A list of auto-completion suggestions, limited to the top 5 suggestions.
+            List[str]: A list of word portions that complete the given word fragment, limited to the top 5 suggestions.
         """
-        word = remove_punctuation(word)
+        word = remove_punctuation(word).lower()
         entries = self.dictionary.dictionary['entries']
         completions = [
-            entry['headWord'][len(word):] for entry in entries
+            entry['headWord'][len(word):] for entry in entries if entry['headWord'].lower().startswith(word)
         ]
 
-        sorted_completions = sorted(completions, key=lambda x: edit_distance.distance(x, word))
+        # Sort completions based on their length to prioritize shorter, more likely completions
+        sorted_completions = sorted(completions, key=lambda x: len(x))
         return sorted_completions[:5]
 
 
