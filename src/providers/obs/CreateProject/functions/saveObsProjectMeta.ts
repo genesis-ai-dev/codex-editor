@@ -5,6 +5,7 @@ import { v5 as uuidV5 } from "uuid";
 import { createObsContent } from "./createObsContent";
 import createObsSB from "./createObsSB";
 import { AnyObject } from "../types";
+import { LanguageMetadata } from "codex-types";
 
 const fs = vscode.workspace.fs;
 
@@ -20,7 +21,7 @@ export const saveObsProjectMeta = async (projectMetaObj: {
     };
     call: string;
     projectType: any;
-    language: { ld: string; ang: any; lc: any };
+    language: LanguageMetadata;
     project?: Record<string, any>;
     importedFiles: { id: string; content: string }[];
     copyright: { title?: any; licence?: string | any[] };
@@ -62,7 +63,7 @@ export const saveObsProjectMeta = async (projectMetaObj: {
 
         const ingredient = await createObsContent(
             projectMetaObj.newProjectFields,
-            projectMetaObj.language.ld,
+            projectMetaObj.language.refName,
             projectMetaObj.project as any,
             projectMetaObj.importedFiles,
             projectMetaObj.copyright as any,
@@ -73,9 +74,9 @@ export const saveObsProjectMeta = async (projectMetaObj: {
         const burritoFile = createObsSB(
             currentUser,
             projectMetaObj.newProjectFields,
-            projectMetaObj.language.ang,
-            projectMetaObj.language.lc,
-            projectMetaObj.language.ld,
+            projectMetaObj.language.refName,
+            projectMetaObj.language.tag,
+            projectMetaObj.language.scriptDirection,
             projectMetaObj.copyright as any,
             id,
         );

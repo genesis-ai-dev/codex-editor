@@ -4,7 +4,7 @@ import { LanguageMetadata, LanguageProjectStatus, Project } from "codex-types";
 import { getAllBookRefs } from ".";
 import * as vscode from "vscode";
 
-interface ProjectDetails {
+export interface ProjectDetails {
     projectName: string;
     projectCategory: string;
     userName: string;
@@ -13,7 +13,9 @@ interface ProjectDetails {
     targetLanguage: LanguageMetadata;
 }
 
-export async function promptForProjectDetails(): Promise<ProjectDetails | undefined> {
+export async function promptForProjectDetails(): Promise<
+    ProjectDetails | undefined
+> {
     // Prompt user for project details and return them
 
     const projectCategory = await vscode.window.showQuickPick(
@@ -22,36 +24,52 @@ export async function promptForProjectDetails(): Promise<ProjectDetails | undefi
     );
     if (!projectCategory) return;
 
-    const projectName = await vscode.window.showInputBox({ prompt: "Enter the project name" });
+    const projectName = await vscode.window.showInputBox({
+        prompt: "Enter the project name",
+    });
     if (!projectName) return;
 
-
-    const userName = await vscode.window.showInputBox({ prompt: "Enter your username" });
+    const userName = await vscode.window.showInputBox({
+        prompt: "Enter your username",
+    });
     if (!userName) return;
 
-    const abbreviation = await vscode.window.showInputBox({ prompt: "Enter the project abbreviation", placeHolder: "e.g. KJV, NASB, RSV, etc." });
+    const abbreviation = await vscode.window.showInputBox({
+        prompt: "Enter the project abbreviation",
+        placeHolder: "e.g. KJV, NASB, RSV, etc.",
+    });
     if (!abbreviation) return;
     const languages = LanguageCodes;
     const sourceLanguagePick = await vscode.window.showQuickPick(
-        languages.map((lang: LanguageMetadata) => `${lang.refName} (${lang.tag})`),
+        languages.map(
+            (lang: LanguageMetadata) => `${lang.refName} (${lang.tag})`,
+        ),
         {
             placeHolder: "Select the source language",
         },
     );
     if (!sourceLanguagePick) return;
 
-    const sourceLanguage = languages.find((lang: LanguageMetadata) => `${lang.refName} (${lang.tag})` === sourceLanguagePick);
+    const sourceLanguage = languages.find(
+        (lang: LanguageMetadata) =>
+            `${lang.refName} (${lang.tag})` === sourceLanguagePick,
+    );
     if (!sourceLanguage) return;
 
     const targetLanguagePick = await vscode.window.showQuickPick(
-        languages.map((lang: LanguageMetadata) => `${lang.refName} (${lang.tag})`),
+        languages.map(
+            (lang: LanguageMetadata) => `${lang.refName} (${lang.tag})`,
+        ),
         {
             placeHolder: "Select the target language",
         },
     );
     if (!targetLanguagePick) return;
 
-    const targetLanguage = languages.find((lang: LanguageMetadata) => `${lang.refName} (${lang.tag})` === targetLanguagePick);
+    const targetLanguage = languages.find(
+        (lang: LanguageMetadata) =>
+            `${lang.refName} (${lang.tag})` === targetLanguagePick,
+    );
     if (!targetLanguage) return;
 
     // Add project status to the selected languages
@@ -68,11 +86,13 @@ export async function promptForProjectDetails(): Promise<ProjectDetails | undefi
     };
 }
 
-export function generateProjectScope(skipNonCanonical: boolean = true): Project["type"]["flavorType"]["currentScope"] {
+export function generateProjectScope(
+    skipNonCanonical: boolean = true,
+): Project["type"]["flavorType"]["currentScope"] {
     /** For now, we are just setting the scope as all books, but allowing the vref.ts file to determine the books.
      * We could add a feature to allow users to select which books they want to include in the project.
      * And we could even drill down to specific chapter/verse ranges.
-     * 
+     *
      * FIXME: need to sort out whether the scope can sometimes be something other than books, like stories, etc.
      */
     const books: string[] = getAllBookRefs();
@@ -80,14 +100,15 @@ export function generateProjectScope(skipNonCanonical: boolean = true): Project[
     // The keys will be the book refs, and the values will be empty arrays
     const projectScope: any = {}; // NOTE: explicit any type here because we are dynamically generating the keys
 
-    skipNonCanonical ? books.filter(book =>
-        !nonCanonicalBookRefs
-            .includes(book))
-        .forEach(book => {
-            projectScope[book] = [];
-        }) : books.forEach(book => {
-            projectScope[book] = [];
-        });
+    skipNonCanonical
+        ? books
+              .filter((book) => !nonCanonicalBookRefs.includes(book))
+              .forEach((book) => {
+                  projectScope[book] = [];
+              })
+        : books.forEach((book) => {
+              projectScope[book] = [];
+          });
     return projectScope;
 }
 
@@ -147,18 +168,31 @@ export async function initializeProjectMetadata(details: ProjectDetails) {
         return;
     }
 
-    const WORKSPACE_FOLDER = vscode?.workspace?.workspaceFolders && vscode?.workspace?.workspaceFolders[0];
+    const WORKSPACE_FOLDER =
+        vscode?.workspace?.workspaceFolders &&
+        vscode?.workspace?.workspaceFolders[0];
 
     if (!WORKSPACE_FOLDER) {
         vscode.window.showErrorMessage("No workspace folder found.");
         return;
     }
 
-    const projectFilePath = vscode.Uri.joinPath(WORKSPACE_FOLDER.uri, 'metadata.json');
-    const projectFileData = Buffer.from(JSON.stringify(newProject, null, 4), 'utf8');
+    const projectFilePath = vscode.Uri.joinPath(
+        WORKSPACE_FOLDER.uri,
+        "metadata.json",
+    );
+    const projectFileData = Buffer.from(
+        JSON.stringify(newProject, null, 4),
+        "utf8",
+    );
 
     // FIXME: need to handle the case where the file does not exist
-    vscode.workspace.fs.writeFile(projectFilePath, projectFileData)
-        .then(() => vscode.window.showInformationMessage(`Project created at ${projectFilePath.fsPath}`));
+    vscode.workspace.fs
+        .writeFile(projectFilePath, projectFileData)
+        .then(() =>
+            vscode.window.showInformationMessage(
+                `Project created at ${projectFilePath.fsPath}`,
+            ),
+        );
     return newProject;
 }
