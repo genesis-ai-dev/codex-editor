@@ -3,10 +3,10 @@ import burrito from "../data/OBSTemplate.json";
 
 const createObsSB = (
     username: any,
-    projectFields: { projectName: any; abbreviation: any },
+    projectFields: { projectName: string; abbreviation: string },
     language: any,
-    langCode: any,
-    direction: string,
+    langCode: string,
+    direction: string | undefined,
     copyright: { licence: string | any[] },
     id: any,
 ): Record<string, any> => {

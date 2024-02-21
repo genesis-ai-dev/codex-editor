@@ -10,7 +10,7 @@ export const createObsProject = async (
             description: projectFields.description,
             abbreviation: projectFields.abbreviation,
         },
-        language: projectFields.language,
+        language: projectFields.sourceLanguage,
         copyright: projectFields.copyright,
         importedFiles: [],
         call: "new",
