@@ -202,8 +202,6 @@ function App() {
 
     const [currentMessageThreadId, setCurrentMessageThreadId] =
         useState<string>();
-    const [currentMessageThreadTitle, setCurrentMessageThreadTitle] =
-        useState<string>();
 
     const [availableMessageThreads, setAvailableMessageThreads] =
         useState<ChatMessageThread[]>();
@@ -320,11 +318,25 @@ function App() {
         } as ChatPostMessages);
     }, []);
 
+    useEffect(() => {
+        if (
+            currentMessageThreadId &&
+            availableMessageThreads &&
+            availableMessageThreads?.length > 0
+        ) {
+            setMessageLog(
+                availableMessageThreads.find(
+                    (messageThread) =>
+                        messageThread.id === currentMessageThreadId,
+                )?.messages || [],
+            );
+        }
+    }, [currentMessageThreadId]);
+
     window.addEventListener(
         "message",
         (event: MessageEvent<ChatPostMessages>) => {
             const message = event.data; // The JSON data our extension sent
-            console.log({ event });
             switch (message?.command) {
                 case "select":
                     if (message.textDataWithContext) {
@@ -336,10 +348,6 @@ function App() {
                         } = message.textDataWithContext;
                         setSelectedTextContext(
                             `Reference: ${vrefAtStartOfLine}, Selected: ${selectedText}, Line: ${completeLineContent}`,
-                        );
-                        console.log(
-                            "Selected text context -->",
-                            selectedTextContext,
                         );
                     }
                     break;
@@ -388,17 +396,6 @@ function App() {
 
                         if (!currentMessageThreadId) {
                             setCurrentMessageThreadId(messageThreadIdToUse);
-                            const currentMessageThreadToUse =
-                                messageThreadArray.find(
-                                    (messageThread) =>
-                                        messageThread.id ===
-                                        currentMessageThreadId,
-                                );
-                            if (currentMessageThreadToUse) {
-                                setCurrentMessageThreadTitle(
-                                    currentMessageThreadToUse.threadTitle,
-                                );
-                            }
                         }
 
                         const messageThreadForContext = messageThreadArray.find(
@@ -447,6 +444,10 @@ function App() {
                     title="⨁"
                     onClick={() => {
                         setCurrentMessageThreadId(uuidv4());
+                        setMessageLog([systemMessage]);
+                        // vscode.postMessage({
+                        //     command: "fetchThread",
+                        // } as ChatPostMessages);
                     }}
                     style={{
                         backgroundColor: "var(--vscode-button-background)",
@@ -474,6 +475,7 @@ function App() {
                                 selected={
                                     messageThread.id === currentMessageThreadId
                                 }
+                                value={messageThread.id}
                             >
                                 {messageThread.threadTitle ||
                                     new Date(
@@ -500,7 +502,9 @@ function App() {
             </>
         );
     };
-
+    const currentMessageThreadTitle = availableMessageThreads?.find(
+        (messageThread) => messageThread.id === currentMessageThreadId,
+    )?.threadTitle;
     return (
         <main
             style={{
@@ -524,9 +528,12 @@ function App() {
                     }}
                 >
                     <NavigateChatHistoryButton
-                        callback={(newMessageThreadId) =>
-                            setCurrentMessageThreadId(newMessageThreadId)
-                        }
+                        callback={(newMessageThreadId) => {
+                            setCurrentMessageThreadId(newMessageThreadId);
+                            // vscode.postMessage({
+                            //     command: "fetchThread",
+                            // } as ChatPostMessages);
+                        }}
                     />
                     <ClearChatButton callback={clearChat} />
                 </div>

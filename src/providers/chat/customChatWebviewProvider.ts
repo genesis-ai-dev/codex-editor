@@ -171,12 +171,13 @@ const processFetchResponse = (
                                 const sendChunk = payloadTemp["message"]
                                     ? payloadTemp["message"]["content"]
                                     : payloadTemp["delta"]["content"];
-                                sendChunk &&
+                                if (sendChunk) {
                                     webviewView.webview.postMessage({
                                         command: "response",
                                         finished: false,
                                         text: sendChunk,
                                     } as ChatPostMessages);
+                                }
                             } catch (error) {
                                 if (
                                     error instanceof SyntaxError &&
@@ -315,7 +316,6 @@ export class CustomWebviewProvider {
 
         webviewView.webview.onDidReceiveMessage(
             async (message: ChatPostMessages) => {
-                console.log({ message }, "onDidReceiveMessage in chat");
                 try {
                     switch (message.command) {
                         case "fetch": {
@@ -349,14 +349,12 @@ export class CustomWebviewProvider {
                                 // @ts-expect-error needed
                                 headers["Authorization"] = "Bearer " + apiKey;
                             }
-                            console.log({ data });
                             const response = await fetch(url, {
                                 method: "POST",
                                 headers,
                                 body: JSON.stringify(data),
                                 signal: abortController.signal,
                             });
-                            console.log({ response });
                             await processFetchResponse(webviewView, response);
                             break;
                         }
