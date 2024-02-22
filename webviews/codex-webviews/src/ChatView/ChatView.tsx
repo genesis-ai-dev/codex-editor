@@ -456,35 +456,35 @@ function App() {
                 >
                     <i className="codicon codicon-add"></i>
                 </VSCodeButton>
-                {threadSelectorIsVisable && (
-                    <VSCodeDropdown
-                        value={currentMessageThreadId}
-                        style={{ minWidth: "max-content" }}
-                        // disabled={!selectedBook}
-                        onInput={(e: any) => {
-                            console.log({ e });
-                            console.log((e.target as HTMLSelectElement).value);
-                            setCurrentMessageThreadId(
-                                (e.target as HTMLSelectElement).value,
-                            );
-                        }}
-                    >
-                        {availableMessageThreads?.map((messageThread) => (
-                            <VSCodeOption
-                                key={messageThread.id}
-                                selected={
-                                    messageThread.id === currentMessageThreadId
-                                }
-                                value={messageThread.id}
-                            >
-                                {messageThread.threadTitle ||
-                                    new Date(
-                                        messageThread.createdAt,
-                                    ).toLocaleTimeString()}
-                            </VSCodeOption>
-                        ))}
-                    </VSCodeDropdown>
-                )}
+                {/* {threadSelectorIsVisable && ( */}
+                <VSCodeDropdown
+                    value={currentMessageThreadId}
+                    style={{ minWidth: "max-content" }}
+                    // disabled={!selectedBook}
+                    onInput={(e: any) => {
+                        console.log({ e });
+                        console.log((e.target as HTMLSelectElement).value);
+                        setCurrentMessageThreadId(
+                            (e.target as HTMLSelectElement).value,
+                        );
+                    }}
+                >
+                    {availableMessageThreads?.map((messageThread) => (
+                        <VSCodeOption
+                            key={messageThread.id}
+                            selected={
+                                messageThread.id === currentMessageThreadId
+                            }
+                            value={messageThread.id}
+                        >
+                            {messageThread.threadTitle ||
+                                new Date(
+                                    messageThread.createdAt,
+                                ).toLocaleTimeString()}
+                        </VSCodeOption>
+                    ))}
+                </VSCodeDropdown>
+                {/* )} */}
                 <VSCodeButton
                     aria-label="History"
                     appearance="icon"
