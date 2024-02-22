@@ -391,7 +391,7 @@
                 "properties": {
                     "translators-copilot.llmEndpoint": {
                         "type": "string",
-                        "default": "https://api.openai.com/v1",
+                        "default": "http://localhost:1234/v1",
                         "description": "The endpoint for the completion API. Either OpenAI or local LLM."
                     },
                     "translators-copilot.api_key": {
