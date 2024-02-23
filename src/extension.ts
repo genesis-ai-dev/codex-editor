@@ -524,6 +524,11 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(ResourcesProvider.register(context));
     context.subscriptions.push(StoryOutlineProvider.register(context));
     context.subscriptions.push(ObsEditorProvider.register(context));
+
+    // Make scripture-explorer-activity-bar the active primary sidebar view by default
+    vscode.commands.executeCommand('workbench.action.activityBarLocation.hide');
+    vscode.commands.executeCommand('workbench.view.extension.scripture-explorer-activity-bar');
+    vscode.commands.executeCommand('workbench.action.focusAuxiliaryBar');
 }
 
 export function deactivate(): Thenable<void> {
