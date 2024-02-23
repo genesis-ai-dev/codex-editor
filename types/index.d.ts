@@ -84,3 +84,5 @@ type ChatPostMessages =
       }
     | { command: "fetchThread" }
     | { command: "abort-fetch" };
+    | { command: "openSettings" }
+
