@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { ScriptureTSV } from "./TsvTypes";
 interface ChatMessage {
     role: "system" | "user" | "assistant";
     content: string;
@@ -84,3 +85,7 @@ type ChatPostMessages =
       }
     | { command: "fetchThread" }
     | { command: "abort-fetch" };
+
+type TranslationNotePostMessages =
+    | { command: "update"; data: ScriptureTSV }
+    | { command: "changeRef"; data: VerseRefGlobalState };

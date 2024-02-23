@@ -74,6 +74,7 @@ import { registerDictionarySummaryProvider } from "./providers/dictionaryTable/d
 import { ResourcesProvider } from "./providers/obs/resources/resourcesProvider";
 import { StoryOutlineProvider } from "./providers/obs/storyOutline/storyOutlineProvider";
 import { ObsEditorProvider } from "./providers/obs/editor/ObsEditorProvider";
+import { TranslationNotesProvider } from "./providers/translationNotes/TranslationNotesProvider";
 
 const MIN_PYTHON = semver.parse("3.7.9");
 const ROOT_PATH = getWorkSpaceFolder();
@@ -524,6 +525,7 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(ResourcesProvider.register(context));
     context.subscriptions.push(StoryOutlineProvider.register(context));
     context.subscriptions.push(ObsEditorProvider.register(context));
+    context.subscriptions.push(TranslationNotesProvider.register(context));
 }
 
 export function deactivate(): Thenable<void> {
