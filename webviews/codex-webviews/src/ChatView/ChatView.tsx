@@ -202,7 +202,7 @@ function App() {
     ]);
 
     const [currentMessageThreadId, setCurrentMessageThreadId] =
-        useState<string>();
+        useState<string>(uuidv4());
 
     const [availableMessageThreads, setAvailableMessageThreads] =
         useState<ChatMessageThread[]>();
@@ -264,11 +264,6 @@ function App() {
             content: newMessageTextContent,
             createdAt: new Date().toISOString(),
         };
-        vscode.postMessage({
-            command: "saveMessageToThread",
-            message: pendingMessage,
-            threadId: currentMessageThreadId,
-        } as ChatPostMessages);
         const updatedMessageLog = [...messageLog, pendingMessage];
 
         const contextItemsFromState = contextItems;
@@ -327,13 +322,11 @@ function App() {
 
     useEffect(() => {
         const lastMessageSent = messageLog?.[messageLog.length - 1];
-        if (lastMessageSent && lastMessageSent.role === "assistant") {
-            vscode.postMessage({
-                command: "saveMessageToThread",
-                message: lastMessageSent,
-                threadId: currentMessageThreadId,
-            } as ChatPostMessages);
-        }
+        vscode.postMessage({
+            command: "saveMessageToThread",
+            message: lastMessageSent,
+            threadId: currentMessageThreadId,
+        } as ChatPostMessages);
     }, [messageLog.length]);
 
     useEffect(() => {
@@ -397,7 +390,11 @@ function App() {
                                 ?.id;
                         const messageThreadsExist = !!lastMessageThreadId;
                         if (messageThreadsExist) {
-                            setAvailableMessageThreads(messageThreadArray);
+                            setAvailableMessageThreads(
+                                messageThreadArray.filter(
+                                    (thread) => !thread.deleted,
+                                ),
+                            );
                         }
 
                         let messageThreadIdToUse: string;
@@ -410,9 +407,7 @@ function App() {
                             messageThreadIdToUse = uuidv4();
                         }
 
-                        if (!currentMessageThreadId) {
-                            setCurrentMessageThreadId(messageThreadIdToUse);
-                        }
+                        setCurrentMessageThreadId(messageThreadIdToUse);
 
                         const messageThreadForContext = messageThreadArray.find(
                             (thread) => thread.id === messageThreadIdToUse,
@@ -432,7 +427,15 @@ function App() {
         },
     );
 
+    function markChatThreadAsDeleted(messageThreadIdToMarkAsDeleted: string) {
+        vscode.postMessage({
+            command: "deleteThread",
+            threadId: messageThreadIdToMarkAsDeleted,
+        } as ChatPostMessages);
+    }
+
     function clearChat() {
+        setCurrentMessageThreadId(uuidv4());
         setMessageLog([systemMessage]);
     }
 
@@ -440,7 +443,7 @@ function App() {
         callback: () => void;
     }
 
-    const ClearChatButton: React.FC<ClearChatButtonProps> = ({ callback }) => (
+    const DeleteChatButton: React.FC<ClearChatButtonProps> = ({ callback }) => (
         <DeleteButtonWithConfirmation handleDeleteButtonClick={callback} />
     );
     interface NavigateChatHistoryProps {
@@ -449,9 +452,6 @@ function App() {
     const NavigateChatHistoryButton: React.FC<
         NavigateChatHistoryProps
     > = () => {
-        const [threadSelectorIsVisable, setThreadSelectorIsVisable] =
-            useState(false);
-
         return (
             <>
                 <VSCodeButton
@@ -459,11 +459,7 @@ function App() {
                     appearance="icon"
                     title="⨁"
                     onClick={() => {
-                        setCurrentMessageThreadId(uuidv4());
-                        setMessageLog([systemMessage]);
-                        // vscode.postMessage({
-                        //     command: "fetchThread",
-                        // } as ChatPostMessages);
+                        clearChat();
                     }}
                     style={{
                         backgroundColor: "var(--vscode-button-background)",
@@ -472,47 +468,40 @@ function App() {
                 >
                     <i className="codicon codicon-add"></i>
                 </VSCodeButton>
-                <VSCodeDropdown
-                    value={currentMessageThreadId}
-                    style={{ minWidth: "max-content" }}
-                    // disabled={!selectedBook}
-                    onInput={(e: any) => {
-                        console.log({ e });
-                        console.log((e.target as HTMLSelectElement).value);
-                        setCurrentMessageThreadId(
-                            (e.target as HTMLSelectElement).value,
-                        );
-                    }}
-                >
-                    {availableMessageThreads?.map((messageThread) => (
-                        <VSCodeOption
-                            key={messageThread.id}
-                            selected={
-                                messageThread.id === currentMessageThreadId
-                            }
-                            value={messageThread.id}
+                {availableMessageThreads &&
+                    availableMessageThreads?.length > 0 && (
+                        <VSCodeDropdown
+                            value={currentMessageThreadId}
+                            style={{ minWidth: "max-content" }}
+                            // disabled={!selectedBook}
+                            onInput={(e: any) => {
+                                console.log({ e });
+                                console.log(
+                                    (e.target as HTMLSelectElement).value,
+                                );
+                                setCurrentMessageThreadId(
+                                    (e.target as HTMLSelectElement).value,
+                                );
+                            }}
                         >
-                            {messageThread.threadTitle ||
-                                new Date(
-                                    messageThread.createdAt,
-                                ).toLocaleTimeString()}
-                        </VSCodeOption>
-                    ))}
-                </VSCodeDropdown>
-                <VSCodeButton
-                    aria-label="History"
-                    appearance="icon"
-                    title="📖"
-                    onClick={() =>
-                        setThreadSelectorIsVisable(!threadSelectorIsVisable)
-                    }
-                    style={{
-                        backgroundColor: "var(--vscode-button-background)",
-                        color: "var(--vscode-button-foreground)",
-                    }}
-                >
-                    <i className="codicon codicon-history"></i>
-                </VSCodeButton>
+                            {availableMessageThreads?.map((messageThread) => (
+                                <VSCodeOption
+                                    key={messageThread.id}
+                                    selected={
+                                        messageThread.id ===
+                                        currentMessageThreadId
+                                    }
+                                    value={messageThread.id}
+                                >
+                                    {messageThread.threadTitle ||
+                                        messageThread.messages[0].content ||
+                                        new Date(
+                                            messageThread.createdAt,
+                                        ).toLocaleTimeString()}
+                                </VSCodeOption>
+                            ))}
+                        </VSCodeDropdown>
+                    )}
                 <VSCodeButton
                     aria-label="Settings"
                     appearance="icon"
@@ -556,12 +545,25 @@ function App() {
                     <NavigateChatHistoryButton
                         callback={(newMessageThreadId) => {
                             setCurrentMessageThreadId(newMessageThreadId);
-                            // vscode.postMessage({
-                            //     command: "fetchThread",
-                            // } as ChatPostMessages);
                         }}
                     />
-                    <ClearChatButton callback={clearChat} />
+                    <DeleteChatButton
+                        callback={() => {
+                            markChatThreadAsDeleted(currentMessageThreadId);
+                            const threadIdThatIsNotBeingDeleted =
+                                availableMessageThreads?.find(
+                                    (thread) =>
+                                        thread.id !== currentMessageThreadId,
+                                )?.id;
+                            if (threadIdThatIsNotBeingDeleted) {
+                                setCurrentMessageThreadId(
+                                    threadIdThatIsNotBeingDeleted,
+                                );
+                            } else {
+                                clearChat();
+                            }
+                        }}
+                    />
                 </div>
             </WebviewHeader>
             <div
