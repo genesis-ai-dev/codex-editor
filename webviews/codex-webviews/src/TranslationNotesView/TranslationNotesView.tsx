@@ -9,6 +9,7 @@ import { vscode } from "./utilities/vscode";
 import "./TranslationNotes.css";
 
 import TranslationNoteScroller from "./components/TranslationNoteScroller";
+import { extractBookChapterVerse } from "../../../../src/utils/extractBookChapterVerse";
 import type { TnTSV } from "../../../../types/TsvTypes";
 import type { VerseRefGlobalState } from "../../../../types";
 
@@ -23,21 +24,11 @@ function App() {
     const changeChapterVerse = (ref: VerseRefGlobalState): void => {
         const { verseRef } = ref;
         const { chapter: newChapter, verse: newVerse } =
-            extractChapterVerse(verseRef);
+            extractBookChapterVerse(verseRef);
 
         setChapter(newChapter);
         setVerse(newVerse);
         setNoteIndex(0);
-    };
-
-    const extractChapterVerse = (
-        refString: string,
-    ): { chapter: number; verse: number } => {
-        const match = refString.match(/([A-Za-z]{3}) (\d+):(\d+)/);
-
-        return match
-            ? { chapter: parseInt(match[2], 10), verse: parseInt(match[3], 10) }
-            : { chapter: 1, verse: 1 };
     };
 
     const handleMessage = (event: MessageEvent) => {

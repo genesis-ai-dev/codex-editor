@@ -8,10 +8,13 @@ import {
     TextDocument,
     CancellationToken,
     commands,
+    Uri,
+    ViewColumn,
 } from "vscode";
 import { tsvStringToScriptureTSV } from "./utilities/tsvFileConversions";
 import { TranslationNotesPanel } from "./TranslationNotesPanel";
 import { globalStateEmitter } from "../../globalState";
+import { extractBookChapterVerse } from "../../utils/extractBookChapterVerse";
 import {
     VerseRefGlobalState,
     TranslationNotePostMessages,
@@ -19,6 +22,14 @@ import {
 import { ScriptureTSV } from "../../../types/TsvTypes";
 
 type CommandToFunctionMap = Record<string, (text: string) => void>;
+
+const getTnUri = (bookID: string): Uri => {
+    const workspaceRootUri = workspace.workspaceFolders?.[0].uri as Uri;
+    return Uri.joinPath(
+        workspaceRootUri,
+        `resources/unfoldingWord/tn_${bookID}.tsv`,
+    );
+};
 
 /**
  * Provider for tsv editors.
@@ -39,8 +50,18 @@ export class TranslationNotesProvider implements CustomTextEditorProvider {
         );
 
         const commandRegistration = commands.registerCommand(
-            "translationNotes.openCustomEditor",
-            () => null,
+            "translationNotes.openTnEditor",
+            async (verseRef: string) => {
+                const { bookID } = extractBookChapterVerse(verseRef);
+                const tnUri = getTnUri(bookID);
+
+                commands.executeCommand("vscode.open", tnUri, {
+                    viewColumn: ViewColumn.Beside,
+                    preserveFocus: true,
+                    preview: true,
+                    viewType: TranslationNotesProvider.viewType,
+                });
+            },
         );
 
         return { providerRegistration, commandRegistration };

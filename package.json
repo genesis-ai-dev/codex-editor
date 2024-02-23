@@ -362,6 +362,10 @@
             {
                 "command": "dictionaryTable.showDictionaryTable",
                 "title": "Dictionary Table: Show"
+            },
+            {
+                "command": "translationNotes.openTnEditor",
+                "title": "Open Translation Notes"
             }
         ],
         "notebooks": [
