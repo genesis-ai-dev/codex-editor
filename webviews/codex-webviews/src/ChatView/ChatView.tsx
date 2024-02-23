@@ -312,7 +312,14 @@ function App() {
         }
     }
 
+    function handleSettingsButtonClick() {
+        vscode.postMessage({
+            command: "openSettings",
+        } as ChatPostMessages);
+    }
+
     useEffect(() => {
+        // FIXME: add a progress ring while fetching threads
         vscode.postMessage({
             command: "fetchThread",
         } as ChatPostMessages);
@@ -344,6 +351,7 @@ function App() {
         }
     }, [currentMessageThreadId]);
 
+    // FIXME: use loading state to show/hide a progress ring while
     window.addEventListener(
         "message",
         (event: MessageEvent<ChatPostMessages>) => {
@@ -464,7 +472,6 @@ function App() {
                 >
                     <i className="codicon codicon-add"></i>
                 </VSCodeButton>
-                {/* {threadSelectorIsVisable && ( */}
                 <VSCodeDropdown
                     value={currentMessageThreadId}
                     style={{ minWidth: "max-content" }}
@@ -492,7 +499,6 @@ function App() {
                         </VSCodeOption>
                     ))}
                 </VSCodeDropdown>
-                {/* )} */}
                 <VSCodeButton
                     aria-label="History"
                     appearance="icon"
@@ -506,6 +512,18 @@ function App() {
                     }}
                 >
                     <i className="codicon codicon-history"></i>
+                </VSCodeButton>
+                <VSCodeButton
+                    aria-label="Settings"
+                    appearance="icon"
+                    title="⚙️"
+                    onClick={handleSettingsButtonClick}
+                    style={{
+                        backgroundColor: "var(--vscode-button-background)",
+                        color: "var(--vscode-button-foreground)",
+                    }}
+                >
+                    <i className="codicon codicon-settings-gear"></i>
                 </VSCodeButton>
             </>
         );
