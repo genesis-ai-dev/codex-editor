@@ -276,7 +276,6 @@ function App() {
                 contextItems: contextItemsFromState,
             }),
         ];
-        console.log("Formatted prompt -->", formattedPrompt);
         setMessageLog(updatedMessageLog);
         vscode.postMessage({
             command: "fetch",
@@ -358,9 +357,19 @@ function App() {
                             selectedText,
                             vrefAtStartOfLine,
                         } = message.textDataWithContext;
-                        setSelectedTextContext(
-                            `Reference: ${vrefAtStartOfLine}, Selected: ${selectedText}, Line: ${completeLineContent}`,
-                        );
+
+                        const strippedCompleteLineContent = vrefAtStartOfLine
+                            ? completeLineContent
+                                  ?.replace(vrefAtStartOfLine, "")
+                                  .trim()
+                            : completeLineContent?.trim();
+
+                        const selectedTextContextString =
+                            selectedText !== ""
+                                ? `${selectedText} (${vrefAtStartOfLine})`
+                                : `${strippedCompleteLineContent} (${vrefAtStartOfLine})`;
+
+                        setSelectedTextContext(selectedTextContextString);
                     }
                     break;
                 case "response": {

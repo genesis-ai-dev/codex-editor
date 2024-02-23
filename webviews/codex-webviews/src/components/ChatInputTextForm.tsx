@@ -1,6 +1,7 @@
 import React from "react";
 import {
     VSCodeButton,
+    VSCodeTextArea,
     VSCodeTextField,
 } from "@vscode/webview-ui-toolkit/react";
 import { ContextItemList } from "./ContextItemList";
@@ -47,27 +48,38 @@ export const ChatInputTextForm: React.FC<CommentTextFormProps> = ({
                     width: "100%",
                 }}
             >
-                    <ContextItemList contextItems={contextItems} />
+                <ContextItemList contextItems={contextItems} />
                 {selectedText && (
-                    <>
-                        Text selected in editor:
-                        <VSCodeTextField
+                    <div
+                        style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "stretch",
+                            gap: "0.5em",
+                            width: "100%",
+                        }}
+                    >
+                        <i
+                            className="codicon codicon-whole-word"
+                            title="Selected Text Indicator"
+                        ></i>
+                        <VSCodeTextArea
                             readOnly
-                            // cols={1000}
                             title="Selected Text"
+                            cols={1000}
                             value={selectedText}
-                            placeholder="Selected Text..."
-                            // style={{ flexGrow: 1 }}
-                        ></VSCodeTextField>
-                    </>
+                            placeholder="Select some text in the editor..."
+                        ></VSCodeTextArea>
+                    </div>
                 )}
             </div>
             <div
                 style={{
                     display: "flex",
                     flexDirection: "row",
-                    gap: "0.5em",
+                    gap: "0.25em",
                     width: "100%",
+                    paddingBottom: "0.5em",
                 }}
             >
                 <VSCodeButton
