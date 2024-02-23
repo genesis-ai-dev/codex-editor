@@ -148,6 +148,8 @@ const processFetchResponse = async (
     const decoder = new TextDecoder("utf-8");
     let buffer = "";
 
+    let lastPostMessageTime = 0; // Variable to save the last time postMessage was called
+
     const done = false;
     while (!done) {
         const { done, value } = await reader.read();
@@ -170,14 +172,24 @@ const processFetchResponse = async (
                         ? payloadTemp["message"]["content"]
                         : payloadTemp["delta"]["content"];
                     if (sendChunk) {
+                        const currentTime = Date.now();
+                        const timeSinceLastMessageInMs =
+                            currentTime - lastPostMessageTime;
+                        const bufferTimeInMs = 10;
+                        if (timeSinceLastMessageInMs < bufferTimeInMs) {
+                            await new Promise((resolve) =>
+                                setTimeout(
+                                    resolve,
+                                    bufferTimeInMs - timeSinceLastMessageInMs,
+                                ),
+                            );
+                        }
                         await webviewView.webview.postMessage({
                             command: "response",
                             finished: false,
                             text: sendChunk,
                         } as ChatPostMessages);
-                        await new Promise((resolve) =>
-                            setTimeout(resolve, 100),
-                        );
+                        lastPostMessageTime = Date.now(); // Update the last postMessage time
                     }
                 } catch (error) {
                     console.error("Error parsing JSON:", error);
