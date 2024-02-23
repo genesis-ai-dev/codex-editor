@@ -77,8 +77,8 @@ type ChatPostMessages =
     | { command: "fetch"; messages: string }
     | { command: "notifyUserError"; message: string }
     | {
-          command: "saveMessageToThread";
-          message: ChatMessageWithContext;
+          command: "updateMessageThread";
+          messages: ChatMessageWithContext[];
           threadId: string;
           threadTitle?: string;
       }

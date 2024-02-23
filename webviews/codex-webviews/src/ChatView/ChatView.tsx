@@ -321,10 +321,9 @@ function App() {
     }, []);
 
     useEffect(() => {
-        const lastMessageSent = messageLog?.[messageLog.length - 1];
         vscode.postMessage({
-            command: "saveMessageToThread",
-            message: lastMessageSent,
+            command: "updateMessageThread",
+            messages: messageLog,
             threadId: currentMessageThreadId,
         } as ChatPostMessages);
     }, [messageLog.length]);
@@ -472,7 +471,7 @@ function App() {
                     availableMessageThreads?.length > 0 && (
                         <VSCodeDropdown
                             value={currentMessageThreadId}
-                            style={{ minWidth: "max-content" }}
+                            style={{ maxWidth: 200 }}
                             // disabled={!selectedBook}
                             onInput={(e: any) => {
                                 console.log({ e });
@@ -482,24 +481,34 @@ function App() {
                                 setCurrentMessageThreadId(
                                     (e.target as HTMLSelectElement).value,
                                 );
+                                vscode.postMessage({
+                                    command: "fetchThread",
+                                } as ChatPostMessages);
                             }}
                         >
-                            {availableMessageThreads?.map((messageThread) => (
-                                <VSCodeOption
-                                    key={messageThread.id}
-                                    selected={
-                                        messageThread.id ===
-                                        currentMessageThreadId
-                                    }
-                                    value={messageThread.id}
-                                >
-                                    {messageThread.threadTitle ||
-                                        messageThread.messages[0].content ||
-                                        new Date(
-                                            messageThread.createdAt,
-                                        ).toLocaleTimeString()}
-                                </VSCodeOption>
-                            ))}
+                            {availableMessageThreads?.map((messageThread) => {
+                                const firstUserMessage =
+                                    messageThread.messages.find(
+                                        (message) => message.role === "user",
+                                    )?.content;
+
+                                return (
+                                    <VSCodeOption
+                                        key={messageThread.id}
+                                        selected={
+                                            messageThread.id ===
+                                            currentMessageThreadId
+                                        }
+                                        value={messageThread.id}
+                                    >
+                                        {messageThread.threadTitle ||
+                                            firstUserMessage ||
+                                            new Date(
+                                                messageThread.createdAt,
+                                            ).toLocaleTimeString()}
+                                    </VSCodeOption>
+                                );
+                            })}
                         </VSCodeDropdown>
                     )}
                 <VSCodeButton
