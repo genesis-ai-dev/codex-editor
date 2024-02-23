@@ -3,7 +3,7 @@
 import * as vscode from "vscode";
 import { CodexKernel } from "./controller";
 import { CodexContentSerializer } from "./serializer";
-import { checkServerHeartbeat } from "./pygls_commands/textSelectionHandler";
+import { checkServerHeartbeat } from "./handlers/textSelectionHandler";
 
 import {
     NOTEBOOK_TYPE,

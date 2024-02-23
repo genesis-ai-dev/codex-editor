@@ -256,6 +256,7 @@ export class CustomWebviewProvider {
     }
 
     saveSelectionChanges(webviewView: vscode.WebviewView) {
+        // FIXME: let's get rid of this function and use global state via textSelectionHandler.ts
         const activeEditor = vscode.window.activeTextEditor;
         if (activeEditor) {
             this.selectionChangeListener =
