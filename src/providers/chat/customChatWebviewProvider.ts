@@ -370,20 +370,44 @@ export class CustomWebviewProvider {
                             }
                             break;
 
+                        case "deleteThread": {
+                            const fileName = "chat-threads.json";
+                            const exitingMessages =
+                                await getChatMessagesFromFile(fileName);
+                            const messageThreadId = message.threadId;
+                            const threadToMarkAsDeleted:
+                                | ChatMessageThread
+                                | undefined = exitingMessages.find(
+                                (thread) => thread.id === messageThreadId,
+                            );
+                            if (threadToMarkAsDeleted) {
+                                threadToMarkAsDeleted.deleted = true;
+                                await writeSerializedData(
+                                    JSON.stringify(exitingMessages, null, 4),
+                                    fileName,
+                                );
+                            }
+                            sendChatThreadToWebview(webviewView);
+                            break;
+                        }
                         case "fetchThread": {
                             sendChatThreadToWebview(webviewView);
                             break;
                         }
                         case "saveMessageToThread": {
                             const fileName = "chat-threads.json";
+                            if (!message.message) {
+                                break;
+                            }
                             const exitingMessages =
                                 await getChatMessagesFromFile(fileName);
                             const messageThreadId = message.threadId;
                             let threadToSaveMessage:
                                 | ChatMessageThread
                                 | undefined = exitingMessages.find(
-                                    (thread) => thread.id === messageThreadId,
-                                );
+                                (thread) => thread.id === messageThreadId,
+                            );
+
                             if (threadToSaveMessage) {
                                 threadToSaveMessage.messages.push(
                                     message.message,

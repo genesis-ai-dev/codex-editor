@@ -82,7 +82,7 @@ type ChatPostMessages =
           threadId: string;
           threadTitle?: string;
       }
+    | { command: "deleteThread"; threadId: string }
     | { command: "fetchThread" }
-    | { command: "abort-fetch" };
-    | { command: "openSettings" }
-
+    | { command: "abort-fetch" }
+    | { command: "openSettings" };
