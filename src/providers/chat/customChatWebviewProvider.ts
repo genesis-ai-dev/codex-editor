@@ -27,7 +27,7 @@ const sendChatThreadToWebview = async (webviewView: vscode.WebviewView) => {
     console.log({ workspaceFolders });
     const filePath = workspaceFolders
         ? vscode.Uri.joinPath(workspaceFolders[0].uri, "chat-threads.json") // fix this so it is a diffent note book
-            .fsPath
+              .fsPath
         : "";
     try {
         const uri = vscode.Uri.file(filePath);
@@ -108,8 +108,9 @@ const loadWebviewHtml = (
       Use a content security policy to only allow loading images from https or from our extension directory,
       and only allow scripts that have a specific nonce.
     -->
-    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${webviewView.webview.cspSource
-        }; script-src 'nonce-${nonce}';">
+    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${
+        webviewView.webview.cspSource
+    }; script-src 'nonce-${nonce}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="${styleResetUri}" rel="stylesheet">
     <link href="${styleVSCodeUri}" rel="stylesheet">
@@ -261,14 +262,14 @@ export class CustomWebviewProvider {
                 vscode.window.onDidChangeTextEditorSelection((e) => {
                     if (e.textEditor === activeEditor) {
                         const selectedTextDataToAddToChat: SelectedTextDataWithContext =
-                        {
-                            selection: activeEditor.document.getText(
-                                e.selections[0],
-                            ),
-                            completeLineContent: null,
-                            vrefAtStartOfLine: null,
-                            selectedText: "placeHolder test",
-                        };
+                            {
+                                selection: activeEditor.document.getText(
+                                    e.selections[0],
+                                ),
+                                completeLineContent: null,
+                                vrefAtStartOfLine: null,
+                                selectedText: "placeHolder test",
+                            };
 
                         const selectedText = activeEditor.document.getText(
                             e.selections[0],
@@ -394,9 +395,12 @@ export class CustomWebviewProvider {
                             sendChatThreadToWebview(webviewView);
                             break;
                         }
-                        case "saveMessageToThread": {
+                        case "updateMessageThread": {
                             const fileName = "chat-threads.json";
-                            if (!message.message) {
+                            if (
+                                !message.messages ||
+                                message.messages.length < 1
+                            ) {
                                 break;
                             }
                             const exitingMessages =
@@ -409,9 +413,7 @@ export class CustomWebviewProvider {
                             );
 
                             if (threadToSaveMessage) {
-                                threadToSaveMessage.messages.push(
-                                    message.message,
-                                );
+                                threadToSaveMessage.messages = message.messages;
                                 await writeSerializedData(
                                     JSON.stringify(exitingMessages, null, 4),
                                     fileName,
@@ -421,7 +423,7 @@ export class CustomWebviewProvider {
                                     id: messageThreadId,
                                     canReply: true,
                                     collapsibleState: 0,
-                                    messages: [message.message],
+                                    messages: message.messages,
                                     deleted: false,
                                     threadTitle: message.threadTitle,
                                     createdAt: new Date().toISOString(),
@@ -443,7 +445,7 @@ export class CustomWebviewProvider {
                         case "openSettings": {
                             vscode.commands.executeCommand(
                                 "workbench.action.openSettings",
-                                "@translators-copilot"
+                                "@translators-copilot",
                             );
                             break;
                         }
