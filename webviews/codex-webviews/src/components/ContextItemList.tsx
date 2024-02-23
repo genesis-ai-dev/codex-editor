@@ -24,6 +24,10 @@ export const ContextItemList: React.FC<ContextItemListProps> = ({
                 }}
             >
                 <VSCodeLink onClick={toggleCollapse}>
+                    <i
+                        className="codicon codicon-quote"
+                        title="Selected Text Indicator"
+                    ></i>
                     {isCollapsed ? "Show Context Items" : "Hide Context Items"}
                 </VSCodeLink>
                 {!isCollapsed && (
