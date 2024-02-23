@@ -319,6 +319,17 @@ function App() {
     }, []);
 
     useEffect(() => {
+        const lastMessageSent = messageLog?.[messageLog.length - 1];
+        if (lastMessageSent && lastMessageSent.role === "assistant") {
+            vscode.postMessage({
+                command: "saveMessageToThread",
+                message: lastMessageSent,
+                threadId: currentMessageThreadId,
+            } as ChatPostMessages);
+        }
+    }, [messageLog.length]);
+
+    useEffect(() => {
         if (
             currentMessageThreadId &&
             availableMessageThreads &&
@@ -339,6 +350,7 @@ function App() {
             const message = event.data; // The JSON data our extension sent
             switch (message?.command) {
                 case "select":
+                    // FIXME: this is being invoked every time a new token is rendered
                     if (message.textDataWithContext) {
                         console.log("Received a select command", message);
                         const {
@@ -351,7 +363,7 @@ function App() {
                         );
                     }
                     break;
-                case "response":
+                case "response": {
                     if (!message.finished) {
                         const messageContent =
                             (pendingMessage?.content || "") +
@@ -363,16 +375,12 @@ function App() {
                         });
                     } else {
                         if (pendingMessage) {
-                            vscode.postMessage({
-                                command: "saveMessageToThread",
-                                message: pendingMessage,
-                                threadId: currentMessageThreadId,
-                            } as ChatPostMessages);
                             setMessageLog([...messageLog, pendingMessage]);
                         }
                         setPendingMessage(undefined);
                     }
                     break;
+                }
                 case "threadsFromWorkspace":
                     if (message.content) {
                         const messageThreadArray = message.content;

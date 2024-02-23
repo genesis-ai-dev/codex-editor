@@ -137,75 +137,70 @@ const sendFinishMessage = (webviewView: vscode.WebviewView) => {
     } as ChatPostMessages);
 };
 
-const processFetchResponse = (
+const processFetchResponse = async (
     webviewView: vscode.WebviewView,
     response: Response,
 ) => {
-    return new Promise<void>((resolve, reject) => {
-        try {
-            const reader = response?.body?.getReader();
-            // console.log({ reader });
-            const decoder = new TextDecoder("utf-8");
-            reader
-                ?.read()
-                .then(function processText({
-                    done,
-                    value,
-                }): Promise<any | undefined> {
-                    if (done) {
-                        sendFinishMessage(webviewView);
-                        resolve();
-                        return Promise.resolve();
-                    }
-                    const chunk = decoder.decode(value);
-                    // Split using 'data:'
-                    const chunkArray = chunk.split("data:");
-                    // console.log({ chunkArray });
-                    chunkArray.forEach((jsonString) => {
-                        jsonString = jsonString.trim();
-                        // Check if the split string is empty
-                        if (jsonString.length > 0) {
-                            try {
-                                const payload = JSON.parse(jsonString);
-                                const payloadTemp = payload["choices"]?.[0];
-                                const sendChunk = payloadTemp["message"]
-                                    ? payloadTemp["message"]["content"]
-                                    : payloadTemp["delta"]["content"];
-                                if (sendChunk) {
-                                    webviewView.webview.postMessage({
-                                        command: "response",
-                                        finished: false,
-                                        text: sendChunk,
-                                    } as ChatPostMessages);
-                                }
-                            } catch (error) {
-                                if (
-                                    error instanceof SyntaxError &&
-                                    error.message.includes(
-                                        "Unexpected token 'D'",
-                                    )
-                                ) {
-                                    console.log(
-                                        "Error: Received a '[DONE]' message which is not valid JSON.",
-                                    );
-                                    webviewView.webview.postMessage({
-                                        command: "response",
-                                        finished: true,
-                                        text: "Processing complete.",
-                                    } as ChatPostMessages);
-                                } else {
-                                    console.log("Error:", error);
-                                }
-                            }
-                        }
-                    });
-                    return reader.read().then(processText);
-                })
-                .catch(reject);
-        } catch (error) {
-            reject(error);
+    if (!response.body) {
+        throw new Error("Response body is null");
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+
+    const done = false;
+    while (!done) {
+        const { done, value } = await reader.read();
+        if (done) {
+            break;
         }
-    });
+        buffer += decoder.decode(value, { stream: true });
+
+        while (buffer.includes("\n")) {
+            const newlineIndex = buffer.indexOf("\n");
+            const rawLine = buffer.slice(0, newlineIndex).trim();
+            buffer = buffer.slice(newlineIndex + 1);
+
+            if (rawLine.startsWith("data: ") && !rawLine.includes("[DONE]")) {
+                const jsonLine = rawLine.replace(/^data: /, "");
+                try {
+                    const parsedLine = JSON.parse(jsonLine);
+                    const payloadTemp = parsedLine["choices"]?.[0];
+                    const sendChunk = payloadTemp["message"]
+                        ? payloadTemp["message"]["content"]
+                        : payloadTemp["delta"]["content"];
+                    if (sendChunk) {
+                        await webviewView.webview.postMessage({
+                            command: "response",
+                            finished: false,
+                            text: sendChunk,
+                        } as ChatPostMessages);
+                        await new Promise((resolve) =>
+                            setTimeout(resolve, 100),
+                        );
+                    }
+                } catch (error) {
+                    console.error("Error parsing JSON:", error);
+                }
+            }
+        }
+    }
+
+    if (buffer.trim()) {
+        console.log({ buffer });
+        try {
+            const parsedLine = JSON.parse(buffer.trim().replace(/^data: /, ""));
+            await webviewView.webview.postMessage({
+                command: "response",
+                finished: true,
+                text: parsedLine,
+            } as ChatPostMessages);
+        } catch (error) {
+            console.error("Error parsing JSON:", error);
+        }
+    }
+
+    sendFinishMessage(webviewView);
 };
 
 export class CustomWebviewProvider {
