@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { VSCodeLink, VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { VSCodeLink } from "@vscode/webview-ui-toolkit/react";
 
 type ContextItemListProps = {
     contextItems: string[];
@@ -40,6 +40,6 @@ export const ContextItemList: React.FC<ContextItemListProps> = ({
                     </div>
                 )}
             </div>
-        )) || <div>No additional context items</div>
+        )) || <div className="No-additional-context-items-found" />
     );
 };
