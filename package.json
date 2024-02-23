@@ -528,6 +528,16 @@
                         "filenamePattern": "**/ingredients/??.md"
                     }
                 ]
+            },
+            {
+                "viewType": "codex.translationNotesEditor",
+                "displayName": "Translation Note TSV Editor",
+                "selector": [
+                    {
+                        "filenamePattern": "*.tsv"
+                    }
+                ],
+                "priority": "default"
             }
         ]
     },
@@ -568,6 +578,7 @@
     "dependencies": {
         "@vscode/codicons": "^0.0.35",
         "@vscode/python-extension": "^1.0.5",
+        "bible-reference-range": "^1.1.1",
         "codex-types": "^0.0.2",
         "html-loader": "^4.2.0",
         "jszip": "^3.10.1",
