@@ -37,7 +37,7 @@ function messageWithContext({
     selectedText?: string;
     contextItems?: string[];
 }): ChatMessageWithContext {
-    let content = `### Instructions:\nPlease use the context below to respond to the user's message. If you know the answer, be concise. If the answer is in the context, please quote the wording of the source. If the answer is not in the context, avoid making up anything.`;
+    let content = `### Instructions:\nPlease use the context below to respond to the user's message. If you know the answer, be concise. If the answer is in the context, please quote the wording of the source. If the answer is not in the context, avoid making up anything, but you can use general Bible knowledge from a devout Christian perspective.`;
 
     if (selectedText || (contextItems && contextItems?.length > 0)) {
         content += `\n\n### Context:`;
@@ -176,7 +176,8 @@ const MessageItem: React.FC<MessageItemProps> = ({
 function App() {
     const systemMessage: ChatMessageWithContext = {
         role: "system",
-        content: "You are are helpful Bible translation assistant.",
+        content:
+            "This is a chat between a helpful Bible translation assistant and a Bible translator. The assistant will provide helpful answers and suggestions to the translator, often relying on the translator's current project and reference resources. The translator will ask questions and provide context to the assistant. The translator's aim is to be consistent and faithful in a fairly literalistic rendering of the source text.",
         createdAt: new Date().toISOString(),
         // TODO: allow user to modify the system message
     };
@@ -225,7 +226,6 @@ function App() {
                 throw new Error(`Server error: ${response.status}`);
             }
             const data = await response.json();
-            console.log("fhe8w9hew98h Context items response -->", response);
             if (!Array.isArray(data) || data.length === 0) {
                 return [];
             }

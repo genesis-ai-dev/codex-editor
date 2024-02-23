@@ -1,9 +1,9 @@
 import React from "react";
 import {
     VSCodeButton,
-    VSCodeTextArea,
     VSCodeTextField,
 } from "@vscode/webview-ui-toolkit/react";
+import { ContextItemList } from "./ContextItemList";
 
 type CommentTextFormProps = {
     handleSubmit: (comment: string) => void;
@@ -47,20 +47,7 @@ export const ChatInputTextForm: React.FC<CommentTextFormProps> = ({
                     width: "100%",
                 }}
             >
-                {contextItems.length > 0 && (
-                        <>Relevant content from resources</>
-                    ) &&
-                    contextItems.map((currentContextItem) => (
-                        <VSCodeTextArea
-                            readOnly
-                            cols={1000}
-                            title="Context Items"
-                            value={currentContextItem}
-                            placeholder="Context Items..."
-                            // style={{ flexGrow: 1, marginBottom: "0.5em" }}
-                        />
-                    ))}
-
+                    <ContextItemList contextItems={contextItems} />
                 {selectedText && (
                     <>
                         Text selected in editor:
