@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
-
-
-
+import { updateGlobalState } from "../globalState";
+import { extractVerseRefFromLine } from "../utils/verseRefUtils";
 
 export async function checkServerHeartbeat(context: vscode.ExtensionContext) {
     try {
@@ -29,6 +28,30 @@ export async function checkServerHeartbeat(context: vscode.ExtensionContext) {
 export function registerTextSelectionHandler(context: vscode.ExtensionContext, callback: CallableFunction): any {
     let selectionTimeout: ReturnType<typeof setTimeout> | undefined;
     context.subscriptions.push(vscode.window.onDidChangeTextEditorSelection(async (event: vscode.TextEditorSelectionChangeEvent) => {
+        const activeEditor = vscode.window.activeTextEditor;
+
+        if (activeEditor) {
+            const currentLine = activeEditor.document.lineAt(
+                event.selections[0].active,
+            );
+            const completeLineContent =
+                currentLine.text;
+            const currentLineVref = extractVerseRefFromLine(completeLineContent);
+            const currentLineSelection = event.textEditor.document.getText(event.selections[0]);
+            // FIXME: somethings wrong with the type or the values here.. otherwise why duplicate like this?
+            const selectedText: string = event.textEditor.document.getText(event.selections[0]);
+            // Update global state with the selected line content
+            updateGlobalState(context, {
+                key: "currentLineSelection",
+                value: {
+                    selection: currentLineSelection,
+                    completeLineContent,
+                    vrefAtStartOfLine: currentLineVref,
+                    selectedText: selectedText,
+                }
+            });
+        }
+
         if (selectionTimeout) {
             clearTimeout(selectionTimeout);
         }
@@ -40,7 +63,7 @@ export function registerTextSelectionHandler(context: vscode.ExtensionContext, c
                 fetch(`http://localhost:5554/search?db_name=drafts&query=${encodeURIComponent(selectedText)}&limit=5`)
                     .then((response: Response) => response.json())
                     .then((data: any) => {
-                       callback(data);
+                        callback(data);
                     })
                     .catch((error: any) => {
                         console.error('Error performing search:', error);
