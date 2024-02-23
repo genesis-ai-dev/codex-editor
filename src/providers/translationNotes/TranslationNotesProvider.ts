@@ -7,6 +7,7 @@ import {
     workspace,
     TextDocument,
     CancellationToken,
+    commands,
 } from "vscode";
 import { tsvStringToScriptureTSV } from "./utilities/tsvFileConversions";
 import { TranslationNotesPanel } from "./TranslationNotesPanel";
@@ -27,13 +28,22 @@ type CommandToFunctionMap = Record<string, (text: string) => void>;
  *
  */
 export class TranslationNotesProvider implements CustomTextEditorProvider {
-    public static register(context: ExtensionContext): Disposable {
+    public static register(context: ExtensionContext): {
+        providerRegistration: Disposable;
+        commandRegistration: Disposable;
+    } {
         const provider = new TranslationNotesProvider(context);
         const providerRegistration = window.registerCustomEditorProvider(
             TranslationNotesProvider.viewType,
             provider,
         );
-        return providerRegistration;
+
+        const commandRegistration = commands.registerCommand(
+            "translationNotes.openCustomEditor",
+            () => null,
+        );
+
+        return { providerRegistration, commandRegistration };
     }
 
     private static readonly viewType = "codex.translationNotesEditor";
