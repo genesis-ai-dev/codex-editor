@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import "../App.css";
 import { NotebookCommentThread, CommentPostMessages } from "../../../../types";
-import VerseRefNavigation from "../components/verseRefNavigation";
+import VerseRefNavigation from "../components/VerseRefNavigation";
 import UpdateAndViewCommentThreadTitle from "../components/UpdateAndViewCommentThreadTitle";
 import CommentViewSlashEditorSlashDelete from "../components/CommentViewSlashEditorSlashDelete";
 import {
