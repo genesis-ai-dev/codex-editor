@@ -48,16 +48,7 @@ const VerseRefNavigation: React.FC<VerseRefNavigationProps> = ({
             callback(newVerseRef);
         }
     }, [selectedVerse, selectedBook, selectedChapter, callback]);
-    console.log({
-        selectedBook,
-        selectedChapter,
-        selectedVerse,
-        book,
-        chapterAndVerse,
-        chapter,
-        verse,
-        verseRef,
-    });
+
     return (
         <div
             className="navigation-bar"

@@ -17,7 +17,7 @@ git clone https://github.com/genesis-ai-dev/codex-editor.git
 cd codex-editor
 ```
 
-Make sure you have the python extension loaded into vsCode
+Make sure you have the following  extension loaded into vsCode:  python and scripture-language-support, 
 
 ```bash
 

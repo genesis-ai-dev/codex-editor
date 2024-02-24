@@ -7,9 +7,11 @@ import { vrefData } from "../utils/verseRefUtils/verseData";
 import { getProjectMetadata } from '../utils';
 
 export class Node extends vscode.TreeItem {
+    public children?: Node[]; // Modified line
+
     constructor(
         public readonly label: string,
-        public readonly type: "notebook" | "chapter",
+        public readonly type: "grouping" | "notebook" | "chapter",
         public readonly collapsibleState: vscode.TreeItemCollapsibleState,
         public readonly command?: vscode.Command,
     ) {
@@ -34,16 +36,13 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
         return element;
     }
 
-    async getChildren(element?: Node): Promise<Node[]> {
+    async getChildren(element?: Node): Promise<Node[] | undefined> {
         if (!this.workspaceRoot) {
             vscode.window.showInformationMessage(
                 "No notebooks in empty workspace",
             );
             return Promise.resolve([]);
         }
-
-        // Retrieve project metadata
-        const projectMetadata = await getProjectMetadata();
 
         if (element) {
             if (element.type === "notebook") {
@@ -56,6 +55,8 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
                 );
                 const chapters = this.getChaptersInNotebook(notebookPath);
                 return Promise.resolve(chapters);
+            } else if (element.type === "grouping") {
+                return Promise.resolve(element.children);
             } else {
                 // Handle the case when element.type is not 'notebook'
                 return Promise.resolve([]);
@@ -68,12 +69,12 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
                 "drafts",
                 "target",
             );
-            const notebooks = this.getNotebooksInDirectory(notebooksPath);
+            const notebooks = this.getNotebooksByTestamentInDirectory(notebooksPath);
             return Promise.resolve(notebooks);
         }
     }
 
-    private async getNotebooksInDirectory(dirPath: string): Promise<Node[]> {
+    private async getNotebooksByTestamentInDirectory(dirPath: string): Promise<Node[]> {
         try {
             const files = await vscode.workspace.fs.readDirectory(
                 vscode.Uri.file(dirPath),
@@ -103,7 +104,15 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
                 return indexA - indexB;
             });
 
-            return notebooks;
+            const OTNotebooks = notebooks.slice(0, 39); // Genesis to Malachi
+            const NTNotebooks = notebooks.slice(39); // Matthew to Revelation
+
+            const OTNode = new Node("Old Testament", "grouping", vscode.TreeItemCollapsibleState.Collapsed, undefined);
+            const NTNode = new Node("New Testament", "grouping", vscode.TreeItemCollapsibleState.Expanded, undefined);
+
+            OTNode.children = OTNotebooks;
+            NTNode.children = NTNotebooks;
+            return [OTNode, NTNode];
         } catch (error) {
             vscode.window.showErrorMessage(
                 `Error reading directory: ${dirPath}`,
