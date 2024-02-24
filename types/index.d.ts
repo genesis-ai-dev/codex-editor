@@ -6,6 +6,7 @@ interface ChatMessage {
 
 interface ChatMessageWithContext extends ChatMessage {
     context?: any; // FixMe: discuss what context could be. Cound it be a link to a note?
+    createdAt: string;
 }
 
 interface FrontEndMessage {
@@ -15,6 +16,7 @@ interface FrontEndMessage {
     };
 }
 type CommentThread = vscode.CommentThread;
+
 interface ChatMessageThread {
     id: string;
     messages: ChatMessageWithContext[];
@@ -22,6 +24,7 @@ interface ChatMessageThread {
     canReply: boolean;
     threadTitle?: string;
     deleted: boolean;
+    createdAt: string;
 }
 
 interface NotebookCommentThread {
@@ -73,6 +76,13 @@ type ChatPostMessages =
     | { command: "select"; textDataWithContext: SelectedTextDataWithContext }
     | { command: "fetch"; messages: string }
     | { command: "notifyUserError"; message: string }
-    | { command: "saveMessageToThread"; message: ChatMessage; threadId: string }
+    | {
+          command: "updateMessageThread";
+          messages: ChatMessageWithContext[];
+          threadId: string;
+          threadTitle?: string;
+      }
+    | { command: "deleteThread"; threadId: string }
     | { command: "fetchThread" }
-    | { command: "abort-fetch" };
+    | { command: "abort-fetch" }
+    | { command: "openSettings" };

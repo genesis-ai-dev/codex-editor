@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 
-const EditAndDeleteOptions: React.FC<{
+const DeleteButtonWithConfirmation: React.FC<{
     handleDeleteButtonClick: () => void;
 }> = ({ handleDeleteButtonClick }) => {
     const [showConfirmation, setShowConfirmation] = useState(false);
@@ -37,9 +37,8 @@ const EditAndDeleteOptions: React.FC<{
             ) : (
                 <div
                     style={{
-                        border: "1px solid var(--vscode-button-foreground)",
-                        padding: "10px",
                         borderRadius: "5px",
+                        backgroundColor: "var(--vscode-errorForeground)",
                         display: "flex",
                         gap: "10px",
                     }}
@@ -76,4 +75,4 @@ const EditAndDeleteOptions: React.FC<{
     );
 };
 
-export default EditAndDeleteOptions;
+export default DeleteButtonWithConfirmation;

@@ -1,6 +1,8 @@
 import * as vscode from "vscode";
 import {
+    ChatMessage,
     ChatMessageThread,
+    ChatMessageWithContext,
     ChatPostMessages,
     SelectedTextDataWithContext,
 } from "../../../types";
@@ -135,74 +137,82 @@ const sendFinishMessage = (webviewView: vscode.WebviewView) => {
     } as ChatPostMessages);
 };
 
-const processFetchResponse = (
+const processFetchResponse = async (
     webviewView: vscode.WebviewView,
     response: Response,
 ) => {
-    return new Promise<void>((resolve, reject) => {
-        try {
-            const reader = response?.body?.getReader();
-            // console.log({ reader });
-            const decoder = new TextDecoder("utf-8");
-            reader
-                ?.read()
-                .then(function processText({
-                    done,
-                    value,
-                }): Promise<any | undefined> {
-                    if (done) {
-                        sendFinishMessage(webviewView);
-                        resolve();
-                        return Promise.resolve();
-                    }
-                    const chunk = decoder.decode(value);
-                    // Split using 'data:'
-                    const chunkArray = chunk.split("data:");
-                    // console.log({ chunkArray });
-                    chunkArray.forEach((jsonString) => {
-                        jsonString = jsonString.trim();
-                        // Check if the split string is empty
-                        if (jsonString.length > 0) {
-                            try {
-                                const payload = JSON.parse(jsonString);
-                                const payloadTemp = payload["choices"]?.[0];
-                                const sendChunk = payloadTemp["message"]
-                                    ? payloadTemp["message"]["content"]
-                                    : payloadTemp["delta"]["content"];
-                                sendChunk &&
-                                    webviewView.webview.postMessage({
-                                        command: "response",
-                                        finished: false,
-                                        text: sendChunk,
-                                    } as ChatPostMessages);
-                            } catch (error) {
-                                if (
-                                    error instanceof SyntaxError &&
-                                    error.message.includes(
-                                        "Unexpected token 'D'",
-                                    )
-                                ) {
-                                    console.log(
-                                        "Error: Received a '[DONE]' message which is not valid JSON.",
-                                    );
-                                    webviewView.webview.postMessage({
-                                        command: "response",
-                                        finished: true,
-                                        text: "Processing complete.",
-                                    } as ChatPostMessages);
-                                } else {
-                                    console.log("Error:", error);
-                                }
-                            }
-                        }
-                    });
-                    return reader.read().then(processText);
-                })
-                .catch(reject);
-        } catch (error) {
-            reject(error);
+    if (!response.body) {
+        throw new Error("Response body is null");
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+
+    let lastPostMessageTime = 0; // Variable to save the last time postMessage was called
+
+    const done = false;
+    while (!done) {
+        const { done, value } = await reader.read();
+        if (done) {
+            break;
         }
-    });
+        buffer += decoder.decode(value, { stream: true });
+
+        while (buffer.includes("\n")) {
+            const newlineIndex = buffer.indexOf("\n");
+            const rawLine = buffer.slice(0, newlineIndex).trim();
+            buffer = buffer.slice(newlineIndex + 1);
+
+            if (rawLine.startsWith("data: ") && !rawLine.includes("[DONE]")) {
+                const jsonLine = rawLine.replace(/^data: /, "");
+                try {
+                    const parsedLine = JSON.parse(jsonLine);
+                    const payloadTemp = parsedLine["choices"]?.[0];
+                    const sendChunk = payloadTemp["message"]
+                        ? payloadTemp["message"]["content"]
+                        : payloadTemp["delta"]["content"];
+                    if (sendChunk) {
+                        const currentTime = Date.now();
+                        const timeSinceLastMessageInMs =
+                            currentTime - lastPostMessageTime;
+                        const bufferTimeInMs = 10;
+                        if (timeSinceLastMessageInMs < bufferTimeInMs) {
+                            await new Promise((resolve) =>
+                                setTimeout(
+                                    resolve,
+                                    bufferTimeInMs - timeSinceLastMessageInMs,
+                                ),
+                            );
+                        }
+                        await webviewView.webview.postMessage({
+                            command: "response",
+                            finished: false,
+                            text: sendChunk,
+                        } as ChatPostMessages);
+                        lastPostMessageTime = Date.now(); // Update the last postMessage time
+                    }
+                } catch (error) {
+                    console.error("Error parsing JSON:", error);
+                }
+            }
+        }
+    }
+
+    if (buffer.trim()) {
+        console.log({ buffer });
+        try {
+            const parsedLine = JSON.parse(buffer.trim().replace(/^data: /, ""));
+            await webviewView.webview.postMessage({
+                command: "response",
+                finished: true,
+                text: parsedLine,
+            } as ChatPostMessages);
+        } catch (error) {
+            console.error("Error parsing JSON:", error);
+        }
+    }
+
+    sendFinishMessage(webviewView);
 };
 
 export class CustomWebviewProvider {
@@ -246,6 +256,7 @@ export class CustomWebviewProvider {
     }
 
     saveSelectionChanges(webviewView: vscode.WebviewView) {
+        // FIXME: let's get rid of this function and use global state via textSelectionHandler.ts
         const activeEditor = vscode.window.activeTextEditor;
         if (activeEditor) {
             this.selectionChangeListener =
@@ -313,7 +324,6 @@ export class CustomWebviewProvider {
 
         webviewView.webview.onDidReceiveMessage(
             async (message: ChatPostMessages) => {
-                console.log({ message }, "onDidReceiveMessage in chat");
                 try {
                     switch (message.command) {
                         case "fetch": {
@@ -323,7 +333,17 @@ export class CustomWebviewProvider {
                                 max_tokens: maxTokens,
                                 temperature: temperature,
                                 stream: true,
-                                messages: JSON.parse(message.messages),
+                                messages: (
+                                    JSON.parse(
+                                        message.messages,
+                                    ) as ChatMessageWithContext[]
+                                ).map((message) => {
+                                    const messageForAi: ChatMessage = {
+                                        content: message.content,
+                                        role: message.role,
+                                    };
+                                    return messageForAi;
+                                }),
                                 model: undefined as any,
                                 stop: ["\n\n", "###", "<|endoftext|>"], // ? Not sure if it matters if we pass this here.
                             };
@@ -337,14 +357,12 @@ export class CustomWebviewProvider {
                                 // @ts-expect-error needed
                                 headers["Authorization"] = "Bearer " + apiKey;
                             }
-                            console.log({ data });
                             const response = await fetch(url, {
                                 method: "POST",
                                 headers,
                                 body: JSON.stringify(data),
                                 signal: abortController.signal,
                             });
-                            console.log({ response });
                             await processFetchResponse(webviewView, response);
                             break;
                         }
@@ -354,12 +372,38 @@ export class CustomWebviewProvider {
                             }
                             break;
 
+                        case "deleteThread": {
+                            const fileName = "chat-threads.json";
+                            const exitingMessages =
+                                await getChatMessagesFromFile(fileName);
+                            const messageThreadId = message.threadId;
+                            const threadToMarkAsDeleted:
+                                | ChatMessageThread
+                                | undefined = exitingMessages.find(
+                                (thread) => thread.id === messageThreadId,
+                            );
+                            if (threadToMarkAsDeleted) {
+                                threadToMarkAsDeleted.deleted = true;
+                                await writeSerializedData(
+                                    JSON.stringify(exitingMessages, null, 4),
+                                    fileName,
+                                );
+                            }
+                            sendChatThreadToWebview(webviewView);
+                            break;
+                        }
                         case "fetchThread": {
                             sendChatThreadToWebview(webviewView);
                             break;
                         }
-                        case "saveMessageToThread": {
+                        case "updateMessageThread": {
                             const fileName = "chat-threads.json";
+                            if (
+                                !message.messages ||
+                                message.messages.length < 1
+                            ) {
+                                break;
+                            }
                             const exitingMessages =
                                 await getChatMessagesFromFile(fileName);
                             const messageThreadId = message.threadId;
@@ -368,10 +412,9 @@ export class CustomWebviewProvider {
                                 | undefined = exitingMessages.find(
                                 (thread) => thread.id === messageThreadId,
                             );
+
                             if (threadToSaveMessage) {
-                                threadToSaveMessage.messages.push(
-                                    message.message,
-                                );
+                                threadToSaveMessage.messages = message.messages;
                                 await writeSerializedData(
                                     JSON.stringify(exitingMessages, null, 4),
                                     fileName,
@@ -381,8 +424,10 @@ export class CustomWebviewProvider {
                                     id: messageThreadId,
                                     canReply: true,
                                     collapsibleState: 0,
-                                    messages: [message.message],
+                                    messages: message.messages,
                                     deleted: false,
+                                    threadTitle: message.threadTitle,
+                                    createdAt: new Date().toISOString(),
                                 };
                                 await writeSerializedData(
                                     JSON.stringify(
@@ -396,6 +441,13 @@ export class CustomWebviewProvider {
                                     fileName,
                                 );
                             }
+                            break;
+                        }
+                        case "openSettings": {
+                            vscode.commands.executeCommand(
+                                "workbench.action.openSettings",
+                                "@translators-copilot",
+                            );
                             break;
                         }
                         default:

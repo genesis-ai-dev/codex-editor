@@ -1,16 +1,6 @@
 import * as vscode from "vscode";
-import {
-    serializeCommentThreadArray,
-} from "../../commentsProvider";
-import { globalStateEmitter, updateGlobalState } from "../../globalState";
-import {
-    CommentPostMessages,
-    NotebookCommentThread,
-    VerseRefGlobalState,
-} from "../../../types";
-import { registerTextSelectionHandler } from "../../pygls_commands/textSelectionHandler";
 import { jumpToCellInNotebook } from "../../utils";
-
+import { registerTextSelectionHandler } from "../../handlers/textSelectionHandler";
 
 const abortController: AbortController | null = null;
 let loading: boolean = false;
@@ -21,8 +11,6 @@ interface OpenFileMessage {
     word: string;
 }
 
-
-
 async function upsertAllCodexFiles(webview: vscode.Webview): Promise<void> {
     await upsertAllFiles(webview, "**/*.codex", ".codex", 'http://localhost:5554/upsert_codex_file');
 }
@@ -30,6 +18,8 @@ async function upsertAllCodexFiles(webview: vscode.Webview): Promise<void> {
 async function upsertAllSourceFiles(webview: vscode.Webview): Promise<void> {
     await upsertAllFiles(webview, "**/*.bible", ".bible", 'http://localhost:5554/upsert_bible_file');
 }
+
+
 
 async function upsertAllFiles(webview: vscode.Webview, filePattern: string, dbName: string, endpoint: string): Promise<void> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -65,7 +55,6 @@ async function upsertAllFiles(webview: vscode.Webview, filePattern: string, dbNa
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify(upsertData),
                 });
 
                 if (!response.ok) {
@@ -97,7 +86,6 @@ async function upsertAllFiles(webview: vscode.Webview, filePattern: string, dbNa
 
 
 async function jumpToFirstOccurrence(uri: string, word: string) {
-
     const chapter = word.split(":");
     jumpToCellInNotebook(uri, parseInt(chapter[0], 10));
     const editor = vscode.window.activeTextEditor;
@@ -115,11 +103,15 @@ async function jumpToFirstOccurrence(uri: string, word: string) {
 
     const position = document.positionAt(wordIndex);
     editor.selection = new vscode.Selection(position, position);
-    editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+    editor.revealRange(
+        new vscode.Range(position, position),
+        vscode.TextEditorRevealType.InCenter,
+    );
 
-    vscode.window.showInformationMessage(`Jumped to the first occurrence of "${word}"`);
+    vscode.window.showInformationMessage(
+        `Jumped to the first occurrence of "${word}"`,
+    );
 }
-
 
 const loadWebviewHtml = (
     webviewView: vscode.WebviewView,
@@ -177,9 +169,8 @@ const loadWebviewHtml = (
       Use a content security policy to only allow loading images from https or from our extension directory,
       and only allow scripts that have a specific nonce.
     -->
-    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${
-        webviewView.webview.cspSource
-    }; script-src 'nonce-${nonce}';">
+    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${webviewView.webview.cspSource
+        }; script-src 'nonce-${nonce}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="${styleResetUri}" rel="stylesheet">
     <link href="${styleVSCodeUri}" rel="stylesheet">
@@ -205,11 +196,10 @@ const loadWebviewHtml = (
                 //         new vscode.Position(0, 0),
                 //         new vscode.Position(0, 0)
                 //     )
-                
+
                 // });
                 jumpToFirstOccurrence(message.uri, message.word);
-            }
-            else if (message.command === "embedAllDocuments") {
+            } else if (message.command === "embedAllDocuments") {
                 upsertAllCodexFiles(webviewView.webview);
                 vscode.window.showInformationMessage("Embedding in progress.");        
             }
@@ -227,22 +217,20 @@ export class CustomWebviewProvider {
     constructor(context: vscode.ExtensionContext) {
         this._context = context;
     }
- 
+
     resolveWebviewView(webviewView: vscode.WebviewView) {
         loadWebviewHtml(webviewView, this._context.extensionUri);
 
-        registerTextSelectionHandler(this._context, (data: JSON)=>{
+        registerTextSelectionHandler(this._context, (data: JSON) => {
             webviewView.webview.postMessage({
                 command: "searchResults",
-                data: data
+                data: data,
             });
         });
         if (webviewView.visible) {
-           // sendCommentsToWebview(webviewView);
+            // sendCommentsToWebview(webviewView);
             // TODO: send verse parallels
-
         }
-
     }
 }
 
@@ -259,6 +247,6 @@ export function registerParallelViewWebviewProvider(
             new CustomWebviewProvider(context),
         ),
     );
-    
+
     item.show();
 }
