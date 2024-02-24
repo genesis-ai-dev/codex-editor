@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
 import {
-    FileHandler,
     serializeCommentThreadArray,
 } from "../../commentsProvider";
 import { globalStateEmitter, updateGlobalState } from "../../globalState";
@@ -25,6 +24,14 @@ interface OpenFileMessage {
 
 
 async function upsertAllCodexFiles(webview: vscode.Webview): Promise<void> {
+    await upsertAllFiles(webview, "**/*.codex", ".codex", 'http://localhost:5554/upsert_codex_file');
+}
+
+async function upsertAllSourceFiles(webview: vscode.Webview): Promise<void> {
+    await upsertAllFiles(webview, "**/*.bible", ".bible", 'http://localhost:5554/upsert_bible_file');
+}
+
+async function upsertAllFiles(webview: vscode.Webview, filePattern: string, dbName: string, endpoint: string): Promise<void> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
 
     if (!workspaceFolders) {
@@ -34,26 +41,26 @@ async function upsertAllCodexFiles(webview: vscode.Webview): Promise<void> {
     let totalFiles = 0;
     let processedFiles = 0;
 
-    // First, count all codex files to determine total steps for progress update
+    // First, count all files to determine total steps for progress update
     for (const folder of workspaceFolders) {
-        const pattern = new vscode.RelativePattern(folder, "**/*.codex");
+        const pattern = new vscode.RelativePattern(folder, filePattern);
         const files = await vscode.workspace.findFiles(pattern);
         totalFiles += files.length;
     }
 
     // Then, process each file
     for (const folder of workspaceFolders) {
-        const pattern = new vscode.RelativePattern(folder, "**/*.codex");
+        const pattern = new vscode.RelativePattern(folder, filePattern);
         const files = await vscode.workspace.findFiles(pattern);
 
         for (const file of files) {
-            // Upsert each codex file
+            // Upsert each file
             const filePath = file.fsPath;
-            const db_name = "drafts"; // Assuming the database name is known and static
+            const db_name = dbName; // Assuming the database name is known and static
             const upsertData = { db_name, path: filePath };
 
             try {
-                const response = await fetch('http://localhost:5554/upsert_codex_file', {
+                const response = await fetch(endpoint, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -75,12 +82,10 @@ async function upsertAllCodexFiles(webview: vscode.Webview): Promise<void> {
                     totalSteps: totalFiles,
                 });
             } catch (error) {
-                console.error("Failed to upsert codex file:", error);
+                console.error(`Failed to upsert file at ${endpoint}:`, error);
             }
         }
     }
-
-    // After all files have been processed, reset the progress steps
     loading = false;
     webview.postMessage({
         command: "loadingProgress",
@@ -88,6 +93,7 @@ async function upsertAllCodexFiles(webview: vscode.Webview): Promise<void> {
         totalSteps: 0,
     });
 }
+
 
 
 async function jumpToFirstOccurrence(uri: string, word: string) {
@@ -205,10 +211,12 @@ const loadWebviewHtml = (
             }
             else if (message.command === "embedAllDocuments") {
                 upsertAllCodexFiles(webviewView.webview);
-
-                vscode.window.showWarningMessage("Embedding already in progress.");
-            
-        }
+                vscode.window.showInformationMessage("Embedding in progress.");        
+            }
+            else if (message.command === "embedSource") {
+                upsertAllSourceFiles(webviewView.webview);
+                vscode.window.showInformationMessage("Embedding in progress.");        
+            }
         },
     );
 };

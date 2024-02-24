@@ -1,7 +1,7 @@
 from typing import Callable, List
 from pygls.server import LanguageServer
 from lsprotocol.types import (Range, Position, TextEdit, DiagnosticSeverity, 
-                              TEXT_DOCUMENT_DID_CLOSE, DidCloseTextDocumentParams, DidOpenTextDocumentParams, TEXT_DOCUMENT_DID_OPEN)
+                              TEXT_DOCUMENT_DID_SAVE, DidSaveTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, TEXT_DOCUMENT_DID_OPEN)
 
 import lsprotocol.types as lsp_types
 import time
@@ -96,8 +96,8 @@ class ServerFunctions:
             for function in self.initialize_functions:
                 function(ls, params, self)
         
-        @self.server.feature(TEXT_DOCUMENT_DID_CLOSE)
-        def on_close(ls, params: DidCloseTextDocumentParams):
+        @self.server.feature(TEXT_DOCUMENT_DID_SAVE)
+        def on_close(ls, params: DidSaveTextDocumentParams):
             if time.time() - self.last_closed > 10: # fix bug where pygls calls close many times
                 self.last_closed = time.time()
                 for function in self.close_functions:

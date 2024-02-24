@@ -8,3 +8,6 @@ flask
 urllib3
 flask-cors
 swig
+regex
+finch-genetics
+genetok

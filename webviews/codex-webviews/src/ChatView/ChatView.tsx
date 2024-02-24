@@ -171,7 +171,7 @@ function App() {
             // Also, need to truncate retrieved items to reasonable length based on count
             // and length of the items.
             const response = await fetch(
-                `${FLASK_ENDPOINT}/search?db_name=drafts&query=${encodeURIComponent(
+                `${FLASK_ENDPOINT}/search?db_name=.codex&query=${encodeURIComponent(
                     query,
                 )}`,
             );
