@@ -37,7 +37,7 @@ export function registerTextSelectionHandler(context: vscode.ExtensionContext, c
             if (selectedText) {
                 vscode.commands.executeCommand("pygls.server.textSelected", selectedText);
                 // Perform the search using the selected text
-                fetch(`http://localhost:5554/search?db_name=drafts&query=${encodeURIComponent(selectedText)}&limit=5`)
+                fetch(`http://localhost:5554/searchboth?&query=${encodeURIComponent(selectedText)}&limit=5`)
                     .then((response: Response) => response.json())
                     .then((data: any) => {
                        callback(data);

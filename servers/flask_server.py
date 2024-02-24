@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-from tools.embedding3 import DataBase  # Updated import path
+from tools.embedding import DataBase  # Updated import path
 from enum import Enum
 from typing import Dict, Any, AnyStr
 from flask_cors import CORS
@@ -14,7 +14,8 @@ databases: Dict[str, DataBase] = {}
 
 class DatabaseName(Enum):
     """Enumeration for database names."""
-    DRAFTS = 'drafts'
+    CODEX = '.codex'
+    BIBLE = '.bible'
     USER_RESOURCES = 'user_resources'
     REFERENCE_MATERIALS = 'reference_materials'
 
@@ -73,7 +74,7 @@ def initialize_databases() -> tuple:
     print(work_path)
     for name in DatabaseName:
         print(work_path+'/' + name.value)
-        databases[name.value] = DataBase(work_path+'/embeddings/' + name.value)
+        databases[name.value] = DataBase(work_path+'/nlp/embeddings/' + name.value)
     return jsonify("Databases initialized successfully"), 200
 
 @app.route('/upsert_codex_file', methods=['POST'])
@@ -88,7 +89,7 @@ def upsert_codex_file() -> tuple:
         A tuple containing a JSON response and an HTTP status code.
     """
     data: Dict | Any = request.json
-    db_name = data.get('db_name')
+    db_name = '.codex'
     path = data.get('path')
     if not db_name or not path:
         return jsonify({"error": "Both 'db_name' and 'path' are required parameters"}), 400
@@ -96,6 +97,29 @@ def upsert_codex_file() -> tuple:
         return jsonify({"error": f"Database '{db_name}' not found"}), 404
     databases[db_name].upsert_codex_file(path)
     return jsonify({"message": "Codex file upserted"}), 200
+
+
+@app.route('/upsert_bible_file', methods=['POST'])
+def upsert_bible_file() -> tuple:
+    """
+    Upserts a codex file into the specified database.
+
+    Expects 'db_name', 'path', and optionally in the JSON payload of the request.
+    If the required parameters are present, it calls the upsert_bible_file method of the DataBase instance.
+
+    Returns:
+        A tuple containing a JSON response and an HTTP status code.
+    """
+    data: Dict | Any = request.json
+    db_name = data.get('db_name')
+    path = data.get('path', "").replace("file://", "") # FIXME: This needs to be better ^\/_''_\/^
+    if not db_name or not path:
+        return jsonify({"error": "Both 'db_name' and 'path' are required parameters"}), 400
+    if db_name not in databases:
+        return jsonify({"error": f"Database '{db_name}' not found"}), 404
+    databases[db_name].upsert_bible_file(path)
+    return jsonify({"message": "Bible file upserted"}), 200
+
 
 @app.route('/upsert_data', methods=['POST'])
 def upsert_data() -> tuple:
@@ -163,8 +187,20 @@ def search() -> tuple:
     results = databases[db_name].search(query_decoded, limit)
     # results = [result['data'] for result in results]
     print(results)
-    result =  jsonify(results)
+    result = jsonify(results)
     return result, 200
+
+@app.route('/searchboth', methods=["GET"])
+def search_both() -> tuple:
+
+    query = request.args.get('query')
+    limit = request.args.get('limit', default=5, type=int)
+    first = databases['.codex'].search(query=query, limit=limit)
+    second = databases['.bible'].search(query=query, limit=limit)
+    result = jsonify({'target': first, 'source': second})
+    print(result)
+    return result, 200
+
 
 @app.route('/save', methods=['POST'])
 def save() -> tuple:
@@ -185,6 +221,33 @@ def save() -> tuple:
         return jsonify({"error": f"Database '{db_name}' not found"}), 404
     databases[db_name].save()
     return jsonify({"message": f"Database '{db_name}' state saved"}), 200
+
+
+@app.route('/exists', methods=['GET'])
+def exists() -> tuple:
+    """
+    Saves the current state of the specified database.
+
+    Expects 'db_name' in the JSON payload of the request.
+    If the required parameter is present, it calls the save method of the DataBase instance.
+
+    Returns:
+        A tuple containing a JSON response and an HTTP status code.
+    """
+    
+    db_name = request.args.get('db_name')
+    refrences = request.args.get("refrences", "").split("|")
+ 
+    if not db_name:
+        return jsonify({"error": "Missing 'db_name' parameter"}), 400
+    if db_name not in databases:
+        return jsonify({"error": f"Database '{db_name}' not found"}), 404
+    existing = databases[db_name].exists(refrences)
+    print("existing: ", existing)
+    return jsonify({"exists": existing}), 200
+
+
+
 
 @app.route('/heartbeat', methods=['GET'])
 def heartbeat() -> tuple:
