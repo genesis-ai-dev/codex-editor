@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { extractVerseRefFromLine, verseRefRegex } from "../../utils/verseRefUtils";
+import { verseRefRegex } from "../../utils/verseRefUtils";
 
 const config = vscode.workspace.getConfiguration("translators-copilot");
 const endpoint = config.get("llmEndpoint"); // NOTE: config.endpoint is reserved so we must have unique name
@@ -26,7 +26,7 @@ export async function provideInlineCompletionItems(
             ? await getCompletionTextGPT(document, position)
             : await getCompletionText(document, position);
     const completionItem = new vscode.InlineCompletionItem(
-        text,
+        text ?? "",
         new vscode.Range(position, position)
     );
     completionItem.range = new vscode.Range(position, position);
