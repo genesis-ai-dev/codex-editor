@@ -216,11 +216,42 @@ function generateUniqueId(data: any) {
 }
 
 function App() {
-  const [state, dispatch] = useReducer(reducer, {
+  interface Column {
+    id: string;
+    label: string;
+    accessor: string;
+    dataType: string;
+  }
+
+  interface AppState {
+    columns: Column[];
+    data: any[]; // Assuming data is an array of any objects, specify further if possible
+    skipReset: boolean;
+    dictionary: Dictionary;
+  }
+  interface Action {
+    type: string;
+    data?: TableEntry[]; // Assuming data is an array of any objects, specify further if possible
+    columns?: TableColumn[]; // Use the Column interface already defined
+    dictionary?: Dictionary; // Assuming Dictionary is a known type in your project
+  }
+
+  const initialState: AppState = {
     columns: [],
     data: [],
     skipReset: false,
-  });
+    dictionary: {
+      id: '',
+      label: '',
+      entries: [],
+      metadata: {},
+    },
+  };
+
+  const [state, dispatch] = useReducer<React.Reducer<AppState, Action>>(
+    reducer,
+    initialState
+  );
 
   useEffect(() => {
     dispatch({ type: ActionTypes.ENABLE_RESET });
