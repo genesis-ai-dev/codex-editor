@@ -217,16 +217,9 @@ function generateUniqueId(data: any) {
 }
 
 function App() {
-  interface Column {
-    id: string;
-    label: string;
-    accessor: string;
-    dataType: string;
-  }
-
   interface AppState {
-    columns: Column[];
-    data: any[]; // Assuming data is an array of any objects, specify further if possible
+    columns: TableColumn[];
+    data: TableEntry[]; // Assuming data is an array of any objects, specify further if possible
     skipReset: boolean;
     dictionary: Dictionary;
   }
@@ -318,15 +311,16 @@ function App() {
       count: checkedRowsCount,
     } as DictionaryPostMessages);
   };
-  const deleteOptionShouldShow = !state.data.some(
+  const deleteOptionShouldShow = state.data.some(
     (row: any) => row[Constants.CHECKBOX_COLUMN_ID]
   );
+  console.log({ state });
   return (
     <div
-      className="overflow-hidden"
+      // className="overflow-hidden"
       style={{
-        width: '100vw',
-        height: '100vh',
+        width: '100%',
+        height: '100%',
         padding: 10,
 
         display: 'flex',
@@ -350,7 +344,14 @@ function App() {
             </button>
           )}
           <Table
-            columns={state.columns}
+            columns={state.columns.filter(
+              column =>
+                column.id === 'headWord' ||
+                column.id === 'definition' ||
+                column.id === 'translationEquivalents' ||
+                column.id === 'checkbox_column' ||
+                column.id === 'notes'
+            )}
             data={state.data}
             dispatch={dispatch}
             skipReset={state.skipReset}
