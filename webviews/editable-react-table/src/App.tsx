@@ -1,4 +1,4 @@
-import { vscode } from "./utilities/vscode";
+import { vscode } from './utilities/vscode';
 import React, { useEffect, useReducer } from 'react';
 import './style.css';
 import Table from './Table';
@@ -14,7 +14,6 @@ import {
 import update from 'immutability-helper';
 import { Dictionary } from 'codex-types';
 import Trash from './img/Trash';
-
 
 function reducer(state: any, action: any) {
   console.log({ action });
@@ -41,8 +40,8 @@ function reducer(state: any, action: any) {
     case ActionTypes.ADD_ROW:
       const newId = generateUniqueId(state.data);
       return update(state, {
-      skipReset: { $set: true },
-      data: { $push: [{ id: newId }] },
+        skipReset: { $set: true },
+        data: { $push: [{ id: newId }] },
       });
     case ActionTypes.UPDATE_COLUMN_TYPE:
       const typeIndex = state.columns.findIndex(
@@ -198,7 +197,9 @@ function reducer(state: any, action: any) {
     case ActionTypes.REMOVE_CHECKED_ROWS:
       return {
         ...state,
-        data: state.data.filter((row: any) => !row[Constants.CHECKBOX_COLUMN_ID]),
+        data: state.data.filter(
+          (row: any) => !row[Constants.CHECKBOX_COLUMN_ID]
+        ),
       };
 
     default:
@@ -209,14 +210,17 @@ function reducer(state: any, action: any) {
 function generateUniqueId(data: any) {
   let newId: string;
   do {
-  newId = shortId();
-  } while (data.some((row: {id: string }) => row.id === newId));
+    newId = shortId();
+  } while (data.some((row: { id: string }) => row.id === newId));
   return newId;
 }
 
-
 function App() {
-  const [state, dispatch] = useReducer(reducer, { columns: [], data: [], skipReset: false });
+  const [state, dispatch] = useReducer(reducer, {
+    columns: [],
+    data: [],
+    skipReset: false,
+  });
 
   useEffect(() => {
     dispatch({ type: ActionTypes.ENABLE_RESET });
@@ -226,7 +230,10 @@ function App() {
   useEffect(() => {
     if (state.data.length > 0 && state.columns.length > 0) {
       const tableData: TableData = { data: state.data, columns: state.columns }; // Adjust according to the actual structure
-      const dictionaryData: Dictionary = transformToDictionaryFormat(tableData, state.dictionary);
+      const dictionaryData: Dictionary = transformToDictionaryFormat(
+        tableData,
+        state.dictionary
+      );
       vscode.postMessage({
         command: 'updateData',
         data: dictionaryData,
@@ -238,13 +245,13 @@ function App() {
   useEffect(() => {
     //once was function, not const
     // function handleReceiveMessage(event: any) {
-    const handleReceiveMessage =  (event: MessageEvent) => {
-      console.log("Received event:");
+    const handleReceiveMessage = (event: MessageEvent) => {
+      console.log('Received event:');
       console.log({ event });
       const message = event.data; // The JSON data our extension sent
       switch (message.command) {
         case 'sendData': {
-          // const dictionary = JSON.parse(message.data); 
+          // const dictionary = JSON.parse(message.data);
           const dictionary: Dictionary = message.data;
           console.log('Dictionary before transformation:');
           console.log({ dictionary });
@@ -260,7 +267,7 @@ function App() {
         case 'removeConfirmed':
           dispatch({ type: ActionTypes.REMOVE_CHECKED_ROWS });
           break;
-        }
+      }
     };
     window.addEventListener('message', handleReceiveMessage);
 
@@ -271,13 +278,17 @@ function App() {
   }, []);
 
   const removeCheckedRows = () => {
-    const checkedRowsCount = state.data.filter((row: any) => row[Constants.CHECKBOX_COLUMN_ID]).length;
+    const checkedRowsCount = state.data.filter(
+      (row: any) => row[Constants.CHECKBOX_COLUMN_ID]
+    ).length;
     vscode.postMessage({
       command: 'confirmRemove',
       count: checkedRowsCount,
     });
   };
-
+  const deleteOptionShouldShow = !state.data.some(
+    (row: any) => row[Constants.CHECKBOX_COLUMN_ID]
+  );
   return (
     <div
       className="overflow-hidden"
@@ -296,24 +307,24 @@ function App() {
 
       <div className="app-container">
         <div className="table-container">
-          
-          <button
-            onClick={removeCheckedRows}
-            disabled={!state.data.some((row: any) => row[Constants.CHECKBOX_COLUMN_ID])}
-            className="remove-button" // Add a class for styling
-            title="Remove selected rows" // Tooltip for the button
-          >
-            <Trash />
-          </button>
+          {deleteOptionShouldShow && (
+            <button
+              onClick={removeCheckedRows}
+              // disabled={!state.data.some((row: any) => row[Constants.CHECKBOX_COLUMN_ID])}
+              className="remove-button" // Add a class for styling
+              title="Remove selected rows" // Tooltip for the button
+            >
+              <Trash />
+            </button>
+          )}
           <Table
             columns={state.columns}
             data={state.data}
             dispatch={dispatch}
             skipReset={state.skipReset}
-
           />
         </div>
-      <div id="popper-portal"></div>
+        <div id="popper-portal"></div>
       </div>
     </div>
   );
