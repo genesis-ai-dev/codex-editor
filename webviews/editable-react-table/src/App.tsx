@@ -14,6 +14,7 @@ import {
 import update from 'immutability-helper';
 import { Dictionary } from 'codex-types';
 import Trash from './img/Trash';
+import { DictionaryPostMessages } from '../../../types';
 
 function reducer(state: any, action: any) {
   console.log({ action });
@@ -268,7 +269,7 @@ function App() {
       vscode.postMessage({
         command: 'updateData',
         data: dictionaryData,
-      });
+      } as DictionaryPostMessages);
       console.log('Data changed and sent back');
     }
   }, [state.data, state.columns, state.dictionary]);
@@ -279,7 +280,7 @@ function App() {
     const handleReceiveMessage = (event: MessageEvent) => {
       console.log('Received event:');
       console.log({ event });
-      const message = event.data; // The JSON data our extension sent
+      const message: DictionaryPostMessages = event.data; // The JSON data our extension sent
       switch (message.command) {
         case 'sendData': {
           // const dictionary = JSON.parse(message.data);
@@ -315,7 +316,7 @@ function App() {
     vscode.postMessage({
       command: 'confirmRemove',
       count: checkedRowsCount,
-    });
+    } as DictionaryPostMessages);
   };
   const deleteOptionShouldShow = !state.data.some(
     (row: any) => row[Constants.CHECKBOX_COLUMN_ID]
