@@ -144,6 +144,11 @@ export default function Table({
             onClick={() =>
               dataDispatch && dataDispatch({ type: ActionTypes.ADD_ROW })
             }
+            style={{
+              marginTop: 20,
+              width: 'fit-content',
+              minWidth: '90px',
+            }}
           >
             <span className="svg-icon svg-gray icon-margin">
               <PlusIcon />
