@@ -15,6 +15,7 @@ import update from 'immutability-helper';
 import { Dictionary } from 'codex-types';
 import Trash from './img/Trash';
 import { DictionaryPostMessages } from '../../../types';
+import { TableColumn, TableData, TableEntry } from './tableTypes';
 
 function reducer(state: any, action: any) {
   console.log({ action });

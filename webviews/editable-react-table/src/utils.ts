@@ -1,5 +1,5 @@
 import { Dictionary, DictionaryEntry } from 'codex-types';
-// import { TableColumn, TableData, TableEntry } from './tableTypes';
+import { TableColumn, TableData, TableEntry } from './tableTypes';
 
 export enum ActionTypes {
   ADD_OPTION_TO_COLUMN = 'add_option_to_column',

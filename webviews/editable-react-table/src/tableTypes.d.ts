@@ -1,3 +1,5 @@
+import { ActionTypes } from './utils';
+
 type TableColumn = {
   id?:
     | 'headWord'
@@ -44,7 +46,7 @@ type TableEntry = {
 };
 
 type TableData = {
-  columns: DictionaryTableColumn[];
+  columns: TableColumn[];
   data: TableEntry[];
   dispatch?: React.Dispatch<any>;
   skipReset?: boolean;
@@ -107,6 +109,6 @@ type ValueState = {
 //   // Add other exports as needed
 // }
 
-declare module 'react-window' {
-  export const FixedSizeList: any;
-}
+// declare module 'react-window' {
+//   export const FixedSizeList: any;
+// }
