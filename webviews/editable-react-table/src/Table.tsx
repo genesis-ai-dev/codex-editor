@@ -1,5 +1,4 @@
 import React, { CSSProperties, useMemo } from 'react';
-import clsx from 'clsx';
 import {
   useTable,
   useBlockLayout,
@@ -11,8 +10,7 @@ import Cell from './cells/Cell';
 import Header from './header/Header';
 import PlusIcon from './img/Plus';
 import { ActionTypes } from './utils';
-import { FixedSizeList } from 'react-window';
-import scrollbarWidth from './scrollbarWidth';
+import { TableColumn, TableData, TableEntry } from './tableTypes';
 interface CustomTableOptions<T extends object> extends TableOptions<T> {
   dataDispatch?: React.Dispatch<any>; // Adjust the type according to your dispatch function
 }
