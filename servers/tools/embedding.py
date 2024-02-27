@@ -6,12 +6,18 @@ from gensim.models import Word2Vec
 from gensim.utils import simple_preprocess
 import os
 import glob
+from sqlite3 import IntegrityError
 from typing import Union, List, Generator
+
+
 
 try:
     from tools.codex_tools import extract_verses, extract_verses_bible
+    from tools.nlp import genetik_tokenizer
+
 except ImportError:
     from codex_tools import extract_verses, extract_verses_bible
+    from nlp import genetik_tokenizer
 
 # Create a translation table for removing punctuation from strings.
 translator = str.maketrans('', '', string.punctuation)
@@ -49,7 +55,7 @@ class DataBase:
     """
     A class for managing database operations with embeddings.
     """
-    def __init__(self, db_path: str) -> None:
+    def __init__(self, db_path: str, has_tokenizer: bool = False) -> None:
         """
         Initializes the DataBase class with a specific database path and embeddings model.
 
@@ -57,13 +63,22 @@ class DataBase:
             db_path (str): The path to the database file.
         """
         self.db_path = db_path
+        #self.db_path = db_path.replace("\\", "/") # normalize this just in case
+
         self.embeddings = Embeddings(path="sentence-transformers/nli-mpnet-base-v2", content=True, objects=True)
+        self.has_tokenizer = has_tokenizer
+        self.queue = []
+
+        if has_tokenizer:
+            self.tokenizer = genetik_tokenizer.TokenDatabase(self.db_path)
+        else:
+            self.tokenizer = None
         try:
             self.embeddings.load(self.db_path)
         except Exception:
             pass
 
-    def upsert(self, text: str, reference: str, book: str, chapter: str, verse: str, uri: str, metadata: str = '') -> None:
+    def upsert(self, text: str, reference: str, book: str, chapter: str, verse: str, uri: str, metadata: str = '', save_now=True) -> None:
         """
         Inserts or updates a record in the database.
 
@@ -83,7 +98,22 @@ class DataBase:
         metadata = sql_safe(text=metadata)
         chapter = sql_safe(text=chapter)
         self.embeddings.upsert([ (reference, {'text': text, 'book': book, 'verse': verse, 'chapter': chapter, 'createdAt': str(datetime.datetime.now()), 'uri': uri, 'metadata': metadata})])
-        self.save()
+        if save_now:
+            self.save()
+    
+    def queue_upsert(self, text: str, reference: str, book: str, chapter: str, verse: str, uri: str, metadata: str = '', save_now=True):
+        text = sql_safe(text=text)
+        reference = sql_safe(text=reference)
+        book = sql_safe(text=book)
+        verse = sql_safe(text=verse)
+        metadata = sql_safe(text=metadata)
+        chapter = sql_safe(text=chapter)
+        
+        self.queue.append((reference, {'text': text, 'book': book, 'verse': verse, 'chapter': chapter, 'createdAt': str(datetime.datetime.now()), 'uri': uri, 'metadata': metadata}))
+        if len(self.queue) % 1000 == 0:
+            self.embeddings.upsert(self.queue)
+            self.save()
+            self.queue = []
 
     def search(self, query: str, limit: int = 5) -> list:
         """
@@ -117,6 +147,14 @@ class DataBase:
                 existing_ids.append(id)
         return existing_ids
     
+    def get_text(self, id) -> str:
+        text = self.embeddings.search(f"select text from txtai where id='{id}'")
+        return text
+    
+    def upsert_queue(self):
+        self.embeddings.upsert(self.queue)
+        self.save()
+        self.queue = []
     def upsert_codex_file(self, path: str) -> None:
         """
         Inserts or updates records in the database from a .codex file.
@@ -126,7 +164,7 @@ class DataBase:
         """
         path = "/" + path if "://" not in path and "/" != path[0]  else path
         results = extract_verses(path)
-
+        print("extracting")
         for result in results:
             if len(result['text']) > 11: # 000 000:000  
                 text = result['text']
@@ -134,7 +172,11 @@ class DataBase:
                 chapter = result['chapter']
                 verse = result['verse']
                 reference = f'{book} {chapter}:{verse}'
-                self.upsert(text=text, book=book, chapter=chapter, reference=reference, verse=verse, uri=path)
+        
+                self.queue_upsert(text=text, book=book, chapter=chapter, reference=reference, verse=verse, uri=path)
+                self.tokenizer.upsert_text(text)
+        self.tokenizer.upsert_all()
+        self.upsert_queue()
 
     def upsert_bible_file(self, path: str) -> None:
         """
@@ -143,23 +185,38 @@ class DataBase:
         Args:
             path (str): The path to the .bible file.
         """
+        from tqdm import tqdm
+
         path = "/" + path if "://" not in path and "/" != path[0] else path
         results = extract_verses_bible(path)
-
-        for result in results:
+        print("going through results: ", len(results))
+        for result in tqdm(results, desc="Processing results"):
             if len(result['text']) > 11: # 000 000:000  
                 text = result['text']
                 book = result['book']
                 chapter = result['chapter']
                 verse = result['verse']
                 reference = f'{book} {chapter}:{verse}'
-                self.upsert(text=text, book=book, chapter=chapter, reference=reference, verse=verse, uri=path.replace("file://", ""))
+                try:
+                    self.queue_upsert(text=text, book=book, chapter=chapter, reference=reference, verse=verse, uri=path.replace("file://", ""), save_now=False)
+                except IntegrityError:
+                    print("Integrity error")
+        self.save()
+        print("reading file")
+        with open(path, "r") as f:
+            self.tokenizer.upsert_text(f.read())
+            self.tokenizer.upsert_all()
+        self.upsert_queue()
+
 
     def save(self) -> None:
         """
         Saves the current state of the embeddings to the database.
         """
         self.embeddings.save(self.db_path)
+
+    def close(self):
+        self.embeddings.close()
 
 
 
