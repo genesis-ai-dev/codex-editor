@@ -88,7 +88,7 @@ export default function Table({
       const row = rows[index];
       prepareRow(row);
       return (
-        <div {...row.getRowProps({ style })} className="tr">
+        <div {...row?.getRowProps?.({ style })} className="tr">
           {row.cells.map((cell: any, cellIndex: number) => (
             <div {...cell.getCellProps()} key={cellIndex} className="td">
               {cell.render('Cell')}
@@ -114,9 +114,12 @@ export default function Table({
 
   const Rows: React.FC = () => (
     <div>
-      {rows.map((row, index: number) =>
-        RenderRow({ index, style: row.getRowProps().style as CSSProperties })
-      )}
+      {rows.map((row, index: number) => {
+        return RenderRow({
+          index,
+          style: row?.getRowProps?.().style as CSSProperties,
+        });
+      })}
     </div>
   );
 
@@ -137,14 +140,6 @@ export default function Table({
           ))}
         </div>
         <div {...getTableBodyProps()}>
-          <FixedSizeList
-            height={480}
-            itemCount={rows.length}
-            itemSize={40}
-            // width={totalColumnsWidth + scrollbarWidth}
-          >
-            {RenderRow}
-          </FixedSizeList>
           <Rows />
           <div
             className="tr add-row"
