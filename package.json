@@ -568,6 +568,8 @@
     "dependencies": {
         "@vscode/codicons": "^0.0.35",
         "@vscode/python-extension": "^1.0.5",
+        "axios": "^1.6.7",
+        "axios-cache-adapter": "^2.7.3",
         "codex-types": "^0.0.2",
         "html-loader": "^4.2.0",
         "jszip": "^3.10.1",
@@ -579,7 +581,8 @@
         "semver": "^7.6.0",
         "sinon": "^17.0.1",
         "uuid": "^9.0.1",
-        "vscode-languageclient": "^9.0.1"
+        "vscode-languageclient": "^9.0.1",
+        "yaml": "^2.3.4"
     },
     "overrides": {
         "minimatch": "5.1.2",
