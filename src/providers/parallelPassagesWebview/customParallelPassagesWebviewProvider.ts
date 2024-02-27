@@ -3,7 +3,6 @@ import { jumpToCellInNotebook } from "../../utils";
 import { registerTextSelectionHandler } from "../../handlers/textSelectionHandler";
 
 const abortController: AbortController | null = null;
-let loading: boolean = false;
 
 interface OpenFileMessage {
     command: "openFileAtLocation";
@@ -12,77 +11,39 @@ interface OpenFileMessage {
 }
 
 async function upsertAllCodexFiles(webview: vscode.Webview): Promise<void> {
-    await upsertAllFiles(webview, "**/*.codex", ".codex", 'http://localhost:5554/upsert_codex_file');
-}
+    try {
+        const response = await fetch('http://localhost:5554/upsert_all_codex_files', {
+            method: 'GET'
+        });
 
-async function upsertAllSourceFiles(webview: vscode.Webview): Promise<void> {
-    await upsertAllFiles(webview, "**/*.bible", ".bible", 'http://localhost:5554/upsert_bible_file');
-}
-
-
-
-async function upsertAllFiles(webview: vscode.Webview, filePattern: string, dbName: string, endpoint: string): Promise<void> {
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-
-    if (!workspaceFolders) {
-        return;
-    }
-
-    let totalFiles = 0;
-    let processedFiles = 0;
-
-    // First, count all files to determine total steps for progress update
-    for (const folder of workspaceFolders) {
-        const pattern = new vscode.RelativePattern(folder, filePattern);
-        const files = await vscode.workspace.findFiles(pattern);
-        totalFiles += files.length;
-    }
-
-    // Then, process each file
-    for (const folder of workspaceFolders) {
-        const pattern = new vscode.RelativePattern(folder, filePattern);
-        const files = await vscode.workspace.findFiles(pattern);
-
-        for (const file of files) {
-            // Upsert each file
-            const filePath = file.fsPath;
-            const db_name = dbName; // Assuming the database name is known and static
-            const upsertData = { db_name, path: filePath };
-
-            try {
-                const response = await fetch(endpoint, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-
-                // Successfully upserted a file, increment processed files count
-                processedFiles++;
-
-                // Send a message to the webview to update the loading progress
-                webview.postMessage({
-                    command: "loadingProgress",
-                    currentStep: processedFiles,
-                    totalSteps: totalFiles,
-                });
-            } catch (error) {
-                console.error(`Failed to upsert file at ${endpoint}:`, error);
-            }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
+    } catch (error) {
+        console.error('Failed to upsert all codex files:', error);
     }
-    loading = false;
     webview.postMessage({
-        command: "loadingProgress",
-        currentStep: 0,
-        totalSteps: 0,
+        command: "completed",
     });
 }
 
+async function upsertAllSourceFiles(webview: vscode.Webview): Promise<void> {
+    try {
+        const response = await fetch('http://localhost:5554/upsert_all_bible_files', {
+            method: 'GET'
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+    } catch (error) {
+        console.error('Failed to upsert all bible files:', error);
+    }
+    webview.postMessage({
+        command: "completed",
+    });
+
+}
 
 
 async function jumpToFirstOccurrence(uri: string, word: string) {
