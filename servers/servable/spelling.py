@@ -14,7 +14,7 @@ from tools.loadvrefs import get_verse_references_from_file, filter
 refrences = get_verse_references_from_file('src/utils/verseRefUtils/verseData.ts')
 
 class SPELLING_MESSAGE(Enum):
-    TYPO = "❓🔤"
+    TYPO = f"❓🔤: '{{word}}'"
     ADD_WORD = f"'{{word}}' → 📖"
     ADD_ALL_WORDS = f"Add all {{count}} 📖" # Not implemented yet
     REPLACE_WORD = f"'{{word}}' → '{{correction}}'"
@@ -94,8 +94,12 @@ class ServableSpelling:
                     
                     range = Range(start=Position(line=line_num, character=start_char),
                                 end=Position(line=line_num, character=end_char))
-                    diagnostics.append(Diagnostic(range=range, message=SPELLING_MESSAGE.TYPO.value, severity=DiagnosticSeverity.Warning, source='Spell-Check'))
-                
+                    
+                    tokenized_word = self.spell_check.dictionary.tokenizer.tokenize(word)
+                    detokenized_word = self.spell_check.dictionary.tokenizer.tokenizer.detokenize(tokenized_word, join="--")
+                    formatted_message = SPELLING_MESSAGE.TYPO.value.format(word=detokenized_word)
+
+                    diagnostics.append(Diagnostic(range=range, message=formatted_message, severity=DiagnosticSeverity.Warning, source='Spell-Check'))
                 # Add one if the next character is whitespace
                 if edit_window + len(word) < len(line) and line[edit_window + len(word)] == ' ':
                     edit_window += len(word) + 1
@@ -124,7 +128,7 @@ class ServableSpelling:
         typo_diagnostics = []
         start_line = None
         for diagnostic in diagnostics:
-            if diagnostic.message == SPELLING_MESSAGE.TYPO.value:
+            if SPELLING_MESSAGE.TYPO.value.split(":")[0] in diagnostic.message:
                 typo_diagnostics.append(diagnostic)
                 start_line = diagnostic.range.start.line
                 start_character = diagnostic.range.start.character

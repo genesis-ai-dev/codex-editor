@@ -13,6 +13,15 @@ import experiments.hash_check2 as hash_check
 import tools.edit_distance as edit_distance
 import re
 import string
+import sys
+from io import TextIOWrapper
+
+
+try:
+    from tools.nlp import genetik_tokenizer
+
+except ImportError:
+    from nlp import genetik_tokenizer
 
 translator = str.maketrans('', '', string.punctuation)
 
@@ -65,6 +74,7 @@ class Dictionary:
         """
         self.path = project_path + '/project.dictionary'  # TODO: #4 Use all .dictionary files in drafts directory
         self.dictionary = self.load_dictionary()  # Load the .dictionary (json file)
+        self.tokenizer = genetik_tokenizer.TokenDatabase(self.path, single_words=True)#,# defualt_tokens=[word['headword'] for word in self.dictionary['entries']])
     
     def load_dictionary(self) -> Dict:
         """
@@ -89,6 +99,7 @@ class Dictionary:
             with open(self.path, 'w') as file:
                 json.dump(new_dict, file)
             return new_dict
+        words = ""
 
     def save_dictionary(self) -> None:
         """
@@ -124,6 +135,12 @@ class Dictionary:
             
             self.dictionary['entries'].append(new_entry)
             self.save_dictionary()
+        self.tokenizer.insert_manuel(word)
+        text = ""
+        for entry in self.dictionary["entries"]:
+            text += entry['headWord']
+        self.tokenizer.upsert_text(text)
+        
 
     def remove(self, word: str) -> None:
         """
@@ -202,7 +219,8 @@ class SpellCheck:
 
         sorted_possibilities = sorted(possibilities, key=lambda x: x[1])
         suggestions = [word for word, _ in sorted_possibilities]
-        return suggestions[:5]
+        suggestions =  suggestions[:5]
+        return suggestions
     
     def complete(self, word: str) -> List[str]:
         """
@@ -215,6 +233,8 @@ class SpellCheck:
             List[str]: A list of word portions that complete the given word fragment, limited to the top 5 suggestions.
         """
         word = remove_punctuation(word).lower()
+
+
         entries = self.dictionary.dictionary['entries']
         completions = [
             entry['headWord'][len(word):] for entry in entries if entry['headWord'].lower().startswith(word)

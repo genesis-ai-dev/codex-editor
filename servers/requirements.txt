@@ -10,4 +10,6 @@ flask-cors
 swig
 regex
 finch-genetics
-genetok
+genetok==0.1.12
+tqdm
+tabulate
