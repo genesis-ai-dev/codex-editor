@@ -1,3 +1,4 @@
+import { Dictionary } from "codex-types";
 import * as vscode from "vscode";
 interface ChatMessage {
     role: "system" | "user" | "assistant";
@@ -86,3 +87,9 @@ type ChatPostMessages =
     | { command: "fetchThread" }
     | { command: "abort-fetch" }
     | { command: "openSettings" };
+
+type DictionaryPostMessages =
+    | { command: "sendData"; data: Dictionary }
+    | { command: "updateData"; data: Dictionary }
+    | { command: "confirmRemove"; count: number }
+    | { command: "removeConfirmed" };
