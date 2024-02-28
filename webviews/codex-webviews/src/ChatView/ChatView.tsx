@@ -194,6 +194,7 @@ function App() {
     const [pendingMessage, setPendingMessage] =
         useState<ChatMessageWithContext>();
     const [selectedTextContext, setSelectedTextContext] = useState<string>("");
+    const [currentlyActiveVref, setCurrentlyActiveVref] = useState<string>("");
     const [contextItems, setContextItems] = useState<string[]>([]); // TODO: fetch from RAG server
     const [messageLog, setMessageLog] = useState<ChatMessageWithContext[]>([
         systemMessage,
@@ -259,14 +260,18 @@ function App() {
     }
 
     function getResponseToUserNewMessage(newMessageTextContent: string) {
+        const contextItemsFromState = contextItems;
         const pendingMessage: ChatMessageWithContext = {
             role: "user",
             content: newMessageTextContent,
             createdAt: new Date().toISOString(),
+            context: {
+                selectedText: selectedTextContext,
+                currentVref: currentlyActiveVref,
+                relevantContextItemsFromEmbeddings: contextItemsFromState,
+            },
         };
         const updatedMessageLog = [...messageLog, pendingMessage];
-
-        const contextItemsFromState = contextItems;
 
         const formattedPrompt: ChatMessageWithContext[] = [
             messageWithContext({
@@ -291,6 +296,7 @@ function App() {
             setContextItems(contextItemsFromServer);
             getResponseToUserNewMessage(submittedMessageValue);
             setSelectedTextContext("");
+            setCurrentlyActiveVref("");
         } catch (error) {
             console.error(
                 "Failed to fetch context items due to an error:",
@@ -370,6 +376,7 @@ function App() {
                                 : `${strippedCompleteLineContent} (${vrefAtStartOfLine})`;
 
                         setSelectedTextContext(selectedTextContextString);
+                        setCurrentlyActiveVref(vrefAtStartOfLine ?? "");
                     }
                     break;
                 case "response": {

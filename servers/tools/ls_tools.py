@@ -114,7 +114,7 @@ class ServerFunctions:
     
 
     def on_selected(self, text):
-        self.server.show_message("Text selected: "+text)
+        # self.server.show_message("Text selected: "+text)
         for f in self.on_selected_functions:
             f(text)
     def initialize(self, server, params, fs):        

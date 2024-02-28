@@ -5,6 +5,7 @@ import Badge from '../Badge';
 import { grey } from '../colors';
 import PlusIcon from '../img/Plus';
 import { ActionTypes, randomColor } from '../utils';
+import { CellTypeData } from '../tableTypes';
 
 export default function SelectCell({
   initialValue,
@@ -17,7 +18,9 @@ export default function SelectCell({
   const [selectPop, setSelectPop] = useState<HTMLDivElement | null>(null);
   const [showSelect, setShowSelect] = useState<boolean>(false);
   const [showAdd, setShowAdd] = useState<boolean>(false);
-  const [addSelectRef, setAddSelectRef] = useState<HTMLInputElement | null>(null);
+  const [addSelectRef, setAddSelectRef] = useState<HTMLInputElement | null>(
+    null
+  );
   const { styles, attributes } = usePopper(selectRef, selectPop, {
     placement: 'bottom-start',
     strategy: 'fixed',
@@ -30,12 +33,13 @@ export default function SelectCell({
 
   useEffect(() => {
     if (value.update) {
-      dataDispatch({
-        type: ActionTypes.UPDATE_CELL,
-        columnId,
-        rowIndex,
-        value: value.value,
-      });
+      if (dataDispatch)
+        dataDispatch({
+          type: ActionTypes.UPDATE_CELL,
+          columnId,
+          rowIndex,
+          value: value.value,
+        });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, columnId, rowIndex]);
@@ -48,7 +52,7 @@ export default function SelectCell({
 
   function getColor() {
     let match = options?.find(option => option.label === value.value);
-    return (match?.backgroundColor) ?? grey(200);
+    return match?.backgroundColor ?? grey(200);
   }
 
   function handleAddOption() {
@@ -59,6 +63,7 @@ export default function SelectCell({
     if (e.key === 'Enter') {
       const target = e.target as HTMLInputElement;
       if (target.value !== '') {
+        if (dataDispatch)
         dataDispatch({
           type: ActionTypes.ADD_OPTION_TO_COLUMN,
           option: target.value,
@@ -72,6 +77,7 @@ export default function SelectCell({
 
   function handleOptionBlur(e: React.FocusEvent<HTMLInputElement>) {
     if (e.target.value !== '') {
+      if (dataDispatch)
       dataDispatch({
         type: ActionTypes.ADD_OPTION_TO_COLUMN,
         option: e.target.value,
