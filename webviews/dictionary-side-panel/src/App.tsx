@@ -1,48 +1,48 @@
 import { vscode } from "./utilities/vscode";
-import { useEffect, useState } from 'react'
-import { Dictionary } from 'codex-types';
-import { numberOfEntries } from './utils';
-import './App.css'
+import { useEffect, useState } from "react";
+import { Dictionary } from "codex-types";
+import { numberOfEntries } from "./utils";
+import "./App.css";
 
 function App() {
-  const [entries, setEntries] = useState(0);
+    const [entries, setEntries] = useState(0);
 
+    useEffect(() => {
+        const handleReceiveMessage = (event: MessageEvent) => {
+            const message = event.data;
+            switch (message.command) {
+                case "sendData": {
+                    const dictionary: Dictionary = message.data;
+                    setEntries(numberOfEntries(dictionary));
+                    break;
+                }
+            }
+        };
+        window.addEventListener("message", handleReceiveMessage);
+        return () => {
+            window.removeEventListener("message", handleReceiveMessage);
+        };
+    }, []);
 
-  useEffect(() => {
-    const handleReceiveMessage = (event: MessageEvent) => {
-      const message = event.data;
-      switch (message.command) {
-        case 'sendData': {
-          const dictionary: Dictionary = message.data;
-          setEntries(numberOfEntries(dictionary));
-          console.log('Number of entries in dictionary:', entries);
-          break;
-        }
-      }
-    };
-    window.addEventListener('message', handleReceiveMessage);
-    return () => {
-      window.removeEventListener('message', handleReceiveMessage);
-    };
-  }, []);
+    // Request dictionary data update
+    vscode.postMessage({ command: "updateData" });
 
-  // Get dictionary data
-  vscode.postMessage({ command: "updateData" });
-
-  return (
-    <>
-      <h1>Dictionary Summary</h1>
-      <div className="card">
-        {/* Print out number of entries in dictionary from const entries var */}
-        <p>Entries in dictionary: {entries}</p>
-        <button onClick={() => {
-          vscode.postMessage({ command: "showDictionaryTable" });
-        }}>
-          Show Dictionary Table
-        </button>
-      </div>
-    </>
-  );
+    return (
+        <div className="app-container">
+            <h1 className="title">Dictionary Summary</h1>
+            <div className="card">
+                <p className="entry-count">Entries in dictionary: {entries}</p>
+                <button
+                    className="show-table-btn"
+                    onClick={() => {
+                        vscode.postMessage({ command: "showDictionaryTable" });
+                    }}
+                >
+                    Show Dictionary Table
+                </button>
+            </div>
+        </div>
+    );
 }
 
-export default App
+export default App;
