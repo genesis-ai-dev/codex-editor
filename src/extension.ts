@@ -78,6 +78,7 @@ import { registerDictionarySummaryProvider } from "./providers/dictionaryTable/d
 import { ResourcesProvider } from "./providers/obs/resources/resourcesProvider";
 import { StoryOutlineProvider } from "./providers/obs/storyOutline/storyOutlineProvider";
 import { ObsEditorProvider } from "./providers/obs/editor/ObsEditorProvider";
+import { TranslationNotesProvider } from "./providers/translationNotes/TranslationNotesProvider";
 
 const MIN_PYTHON = semver.parse("3.7.9");
 const ROOT_PATH = getWorkSpaceFolder();
@@ -153,15 +154,31 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Add .bible files to the files.readonlyInclude glob pattern to make them readonly without overriding existing patterns
     const config = vscode.workspace.getConfiguration();
-    config.update("editor.wordWrap", "on", vscode.ConfigurationTarget.Workspace);
+    config.update(
+        "editor.wordWrap",
+        "on",
+        vscode.ConfigurationTarget.Workspace,
+    );
     // Turn off line numbers by default in workspace
-    config.update("editor.lineNumbers", "off", vscode.ConfigurationTarget.Workspace);
+    config.update(
+        "editor.lineNumbers",
+        "off",
+        vscode.ConfigurationTarget.Workspace,
+    );
     // Set to serif font by default in workspace
-    config.update("editor.fontFamily", "serif", vscode.ConfigurationTarget.Workspace);
+    config.update(
+        "editor.fontFamily",
+        "serif",
+        vscode.ConfigurationTarget.Workspace,
+    );
     // Set to 16px font size by default in workspace
     config.update("editor.fontSize", 16, vscode.ConfigurationTarget.Workspace);
     // Set cursor style to line-thin by default in workspace
-    config.update("editor.cursorStyle", "line-thin", vscode.ConfigurationTarget.Workspace);
+    config.update(
+        "editor.cursorStyle",
+        "line-thin",
+        vscode.ConfigurationTarget.Workspace,
+    );
     // TODO: set up the layout for the workspace
     // FIXME: this way of doing things clobbers the users existing settings.
     // These settings should probably be bundled in the app only, and not applied via the extension.
@@ -523,7 +540,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     const commandDisposable = vscode.commands.registerCommand(
         "extension.triggerInlineCompletion",
-        triggerInlineCompletion
+        triggerInlineCompletion,
     );
 
     // on document changes, trigger inline completions
@@ -536,7 +553,6 @@ export async function activate(context: vscode.ExtensionContext) {
     });
 
     context.subscriptions.push(commandDisposable);
-
 
     // Let's set the extension as initialized so that we can defer the
     // starting of certain functionality until the extension is ready
@@ -554,11 +570,17 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(ResourcesProvider.register(context));
     context.subscriptions.push(StoryOutlineProvider.register(context));
     context.subscriptions.push(ObsEditorProvider.register(context));
+    const { providerRegistration, commandRegistration } =
+        TranslationNotesProvider.register(context);
+    context.subscriptions.push(providerRegistration);
+    context.subscriptions.push(commandRegistration);
 
     // Make scripture-explorer-activity-bar the active primary sidebar view by default
-    vscode.commands.executeCommand('workbench.action.activityBarLocation.hide');
-    vscode.commands.executeCommand('workbench.view.extension.scripture-explorer-activity-bar');
-    vscode.commands.executeCommand('workbench.action.focusAuxiliaryBar');
+    vscode.commands.executeCommand("workbench.action.activityBarLocation.hide");
+    vscode.commands.executeCommand(
+        "workbench.view.extension.scripture-explorer-activity-bar",
+    );
+    vscode.commands.executeCommand("workbench.action.focusAuxiliaryBar");
 }
 
 export function deactivate(): Thenable<void> {

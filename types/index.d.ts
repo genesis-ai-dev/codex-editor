@@ -1,5 +1,6 @@
 import { Dictionary } from "codex-types";
 import * as vscode from "vscode";
+import { ScriptureTSV } from "./TsvTypes";
 interface ChatMessage {
     role: "system" | "user" | "assistant";
     content: string;
@@ -93,3 +94,7 @@ type DictionaryPostMessages =
     | { command: "updateData"; data: Dictionary }
     | { command: "confirmRemove"; count: number }
     | { command: "removeConfirmed" };
+
+type TranslationNotePostMessages =
+    | { command: "update"; data: ScriptureTSV }
+    | { command: "changeRef"; data: VerseRefGlobalState };
