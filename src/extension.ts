@@ -79,6 +79,7 @@ import { ResourcesProvider } from "./providers/obs/resources/resourcesProvider";
 import { StoryOutlineProvider } from "./providers/obs/storyOutline/storyOutlineProvider";
 import { ObsEditorProvider } from "./providers/obs/editor/ObsEditorProvider";
 import { TranslationNotesProvider } from "./providers/translationNotes/TranslationNotesProvider";
+import { registerScriptureViewerProvider } from "./providers/scriptureView/ScriptureViewerPanel";
 
 const MIN_PYTHON = semver.parse("3.7.9");
 const ROOT_PATH = getWorkSpaceFolder();
@@ -566,6 +567,7 @@ export async function activate(context: vscode.ExtensionContext) {
     registerParallelViewWebviewProvider(context);
     registerDictionaryTableProvider(context);
     registerDictionarySummaryProvider(context);
+    registerScriptureViewerProvider(context);
     context.subscriptions.push(CreateProjectProvider.register(context));
     context.subscriptions.push(ResourcesProvider.register(context));
     context.subscriptions.push(StoryOutlineProvider.register(context));

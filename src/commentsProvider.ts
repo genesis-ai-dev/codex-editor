@@ -263,7 +263,7 @@ export function registerCommentsProvider(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand(
-            "commentsExtension.cancelsaveNote",
+            "commentsExtension.cancelSaveNote",
             (comment: NoteComment) => {
                 if (!comment.parent) {
                     return;
