@@ -74,6 +74,27 @@ function App() {
                         const cellIsMarkdownChapterHeading =
                             scriptureCell.kind === markdownNotebookCellKind &&
                             scriptureCell.metadata?.type === "chapter-heading";
+                        const values = scriptureCell.value.split("\n");
+
+                        const valueArray: string[][] = [];
+                        const emptyLineFound = !!values.find(
+                            (value) => value.trim() === "",
+                        );
+
+                        if (emptyLineFound) {
+                            let index = 0;
+                            values.forEach((value) => {
+                                if (value.trim() !== "") {
+                                    if (!valueArray[index]) {
+                                        valueArray.push([]);
+                                    }
+                                    valueArray[index].push(value);
+                                } else {
+                                    index++;
+                                }
+                            });
+                        }
+                        console.log({ values, valueArray, emptyLineFound });
 
                         if (
                             cellIsMarkdownChapterHeading ||
@@ -81,41 +102,77 @@ function App() {
                         ) {
                             return (
                                 <div
-                                    style={{
-                                        backgroundColor:
-                                            "var(--vscode-dropdown-background)",
-                                        padding: "20px",
-                                        borderRadius: "5px",
-                                        boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
-                                        display: "flex",
-                                        flexFlow: "column nowrap",
-                                    }}
+                                    style={
+                                        {
+                                            // backgroundColor:
+                                            //     "var(--vscode-dropdown-background)",
+                                            // padding: "20px",
+                                            // borderRadius: "5px",
+                                            // boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+                                            // display: "flex",
+                                            // flexFlow: "column nowrap",
+                                        }
+                                    }
                                 >
                                     {scriptureCell.kind ===
                                         markdownNotebookCellKind &&
                                         scriptureCell.metadata?.type ===
                                             "chapter-heading" && (
-                                            <div
-                                                style={{
-                                                    display: "flex",
-                                                    flexFlow: "column nowrap",
-                                                    marginBottom: 20,
-                                                }}
-                                            >
-                                                <h1>{scriptureCell.value}</h1>
-                                            </div>
+                                            <h1>
+                                                {scriptureCell.value
+                                                    .replace(/^#+\s*/, "")
+                                                    .trim()}
+                                            </h1>
                                         )}
                                     {scriptureCell.kind ===
                                         verseContentNotebookCellKind && (
-                                        <div
-                                            style={{
-                                                display: "flex",
-                                                flexFlow: "column nowrap",
-                                                marginBottom: 20,
-                                            }}
-                                        >
-                                            <p>{scriptureCell.value}</p>
-                                        </div>
+                                        <p>
+                                            {scriptureCell.value
+                                                .split("\n")
+                                                .map((line, index) => {
+                                                    const verseNumber =
+                                                        line.match(
+                                                            /^[^:]*:\s*(\d+)/,
+                                                        )?.[1];
+
+                                                    const verseContent =
+                                                        line.replace(
+                                                            /^[^:]*:\s*\d+\s*/,
+                                                            "",
+                                                        );
+                                                    if (
+                                                        verseNumber &&
+                                                        verseContent
+                                                    ) {
+                                                        return (
+                                                            <span
+                                                                key={index}
+                                                                style={{
+                                                                    margin: "0",
+                                                                    padding:
+                                                                        "0.5em 0",
+                                                                }}
+                                                            >
+                                                                <sup
+                                                                    style={{
+                                                                        verticalAlign:
+                                                                            "text-top",
+                                                                        marginRight:
+                                                                            "0.3em",
+                                                                        marginLeft:
+                                                                            "0.3em",
+                                                                    }}
+                                                                >
+                                                                    {
+                                                                        verseNumber
+                                                                    }
+                                                                </sup>
+                                                                {verseContent}
+                                                            </span>
+                                                        );
+                                                    }
+                                                })}
+                                        </p>
                                     )}
                                 </div>
                             );

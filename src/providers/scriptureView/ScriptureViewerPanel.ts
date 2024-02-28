@@ -7,7 +7,7 @@ import {
     ViewColumn,
 } from "vscode";
 import * as vscode from "vscode";
-import { ScripturePostMessages, ScriptureContent } from "../../../types";
+import { ScripturePostMessages } from "../../../types";
 
 function getNonce() {
     let text = "";
@@ -59,15 +59,6 @@ export class ScriptureViewerPanel {
         this._panel = panel;
 
         const initAsync = async () => {
-            // const { data, uri } = await FileHandler.readFile(
-            //     "scriptures/project.scripture",
-            // );
-            // if (!data) {
-            //     return;
-            // }
-            // const scriptureContent: ScriptureContent = JSON.parse(data);
-            // console.log("Parsed scripture content:", scriptureContent);
-
             this._panel.webview.html = this._getWebviewContent(
                 this._panel.webview,
                 extensionUri,
@@ -203,44 +194,6 @@ export class ScriptureViewerPanel {
             undefined,
             this._disposables,
         );
-    }
-}
-
-class FileHandler {
-    static async readFile(
-        filePath: string,
-    ): Promise<{ data: string | undefined; uri: vscode.Uri | undefined }> {
-        try {
-            if (!vscode.workspace.workspaceFolders) {
-                throw new Error("No workspace folder found");
-            }
-            const workspaceFolder = vscode.workspace.workspaceFolders?.[0].uri;
-            const fileUri = vscode.Uri.joinPath(workspaceFolder, filePath);
-            const fileData = await vscode.workspace.fs.readFile(fileUri);
-            const data = new TextDecoder().decode(fileData);
-            return { data, uri: fileUri };
-        } catch (error) {
-            vscode.window.showErrorMessage(`Error reading file: ${filePath}`);
-            console.error({ error });
-            return { data: undefined, uri: undefined };
-        }
-    }
-
-    static async writeFile(filePath: string, data: string): Promise<void> {
-        try {
-            if (!vscode.workspace.workspaceFolders) {
-                throw new Error("No workspace folder found");
-            }
-            const workspaceFolder = vscode.workspace.workspaceFolders?.[0].uri;
-            const fileUri = vscode.Uri.joinPath(workspaceFolder, filePath);
-            const fileData = new TextEncoder().encode(data);
-            await vscode.workspace.fs.writeFile(fileUri, fileData);
-        } catch (error) {
-            console.error({ error });
-            vscode.window.showErrorMessage(
-                `Error writing to file: ${filePath}`,
-            );
-        }
     }
 }
 
