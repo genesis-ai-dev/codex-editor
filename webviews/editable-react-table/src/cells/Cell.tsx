@@ -4,6 +4,7 @@ import TextCell from './TextCell';
 import NumberCell from './NumberCell';
 import SelectCell from './SelectCell';
 import CheckboxCell from './CheckboxCell';
+import { CellData } from '../tableTypes';
 
 export default function Cell({
   value: initialValue,

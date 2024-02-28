@@ -1,9 +1,8 @@
 import * as vscode from "vscode";
-import { registerTextSelectionHandler } from "../../pygls_commands/textSelectionHandler";
 import { jumpToCellInNotebook } from "../../utils";
+import { registerTextSelectionHandler } from "../../handlers/textSelectionHandler";
 
 const abortController: AbortController | null = null;
-let loading: boolean = false;
 
 interface OpenFileMessage {
     command: "openFileAtLocation";
@@ -12,72 +11,40 @@ interface OpenFileMessage {
 }
 
 async function upsertAllCodexFiles(webview: vscode.Webview): Promise<void> {
-    const workspaceFolders = vscode.workspace.workspaceFolders;
+    try {
+        const response = await fetch('http://localhost:5554/upsert_all_codex_files', {
+            method: 'GET'
+        });
 
-    if (!workspaceFolders) {
-        return;
-    }
-
-    let totalFiles = 0;
-    let processedFiles = 0;
-
-    // First, count all codex files to determine total steps for progress update
-    for (const folder of workspaceFolders) {
-        const pattern = new vscode.RelativePattern(folder, "**/*.codex");
-        const files = await vscode.workspace.findFiles(pattern);
-        totalFiles += files.length;
-    }
-
-    // Then, process each file
-    for (const folder of workspaceFolders) {
-        const pattern = new vscode.RelativePattern(folder, "**/*.codex");
-        const files = await vscode.workspace.findFiles(pattern);
-
-        for (const file of files) {
-            // Upsert each codex file
-            const filePath = file.fsPath;
-            const db_name = "drafts"; // Assuming the database name is known and static
-            const upsertData = { db_name, path: filePath };
-
-            try {
-                const response = await fetch(
-                    "http://localhost:5554/upsert_codex_file",
-                    {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json",
-                        },
-                        body: JSON.stringify(upsertData),
-                    },
-                );
-
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-
-                // Successfully upserted a file, increment processed files count
-                processedFiles++;
-
-                // Send a message to the webview to update the loading progress
-                webview.postMessage({
-                    command: "loadingProgress",
-                    currentStep: processedFiles,
-                    totalSteps: totalFiles,
-                });
-            } catch (error) {
-                console.error("Failed to upsert codex file:", error);
-            }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
+    } catch (error) {
+        console.error('Failed to upsert all codex files:', error);
     }
-
-    // After all files have been processed, reset the progress steps
-    loading = false;
     webview.postMessage({
-        command: "loadingProgress",
-        currentStep: 0,
-        totalSteps: 0,
+        command: "completed",
     });
 }
+
+async function upsertAllSourceFiles(webview: vscode.Webview): Promise<void> {
+    try {
+        const response = await fetch('http://localhost:5554/upsert_all_bible_files', {
+            method: 'GET'
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+    } catch (error) {
+        console.error('Failed to upsert all bible files:', error);
+    }
+    webview.postMessage({
+        command: "completed",
+    });
+
+}
+
 
 async function jumpToFirstOccurrence(uri: string, word: string) {
     const chapter = word.split(":");
@@ -163,9 +130,8 @@ const loadWebviewHtml = (
       Use a content security policy to only allow loading images from https or from our extension directory,
       and only allow scripts that have a specific nonce.
     -->
-    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${
-        webviewView.webview.cspSource
-    }; script-src 'nonce-${nonce}';">
+    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${webviewView.webview.cspSource
+        }; script-src 'nonce-${nonce}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="${styleResetUri}" rel="stylesheet">
     <link href="${styleVSCodeUri}" rel="stylesheet">
@@ -196,10 +162,11 @@ const loadWebviewHtml = (
                 jumpToFirstOccurrence(message.uri, message.word);
             } else if (message.command === "embedAllDocuments") {
                 upsertAllCodexFiles(webviewView.webview);
-
-                vscode.window.showWarningMessage(
-                    "Embedding already in progress.",
-                );
+                vscode.window.showInformationMessage("Embedding in progress.");        
+            }
+            else if (message.command === "embedSource") {
+                upsertAllSourceFiles(webviewView.webview);
+                vscode.window.showInformationMessage("Embedding in progress.");        
             }
         },
     );

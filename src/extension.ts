@@ -3,7 +3,7 @@
 import * as vscode from "vscode";
 import { CodexKernel } from "./controller";
 import { CodexContentSerializer } from "./serializer";
-import { checkServerHeartbeat } from "./pygls_commands/textSelectionHandler";
+import { checkServerHeartbeat } from "./handlers/textSelectionHandler";
 
 import {
     NOTEBOOK_TYPE,
@@ -11,7 +11,7 @@ import {
     createProjectCommentFiles,
     createProjectNotebooks,
 } from "./utils/codexNotebookUtils";
-import { CodexNotebookProvider } from "./tree-view/scriptureTreeViewProvider";
+import { CodexNotebookProvider } from "./providers/treeViews/scriptureTreeViewProvider";
 import {
     getAllBookRefs,
     getProjectMetadata,
@@ -23,12 +23,16 @@ import { registerSourceCodeLens } from "./sourceCodeLensProvider";
 import { LanguageMetadata, LanguageProjectStatus, Project } from "codex-types";
 import { nonCanonicalBookRefs } from "./utils/verseRefUtils/verseData";
 import { LanguageCodes } from "./utils/languageUtils";
-import { ResourceProvider } from "./tree-view/resourceTreeViewProvider";
+import { ResourceProvider } from "./providers/treeViews/resourceTreeViewProvider";
 import {
     initializeProjectMetadata,
     promptForProjectDetails,
 } from "./utils/projectUtils";
 import { checkTaskStatus, indexVrefs } from "./commands/indexVrefsCommand";
+import {
+    triggerInlineCompletion,
+    provideInlineCompletionItems,
+} from "./providers/translationSuggestions/inlineCompletionsProvider";
 
 /* -------------------------------------------------------------------------
  * NOTE: This file's invocation of a python server is a derivative work of
@@ -525,6 +529,31 @@ export async function activate(context: vscode.ExtensionContext) {
         }),
     );
 
+    // Ensure inline completions are registered for all supported languages
+    const languages = ["scripture"]; // NOTE: could add others, e.g., 'usfm', here
+    const disposables = languages.map((language) => {
+        return vscode.languages.registerInlineCompletionItemProvider(language, {
+            provideInlineCompletionItems,
+        });
+    });
+    disposables.forEach((disposable) => context.subscriptions.push(disposable));
+
+    const commandDisposable = vscode.commands.registerCommand(
+        "extension.triggerInlineCompletion",
+        triggerInlineCompletion,
+    );
+
+    // on document changes, trigger inline completions
+    vscode.workspace.onDidChangeTextDocument((e) => {
+        // FIXME: use more specific conditions to trigger inline completions?
+        const shouldTriggerInlineCompletion = e.contentChanges.length > 0;
+        if (shouldTriggerInlineCompletion) {
+            triggerInlineCompletion();
+        }
+    });
+
+    context.subscriptions.push(commandDisposable);
+
     // Let's set the extension as initialized so that we can defer the
     // starting of certain functionality until the extension is ready
     isExtensionInitialized = true;
@@ -545,6 +574,13 @@ export async function activate(context: vscode.ExtensionContext) {
         TranslationNotesProvider.register(context);
     context.subscriptions.push(providerRegistration);
     context.subscriptions.push(commandRegistration);
+
+    // Make scripture-explorer-activity-bar the active primary sidebar view by default
+    vscode.commands.executeCommand("workbench.action.activityBarLocation.hide");
+    vscode.commands.executeCommand(
+        "workbench.view.extension.scripture-explorer-activity-bar",
+    );
+    vscode.commands.executeCommand("workbench.action.focusAuxiliaryBar");
 }
 
 export function deactivate(): Thenable<void> {

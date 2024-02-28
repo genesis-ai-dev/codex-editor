@@ -1,3 +1,4 @@
+import { Dictionary } from "codex-types";
 import * as vscode from "vscode";
 import { ScriptureTSV } from "./TsvTypes";
 interface ChatMessage {
@@ -78,13 +79,21 @@ type ChatPostMessages =
     | { command: "fetch"; messages: string }
     | { command: "notifyUserError"; message: string }
     | {
-          command: "saveMessageToThread";
-          message: ChatMessageWithContext;
+          command: "updateMessageThread";
+          messages: ChatMessageWithContext[];
           threadId: string;
           threadTitle?: string;
       }
+    | { command: "deleteThread"; threadId: string }
     | { command: "fetchThread" }
-    | { command: "abort-fetch" };
+    | { command: "abort-fetch" }
+    | { command: "openSettings" };
+
+type DictionaryPostMessages =
+    | { command: "sendData"; data: Dictionary }
+    | { command: "updateData"; data: Dictionary }
+    | { command: "confirmRemove"; count: number }
+    | { command: "removeConfirmed" };
 
 type TranslationNotePostMessages =
     | { command: "update"; data: ScriptureTSV }
