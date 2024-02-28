@@ -55,12 +55,16 @@ export class TranslationNotesProvider implements CustomTextEditorProvider {
                 const { bookID } = extractBookChapterVerse(verseRef);
                 const tnUri = getTnUri(bookID);
 
-                commands.executeCommand("vscode.open", tnUri, {
-                    viewColumn: ViewColumn.Beside,
-                    preserveFocus: true,
-                    preview: true,
-                    viewType: TranslationNotesProvider.viewType,
-                });
+                await commands.executeCommand(
+                    "vscode.openWith",
+                    tnUri,
+                    TranslationNotesProvider.viewType,
+                    {
+                        viewColumn: ViewColumn.Beside,
+                        preserveFocus: true,
+                        preview: true,
+                    },
+                );
             },
         );
 
