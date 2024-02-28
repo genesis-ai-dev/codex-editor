@@ -17,7 +17,7 @@ git clone https://github.com/genesis-ai-dev/codex-editor.git
 cd codex-editor
 ```
 
-Make sure you have the following  extension loaded into vsCode:  python and scripture-language-support, 
+- Make sure you have the following extensions loaded into vsCode:  python and scripture-language-support,
 
 ```bash
 
@@ -32,7 +32,7 @@ pnpm i # if you're using pnpm, or npm install if you're using npm
 ## build the codex-webviews
 codex-editor % cd webviews/codex-webviews
 codex-webviews % pnpm i
-codex-webviews % pnpm run build:all
+codex-webviews % pnpm run build
 
 ## build the dictionary-side-panel
 codex-webviews % cd ../dictionary-side-panel
@@ -90,9 +90,10 @@ This README will guide you through the process of using the `ServerFunctions` cl
 
 Before you begin, ensure you have the following installed:
 
--   Python 3.7 or higher
 -   Visual Studio Code
 -   Install `scripture-language-support` from the extension store
+-   Python 3.11 or higher:
+    -  Check your python version by running `python3 --version`.  At this time we need Python version `3.11.x`. If you have an older version of Python, download newer version from `https://www.python.org/downloads/release/python-3118/` .  If the language server fails to start, you may have multiple versions of python installed and an older version is first in the path.  To find out all the Python3 installs on your system, do `where python3`.  For each install query the version (e.g by doing `/usr/bin/python3 --version`).  When you find the correct version, you need to configure VsCode to use that version by doing `View / Command Prompt /  Preferences: Open Workspace Settings`. Then navigate to `User Tab / Extensions / Codex Scripture Editor / Server Configuration`.  And put the path to the correct Python version in `Pygls > Server: PythonPath`
 
 ## How it works:
 
@@ -156,3 +157,31 @@ if __name__ == "__main__":
     server_functions.start()
     server.start_io()
 ```
+
+# Using LLMs
+
+## Prerequisites
+
+Before you begin, ensure you have the following installed:
+
+-   `LM Studio` if you want to run a local language model
+    - also download an LLM to use
+
+## Configure with LLM Studio
+
+### Set up LM Studio
+- click on the local server icon on left (`<->`)
+- In the top dropdown select a model to load, and wait for load to complete (smaller models will load faster)
+- Click the `Start Server` button
+- Copy the path to the server shown in the Server Logs.  It should look like `http://localhost:1234/v1`
+		
+### Configure VsCode:
+- Under Props do  `View / Command Prompt / Preferences: Open Workspace Settings`. Then navigate to `User Tab / Extensions / Codex Scripture Editor / Translators-copilot` and put path in `Pygls > Server: Python Path`
+- Paste the path to the server into `Translators-copilot: Llm Endpoint`
+
+## Configure with OpenAI
+
+### Configure VsCode:
+- Under Props do  `View / Command Prompt / Preferences: Open Workspace Settings`. 
+- Then navigate to `User Tab / Extensions / Codex Scripture Editor / Translators-copilot` and put `https://api.openai.com/v1` in `Pygls > Server: Python Path`
+- And then enter your OpenAI key into `Translators-copilot: Api_key`
