@@ -7,8 +7,7 @@ import {
     ViewColumn,
 } from "vscode";
 import * as vscode from "vscode";
-import { Dictionary } from "codex-types";
-import { DictionaryPostMessages } from "../../../types";
+import { ScripturePostMessages, ScriptureContent } from "../../../types";
 
 function getNonce() {
     let text = "";
@@ -20,86 +19,89 @@ function getNonce() {
     return text;
 }
 
+const sendDataToWebview = async (webview: vscode.WebviewView["webview"]) => {
+    console.log("sendDataToWebview was called");
+    let uri = vscode.window.activeTextEditor?.document.uri;
+    console.log({ uri });
+
+    // Check if the URI scheme is not 'file', then adjust it to create a file URI
+    if (uri && uri.scheme !== "file") {
+        // Use the fsPath to create a new URI with the 'file' scheme
+        uri = vscode.Uri.file(uri.fsPath);
+    }
+
+    console.log({ adjustedUri: uri });
+
+    if (uri?.toString().includes(".codex")) {
+        try {
+            const fileContentUint8Array =
+                await vscode.workspace.fs.readFile(uri);
+            const fileContent = new TextDecoder().decode(fileContentUint8Array);
+            webview.postMessage({
+                command: "sendData",
+                data: JSON.parse(fileContent),
+            } as ScripturePostMessages);
+        } catch (error) {
+            console.error("Error reading file:", error);
+            vscode.window.showErrorMessage(
+                `Error reading file: ${uri?.toString()}`,
+            );
+        }
+    }
+};
+
 export class ScriptureViewerPanel {
     public static currentPanel: ScriptureViewerPanel | undefined;
     private readonly _panel: WebviewPanel;
     private _disposables: Disposable[] = [];
 
-    /**
-     * The HelloWorldPanel class private constructor (called only from the render method).
-     *
-     * @param panel A reference to the webview panel
-     * @param extensionUri The URI of the directory containing the extension
-     */
     private constructor(panel: WebviewPanel, extensionUri: Uri) {
         this._panel = panel;
 
         const initAsync = async () => {
-            const { data, uri } = await FileHandler.readFile(
-                "drafts/project.dictionary",
-            );
-            // return if no data
-            if (!data) {
-                return;
-            }
-            const dictionary: Dictionary = JSON.parse(data);
-            console.log("Parsed dictionary:", dictionary);
+            // const { data, uri } = await FileHandler.readFile(
+            //     "scriptures/project.scripture",
+            // );
+            // if (!data) {
+            //     return;
+            // }
+            // const scriptureContent: ScriptureContent = JSON.parse(data);
+            // console.log("Parsed scripture content:", scriptureContent);
 
-            // Set the HTML content for the webview panel
             this._panel.webview.html = this._getWebviewContent(
                 this._panel.webview,
                 extensionUri,
             );
 
-            // Set an event listener to listen for messages passed from the webview context
-            this._setWebviewMessageListener(this._panel.webview, uri);
+            this._setWebviewMessageListener(this._panel.webview);
 
-            // Post message to app
-            this._panel.webview.postMessage({
-                command: "sendData",
-                data: dictionary,
-            } as DictionaryPostMessages);
+            await sendDataToWebview(this._panel.webview);
         };
 
         initAsync().catch(console.error);
 
-        // Set an event listener to listen for when the panel is disposed (i.e. when the user closes
-        // the panel or when the panel is closed programmatically)
         this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
     }
 
-    /*
-     * @param extensionUri The URI of the directory containing the extension.
-     */
     public static render(extensionUri: Uri): ScriptureViewerPanel {
         if (ScriptureViewerPanel.currentPanel) {
-            // If the webview panel already exists reveal it
             ScriptureViewerPanel.currentPanel._panel.reveal(ViewColumn.One);
         } else {
-            // If a webview panel does not already exist create and show a new one
             const panel = window.createWebviewPanel(
-                // Panel view type
-                // "showDictionaryTable",
-                "dictionary-table",
-                // Panel title
-                "Dictionary Table",
-                // The editor column the panel should be displayed in
-                ViewColumn.One,
-                // Extra panel configurations
+                "scripture-view",
+                "Scripture View",
+                ViewColumn.Beside,
                 {
-                    // Enable JavaScript in the webview
                     enableScripts: true,
-                    // Restrict the webview to only load resources from the `out` and `webview-ui/build` directories
                     localResourceRoots: [
                         Uri.joinPath(extensionUri, "out"),
                         Uri.joinPath(
                             extensionUri,
-                            "webviews/editable-react-table/dist",
+                            "webviews/codex-webviews/dist/ScriptureViewer",
                         ),
                     ],
                 },
             );
-
             ScriptureViewerPanel.currentPanel = new ScriptureViewerPanel(
                 panel,
                 extensionUri,
@@ -123,24 +125,19 @@ export class ScriptureViewerPanel {
         const panel =
             webviewPanel ||
             vscode.window.createWebviewPanel(
-                "dictionary-table",
-                "Dictionary Table",
+                "scripture-view",
+                "Scripture View",
                 column || vscode.ViewColumn.One,
                 { enableScripts: true },
             );
         return new ScriptureViewerPanel(panel, extensionUri);
     }
 
-    /**
-     * Cleans up and disposes of webview resources when the webview panel is closed.
-     */
     public dispose() {
         ScriptureViewerPanel.currentPanel = undefined;
 
-        // Dispose of the current webview panel
         this._panel.dispose();
 
-        // Dispose of all disposables (i.e. commands) for the current webview panel
         while (this._disposables.length) {
             const disposable = this._disposables.pop();
             if (disposable) {
@@ -149,19 +146,7 @@ export class ScriptureViewerPanel {
         }
     }
 
-    /**
-     * Defines and returns the HTML that should be rendered within the webview panel.
-     *
-     * @remarks This is also the place where references to the React webview build files
-     * are created and inserted into the webview HTML.
-     *
-     * @param webview A reference to the extension webview
-     * @param extensionUri The URI of the directory containing the extension
-     * @returns A template string literal containing the HTML that should be
-     * rendered within the webview panel
-     */
     private _getWebviewContent(webview: Webview, extensionUri: Uri) {
-        // The CSS file from the React build output
         const scriptUri = webview.asWebviewUri(
             vscode.Uri.joinPath(
                 extensionUri,
@@ -185,9 +170,6 @@ export class ScriptureViewerPanel {
 
         const nonce = getNonce();
 
-        // Tip: Install the es6-string-html VS Code extension to enable code highlighting below
-        // window.initialData = ${JSON.stringify(data)};
-
         return /*html*/ `
       <!DOCTYPE html>
       <html lang="en">
@@ -196,7 +178,7 @@ export class ScriptureViewerPanel {
           <meta name="viewport" content="width=device-width, initial-scale=1.0" />
           <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
           <link rel="stylesheet" type="text/css" href="${styleUri}">
-          <title>Dictionary Table</title>
+          <title>Scripture View</title>
         </head>
         <body>
           <div id="root"></div>
@@ -206,45 +188,14 @@ export class ScriptureViewerPanel {
     `;
     }
 
-    /**
-     * Sets up an event listener to listen for messages passed from the webview context and
-     * executes code based on the message that is recieved.
-     *
-     * @param webview A reference to the extension webview
-     * @param context A reference to the extension context
-     */
-    private _setWebviewMessageListener(webview: Webview, uri: any) {
+    private _setWebviewMessageListener(webview: Webview) {
         webview.onDidReceiveMessage(
-            async (message: DictionaryPostMessages) => {
+            async (message: ScripturePostMessages) => {
                 const command = message.command;
 
                 switch (command) {
-                    case "updateData": {
-                        console.log(
-                            "The data that would be written to file, pre-encoding:",
-                        );
-                        const fileData = new TextEncoder().encode(
-                            JSON.stringify(message.data),
-                        );
-                        await vscode.workspace.fs.writeFile(uri, fileData);
-                        console.log(
-                            "The data that would be written to file, encoded:",
-                        );
-                        console.log({ fileData });
-                        return;
-                    }
-                    case "confirmRemove": {
-                        const confirmed = await window.showInformationMessage(
-                            `Do you want to remove ${message.count} items?`,
-                            { modal: true },
-                            "Yes",
-                            "No",
-                        );
-                        if (confirmed === "Yes") {
-                            webview.postMessage({
-                                command: "removeConfirmed",
-                            } as DictionaryPostMessages);
-                        }
+                    case "fetchData": {
+                        sendDataToWebview(webview);
                         break;
                     }
                 }
@@ -303,6 +254,5 @@ export function registerScriptureViewerProvider(
         },
     );
 
-    // Add command to the extension context
     context.subscriptions.push(showScriptureViewerCommand);
 }
