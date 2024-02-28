@@ -126,53 +126,71 @@ function App() {
                                         )}
                                     {scriptureCell.kind ===
                                         verseContentNotebookCellKind && (
-                                        <p>
-                                            {scriptureCell.value
-                                                .split("\n")
-                                                .map((line, index) => {
-                                                    const verseNumber =
-                                                        line.match(
-                                                            /^[^:]*:\s*(\d+)/,
-                                                        )?.[1];
+                                        <>
+                                            {valueArray.map((arrayOfLines) => {
+                                                return (
+                                                    <p
+                                                        style={{
+                                                            fontSize: "1rem",
+                                                            lineHeight:
+                                                                "1.8rem",
+                                                        }}
+                                                    >
+                                                        {arrayOfLines.map(
+                                                            (line, index) => {
+                                                                const verseNumber =
+                                                                    line.match(
+                                                                        /^[^:]*:\s*(\d+)/,
+                                                                    )?.[1];
 
-                                                    const verseContent =
-                                                        line.replace(
-                                                            /^[^:]*:\s*\d+\s*/,
-                                                            "",
-                                                        );
-                                                    if (
-                                                        verseNumber &&
-                                                        verseContent
-                                                    ) {
-                                                        return (
-                                                            <span
-                                                                key={index}
-                                                                style={{
-                                                                    margin: "0",
-                                                                    padding:
-                                                                        "0.5em 0",
-                                                                }}
-                                                            >
-                                                                <sup
-                                                                    style={{
-                                                                        verticalAlign:
-                                                                            "text-top",
-                                                                        marginRight:
-                                                                            "0.3em",
-                                                                        marginLeft:
-                                                                            "0.3em",
-                                                                    }}
-                                                                >
-                                                                    {
-                                                                        verseNumber
-                                                                    }
-                                                                </sup>
-                                                                {verseContent}
-                                                            </span>
-                                                        );
-                                                    }
-                                                })}
-                                        </p>
+                                                                const verseContent =
+                                                                    line.replace(
+                                                                        /^[^:]*:\s*\d+\s*/,
+                                                                        "",
+                                                                    );
+                                                                if (
+                                                                    verseNumber &&
+                                                                    verseContent
+                                                                ) {
+                                                                    return (
+                                                                        <span
+                                                                            key={
+                                                                                index
+                                                                            }
+                                                                            style={{
+                                                                                margin: "0",
+                                                                                padding:
+                                                                                    "0.5em 0",
+                                                                            }}
+                                                                        >
+                                                                            <sup
+                                                                                style={{
+                                                                                    verticalAlign:
+                                                                                        "text-top",
+                                                                                    marginRight:
+                                                                                        "0.3em",
+                                                                                    marginLeft:
+                                                                                        "0.3em",
+                                                                                    lineHeight:
+                                                                                        "1.5em",
+                                                                                }}
+                                                                            >
+                                                                                {
+                                                                                    verseNumber
+                                                                                }
+                                                                            </sup>
+                                                                            {
+                                                                                verseContent
+                                                                            }
+                                                                        </span>
+                                                                    );
+                                                                }
+                                                            },
+                                                        )}
+                                                    </p>
+                                                );
+                                            })}
+                                        </>
                                     )}
                                 </div>
                             );
