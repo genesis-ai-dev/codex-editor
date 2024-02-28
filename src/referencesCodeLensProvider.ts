@@ -153,7 +153,7 @@ const registerReferences = (context: vscode.ExtensionContext) => {
         vscode.commands.registerCommand(
             `codex-editor-extension.discuss`,
             async (verseRef: string, uri: string) => {
-                vscode.commands.executeCommand(
+                await vscode.commands.executeCommand(
                     "translationNotes.openTnEditor",
                     verseRef,
                 );
