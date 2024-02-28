@@ -5,6 +5,7 @@ import {
   shortId 
 } from '../utils';
 import DataTypeIcon from './DataTypeIcon';
+import { DataAction } from '../tableTypes';
 
 interface TypesMenuProps {
   popper: any

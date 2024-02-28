@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import ContentEditable from 'react-contenteditable';
 import { ActionTypes } from '../utils';
+import { CellTypeData, ValueState } from '../tableTypes';
 
 export default function TextCell({
   initialValue,
@@ -8,7 +9,10 @@ export default function TextCell({
   rowIndex,
   dataDispatch,
 }: CellTypeData) {
-  const [value, setValue] = useState<ValueState>({ value: initialValue, update: false });
+  const [value, setValue] = useState<ValueState>({
+    value: initialValue,
+    update: false,
+  });
 
   function onChange(e: React.FormEvent<HTMLDivElement>) {
     const target = e.currentTarget;
@@ -16,7 +20,7 @@ export default function TextCell({
   }
 
   function onBlur() {
-    setValue(old => ({ ...old, update: true }));
+    setValue((old: any) => ({ ...old, update: true }));
   }
 
   useEffect(() => {
@@ -25,12 +29,13 @@ export default function TextCell({
 
   useEffect(() => {
     if (value.update) {
-      dataDispatch({
-        type: ActionTypes.UPDATE_CELL,
-        columnId,
-        rowIndex,
-        value: value.value,
-      });
+      if (dataDispatch)
+        dataDispatch({
+          type: ActionTypes.UPDATE_CELL,
+          columnId,
+          rowIndex,
+          value: value.value,
+        });
     }
 
     // eslint-disable-next-line react-hooks/exhaustive-deps

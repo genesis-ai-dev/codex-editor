@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import ContentEditable from 'react-contenteditable';
 import { ActionTypes } from '../utils';
+import { CellTypeData, ValueState } from '../tableTypes';
 
 export default function NumberCell({
   initialValue,
@@ -8,16 +9,19 @@ export default function NumberCell({
   rowIndex,
   dataDispatch,
 }: CellTypeData) {
-  const [value, setValue] = useState<ValueState>({ value: initialValue, update: false });
+  const [value, setValue] = useState<ValueState>({
+    value: initialValue,
+    update: false,
+  });
 
   const onChange = (e: React.FormEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
     setValue({ value: target.innerText, update: false });
-  }
+  };
 
   const onBlur = () => {
     setValue(old => ({ ...old, update: true }));
-  }
+  };
 
   useEffect(() => {
     setValue({ value: initialValue, update: false });
@@ -25,12 +29,13 @@ export default function NumberCell({
 
   useEffect(() => {
     if (value.update) {
-      dataDispatch({
-        type: ActionTypes.UPDATE_CELL,
-        columnId,
-        rowIndex,
-        value: value.value,
-      });
+      if (dataDispatch)
+        dataDispatch({
+          type: ActionTypes.UPDATE_CELL,
+          columnId,
+          rowIndex,
+          value: value.value,
+        });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value.update, columnId, rowIndex]);
