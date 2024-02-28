@@ -75,6 +75,13 @@ class ScriptureReferenceCodeLensProvider {
                         arguments: [verseRef],
                     }),
                 );
+                lenses.push(
+                    new vscode.CodeLens(range, {
+                        title: "📜 View Bible",
+                        command: `codex-editor-extension.viewScriptureDisplay`,
+                        arguments: [verseRef, document.uri.toString()],
+                    }),
+                );
                 if (SHOW_DISCUSS_COMMAND) {
                     lenses.push(
                         new vscode.CodeLens(range, {
@@ -163,6 +170,17 @@ const registerReferences = (context: vscode.ExtensionContext) => {
                 });
                 vscode.window.showInformationMessage(
                     `Discussing ${verseRef}...`,
+                );
+            },
+        ),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            `codex-editor-extension.viewScriptureDisplay`,
+            async () => {
+                await vscode.commands.executeCommand(
+                    "scriptureViewer.showScriptureViewer",
                 );
             },
         ),
