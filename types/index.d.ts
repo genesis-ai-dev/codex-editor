@@ -53,6 +53,15 @@ interface VerseRefGlobalState {
     verseRef: string;
     uri: string;
 }
+interface ScriptureContent extends vscode.NotebookData {
+    metadata: {
+        data?: {
+            chapter: string;
+        };
+        type?: "chapter-heading";
+    };
+}
+type NotebookCellKind = vscode.NotebookCellKind;
 
 type CommentPostMessages =
     | { command: "commentsFromWorkspace"; content: string }
@@ -98,3 +107,7 @@ type DictionaryPostMessages =
 type TranslationNotePostMessages =
     | { command: "update"; data: ScriptureTSV }
     | { command: "changeRef"; data: VerseRefGlobalState };
+
+type ScripturePostMessages =
+    | { command: "sendData"; data: ScriptureContent }
+    | { command: "fetchData" };
