@@ -8,6 +8,7 @@ import { grey } from '../colors';
 // import TypesMenu from './TypesMenu';
 // import { usePopper } from 'react-popper';
 import { ActionTypes, shortId } from '../utils';
+import { DataAction } from '../tableTypes';
 // import DataTypeIcon from './DataTypeIcon';
 
 interface HeaderMenuProps {

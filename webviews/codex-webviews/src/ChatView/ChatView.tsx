@@ -37,7 +37,7 @@ function messageWithContext({
     selectedText?: string;
     contextItems?: string[];
 }): ChatMessageWithContext {
-    let content = `### Instructions:\nPlease use the context below to respond to the user's message. If you know the answer, be concise. If the answer is in the context, please quote the wording of the source. If the answer is not in the context, avoid making up anything.`;
+    let content = `### Instructions:\nPlease use the context below to respond to the user's message. If you know the answer, be concise. If the answer is in the context, please quote the wording of the source. If the answer is not in the context, avoid making up anything, but you can use general Bible knowledge from a devout Christian perspective.`;
 
     if (selectedText || (contextItems && contextItems?.length > 0)) {
         content += `\n\n### Context:`;
@@ -176,7 +176,8 @@ const MessageItem: React.FC<MessageItemProps> = ({
 function App() {
     const systemMessage: ChatMessageWithContext = {
         role: "system",
-        content: "You are are helpful Bible translation assistant.",
+        content:
+            "This is a chat between a helpful Bible translation assistant and a Bible translator. The assistant will provide helpful answers and suggestions to the translator, often relying on the translator's current project and reference resources. The translator will ask questions and provide context to the assistant. The translator's aim is to be consistent and faithful in a fairly literalistic rendering of the source text.",
         createdAt: new Date().toISOString(),
         // TODO: allow user to modify the system message
     };
@@ -193,6 +194,7 @@ function App() {
     const [pendingMessage, setPendingMessage] =
         useState<ChatMessageWithContext>();
     const [selectedTextContext, setSelectedTextContext] = useState<string>("");
+    const [currentlyActiveVref, setCurrentlyActiveVref] = useState<string>("");
     const [contextItems, setContextItems] = useState<string[]>([]); // TODO: fetch from RAG server
     const [messageLog, setMessageLog] = useState<ChatMessageWithContext[]>([
         systemMessage,
@@ -201,7 +203,7 @@ function App() {
     ]);
 
     const [currentMessageThreadId, setCurrentMessageThreadId] =
-        useState<string>();
+        useState<string>(uuidv4());
 
     const [availableMessageThreads, setAvailableMessageThreads] =
         useState<ChatMessageThread[]>();
@@ -217,7 +219,7 @@ function App() {
             // Also, need to truncate retrieved items to reasonable length based on count
             // and length of the items.
             const response = await fetch(
-                `${FLASK_ENDPOINT}/search?db_name=drafts&query=${encodeURIComponent(
+                `${FLASK_ENDPOINT}/search?db_name=.codex&query=${encodeURIComponent(
                     query,
                 )}`,
             );
@@ -225,7 +227,6 @@ function App() {
                 throw new Error(`Server error: ${response.status}`);
             }
             const data = await response.json();
-            console.log("fhe8w9hew98h Context items response -->", response);
             if (!Array.isArray(data) || data.length === 0) {
                 return [];
             }
@@ -259,19 +260,18 @@ function App() {
     }
 
     function getResponseToUserNewMessage(newMessageTextContent: string) {
+        const contextItemsFromState = contextItems;
         const pendingMessage: ChatMessageWithContext = {
             role: "user",
             content: newMessageTextContent,
             createdAt: new Date().toISOString(),
+            context: {
+                selectedText: selectedTextContext,
+                currentVref: currentlyActiveVref,
+                relevantContextItemsFromEmbeddings: contextItemsFromState,
+            },
         };
-        vscode.postMessage({
-            command: "saveMessageToThread",
-            message: pendingMessage,
-            threadId: currentMessageThreadId,
-        } as ChatPostMessages);
         const updatedMessageLog = [...messageLog, pendingMessage];
-
-        const contextItemsFromState = contextItems;
 
         const formattedPrompt: ChatMessageWithContext[] = [
             messageWithContext({
@@ -281,7 +281,6 @@ function App() {
                 contextItems: contextItemsFromState,
             }),
         ];
-        console.log("Formatted prompt -->", formattedPrompt);
         setMessageLog(updatedMessageLog);
         vscode.postMessage({
             command: "fetch",
@@ -297,6 +296,7 @@ function App() {
             setContextItems(contextItemsFromServer);
             getResponseToUserNewMessage(submittedMessageValue);
             setSelectedTextContext("");
+            setCurrentlyActiveVref("");
         } catch (error) {
             console.error(
                 "Failed to fetch context items due to an error:",
@@ -312,21 +312,25 @@ function App() {
         }
     }
 
+    function handleSettingsButtonClick() {
+        vscode.postMessage({
+            command: "openSettings",
+        } as ChatPostMessages);
+    }
+
     useEffect(() => {
+        // FIXME: add a progress ring while fetching threads
         vscode.postMessage({
             command: "fetchThread",
         } as ChatPostMessages);
     }, []);
 
     useEffect(() => {
-        const lastMessageSent = messageLog?.[messageLog.length - 1];
-        if (lastMessageSent && lastMessageSent.role === "assistant") {
-            vscode.postMessage({
-                command: "saveMessageToThread",
-                message: lastMessageSent,
-                threadId: currentMessageThreadId,
-            } as ChatPostMessages);
-        }
+        vscode.postMessage({
+            command: "updateMessageThread",
+            messages: messageLog,
+            threadId: currentMessageThreadId,
+        } as ChatPostMessages);
     }, [messageLog.length]);
 
     useEffect(() => {
@@ -344,6 +348,7 @@ function App() {
         }
     }, [currentMessageThreadId]);
 
+    // FIXME: use loading state to show/hide a progress ring while
     window.addEventListener(
         "message",
         (event: MessageEvent<ChatPostMessages>) => {
@@ -358,9 +363,20 @@ function App() {
                             selectedText,
                             vrefAtStartOfLine,
                         } = message.textDataWithContext;
-                        setSelectedTextContext(
-                            `Reference: ${vrefAtStartOfLine}, Selected: ${selectedText}, Line: ${completeLineContent}`,
-                        );
+
+                        const strippedCompleteLineContent = vrefAtStartOfLine
+                            ? completeLineContent
+                                  ?.replace(vrefAtStartOfLine, "")
+                                  .trim()
+                            : completeLineContent?.trim();
+
+                        const selectedTextContextString =
+                            selectedText !== ""
+                                ? `${selectedText} (${vrefAtStartOfLine})`
+                                : `${strippedCompleteLineContent} (${vrefAtStartOfLine})`;
+
+                        setSelectedTextContext(selectedTextContextString);
+                        setCurrentlyActiveVref(vrefAtStartOfLine ?? "");
                     }
                     break;
                 case "response": {
@@ -389,7 +405,11 @@ function App() {
                                 ?.id;
                         const messageThreadsExist = !!lastMessageThreadId;
                         if (messageThreadsExist) {
-                            setAvailableMessageThreads(messageThreadArray);
+                            setAvailableMessageThreads(
+                                messageThreadArray.filter(
+                                    (thread) => !thread.deleted,
+                                ),
+                            );
                         }
 
                         let messageThreadIdToUse: string;
@@ -402,9 +422,7 @@ function App() {
                             messageThreadIdToUse = uuidv4();
                         }
 
-                        if (!currentMessageThreadId) {
-                            setCurrentMessageThreadId(messageThreadIdToUse);
-                        }
+                        setCurrentMessageThreadId(messageThreadIdToUse);
 
                         const messageThreadForContext = messageThreadArray.find(
                             (thread) => thread.id === messageThreadIdToUse,
@@ -424,7 +442,15 @@ function App() {
         },
     );
 
+    function markChatThreadAsDeleted(messageThreadIdToMarkAsDeleted: string) {
+        vscode.postMessage({
+            command: "deleteThread",
+            threadId: messageThreadIdToMarkAsDeleted,
+        } as ChatPostMessages);
+    }
+
     function clearChat() {
+        setCurrentMessageThreadId(uuidv4());
         setMessageLog([systemMessage]);
     }
 
@@ -432,7 +458,7 @@ function App() {
         callback: () => void;
     }
 
-    const ClearChatButton: React.FC<ClearChatButtonProps> = ({ callback }) => (
+    const DeleteChatButton: React.FC<ClearChatButtonProps> = ({ callback }) => (
         <DeleteButtonWithConfirmation handleDeleteButtonClick={callback} />
     );
     interface NavigateChatHistoryProps {
@@ -441,9 +467,6 @@ function App() {
     const NavigateChatHistoryButton: React.FC<
         NavigateChatHistoryProps
     > = () => {
-        const [threadSelectorIsVisable, setThreadSelectorIsVisable] =
-            useState(false);
-
         return (
             <>
                 <VSCodeButton
@@ -451,11 +474,7 @@ function App() {
                     appearance="icon"
                     title="⨁"
                     onClick={() => {
-                        setCurrentMessageThreadId(uuidv4());
-                        setMessageLog([systemMessage]);
-                        // vscode.postMessage({
-                        //     command: "fetchThread",
-                        // } as ChatPostMessages);
+                        clearChat();
                     }}
                     style={{
                         backgroundColor: "var(--vscode-button-background)",
@@ -464,48 +483,61 @@ function App() {
                 >
                     <i className="codicon codicon-add"></i>
                 </VSCodeButton>
-                {/* {threadSelectorIsVisable && ( */}
-                <VSCodeDropdown
-                    value={currentMessageThreadId}
-                    style={{ minWidth: "max-content" }}
-                    // disabled={!selectedBook}
-                    onInput={(e: any) => {
-                        console.log({ e });
-                        console.log((e.target as HTMLSelectElement).value);
-                        setCurrentMessageThreadId(
-                            (e.target as HTMLSelectElement).value,
-                        );
-                    }}
-                >
-                    {availableMessageThreads?.map((messageThread) => (
-                        <VSCodeOption
-                            key={messageThread.id}
-                            selected={
-                                messageThread.id === currentMessageThreadId
-                            }
-                            value={messageThread.id}
+                {availableMessageThreads &&
+                    availableMessageThreads?.length > 0 && (
+                        <VSCodeDropdown
+                            value={currentMessageThreadId}
+                            style={{ maxWidth: 200 }}
+                            // disabled={!selectedBook}
+                            onInput={(e: any) => {
+                                console.log({ e });
+                                console.log(
+                                    (e.target as HTMLSelectElement).value,
+                                );
+                                setCurrentMessageThreadId(
+                                    (e.target as HTMLSelectElement).value,
+                                );
+                                vscode.postMessage({
+                                    command: "fetchThread",
+                                } as ChatPostMessages);
+                            }}
                         >
-                            {messageThread.threadTitle ||
-                                new Date(
-                                    messageThread.createdAt,
-                                ).toLocaleTimeString()}
-                        </VSCodeOption>
-                    ))}
-                </VSCodeDropdown>
-                {/* )} */}
+                            {availableMessageThreads?.map((messageThread) => {
+                                const firstUserMessage =
+                                    messageThread.messages.find(
+                                        (message) => message.role === "user",
+                                    )?.content;
+
+                                return (
+                                    <VSCodeOption
+                                        key={messageThread.id}
+                                        selected={
+                                            messageThread.id ===
+                                            currentMessageThreadId
+                                        }
+                                        value={messageThread.id}
+                                    >
+                                        {messageThread.threadTitle ||
+                                            firstUserMessage ||
+                                            new Date(
+                                                messageThread.createdAt,
+                                            ).toLocaleTimeString()}
+                                    </VSCodeOption>
+                                );
+                            })}
+                        </VSCodeDropdown>
+                    )}
                 <VSCodeButton
-                    aria-label="History"
+                    aria-label="Settings"
                     appearance="icon"
-                    title="📖"
-                    onClick={() =>
-                        setThreadSelectorIsVisable(!threadSelectorIsVisable)
-                    }
+                    title="⚙️"
+                    onClick={handleSettingsButtonClick}
                     style={{
                         backgroundColor: "var(--vscode-button-background)",
                         color: "var(--vscode-button-foreground)",
                     }}
                 >
-                    <i className="codicon codicon-history"></i>
+                    <i className="codicon codicon-settings-gear"></i>
                 </VSCodeButton>
             </>
         );
@@ -538,12 +570,25 @@ function App() {
                     <NavigateChatHistoryButton
                         callback={(newMessageThreadId) => {
                             setCurrentMessageThreadId(newMessageThreadId);
-                            // vscode.postMessage({
-                            //     command: "fetchThread",
-                            // } as ChatPostMessages);
                         }}
                     />
-                    <ClearChatButton callback={clearChat} />
+                    <DeleteChatButton
+                        callback={() => {
+                            markChatThreadAsDeleted(currentMessageThreadId);
+                            const threadIdThatIsNotBeingDeleted =
+                                availableMessageThreads?.find(
+                                    (thread) =>
+                                        thread.id !== currentMessageThreadId,
+                                )?.id;
+                            if (threadIdThatIsNotBeingDeleted) {
+                                setCurrentMessageThreadId(
+                                    threadIdThatIsNotBeingDeleted,
+                                );
+                            } else {
+                                clearChat();
+                            }
+                        }}
+                    />
                 </div>
             </WebviewHeader>
             <div

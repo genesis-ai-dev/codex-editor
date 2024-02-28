@@ -39,8 +39,30 @@ def extract_verses(file_name):
     
     return verses
 
+def extract_verses_bible(file_name):
+    with open(file_name, 'r') as file:
+        data = file.read()
+    
+    verses = []
+    current_chapter = ""
+    book = ""
+    
+    # Updated regex pattern to capture verses with or without new lines
+    verse_pattern = re.compile(r"(\b[A-Z0-9]{2,4})\s(\d+:\d+)(?:\s+)?(.+?)(?=(\b[A-Z0-9]{2,4}\s\d+:\d+)|$)", re.DOTALL)
 
-
+    matches = verse_pattern.findall(data)
+    for match in matches:
+        book, verse_number, verse_text = match[:3]
+        # Assuming chapter information needs to be extracted from verse_number for .bible files
+        chapter = verse_number.split(":")[0]
+        verses.append({
+            "text": verse_text.strip(),
+            "chapter": chapter,
+            "book": book,
+            "verse": verse_number.split(":")[-1]
+        })
+    
+    return verses
 if __name__ == "__main__":
     # Example usage:
 

@@ -256,6 +256,7 @@ export class CustomWebviewProvider {
     }
 
     saveSelectionChanges(webviewView: vscode.WebviewView) {
+        // FIXME: let's get rid of this function and use global state via textSelectionHandler.ts
         const activeEditor = vscode.window.activeTextEditor;
         if (activeEditor) {
             this.selectionChangeListener =
@@ -371,12 +372,38 @@ export class CustomWebviewProvider {
                             }
                             break;
 
+                        case "deleteThread": {
+                            const fileName = "chat-threads.json";
+                            const exitingMessages =
+                                await getChatMessagesFromFile(fileName);
+                            const messageThreadId = message.threadId;
+                            const threadToMarkAsDeleted:
+                                | ChatMessageThread
+                                | undefined = exitingMessages.find(
+                                (thread) => thread.id === messageThreadId,
+                            );
+                            if (threadToMarkAsDeleted) {
+                                threadToMarkAsDeleted.deleted = true;
+                                await writeSerializedData(
+                                    JSON.stringify(exitingMessages, null, 4),
+                                    fileName,
+                                );
+                            }
+                            sendChatThreadToWebview(webviewView);
+                            break;
+                        }
                         case "fetchThread": {
                             sendChatThreadToWebview(webviewView);
                             break;
                         }
-                        case "saveMessageToThread": {
+                        case "updateMessageThread": {
                             const fileName = "chat-threads.json";
+                            if (
+                                !message.messages ||
+                                message.messages.length < 1
+                            ) {
+                                break;
+                            }
                             const exitingMessages =
                                 await getChatMessagesFromFile(fileName);
                             const messageThreadId = message.threadId;
@@ -385,10 +412,9 @@ export class CustomWebviewProvider {
                                 | undefined = exitingMessages.find(
                                 (thread) => thread.id === messageThreadId,
                             );
+
                             if (threadToSaveMessage) {
-                                threadToSaveMessage.messages.push(
-                                    message.message,
-                                );
+                                threadToSaveMessage.messages = message.messages;
                                 await writeSerializedData(
                                     JSON.stringify(exitingMessages, null, 4),
                                     fileName,
@@ -398,7 +424,7 @@ export class CustomWebviewProvider {
                                     id: messageThreadId,
                                     canReply: true,
                                     collapsibleState: 0,
-                                    messages: [message.message],
+                                    messages: message.messages,
                                     deleted: false,
                                     threadTitle: message.threadTitle,
                                     createdAt: new Date().toISOString(),
@@ -415,6 +441,13 @@ export class CustomWebviewProvider {
                                     fileName,
                                 );
                             }
+                            break;
+                        }
+                        case "openSettings": {
+                            vscode.commands.executeCommand(
+                                "workbench.action.openSettings",
+                                "@translators-copilot",
+                            );
                             break;
                         }
                         default:

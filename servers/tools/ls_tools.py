@@ -1,7 +1,7 @@
 from typing import Callable, List
 from pygls.server import LanguageServer
 from lsprotocol.types import (Range, Position, TextEdit, DiagnosticSeverity, 
-                              TEXT_DOCUMENT_DID_CLOSE, DidCloseTextDocumentParams, DidOpenTextDocumentParams, TEXT_DOCUMENT_DID_OPEN)
+                              TEXT_DOCUMENT_DID_CLOSE, DidSaveTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, TEXT_DOCUMENT_DID_OPEN)
 
 import lsprotocol.types as lsp_types
 import time
@@ -114,7 +114,7 @@ class ServerFunctions:
     
 
     def on_selected(self, text):
-        self.server.show_message("Text selected: "+text)
+        # self.server.show_message("Text selected: "+text)
         for f in self.on_selected_functions:
             f(text)
     def initialize(self, server, params, fs):        

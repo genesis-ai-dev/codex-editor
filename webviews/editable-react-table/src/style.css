@@ -42,9 +42,9 @@ html {
 
 .svg-icon svg {
   position: relative;
-  height: 1.5em;  /*remove?*/
-  width: 1.5em;  /*remove?*/
-  top: 0.125rem; 
+  height: 1.5em; /*remove?*/
+  width: 1.5em; /*remove?*/
+  top: 0.125rem;
 }
 
 .svg-text svg {
@@ -109,7 +109,7 @@ html {
   /* box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12), 0 2px 4px rgba(0, 0, 0, 0.12),
     0 4px 6px rgba(0, 0, 0, 0.12), 0 8px 16px rgba(0, 0, 0, 0.12),
     0 16px 32px rgba(0, 0, 0, 0.12); */
-    box-shadow: var(--vscode-shadow);  
+  box-shadow: var(--vscode-shadow);
 }
 
 .svg-icon-sm svg {
@@ -177,11 +177,11 @@ html {
 }
 
 .remove-button {
-  position: absolute;
-  top: 0;
+  /* position: absolute;
+  top: 0; */
   /*right: 0; */
   /* bottom: 0; */
-  left: 0;
+  /* left: 0; */
   background: none;
   border: none;
   cursor: pointer;
@@ -195,7 +195,9 @@ html {
 .remove-button svg {
   height: 48px; /* Adjust size as needed */
   width: 48px; /* Adjust size as needed */
-  fill: var(--vscode-button-foreground); /* Use VS Code theme color for the icon */
+  fill: var(
+    --vscode-button-foreground
+  ); /* Use VS Code theme color for the icon */
 }
 
 .remove-button:disabled {
@@ -204,7 +206,9 @@ html {
 }
 
 .remove-button:hover:not(:disabled) {
-  background-color: var(--vscode-button-hoverBackground); /* Use VS Code theme color for hover state */
+  background-color: var(
+    --vscode-button-hoverBackground
+  ); /* Use VS Code theme color for hover state */
 }
 
 .app-container {
@@ -216,14 +220,15 @@ html {
 
 .table-container {
   position: relative;
-  padding-top: 50px; 
+  padding-top: 50px;
+  /* overflow: inherit; */
 }
 
 .remove-button-container {
-  position: absolute;
-  right: 0; /* Aligns the button to the right */
-  top: -50px; /* Adjusts the vertical position to float above the table */
-  z-index: 10; /* Ensures the button is above the table */
+  /* position: absolute; */
+  /* right: 0; Aligns the button to the right */
+  /* top: -50px; Adjusts the vertical position to float above the table */
+  /* z-index: 10; Ensures the button is above the table */
 }
 
 .checkbox-container {
@@ -288,6 +293,8 @@ html {
   padding: 0;
   display: flex;
   flex-direction: column;
+  margin-top: 10px;
+  border-right: 2px solid var(--vscode-editor-background); /* Add border to the right side */
 }
 
 .td-content {
@@ -295,8 +302,10 @@ html {
 }
 
 .table {
-  display: inline-block;
-  border-spacing: 0;
+  display: flex;
+  flex-flow: column;
+  /* display: inline-block;
+  border-spacing: 0; */
 }
 
 .resizer {
@@ -321,7 +330,6 @@ html {
 .th,
 .td {
   white-space: nowrap;
-  margin: 0;
   /* border-left: 1px solid #e0e0e0; */
   /* border-top: 1px solid #e0e0e0; */
   border-left: 1px solid var(--vscode-editor-lineHighlightBackground);
