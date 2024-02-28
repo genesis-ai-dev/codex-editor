@@ -27,6 +27,8 @@
         "../types/index.d.ts",
         "src/ChatView/ChatView.tsx",
         "src/ChatView/index.tsx",
+        "src/ScriptureViewer/ScriptureViewer.tsx",
+        "src/ScriptureViewer/index.tsx",
         "src/CommentsView/CommentsView.tsx",
         "src/ParallelView/ParallelView.tsx",
         "src/ParallelView/index.tsx"

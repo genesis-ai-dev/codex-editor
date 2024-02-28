@@ -168,12 +168,22 @@
                     "command": "dictionaryTable.showDictionaryTable",
                     "when": "view == dictionaryTable",
                     "group": "navigation"
+                },
+                {
+                    "command": "scriptureViewer.showScriptureViewer",
+                    "when": "view == scriptureViewer",
+                    "group": "navigation"
                 }
             ],
             "view/item/context": [
                 {
                     "command": "dictionaryTable.showDictionaryTable",
                     "when": "view == dictionaryTable",
+                    "group": "navigation"
+                },
+                {
+                    "command": "scriptureViewer.showScriptureViewer",
+                    "when": "view == scriptureViewer",
                     "group": "navigation"
                 }
             ],
@@ -228,7 +238,7 @@
             ],
             "comments/comment/context": [
                 {
-                    "command": "commentsExtension.cancelsaveNote",
+                    "command": "commentsExtension.cancelSaveNote",
                     "group": "inline@1",
                     "when": "commentController == comment-project"
                 },
@@ -352,7 +362,7 @@
                 "title": "Save"
             },
             {
-                "command": "commentsExtension.cancelsaveNote",
+                "command": "commentsExtension.cancelSaveNote",
                 "title": "Cancel"
             },
             {
@@ -366,6 +376,10 @@
             {
                 "command": "translationNotes.openTnEditor",
                 "title": "Open Translation Notes"
+            },
+            {
+                "command": "scriptureViewer.showScriptureViewer",
+                "title": "Show Scripture Viewer"
             }
         ],
         "notebooks": [
