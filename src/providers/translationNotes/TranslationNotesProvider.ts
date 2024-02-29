@@ -27,7 +27,8 @@ const getTnUri = (bookID: string): Uri => {
     const workspaceRootUri = workspace.workspaceFolders?.[0].uri as Uri;
     return Uri.joinPath(
         workspaceRootUri,
-        `resources/unfoldingWord/tn_${bookID}.tsv`,
+        // `resources/unfoldingWord/tn_${bookID}.tsv`,
+        `.scribe/resources/en_tn/tn_${bookID}.tsv`,
     );
 };
 
@@ -73,7 +74,7 @@ export class TranslationNotesProvider implements CustomTextEditorProvider {
 
     private static readonly viewType = "codex.translationNotesEditor";
 
-    constructor(private readonly context: ExtensionContext) {}
+    constructor(private readonly context: ExtensionContext) { }
 
     /**
      * Called when our custom editor is opened.
