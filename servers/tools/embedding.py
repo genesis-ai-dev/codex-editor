@@ -68,6 +68,7 @@ class DataBase:
         self.embeddings = Embeddings(path="sentence-transformers/nli-mpnet-base-v2", content=True, objects=True)
         self.has_tokenizer = has_tokenizer
         self.queue = []
+        self.open = True
 
         if has_tokenizer:
             self.tokenizer = genetik_tokenizer.TokenDatabase(self.db_path)
@@ -98,6 +99,7 @@ class DataBase:
         metadata = sql_safe(text=metadata)
         chapter = sql_safe(text=chapter)
         self.embeddings.upsert([ (reference, {'text': text, 'book': book, 'verse': verse, 'chapter': chapter, 'createdAt': str(datetime.datetime.now()), 'uri': uri, 'metadata': metadata})])
+        
         if save_now:
             self.save()
     
@@ -152,9 +154,13 @@ class DataBase:
         return text
     
     def upsert_queue(self):
-        self.embeddings.upsert(self.queue)
-        self.save()
-        self.queue = []
+        self.queue = [item for item in self.queue if item] # FIXME: why is this needed
+        if self.queue:
+            self.embeddings.upsert(self.queue)
+            self.save()
+            self.queue = []
+        else:
+            self.queue = []
     def upsert_codex_file(self, path: str) -> None:
         """
         Inserts or updates records in the database from a .codex file.
@@ -164,7 +170,6 @@ class DataBase:
         """
         path = "/" + path if "://" not in path and "/" != path[0]  else path
         results = extract_verses(path)
-        print("extracting")
         for result in results:
             if len(result['text']) > 11: # 000 000:000  
                 text = result['text']
@@ -216,6 +221,7 @@ class DataBase:
         self.embeddings.save(self.db_path)
 
     def close(self):
+        self.open = False
         self.embeddings.close()
 
 

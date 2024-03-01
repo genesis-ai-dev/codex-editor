@@ -157,17 +157,16 @@ def upsert_all_codex_files() -> tuple:
     Returns:
         A tuple containing a JSON response and an HTTP status code.
     """
-    try:
-        codex_files = glob.glob(f'{WORKSPACE_PATH}/**/*.codex', recursive=True)
-        active_db = get_active_database(".codex")
+    
+    codex_files = glob.glob(f'{WORKSPACE_PATH}/**/*.codex', recursive=True)
+    active_db = get_active_database(".codex")
 
-        for file_path in codex_files:
-            active_db.upsert_codex_file(file_path)
-            sleep(.1)
-        active_db.tokenizer.upsert_all()
-        return jsonify({"message": f"Upserted {len(codex_files)} .codex files"}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    for file_path in codex_files:
+        active_db.upsert_codex_file(file_path)
+        sleep(.1)
+    active_db.tokenizer.upsert_all()
+    return jsonify({"message": f"Upserted {len(codex_files)} .codex files"}), 200
+
 
 @app.route('/upsert_all_bible_files', methods=['GET'])
 def upsert_all_bible_files() -> tuple:
@@ -349,7 +348,6 @@ def detect_anomalies() -> tuple:
     for verse in codex_set.symmetric_difference(bible_set):
         # Construct the reference in the expected format "BOOK CHAPTER:VERSE"
         reference = f"{verse[0]} {verse[1]}:{verse[2]}".strip()
-        print(reference)
         # Check if the verse exists in both databases
         codex_exists = codex_db.exists([reference])
         bible_exists = bible_db.exists([reference])
