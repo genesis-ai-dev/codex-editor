@@ -49,7 +49,10 @@ class TokenDatabase:
         """
         # Here you would implement the logic to save the tokenizer's state to a database.
         # This is a placeholder for the actual database save operation.
-        self.tokenizer.save(self.db_path)
+        try:
+            self.tokenizer.save(self.db_path)
+        except: 
+            pass
 
     def load(self, default_tokens=[]) -> None:
         """
