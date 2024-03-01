@@ -135,7 +135,7 @@ class Dictionary:
             
             self.dictionary['entries'].append(new_entry)
             self.save_dictionary()
-        self.tokenizer.insert_manuel(word)
+        self.tokenizer.insert_manual(word)
         text = ""
         for entry in self.dictionary["entries"]:
             text += entry['headWord']
