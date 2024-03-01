@@ -213,12 +213,15 @@ class DataBase:
             self.tokenizer.upsert_all()
         self.upsert_queue()
 
-
     def save(self) -> None:
         """
         Saves the current state of the embeddings to the database.
         """
         self.embeddings.save(self.db_path)
+        # Check if the only file in the db_path directory is 'config'
+        if os.listdir(self.db_path) == ['config']:
+            os.remove(os.path.join(self.db_path, 'config'))  # Remove the 'config' file
+            os.rmdir(self.db_path)  # Remove the now empty directory
 
     def close(self):
         self.open = False
@@ -313,9 +316,9 @@ class VecTrainer:
         return model
 
 if __name__ == "__main__":
-    db_path = "dbs/db6/embedding"
+    db_path = "dbs/db7/embedding"
     database = DataBase(db_path)
-    database.upsert("hello world", "GEN 1:10", "GEN", "1", "10", "")
+    database.save()
     print(database.exists(["GEN 1:10", "GEN 1:2"]))
     search_results = database.search(query="")
     print("Search Results:", search_results)
