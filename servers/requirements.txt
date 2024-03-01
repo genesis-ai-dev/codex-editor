@@ -13,3 +13,4 @@ finch-genetics
 genetok==0.1.12
 tqdm
 tabulate
+gensim
