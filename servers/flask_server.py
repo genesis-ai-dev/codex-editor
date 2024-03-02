@@ -8,6 +8,7 @@ import logging
 from typing import TextIO
 import sys
 import glob
+import json
 from time import sleep
 
 app = Flask(__name__)
@@ -327,17 +328,24 @@ def detect_anomalies() -> tuple:
     """
     query = request.args.get('query', default='', type=str)
     limit = request.args.get('limit', default=5, type=int)
-    try:
-        bible_db = get_active_database('.bible')
-        bible_results = bible_db.search(query=query, limit=limit)
-    except Exception as e:
-        return jsonify({"error": f"Failed to search in .bible database: {str(e)}"}), 400
+    
 
     try:
         codex_db = get_active_database('.codex')
         codex_results = codex_db.search(query=query, limit=limit)
     except Exception as e:
         return jsonify({"error": f"Failed to search in .codex database: {str(e)}"}), 400
+    
+    try:
+        bible_query = codex_results[0]
+        bible_query_formatted = f"{bible_query['book']} {bible_query['chapter']}:{bible_query['verse']}"
+        bible_db = get_active_database('.bible')
+        print(bible_query_formatted)
+        bible_query_result = bible_db.get_text_from(book=bible_query['book'], chapter=bible_query['chapter'], verse=bible_query['verse'])
+        print(bible_query_result)
+        bible_results = bible_db.search(query=bible_query_result[0]['text'], limit=limit)
+    except Exception as e:
+        return jsonify({"error": f"Failed to search in .bible database: {str(e)}"}), 400
 
     # Convert search results to sets for easier comparison
     codex_set = set((item['book'], item['chapter'], item['verse']) for item in codex_results)
@@ -368,7 +376,9 @@ def detect_anomalies() -> tuple:
     return jsonify(combined_results), 200
 
 
-
+@app.route("/get_text")
+def get_text_frm():
+    return ACTIVE_DATABASE.get_text_from(request.args['book'], request.args['chapter'], request.args['verse'])
 
 @app.route('/heartbeat', methods=['GET'])
 def heartbeat() -> tuple:

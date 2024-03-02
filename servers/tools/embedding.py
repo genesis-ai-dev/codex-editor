@@ -6,8 +6,8 @@ from gensim.models import Word2Vec
 from gensim.utils import simple_preprocess
 import os
 import glob
-from sqlite3 import IntegrityError
 from typing import Union, List, Generator
+from sqlite3 import IntegrityError
 
 
 
@@ -153,6 +153,10 @@ class DataBase:
         text = self.embeddings.search(f"select text from txtai where id='{id}'")
         return text
     
+    def get_text_from(self, book, chapter, verse):
+        print(book, chapter, verse)
+        text = self.embeddings.search(f"select text from txtai where book='{book}' and chapter='{chapter}' and verse='{verse}'")
+        return text
     def upsert_queue(self):
         self.queue = [item for item in self.queue if item] # FIXME: why is this needed
         if self.queue:
@@ -322,3 +326,4 @@ if __name__ == "__main__":
     print(database.exists(["GEN 1:10", "GEN 1:2"]))
     search_results = database.search(query="")
     print("Search Results:", search_results)
+
