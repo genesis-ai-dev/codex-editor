@@ -5,6 +5,7 @@ import { getUri } from "./utilities/getUri";
 import { getNonce } from "./utilities/getNonce";
 import { initializeNewProject } from "./functions/initializeNewProject";
 import { ProjectDetails } from "../../../utils/projectUtils";
+import { initProject } from "../../scm/git";
 
 export class CreateProjectProvider implements vscode.WebviewViewProvider {
     private _webviewView: vscode.WebviewView | undefined;
@@ -49,7 +50,7 @@ export class CreateProjectProvider implements vscode.WebviewViewProvider {
                         break;
                     case MessageType.createProject:
                         await initializeNewProject(e.payload as ProjectDetails);
-
+                        await initProject();
                         break;
                     default:
                         break;
