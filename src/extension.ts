@@ -78,8 +78,15 @@ import { registerDictionarySummaryProvider } from "./providers/dictionaryTable/d
 import { ResourcesProvider } from "./providers/obs/resources/resourcesProvider";
 import { StoryOutlineProvider } from "./providers/obs/storyOutline/storyOutlineProvider";
 import { ObsEditorProvider } from "./providers/obs/editor/ObsEditorProvider";
+import {
+    addRemote,
+    initProject,
+    stageAndCommit,
+    sync,
+} from "./providers/scm/git";
 import { TranslationNotesProvider } from "./providers/translationNotes/TranslationNotesProvider";
 import { registerScriptureViewerProvider } from "./providers/scriptureView/ScriptureViewerPanel";
+import { registerScmStatusBar } from "./providers/scm/statusBar";
 
 const MIN_PYTHON = semver.parse("3.7.9");
 const ROOT_PATH = getWorkSpaceFolder();
@@ -150,11 +157,14 @@ let clientStarting = false;
 let python: PythonExtension;
 let pyglsLogger: vscode.LogOutputChannel;
 
+let scmInterval: NodeJS.Timeout;
+
 export async function activate(context: vscode.ExtensionContext) {
     /** BEGIN CODEX EDITOR EXTENSION FUNCTIONALITY */
 
     // Add .bible files to the files.readonlyInclude glob pattern to make them readonly without overriding existing patterns
     const config = vscode.workspace.getConfiguration();
+
     config.update(
         "editor.wordWrap",
         "on",
@@ -473,6 +483,8 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.window.showErrorMessage("Python extension not found");
     }
 
+    const [, syncStatus] = registerScmStatusBar(context);
+
     // Restart language server command
     context.subscriptions.push(
         vscode.commands.registerCommand("pygls.server.restart", async () => {
@@ -542,6 +554,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const commandDisposable = vscode.commands.registerCommand(
         "extension.triggerInlineCompletion",
         triggerInlineCompletion,
+        triggerInlineCompletion,
     );
 
     // on document changes, trigger inline completions
@@ -555,10 +568,61 @@ export async function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(commandDisposable);
 
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor.scm.stageAndCommitAll",
+            async () => {
+                await stageAndCommit();
+                await syncStatus();
+            },
+        ),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor.scm.addRemote",
+            async () => {
+                const remoteUrl = await vscode.window.showInputBox({
+                    prompt: "Enter the remote URL to add",
+                    placeHolder: "Remote URL",
+                });
+
+                if (remoteUrl) {
+                    await addRemote(remoteUrl);
+                }
+
+                await syncStatus();
+            },
+        ),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-editor.scm.sync", async () => {
+            await sync();
+            await syncStatus();
+        }),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor.scm.syncedNotification",
+            async () => {
+                vscode.window.showInformationMessage("Project is synced");
+            },
+        ),
+    );
+
+    // Updating the status bar
+    context.subscriptions.push(
+        vscode.workspace.onDidSaveTextDocument(syncStatus),
+    );
+    context.subscriptions.push(
+        vscode.workspace.onDidSaveNotebookDocument(syncStatus),
+    );
+
     // Let's set the extension as initialized so that we can defer the
     // starting of certain functionality until the extension is ready
     isExtensionInitialized = true;
-
     registerReferencesCodeLens(context);
     registerSourceCodeLens(context);
     registerCommentsProvider(context);
@@ -583,9 +647,12 @@ export async function activate(context: vscode.ExtensionContext) {
         "workbench.view.extension.scripture-explorer-activity-bar",
     );
     vscode.commands.executeCommand("workbench.action.focusAuxiliaryBar");
+
+    scmInterval = setInterval(stageAndCommit, 1000 * 60 * 15);
 }
 
 export function deactivate(): Thenable<void> {
+    scmInterval && clearInterval(scmInterval);
     return stopLangServer();
 }
 

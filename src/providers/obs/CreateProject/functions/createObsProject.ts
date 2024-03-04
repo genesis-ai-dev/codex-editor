@@ -1,3 +1,4 @@
+import { initProject } from "../../../scm/git";
 import { saveObsProjectMeta } from "./saveObsProjectMeta";
 import * as vscode from "vscode";
 
@@ -26,6 +27,8 @@ export const createObsProject = async (
     }
 
     const { createdProjectURI } = res;
+
+    await initProject(createdProjectURI);
 
     const CURRENT_WINDOW = {
         title: "Current Window",
