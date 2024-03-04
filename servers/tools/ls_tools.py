@@ -1,11 +1,10 @@
-from typing import Callable, List
+from typing import Callable, List, Any, Union
 from pygls.server import LanguageServer
 from lsprotocol.types import (Range, Position, TextEdit, DiagnosticSeverity, 
                               TEXT_DOCUMENT_DID_CLOSE, DidSaveTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, TEXT_DOCUMENT_DID_OPEN)
 
 import lsprotocol.types as lsp_types
 import time
-
 
 class ServerFunctions:
     def __init__(self, server: LanguageServer, data_path: str):
@@ -49,7 +48,7 @@ class ServerFunctions:
         @self.server.feature(
             lsp_types.TEXT_DOCUMENT_CODE_ACTION,
         )
-        def actions(params: lsp_types.CodeAction):
+        def actions(params: Union [Any, lsp_types.CodeActionParams]):
             items = []
             document_uri = params.text_document.uri
             document = self.server.workspace.get_document(document_uri)

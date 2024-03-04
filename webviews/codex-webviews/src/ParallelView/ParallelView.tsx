@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { VSCodePanelTab, VSCodePanelView, VSCodePanels, VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { VSCodePanelTab, VSCodePanelView, VSCodePanels, VSCodeButton, VSCodeTextField } from "@vscode/webview-ui-toolkit/react";
 
 const vscode = acquireVsCodeApi();
 
@@ -21,15 +21,31 @@ interface SearchResult {
     detailedAnomalies: DetailedAnomaly[];
 }
 
+interface ResourceItem {
+    text: string,
+    uri: string,
+    createdAt: string,
+}
+interface ResourceResults {
+    resourceResults: ResourceItem[];
+}
+
 interface OpenFileMessage {
     command: "openFileAtLocation";
     uri: string;
     word: string;
 }
 
+interface searchCommand {
+    command: string,
+    query: string,
+    database: string,
+}
+
 function App() {
     const [searchResults, setSearchResults] = useState<SearchResult>({bibleResults: [], codexResults: [], detailedAnomalies: []});
     const [loading, setLoading] = useState<boolean>(false);
+    const [resourceResults, setResourceResults] = useState<ResourceResults>({resourceResults: []});
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
@@ -45,7 +61,14 @@ function App() {
                 case "completed":
                     setLoading(false);
                     break;
-                // Handle other cases
+                case "resourceResults": {
+                    const resourceItems: ResourceItem[] = message.data.map((item: any) => ({
+                        text: item.text,
+                        uri: item.uri,
+                        createdAt: item.createdAt,
+                    }));
+                    setResourceResults({ resourceResults: resourceItems });
+                }
             }
         };
 
@@ -81,7 +104,35 @@ function App() {
             command: "embedSource",
         });
     };
-    const PassageTab = ({callback, resultType}: {callback: () => void; resultType: "bibleResults" | "codexResults";}) => {     
+
+    const handleEmbedResources = () => {
+        console.log("Embedding all resource documents...");
+        setLoading(true);
+        vscode.postMessage({
+            command: "embedResource",
+        });
+    };
+    
+    const searchBoth = (query: string) => {
+        vscode.postMessage({
+            command: "search",
+            database: "both",
+            query: query,
+        } as searchCommand);
+    }
+    const searchResources = (query: string) => {
+        vscode.postMessage({
+            command: "search",
+            database: "resources",
+            query: query,
+        } as searchCommand);
+    }
+
+   
+
+
+    const PassageTab = ({callback, resultType}: {callback: () => void; resultType: "bibleResults" | "codexResults";}) => {  
+        const [query, setQuery] = React.useState("");
         return (    
                 <div
             style={{
@@ -94,17 +145,11 @@ function App() {
                 margin: "auto",
             }}
         >
-            {!loading && (
-                <div style={{
-                        display: "flex",
-                        flexDirection: "row",
-                        gap: "10px"
-                    }}>
-                    <VSCodeButton onClick={callback}>
-                        Regenerate meaning database.
-                    </VSCodeButton>
-                </div>
-            )}
+        <div style={{ display: "flex", alignItems: "center", marginTop: "2em", width: "100%"}}>
+            <VSCodeTextField placeholder="Enter text here" style={{ flexGrow: 1 }} onChange={(e) => setQuery((e.target as HTMLInputElement).value)} />
+            <VSCodeButton onClick={() => searchBoth(query)}>Search</VSCodeButton>
+        </div>
+            
             {loading ? <p>Loading, this may take up to 30 minutes, please do not close this tab.</p> : null}
             {searchResults.bibleResults.length > 0 || searchResults.codexResults.length > 0 ? (
                 <div
@@ -166,10 +211,23 @@ function App() {
             ) : (
                 null
             )}
+            {!loading && (
+                <div style={{
+                        display: "flex",
+                        flexDirection: "row",
+                        gap: "10px"
+                    }}>
+                    <VSCodeButton onClick={callback}>
+                        Regenerate meaning database.
+                    </VSCodeButton>
+                </div>
+            )}
         </div>
         );}
 
     const AnomalyTab: React.FC = () => {
+        const [query, setQuery] = React.useState("");
+
         // Group anomalies by reason
         interface Anomaly {
             reason: string;
@@ -202,6 +260,10 @@ function App() {
                     boxShadow: "0 4px 8px rgba(0,0,0,0.1)",
                 }}
             >
+                <div style={{ display: "flex", alignItems: "center", marginTop: "2em", width: "100%"}}>
+                    <VSCodeTextField placeholder="Enter text here" style={{ flexGrow: 1 }} onChange={(e) => setQuery((e.target as HTMLInputElement).value)} />
+                    <VSCodeButton onClick={() => searchBoth(query)}>Search</VSCodeButton>                   
+                </div>
                 {loading ? <p style={{ fontWeight: "bold", color: "var(--vscode-editorWarning-foreground)" }}>Loading, this may take up to 30 minutes, please do not close this tab.</p> : null}
                 {Object.keys(anomaliesByReason).length > 0 ? (
                     <div style={{ overflowX: "auto", width: "95%" }}>
@@ -236,10 +298,50 @@ function App() {
             </div>
         );
     };
-
+    const ResourceTab: React.FC = () => {
+        const [query, setQuery] = React.useState("");
+        return (
+                <div
+                    style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "2em",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        width: "95%",
+                        margin: "auto",
+                    }}
+                >     
+                  {!loading && (
+                <div style={{ display: "flex", alignItems: "center", marginTop: "2em", width: "100%"}}>
+                    <VSCodeTextField placeholder="Enter text here" style={{ flexGrow: 1 }} onChange={(e) => setQuery((e.target as HTMLInputElement).value)} />
+                    <VSCodeButton onClick={() => searchResources(query)}>Search</VSCodeButton>                   
+                </div>
+            )}
+            {loading ? <p>Loading, this may take up to 30 minutes, please do not close this tab.</p> : null}
+                {resourceResults.resourceResults.length > 0 ? (
+                    <ul>
+                        {resourceResults.resourceResults.map((resource, index) => (
+                            <li key={index}>
+                                <a href={resource.uri} target="_blank" rel="noopener noreferrer">
+                                    {resource.text}
+                                </a>
+                                <p>Created at: {new Date(resource.createdAt).toLocaleDateString()}</p>
+                            </li>
+                        ))}
+                    </ul>
+                ) : (
+                    null
+                )}
+         <VSCodeButton onClick={handleEmbedResources}>
+                        Regenerate meaning database.
+                    </VSCodeButton>
+            </div>
+        );
+    };
     return (
         <VSCodePanels>
-            <VSCodePanelTab id="tab1">Target</VSCodePanelTab>
+            <VSCodePanelTab id="tab1">Draft</VSCodePanelTab>
                 <VSCodePanelView id="view1">
                     <PassageTab callback={handleEmbedAllDocuments} resultType="codexResults" />
                 </VSCodePanelView>
@@ -253,7 +355,12 @@ function App() {
                 <VSCodePanelView id="view3">
                     <AnomalyTab />
                 </VSCodePanelView>
+            <VSCodePanelTab id="tab4">Resources</VSCodePanelTab>
+                <VSCodePanelView id="view4">
+                    <ResourceTab />
+                </VSCodePanelView>
         </VSCodePanels>
+
     );
 }
 export default App;

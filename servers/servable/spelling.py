@@ -99,7 +99,7 @@ class ServableSpelling:
                     detokenized_word = self.spell_check.dictionary.tokenizer.tokenizer.detokenize(tokenized_word, join="--")
                     formatted_message = SPELLING_MESSAGE.TYPO.value.format(word=detokenized_word)
 
-                    diagnostics.append(Diagnostic(range=range, message=formatted_message, severity=DiagnosticSeverity.Warning, source='Spell-Check'))
+                    diagnostics.append(Diagnostic(range=range, message=formatted_message, severity=DiagnosticSeverity.Information, source='Spell-Check'))
                 # Add one if the next character is whitespace
                 if edit_window + len(word) < len(line) and line[edit_window + len(word)] == ' ':
                     edit_window += len(word) + 1
@@ -134,13 +134,15 @@ class ServableSpelling:
                 start_character = diagnostic.range.start.character
                 end_character = diagnostic.range.end.character
                 word = document.lines[start_line][start_character:end_character]
+                line = document.lines[start_line][end_character:-1]
                 try:
                     corrections = self.spell_check.check(word)
                 except IndexError:
                     corrections = []
                 for correction in corrections:
                     edit = TextEdit(range=diagnostic.range, new_text=correction)
-                    
+     
+
                     action = CodeAction(
                         title=SPELLING_MESSAGE.REPLACE_WORD.value.format(word=word, correction=correction),
                         kind=CodeActionKind.QuickFix,
@@ -153,7 +155,7 @@ class ServableSpelling:
                     title=SPELLING_MESSAGE.ADD_WORD.value.format(word=word),
                     kind=CodeActionKind.QuickFix,
                     diagnostics=[diagnostic],
-                    command=Command('Add to Dictionary', command='pygls.server.add_dictionary', arguments=[[word]])
+                    command=Command('Add to Dictionary', command='pygls.server.add_dictionary', arguments=[[word]]),
                 )
                 actions.append(add_word_action)
                 add_word_action = CodeAction(
