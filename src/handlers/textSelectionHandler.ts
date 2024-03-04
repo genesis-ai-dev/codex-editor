@@ -35,7 +35,6 @@ export function registerTextSelectionHandler(context: vscode.ExtensionContext, c
                 currentLine.text;
             const currentLineVref = extractVerseRefFromLine(completeLineContent);
             const currentLineSelection = event.textEditor.document.getText(event.selections[0]);
-            // FIXME: somethings wrong with the type or the values here.. otherwise why duplicate like this?
             const selectedText: string = event.textEditor.document.getText(event.selections[0]);
             // Update global state with the selected line content
             updateGlobalState(context, {
@@ -52,21 +51,29 @@ export function registerTextSelectionHandler(context: vscode.ExtensionContext, c
         if (selectionTimeout) {
             clearTimeout(selectionTimeout);
         }
-        selectionTimeout = setTimeout(async () => {
-            const selectedText: string = event.textEditor.document.getText(event.selections[0]);
-            if (selectedText) {
-                vscode.commands.executeCommand("pygls.server.textSelected", selectedText);
-                // Perform the search using the selected text
-                fetch(`http://localhost:5554/detect_anomalies?&query=${encodeURIComponent(selectedText)}`)
-                    .then((response: Response) => response.json())
-                    .then((data: any) => {
-                        callback(data);
-                    })
-                    .catch((error: any) => {
-                        console.error('Error performing search:', error);
-                        vscode.window.showErrorMessage(error.toString());
-                    });
-            }
-        }, 500); // Adjust delay as needed
+        if (activeEditor) {
+            selectionTimeout = setTimeout(() => {
+                const selectedText: string = activeEditor.document.getText(event.selections[0]);
+                performSearch(selectedText, callback);
+            }, 500); // Adjust delay as needed
+        }
     }));
+}
+
+export async function performSearch(selectedText: string, callback: CallableFunction) {
+    if (selectedText) {
+        vscode.commands.executeCommand("pygls.server.textSelected", selectedText);
+        try {
+            const response = await fetch(`http://localhost:5554/detect_anomalies?&query=${encodeURIComponent(selectedText)}`);
+            const data = await response.json();
+            callback(data);
+        } catch (error: unknown) {
+            console.error('Error performing search:', error);
+            if (error instanceof Error) {
+                vscode.window.showErrorMessage(error.message);
+            } else {
+                vscode.window.showErrorMessage('An unknown error occurred');
+            }
+        }
+    }
 }

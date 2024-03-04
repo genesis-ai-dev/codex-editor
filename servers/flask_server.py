@@ -1,3 +1,4 @@
+from typing import cast
 from flask import Flask, request, jsonify
 from tools.embedding import DataBase  # Updated import path
 from enum import Enum
@@ -17,7 +18,7 @@ CORS(app, origins='*')  # Allow requests from any origin
 initilaizers = {
     ".codex": True,
     ".bible": True,
-    "user_resources": False,
+    "resources": False,
     "reference_material": False
 }
 
@@ -52,8 +53,8 @@ class StdoutStderrWrapper:
     def flush(self):
         self.stream.flush()
 
-sys.stdout = StdoutStderrWrapper(sys.stdout, debug_handler)
-sys.stderr = StdoutStderrWrapper(sys.stderr, debug_handler)
+sys.stdout = cast(TextIO, StdoutStderrWrapper(sys.stdout, debug_handler))
+sys.stderr = cast(TextIO, StdoutStderrWrapper(sys.stderr, debug_handler))
 
 # Route to display all debug information
 @app.route('/debug')
@@ -167,6 +168,25 @@ def upsert_all_codex_files() -> tuple:
         sleep(.1)
     active_db.tokenizer.upsert_all()
     return jsonify({"message": f"Upserted {len(codex_files)} .codex files"}), 200
+
+@app.route('/upsert_all_resource_files', methods=['GET'])
+def upsert_all_resource_files() -> tuple:
+    """
+    Finds all files within the WORKSPACE_PATH/resources directory and upserts them into the database.
+    
+    Returns:
+        A tuple containing a JSON response and an HTTP status code.
+    """
+    try:
+        resource_files = glob.glob(f'{WORKSPACE_PATH}/resources/*', recursive=True)
+        active_db = get_active_database("resources")
+
+        for file_path in resource_files:
+            active_db.upsert_resource_file(file_path)
+
+        return jsonify({"message": f"Upserted {len(resource_files)} resource files"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route('/upsert_all_bible_files', methods=['GET'])

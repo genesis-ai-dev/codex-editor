@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { jumpToCellInNotebook } from "../../utils";
-import { registerTextSelectionHandler } from "../../handlers/textSelectionHandler";
+import { registerTextSelectionHandler, performSearch } from "../../handlers/textSelectionHandler";
+import { SearchResponse } from "meilisearch";
 
 const abortController: AbortController | null = null;
 
@@ -8,6 +9,12 @@ interface OpenFileMessage {
     command: "openFileAtLocation";
     uri: string;
     word: string;
+}
+
+interface searchCommand {
+    command: "searchResources"
+    query: string,
+    database: string,
 }
 
 async function upsertAllCodexFiles(webview: vscode.Webview): Promise<void> {
@@ -44,6 +51,25 @@ async function upsertAllSourceFiles(webview: vscode.Webview): Promise<void> {
     });
 
 }
+
+async function upsertAllResourceFiles(webview: vscode.Webview): Promise<void> {
+    try {
+        const response = await fetch('http://localhost:5554/upsert_all_resource_files', {
+            method: 'GET'
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+    } catch (error) {
+        console.error('Failed to upsert all bible files:', error);
+    }
+    webview.postMessage({
+        command: "completed",
+    });
+
+}
+
 
 
 async function jumpToFirstOccurrence(uri: string, word: string) {
@@ -149,24 +175,54 @@ const loadWebviewHtml = (
 
     webviewView.webview.html = html;
     webviewView.webview.onDidReceiveMessage(
-        async (message: OpenFileMessage) => {
-            if (message.command === "openFileAtLocation") {
-                vscode.window.showInformationMessage(message.uri);
-                // vscode.commands.executeCommand('vscode.open', vscode.Uri.parse(message.uri), {
-                //     selection: new vscode.Range(
-                //         new vscode.Position(0, 0),
-                //         new vscode.Position(0, 0)
-                //     )
-
-                // });
-                jumpToFirstOccurrence(message.uri, message.word);
-            } else if (message.command === "embedAllDocuments") {
-                upsertAllCodexFiles(webviewView.webview);
-                vscode.window.showInformationMessage("Embedding in progress.");        
-            }
-            else if (message.command === "embedSource") {
-                upsertAllSourceFiles(webviewView.webview);
-                vscode.window.showInformationMessage("Embedding in progress.");        
+        async (message: any) => { // Changed the type to any to handle multiple message types
+            vscode.window.showInformationMessage(`Searching for: ${message.command}`);
+            switch (message.command) {
+                case "openFileAtLocation":
+                    vscode.window.showInformationMessage(message.uri);
+                    jumpToFirstOccurrence(message.uri, message.word);
+                    break;
+                case "embedAllDocuments":
+                    upsertAllCodexFiles(webviewView.webview);
+                    vscode.window.showInformationMessage("Embedding in progress.");
+                    break;
+                case "embedSource":
+                    upsertAllSourceFiles(webviewView.webview);
+                    vscode.window.showInformationMessage("Embedding in progress.");
+                    break;
+                case "embedResource":
+                    upsertAllResourceFiles(webviewView.webview);
+                    vscode.window.showInformationMessage("Embedding in progress.");
+                    break;
+                case "search":
+                    if (message.database === 'resources') {
+                        const query = message.query;
+                        try {
+                            const response = await fetch(`http://localhost:5554/search?query=${encodeURIComponent(query)}&db_name=resources`, {
+                                method: 'GET',
+                            });
+                            if (!response.ok) {
+                                throw new Error(`HTTP error! status: ${response.status}`);
+                            }
+                            const data = await response.json();
+                            webviewView.webview.postMessage({
+                                command: "resourceResults",
+                                data: data,
+                            });
+                        } catch (error) {
+                            console.error('Failed to search resources:', error);
+                        }
+                    } else if (message.database === "both") {
+                        performSearch(message.query, (data: JSON) => {
+                            webviewView.webview.postMessage({
+                                command: "searchResults",
+                                data: data,
+                            });
+                        });
+                    }
+                    break;
+                default:
+                    console.error(`Unknown command: ${message.command}`);
             }
         },
     );

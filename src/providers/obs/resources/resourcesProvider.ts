@@ -78,17 +78,16 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
                             (e.payload as any)?.resource as any,
                         );
                         const downloadedResource: DownloadedResource = {
-                            name: downloadedResourceInfo.resource.name,
-                            id: downloadedResourceInfo.resource.id,
+                            name: downloadedResourceInfo?.resource.name ?? "",
+                            id: downloadedResourceInfo?.resource.id ?? "",
                             localPath: path.relative(
-                                vscode.workspace.workspaceFolders?.[0].uri
-                                    .path ?? "",
-                                downloadedResourceInfo.folder.path,
+                                vscode.workspace.workspaceFolders?.[0].uri.path ?? "",
+                                downloadedResourceInfo?.folder?.path ?? "",
                             ),
-                            type: downloadedResourceInfo.resourceType,
-                            remoteUrl: downloadedResourceInfo.resource.url,
+                            type: downloadedResourceInfo?.resourceType ?? "",
+                            remoteUrl: downloadedResourceInfo?.resource.url ?? "",
                             version:
-                                downloadedResourceInfo.resource.release
+                                downloadedResourceInfo?.resource.release
                                     .tag_name,
                         };
 

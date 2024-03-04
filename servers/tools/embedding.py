@@ -8,7 +8,8 @@ import os
 import glob
 from typing import Union, List, Generator
 from sqlite3 import IntegrityError
-
+import csv
+from typing import Any
 
 
 try:
@@ -63,11 +64,11 @@ class DataBase:
             db_path (str): The path to the database file.
         """
         self.db_path = db_path
-        #self.db_path = db_path.replace("\\", "/") # normalize this just in case
+        self.db_path = db_path.replace("\\", "/") # normalize this just in case
 
         self.embeddings = Embeddings(path="sentence-transformers/nli-mpnet-base-v2", content=True, objects=True)
         self.has_tokenizer = has_tokenizer
-        self.queue = []
+        self.queue: List[Any] = []  # Added type annotation as per linting suggestion
         self.open = True
 
         if has_tokenizer:
@@ -92,24 +93,13 @@ class DataBase:
             uri (str): The URI associated with the record.
             metadata (str, optional): Additional metadata for the record. Defaults to an empty string.
         """
-        text = sql_safe(text=text)
-        reference = sql_safe(text=reference)
-        book = sql_safe(text=book)
-        verse = sql_safe(text=verse)
-        metadata = sql_safe(text=metadata)
-        chapter = sql_safe(text=chapter)
+        text, reference, book, verse, metadata, chapter = map(sql_safe, [text, reference, book, verse, metadata, chapter])
         self.embeddings.upsert([ (reference, {'text': text, 'book': book, 'verse': verse, 'chapter': chapter, 'createdAt': str(datetime.datetime.now()), 'uri': uri, 'metadata': metadata})])
-        
         if save_now:
             self.save()
     
     def queue_upsert(self, text: str, reference: str, book: str, chapter: str, verse: str, uri: str, metadata: str = '', save_now=True):
-        text = sql_safe(text=text)
-        reference = sql_safe(text=reference)
-        book = sql_safe(text=book)
-        verse = sql_safe(text=verse)
-        metadata = sql_safe(text=metadata)
-        chapter = sql_safe(text=chapter)
+        text, reference, book, verse, metadata, chapter = map(sql_safe, [text, reference, book, verse, metadata, chapter])
         
         self.queue.append((reference, {'text': text, 'book': book, 'verse': verse, 'chapter': chapter, 'createdAt': str(datetime.datetime.now()), 'uri': uri, 'metadata': metadata}))
         if len(self.queue) % 1000 == 0:
@@ -157,6 +147,7 @@ class DataBase:
         print(book, chapter, verse)
         text = self.embeddings.search(f"select text from txtai where book='{book}' and chapter='{chapter}' and verse='{verse}'")
         return text
+    
     def upsert_queue(self):
         self.queue = [item for item in self.queue if item] # FIXME: why is this needed
         if self.queue:
@@ -165,6 +156,7 @@ class DataBase:
             self.queue = []
         else:
             self.queue = []
+
     def upsert_codex_file(self, path: str) -> None:
         """
         Inserts or updates records in the database from a .codex file.
@@ -176,12 +168,8 @@ class DataBase:
         results = extract_verses(path)
         for result in results:
             if len(result['text']) > 11: # 000 000:000  
-                text = result['text']
-                book = result['book']
-                chapter = result['chapter']
-                verse = result['verse']
+                text, book, chapter, verse = result['text'], result['book'], result['chapter'], result['verse']
                 reference = f'{book} {chapter}:{verse}'
-        
                 self.queue_upsert(text=text, book=book, chapter=chapter, reference=reference, verse=verse, uri=path)
                 self.tokenizer.upsert_text(text)
         self.tokenizer.upsert_all()
@@ -201,10 +189,7 @@ class DataBase:
         print("going through results: ", len(results))
         for result in tqdm(results, desc="Processing results"):
             if len(result['text']) > 11: # 000 000:000  
-                text = result['text']
-                book = result['book']
-                chapter = result['chapter']
-                verse = result['verse']
+                text, book, chapter, verse = map(result.get, ['text', 'book', 'chapter', 'verse'])
                 reference = f'{book} {chapter}:{verse}'
                 try:
                     self.queue_upsert(text=text, book=book, chapter=chapter, reference=reference, verse=verse, uri=path.replace("file://", ""), save_now=False)
@@ -222,14 +207,47 @@ class DataBase:
         Saves the current state of the embeddings to the database.
         """
         self.embeddings.save(self.db_path)
-        # Check if the only file in the db_path directory is 'config'
         if os.listdir(self.db_path) == ['config']:
-            os.remove(os.path.join(self.db_path, 'config'))  # Remove the 'config' file
-            os.rmdir(self.db_path)  # Remove the now empty directory
+            os.remove(os.path.join(self.db_path, 'config'))
+            os.rmdir(self.db_path)
 
+    
+    def upsert_resource_file(self, path: str) -> None:
+        """
+        Inserts or updates records in the database from a resource file (.txt, .md, or .tsv).
+
+        Args:
+            path (str): The path to the resource file.
+        """
+        # Determine the file type based on its extension
+        if not path.endswith(('.txt', '.md', '.tsv')):
+            print(f"Unsupported file type: {path}")
+            return
+
+        # Adjust path if necessary
+        path = "/" + path if "://" not in path and not path.startswith("/") else path
+
+        # Read the file content
+        if path.endswith('.tsv'):
+            with open(path, "r", encoding="utf-8") as file:
+                for line in file:
+                    parts = line.strip().split('\t')
+                    if len(parts) >= 2:
+                        text = parts[1]
+                        self.queue_upsert(text=text, book='', chapter='', verse='', reference='', uri=path, metadata='', save_now=False)
+        else:
+            with open(path, "r", encoding="utf-8") as file:
+                text = file.read()
+                self.queue_upsert(text=text, book='', chapter='', verse='', reference='', uri=path, metadata='', save_now=False)
+
+        # Update tokenizer and queue
+        self.upsert_queue()
+        print(f"Resource file {path} upserted successfully.")
+        
     def close(self):
         self.open = False
         self.embeddings.close()
+
 
 
 
