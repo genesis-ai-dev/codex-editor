@@ -247,6 +247,12 @@
                     "group": "inline@2",
                     "when": "commentController == comment-project"
                 }
+            ],
+            "editor/title": [
+                {
+                    "command": "codex-editor.scm.stageAndCommitAll",
+                    "group": "navigation"
+                }
             ]
         },
         "commands": [
@@ -380,6 +386,18 @@
             {
                 "command": "scriptureViewer.showScriptureViewer",
                 "title": "Show Scripture Viewer"
+            },
+            {
+                "command": "codex-editor.scm.stageAndCommitAll",
+                "title": "Stage & Commit All"
+            },
+            {
+                "command": "codex-editor.scm.addRemote",
+                "title": "Add Remote"
+            },
+            {
+                "command": "codex-editor.scm.sync",
+                "title": "Sync"
             }
         ],
         "notebooks": [
