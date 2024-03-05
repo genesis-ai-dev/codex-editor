@@ -5,6 +5,7 @@ enum ViewTypes {
     OBS = "scribe.obs",
     BIBLE = "default",
     TRANSLATION_HELPER = "resources.translationHelper",
+    TN = "codex.translationNotesEditor",
 }
 
 export const openOBS = async (
@@ -138,10 +139,7 @@ export const openTranslationHelper = async (resource: DownloadedResource) => {
     };
 };
 
-export const openTn = async (
-    resource: DownloadedResource,
-    bibleBook?: string,
-) => {
+export const openTn = async (resource: DownloadedResource, bookID: string) => {
     const workspaceRootUri = vscode.workspace.workspaceFolders?.[0].uri;
     if (!workspaceRootUri) {
         return;
@@ -151,14 +149,7 @@ export const openTn = async (
         resource.localPath,
     );
 
-    const resourceMdUri = vscode.Uri.joinPath(resourceRootUri, "metadata.json");
-
-    const md = await vscode.workspace.fs.readFile(resourceMdUri);
-    const metadata = JSON.parse(md.toString());
-
-    const firstNotePath = metadata.projects[0]?.path;
-
-    const firstNoteUri = vscode.Uri.joinPath(resourceRootUri, firstNotePath);
+    const noteUri = vscode.Uri.joinPath(resourceRootUri, `tn_${bookID}.tsv`);
 
     const existingViewCols = vscode.window.tabGroups.all.map(
         (editor) => editor.viewColumn,
@@ -166,8 +157,8 @@ export const openTn = async (
 
     await vscode.commands.executeCommand(
         "vscode.openWith",
-        firstNoteUri,
-        ViewTypes.BIBLE, // use resource type to load the according view
+        noteUri,
+        ViewTypes.TN, // use resource type to load the according view
         { viewColumn: vscode.ViewColumn.Beside, preview: true },
     );
 

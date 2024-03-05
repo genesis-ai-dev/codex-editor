@@ -74,7 +74,7 @@ export class TranslationNotesProvider implements CustomTextEditorProvider {
 
     private static readonly viewType = "codex.translationNotesEditor";
 
-    constructor(private readonly context: ExtensionContext) { }
+    constructor(private readonly context: ExtensionContext) {}
 
     /**
      * Called when our custom editor is opened.
