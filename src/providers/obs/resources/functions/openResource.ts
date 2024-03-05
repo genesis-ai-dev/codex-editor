@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { DownloadedResource } from "../types";
+import { TranslationWordsProvider } from "../../../translationWords/provider";
 
 enum ViewTypes {
     OBS = "scribe.obs",
@@ -175,4 +176,13 @@ export const openTn = async (resource: DownloadedResource, bookID: string) => {
     return {
         viewColumn: newViewCol,
     };
+};
+
+export const openTw = async (
+    context: vscode.ExtensionContext,
+    resource: DownloadedResource,
+) => {
+    const twProvider = new TranslationWordsProvider(context, resource);
+
+    return await twProvider.startWebview();
 };
