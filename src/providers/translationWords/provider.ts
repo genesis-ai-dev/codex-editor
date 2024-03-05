@@ -112,11 +112,22 @@ export class TranslationWordsProvider {
             payload: { translationWords: this.allTranslationWords },
         });
 
-        panel.onDidChangeViewState((e) => {
+        panel.onDidChangeViewState(async (e) => {
             if (e.webviewPanel.active) {
                 panel.webview.postMessage({
                     type: "update-tw",
                     payload: { translationWords: this.allTranslationWords },
+                });
+                const initialTranslationWord = this.allTranslationWords[0];
+
+                const content = await vscode.workspace.fs.readFile(
+                    vscode.Uri.file(initialTranslationWord.path),
+                );
+                panel.webview.postMessage({
+                    type: "update-tw-content",
+                    payload: {
+                        content: content.toString(),
+                    },
                 });
             }
         });
