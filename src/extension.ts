@@ -157,7 +157,7 @@ let clientStarting = false;
 let python: PythonExtension;
 let pyglsLogger: vscode.LogOutputChannel;
 
-let scmInterval: NodeJS.Timeout;
+let scmInterval: any; // Webpack & typescript for vscode are having issues
 
 export async function activate(context: vscode.ExtensionContext) {
     /** BEGIN CODEX EDITOR EXTENSION FUNCTIONALITY */
