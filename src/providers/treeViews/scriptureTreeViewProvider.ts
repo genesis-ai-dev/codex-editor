@@ -112,6 +112,11 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
 
             OTNode.children = OTNotebooks;
             NTNode.children = NTNotebooks;
+
+            if (OTNotebooks.length === 0 && NTNotebooks.length === 0) {
+                return [];
+            }
+
             return [OTNode, NTNode];
         } catch (error) {
             vscode.window.showErrorMessage(
