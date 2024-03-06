@@ -11,6 +11,7 @@ import {
     openOBS,
     openTn,
     openTranslationHelper,
+    openTw,
 } from "./functions/openResource";
 import { getUri } from "../CreateProject/utilities/getUri";
 import { getNonce } from "../CreateProject/utilities/getNonce";
@@ -260,6 +261,10 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
                     verseRef?.verseRef ?? "GEN 1:1",
                 );
                 newViewCol = (await openTn(resource, bookID))?.viewColumn;
+                break;
+            }
+            case "tw": {
+                await openTw(this._context!, resource);
                 break;
             }
             default:

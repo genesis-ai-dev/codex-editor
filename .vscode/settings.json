@@ -5,4 +5,5 @@
     "typescript.tsc.autoDetect": "off",
     "editor.formatOnSave": true,
     "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "cSpell.words": ["uidotdev"]
 }
