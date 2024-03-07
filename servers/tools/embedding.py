@@ -1,27 +1,26 @@
-from txtai import Embeddings
 import datetime
-from typing import Union
-import string
-from gensim.models import Word2Vec
-from gensim.utils import simple_preprocess
-import os
 import glob
-from typing import Union, List, Generator
+import logging
+import os
+from pathlib import Path
 from sqlite3 import IntegrityError
-import csv
-from typing import Any
+from typing import Union, List, Any, Generator
 
-
+import tqdm
+from gensim.models import FastText, Word2Vec
+from gensim.utils import simple_preprocess
+from txtai import Embeddings
+import string
 try:
     from tools.codex_tools import extract_verses, extract_verses_bible
     from tools.nlp import genetik_tokenizer
-
 except ImportError:
     from codex_tools import extract_verses, extract_verses_bible
     from nlp import genetik_tokenizer
 
 # Create a translation table for removing punctuation from strings.
 translator = str.maketrans('', '', string.punctuation)
+
 
 def remove_punctuation(text: str) -> str:
     """
@@ -35,8 +34,6 @@ def remove_punctuation(text: str) -> str:
     """
     return text.translate(translator).strip()
 
-# Initialize embeddings with a specific model path, enabling content and object storage.
-embeddings = Embeddings(path="sentence-transformers/nli-mpnet-base-v2", content=True, objects=True)
 
 def sql_safe(text: str) -> str:
     """
@@ -52,35 +49,33 @@ def sql_safe(text: str) -> str:
         return text
     return text.replace("'", "''").replace("\\", "/").replace('"', "''")
 
+
 class DataBase:
-    """
-    A class for managing database operations with embeddings.
-    """
-    def __init__(self, db_path: str, has_tokenizer: bool = False) -> None:
-        """
-        Initializes the DataBase class with a specific database path and embeddings model.
-
-        Args:
-            db_path (str): The path to the database file.
-        """
-        self.db_path = db_path
-        self.db_path = db_path.replace("\\", "/") # normalize this just in case
-
+    def __init__(self, db_path: str, has_tokenizer: bool = False, use_fasttext: bool = False) -> None:
+        self.db_path = Path(db_path).as_posix()  # Normalize the path
         self.embeddings = Embeddings(path="sentence-transformers/nli-mpnet-base-v2", content=True, objects=True)
         self.has_tokenizer = has_tokenizer
-        self.queue: List[Any] = []  # Added type annotation as per linting suggestion
+        self.use_fasttext = use_fasttext
+        self.queue: List[Any] = []
         self.open = True
+        self.logger = logging.getLogger(__name__)
 
         if has_tokenizer:
             self.tokenizer = genetik_tokenizer.TokenDatabase(self.db_path)
         else:
             self.tokenizer = None
+
+        if use_fasttext:
+            self.fasttext_model = FastText()
+        else:
+            self.fasttext_model = None
+
         try:
             self.embeddings.load(self.db_path)
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.exception(f"Error loading embeddings: {e}")
 
-    def upsert(self, text: str, reference: str, book: str, chapter: str, verse: str, uri: str, metadata: str = '', save_now=True) -> None:
+    def upsert(self, text: str, reference: str, book: str, chapter: str, verse: str, uri: str, metadata: str = '', save_now: bool = True) -> None:
         """
         Inserts or updates a record in the database.
 
@@ -92,16 +87,37 @@ class DataBase:
             verse (str): The verse associated with the record.
             uri (str): The URI associated with the record.
             metadata (str, optional): Additional metadata for the record. Defaults to an empty string.
+            save_now (bool, optional): Indicates whether to save the changes immediately. Defaults to True.
         """
-        text, reference, book, verse, metadata, chapter = map(sql_safe, [text, reference, book, verse, metadata, chapter])
-        self.embeddings.upsert([ (reference, {'text': text, 'book': book, 'verse': verse, 'chapter': chapter, 'createdAt': str(datetime.datetime.now()), 'uri': uri, 'metadata': metadata})])
+        sanitized_data = map(sql_safe, [text, reference, book, verse, metadata, chapter])
+        text, reference, book, verse, metadata, chapter = sanitized_data
+        self.embeddings.upsert([(reference, {
+            'text': text, 'book': book, 'verse': verse, 'chapter': chapter,
+            'createdAt': str(datetime.datetime.now()), 'uri': uri, 'metadata': metadata
+        })])
         if save_now:
             self.save()
-    
-    def queue_upsert(self, text: str, reference: str, book: str, chapter: str, verse: str, uri: str, metadata: str = '', save_now=True):
-        text, reference, book, verse, metadata, chapter = map(sql_safe, [text, reference, book, verse, metadata, chapter])
-        
-        self.queue.append((reference, {'text': text, 'book': book, 'verse': verse, 'chapter': chapter, 'createdAt': str(datetime.datetime.now()), 'uri': uri, 'metadata': metadata}))
+
+    def queue_upsert(self, text: str, reference: str, book: str, chapter: str, verse: str, uri: str, metadata: str = '', save_now: bool = True) -> None:
+        """
+        Queues a record for upserting into the database.
+
+        Args:
+            text (str): The text of the record.
+            reference (str): The reference identifier for the record.
+            book (str): The book associated with the record.
+            chapter (str): The chapter associated with the record.
+            verse (str): The verse associated with the record.
+            uri (str): The URI associated with the record.
+            metadata (str, optional): Additional metadata for the record. Defaults to an empty string.
+            save_now (bool, optional): Indicates whether to save the changes immediately. Defaults to True.
+        """
+        sanitized_data = map(sql_safe, [text, reference, book, verse, metadata, chapter])
+        text, reference, book, verse, metadata, chapter = sanitized_data
+        self.queue.append((reference, {
+            'text': text, 'book': book, 'verse': verse, 'chapter': chapter,
+            'createdAt': str(datetime.datetime.now()), 'uri': uri, 'metadata': metadata
+        }))
         if len(self.queue) % 1000 == 0:
             self.embeddings.upsert(self.queue)
             self.save()
@@ -122,7 +138,7 @@ class DataBase:
         results = self.embeddings.search(f"select text, book, verse, chapter, createdAt, uri, metadata from txtai where similar('f{query}')", limit=limit)
         return results
 
-    def exists(self, ids: list) -> list:
+    def exists(self, ids: List[str]) -> List[str]:
         """
         Checks which of the given ids exist in the database.
 
@@ -138,204 +154,138 @@ class DataBase:
             if result:
                 existing_ids.append(id)
         return existing_ids
-    
-    def get_text(self, id) -> str:
+
+    def get_text(self, id: str) -> str:
+        """
+        Retrieves the text associated with a given id from the database.
+
+        Args:
+            id (str): The id of the record.
+
+        Returns:
+            str: The text associated with the id.
+        """
         text = self.embeddings.search(f"select text from txtai where id='{id}'")
         return text
-    
-    def get_text_from(self, book, chapter, verse):
-        print(book, chapter, verse)
-        text = self.embeddings.search(f"select text from txtai where book='{book}' and chapter='{chapter}' and verse='{verse}'")
+
+    def get_text_from(self, book: str, chapter: str, verse: str) -> str:
+        """
+        Retrieves the text associated with a specific book, chapter, and verse from the database.
+
+        Args:
+            book (str): The book of the record.
+            chapter (str): The chapter of the record.
+            verse (str): The verse of the record.
+
+        Returns:
+            str: The text associated with the specified book, chapter, and verse.
+        """
+        self.logger.debug(f"Getting text from book={book}, chapter={chapter}, verse={verse}")
+        query = f"select text from txtai where book='{book}' and chapter='{chapter}' and verse='{verse}'"
+        text = self.embeddings.search(query)
         return text
-    
-    def upsert_queue(self):
-        self.queue = [item for item in self.queue if item] # FIXME: why is this needed
+
+    def upsert_queue(self) -> None:
+        """
+        Upserts the queued records into the database.
+        """
+        self.queue = [item for item in self.queue if item]  # Remove any None items from the queue
         if self.queue:
             self.embeddings.upsert(self.queue)
             self.save()
-            self.queue = []
-        else:
-            self.queue = []
+        self.queue = []
 
-    def upsert_codex_file(self, path: str) -> None:
+    def upsert_file(self, path: str) -> None:
         """
-        Inserts or updates records in the database from a .codex file.
+        Inserts or updates records in the database from a file.
 
         Args:
-            path (str): The path to the .codex file.
+            path (str): The path to the file.
         """
-        path = "/" + path if "://" not in path and "/" != path[0]  else path
-        results = extract_verses(path)
-        for result in results:
-            if len(result['text']) > 11: # 000 000:000  
-                text, book, chapter, verse = result['text'], result['book'], result['chapter'], result['verse']
-                reference = f'{book} {chapter}:{verse}'
-                self.queue_upsert(text=text, book=book, chapter=chapter, reference=reference, verse=verse, uri=path)
-                self.tokenizer.upsert_text(text)
-        self.tokenizer.upsert_all()
-        self.upsert_queue()
+        file_path = Path(path)
+        if not file_path.is_absolute():
+            file_path = Path("/") / file_path
 
-    def upsert_bible_file(self, path: str) -> None:
-        """
-        Inserts or updates records in the database from a .bible file.
-
-        Args:
-            path (str): The path to the .bible file.
-        """
-        from tqdm import tqdm
-
-        path = "/" + path if "://" not in path and "/" != path[0] else path
-        results = extract_verses_bible(path)
-        print("going through results: ", len(results))
-        for result in tqdm(results, desc="Processing results"):
-            if len(result['text']) > 11: # 000 000:000  
-                text, book, chapter, verse = map(result.get, ['text', 'book', 'chapter', 'verse'])
-                reference = f'{book} {chapter}:{verse}'
-                try:
-                    self.queue_upsert(text=text, book=book, chapter=chapter, reference=reference, verse=verse, uri=path.replace("file://", ""), save_now=False)
-                except IntegrityError:
-                    print("Integrity error")
-        self.save()
-        print("reading file")
-        with open(path, "r") as f:
-            self.tokenizer.upsert_text(f.read())
+        if file_path.suffix == '.codex':
+            results = extract_verses(file_path.as_posix())
+            for result in results:
+                if len(result['text']) > 11:  # 000 000:000
+                    text, book, chapter, verse = result['text'], result['book'], result['chapter'], result['verse']
+                    reference = f'{book} {chapter}:{verse}'
+                    self.queue_upsert(text=text, book=book, chapter=chapter, reference=reference, verse=verse, uri=file_path.as_posix())
+                    self.tokenizer.upsert_text(text)
             self.tokenizer.upsert_all()
-        self.upsert_queue()
+            self.upsert_queue()
+        elif file_path.suffix == '.bible':
+            results = extract_verses_bible(file_path.as_posix())
+            self.logger.info(f"Going through {len(results)} results")
+            for result in tqdm(results, desc="Processing results"):
+                if len(result['text']) > 11:  # 000 000:000
+                    text, book, chapter, verse = map(result.get, ['text', 'book', 'chapter', 'verse'])
+                    reference = f'{book} {chapter}:{verse}'
+                    try:
+                        self.queue_upsert(text=text, book=book, chapter=chapter, reference=reference, verse=verse, uri=file_path.as_posix(), save_now=False)
+                    except IntegrityError:
+                        self.logger.exception("Integrity error")
+            self.save()
+            self.logger.info("Reading file")
+            with file_path.open("r") as file:
+                self.tokenizer.upsert_text(file.read())
+                self.tokenizer.upsert_all()
+            self.upsert_queue()
+            if self.use_fasttext:
+                self.train_fasttext()
+        else:
+            if file_path.suffix not in ('.txt', '.md', '.tsv', '.codex', '.bible', '.html', '.csv', '.'):
+                self.logger.warning(f"Unsupported file type: {file_path}")
+                return
+
+            if file_path.suffix == '.tsv':
+                with file_path.open("r", encoding="utf-8") as file:
+                    for line in file:
+                        parts = line.strip().split('\t')
+                        if len(parts) >= 2:
+                            text = parts[1]
+                            self.queue_upsert(text=text, book=file_path.as_posix(), chapter='', verse='', reference=file_path.as_posix(), uri=file_path.as_posix(), metadata='', save_now=False)
+            else:
+                with file_path.open("r", encoding="utf-8") as file:
+                    text = file.read()
+                    if len(text) < 50000:
+                        self.queue_upsert(text=text, book=file_path.as_posix(), chapter='', verse='', reference=file_path.as_posix(), uri=file_path.as_posix(), metadata='', save_now=False)
+
+            self.upsert_queue()
+            if self.use_fasttext:
+                self.train_fasttext()
+            self.logger.info(f"Resource file {file_path} upserted successfully.")
+
+    def train_fasttext(self) -> None:
+        if self.fasttext_model:
+            if self.has_tokenizer and self.tokenizer:
+                # Use tokenizer's vocabulary for training
+                sentences = [self.tokenizer.get_tokens(text) for text in self.embeddings.search("SELECT text FROM txtai")]
+            else:
+                # Use text data from the database for training
+                sentences = [text for text in self.embeddings.search("SELECT text FROM txtai")]
+
+            self.fasttext_model.build_vocab(sentences)
+            self.fasttext_model.train(sentences, total_examples=len(sentences), epochs=10)
 
     def save(self) -> None:
         """
         Saves the current state of the embeddings to the database.
         """
         self.embeddings.save(self.db_path)
-        if os.listdir(self.db_path) == ['config']:
-            os.remove(os.path.join(self.db_path, 'config'))
-            os.rmdir(self.db_path)
+        db_path = Path(self.db_path)
+        if db_path.exists() and db_path.is_dir() and list(db_path.iterdir()) == [db_path / 'config']:
+            (db_path / 'config').unlink()
+            db_path.rmdir()
 
-    
-    def upsert_resource_file(self, path: str) -> None:
+    def close(self) -> None:
         """
-        Inserts or updates records in the database from a resource file (.txt, .md, or .tsv).
-
-        Args:
-            path (str): The path to the resource file.
+        Closes the database and releases resources.
         """
-        # Determine the file type based on its extension
-        if not path.endswith(('.txt', '.md', '.tsv')):
-            print(f"Unsupported file type: {path}")
-            return
-
-        # Adjust path if necessary
-        path = "/" + path if "://" not in path and not path.startswith("/") else path
-
-        # Read the file content
-        if path.endswith('.tsv'):
-            with open(path, "r", encoding="utf-8") as file:
-                for line in file:
-                    parts = line.strip().split('\t')
-                    if len(parts) >= 2:
-                        text = parts[1]
-                        self.queue_upsert(text=text, book='', chapter='', verse='', reference='', uri=path, metadata='', save_now=False)
-        else:
-            with open(path, "r", encoding="utf-8") as file:
-                text = file.read()
-                self.queue_upsert(text=text, book='', chapter='', verse='', reference='', uri=path, metadata='', save_now=False)
-
-        # Update tokenizer and queue
-        self.upsert_queue()
-        print(f"Resource file {path} upserted successfully.")
-        
-    def close(self):
         self.open = False
         self.embeddings.close()
-
-
-
-
-class VecTrainer:
-    def __init__(self, directory_or_files: Union[List[str], str], save_path: str, vector_size: int = 50) -> None:
-        """
-        Initializes the = model with the given parameters.
-
-        Args:
-            directory_or_files (Union[List[str], str]): Either a directory containing .bible files or a list of .bible file paths.
-            save_path (str): The path where the trained model should be saved.
-            vector_size (int, optional): The dimensionality of the word vectors. Defaults to 50.
-        """
-        self.vector_size = vector_size
-        self.files = []
-        self.save_path = save_path
-        if isinstance(directory_or_files, str) and os.path.isdir(directory_or_files):
-            self.files = glob.glob(os.path.join(directory_or_files, '*.bible'))
-        elif isinstance(directory_or_files, list):
-            self.files = directory_or_files
-        else:
-            raise ValueError("Input should be a directory or a list of .bible file names")
-
-    def read_input(self, input_file: str) -> Generator[List[str], None, None]:
-        """
-        Reads and preprocesses the input file.
-
-        Args:
-            input_file (str): The path to the input file.
-
-        Yields:
-            Generator[List[str], None, None]: A generator yielding preprocessed lines from the input file.
-        """
-        with open(input_file, 'r', encoding='utf-8') as f:
-            for line in f:
-                yield simple_preprocess(line)
-
-    def process_files(self) -> List[List[str]]:
-        """
-        Processes all files specified during initialization.
-
-        Returns:
-            List[List[str]]: A list of sentences, where each sentence is a list of words.
-        """
-        sentences = []
-        for file in self.files:
-            sentences.extend(list(self.read_input(file)))
-        return sentences
-
-    def train_model(self, sentences: List[List[str]]) -> Word2Vec:
-        """
-        Trains the Word2Vec model on the given sentences.
-
-        Args:
-            sentences (List[List[str]]): A list of sentences for training the model.
-
-        Returns:
-            Word2Vec: The trained Word2Vec model.
-        """
-        model = Word2Vec(sentences=sentences, vector_size=self.vector_size)
-        model.build_vocab(sentences)
-        model.train(sentences, total_examples=model.corpus_count, epochs=10)
-        return model
-
-    def save_model(self, model: Word2Vec, output_file: str) -> None:
-        """
-        Saves the trained model to the specified output file.
-
-        Args:
-            model (Word2Vec): The trained Word2Vec model.
-            output_file (str): The path where the model should be saved.
-        """
-        model.save(output_file)
-
-    def run(self) -> Word2Vec:
-        """
-        Executes the process of reading input, training the model, and saving it.
-
-        Returns:
-            Word2Vec: The trained Word2Vec model.
-        """
-        sentences = self.process_files()
-        model = self.train_model(sentences)
-        for file in self.files:
-            output_model_file = os.path.splitext(file)[0] + '_word2vec.model'
-            self.save_model(model, output_model_file)
-            print(f"Model saved for {file}: {output_model_file}")
-        return model
 
 if __name__ == "__main__":
     db_path = "dbs/db7/embedding"

@@ -70,6 +70,21 @@ async function upsertAllResourceFiles(webview: vscode.Webview): Promise<void> {
 
 }
 
+async function simpleOpen(uri: string) {
+    try {
+        const parsedUri = vscode.Uri.parse(uri);
+        if (parsedUri.toString().endsWith(".codex")){
+            vscode.workspace.openNotebookDocument(parsedUri);
+        }
+        else {
+            const document = await vscode.workspace.openTextDocument(parsedUri);
+            await vscode.window.showTextDocument(document);
+        }
+    } catch (error) {
+        console.error(`Failed to open file: ${uri}`, error);
+    }
+}
+
 
 
 async function jumpToFirstOccurrence(uri: string, word: string) {
@@ -180,7 +195,7 @@ const loadWebviewHtml = (
             switch (message.command) {
                 case "openFileAtLocation":
                     vscode.window.showInformationMessage(message.uri);
-                    jumpToFirstOccurrence(message.uri, message.word);
+                    simpleOpen(message.uri);//message.word);
                     break;
                 case "embedAllDocuments":
                     upsertAllCodexFiles(webviewView.webview);
@@ -198,7 +213,7 @@ const loadWebviewHtml = (
                     if (message.database === 'resources') {
                         const query = message.query;
                         try {
-                            const response = await fetch(`http://localhost:5554/search?query=${encodeURIComponent(query)}&db_name=resources`, {
+                            const response = await fetch(`http://localhost:5554/search?query=${encodeURIComponent(query)}&db_name=resources&limit=10`, {
                                 method: 'GET',
                             });
                             if (!response.ok) {
@@ -267,3 +282,4 @@ export function registerParallelViewWebviewProvider(
 
     item.show();
 }
+
