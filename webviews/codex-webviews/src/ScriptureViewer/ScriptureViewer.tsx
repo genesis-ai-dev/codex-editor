@@ -61,27 +61,25 @@ function App() {
             ) {
                 return (
                     <div
-                        style={
-                            {
-                                // backgroundColor:
-                                //     "var(--vscode-dropdown-background)",
-                                // padding: "20px",
-                                // borderRadius: "5px",
-                                // boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
-                                // display: "flex",
-                                // flexFlow: "column nowrap",
-                            }
-                        }
+                        style={{
+                            textAlign: "justify", // Justify text for a cleaner, more traditional look
+                            margin: "20px 0", // Add some vertical spacing
+                        }}
                     >
-                        {scriptureCell.kind === markdownNotebookCellKind &&
-                            scriptureCell.metadata?.type ===
-                                "chapter-heading" && (
-                                <h1>
-                                    {scriptureCell.value
-                                        .replace(/^#+\s*/, "")
-                                        .trim()}
-                                </h1>
-                            )}
+                        {cellIsMarkdownChapterHeading && (
+                            <h1
+                                style={{
+                                    textAlign: "center",
+                                    margin: "40px 0",
+                                }}
+                            >
+                                {" "}
+                                {/* Center chapter titles */}
+                                {scriptureCell.value
+                                    .replace(/^#+\s*/, "")
+                                    .trim()}
+                            </h1>
+                        )}
                         {scriptureCell.kind ===
                             verseContentNotebookCellKind && (
                             <>
@@ -161,7 +159,8 @@ function App() {
 
         reversedParagraph.forEach((line) => {
             const currentLineVrefs = extractVrefsFromLine(line);
-            currentVerseContent = line.replace(completeVrefRegex, "").trim();
+            // currentVerseContent = line.replace(completeVrefRegex, "").trim();
+            currentVerseContent = line.replace(completeVrefRegex, "");
 
             // Check if the line contains a range marker, if so, activate range mode and start accumulating vrefs
             if (line.includes("<range>")) {
@@ -211,40 +210,97 @@ function App() {
         );
 
         return cleanedParagraphs.flatMap(
-            (arrayOfLines: VerseWithAllVrefs[]) => {
-                return arrayOfLines.map((line) => {
-                    return (
-                        <p
-                            style={{
-                                fontSize: "1rem",
-                                lineHeight: "1.8rem",
-                            }}
-                        >
-                            <span
-                                style={{
-                                    margin: "0",
-                                    padding: "0.5em 0",
-                                }}
-                            >
-                                <sup
-                                    style={{
-                                        verticalAlign: "text-top",
-                                        marginRight: "0.3em",
-                                        marginLeft: "0.3em",
-                                        lineHeight: "1.5em",
-                                    }}
-                                >
-                                    {turnArrayOfVrefsToDisplayVref(
-                                        line.allVrefs,
-                                    )}
-                                </sup>
-                                {line.contentWithoutVrefs}
-                            </span>
-                        </p>
-                    );
-                }, []);
+            (arrayOfLines: VerseWithAllVrefs[], index) => {
+                return (
+                    <div
+                        style={{
+                            fontSize: "1rem",
+                            lineHeight: "1.8rem",
+                            textAlign: "left", // Changed to left align for better structure preservation
+                        }}
+                    >
+                        {index !== 0 && (
+                            <div style={{ marginTop: "1.5em" }}></div> // Maintain uniform spacing between verses or sections
+                        )}
+                        {arrayOfLines.map((line, lineIndex) => {
+                            return (
+                                <ScriptureLine
+                                    line={line}
+                                    lineIndex={lineIndex}
+                                />
+                            );
+                        })}
+                    </div>
+                );
             },
         );
+    };
+
+    const ScriptureLine = ({
+        line,
+        lineIndex,
+    }: {
+        line: VerseWithAllVrefs;
+        lineIndex: number;
+    }) => {
+        const { originalContent } = line;
+
+        if (/^\s+/.test(originalContent)) {
+            return (
+                <pre
+                    style={{
+                        whiteSpace: "pre-wrap", // Preserve both spaces and line breaks
+                        margin: "0",
+                        display: lineIndex !== 0 ? "block" : undefined, // Ensure verses are treated as separate blocks
+                        fontFamily: "'Times New Roman', serif", // Use a serif font for a more traditional look
+                    }}
+                    key={`line-${lineIndex}`}
+                >
+                    {line.allVrefs.length > 0 && (
+                        <sup
+                            style={{
+                                verticalAlign: "top",
+                                padding: "0.5em 0",
+                                marginRight: "0.3em",
+                                marginLeft: "0.3em",
+                                lineHeight: "1.5em",
+                                fontSize: "0.75em", // Smaller superscript verse numbers
+                            }}
+                        >
+                            {turnArrayOfVrefsToDisplayVref(line.allVrefs)}
+                        </sup>
+                    )}
+                    {line.contentWithoutVrefs}
+                </pre>
+            );
+        } else {
+            return (
+                <span
+                    style={{
+                        whiteSpace: "wrap", // Preserve both spaces and line breaks
+                        margin: "0",
+                        fontFamily: "'Times New Roman', serif", // Use a serif font for a more traditional look
+                    }}
+                    key={`line-${lineIndex}`}
+                >
+                    {line.allVrefs.length > 0 && (
+                        <sup
+                            style={{
+                                verticalAlign: "top",
+                                padding: "0.5em 0",
+                                marginRight: "0.3em",
+                                marginLeft: "0.3em",
+                                lineHeight: "1.5em",
+                                fontSize: "0.75em", // Smaller superscript verse numbers
+                            }}
+                        >
+                            {turnArrayOfVrefsToDisplayVref(line.allVrefs)}
+                        </sup>
+                    )}
+                    {line.contentWithoutVrefs}
+                </span>
+            );
+        }
     };
 
     return (
@@ -254,10 +310,14 @@ function App() {
                 flexDirection: "column",
                 height: "100vh",
                 width: "100%",
+                maxWidth: "800px", // Max width for better readability
+                marginLeft: "auto", // Center the content horizontally
+                marginRight: "auto",
                 padding: "10px",
                 boxSizing: "border-box",
                 backgroundColor: "var(--vscode-editorWidget-background)",
                 color: "var(--vscode-editorWidget-foreground)",
+                fontFamily: "'Times New Roman', serif", // Use a serif font for a more traditional look
             }}
         >
             <div
