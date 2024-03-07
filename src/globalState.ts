@@ -1,23 +1,40 @@
-import { EventEmitter } from "events";
-class GlobalStateEmitter extends EventEmitter { }
 import * as vscode from "vscode";
 import { VerseRefGlobalState, SelectedTextDataWithContext } from "../types";
-
-const globalStateEmitter = new GlobalStateEmitter();
-
 type GlobalStateUpdate =
     | { key: "verseRef"; value: VerseRefGlobalState }
     | { key: "uri"; value: string }
-    | { key: "currentLineSelection"; value: SelectedTextDataWithContext }
+    | { key: "currentLineSelection"; value: SelectedTextDataWithContext };
 
-function updateGlobalState(
-    context: vscode.ExtensionContext,
-    update: GlobalStateUpdate
-): void {
-    context.globalState.update(update.key, update.value).then(() => {
-        console.log("Value changed", update);
-        globalStateEmitter.emit("changed", update);
-    });
+type GlobalStateKey = GlobalStateUpdate["key"];
+type GlobalStateValue<K extends GlobalStateKey> = Extract<
+    GlobalStateUpdate,
+    { key: K }
+>["value"];
+
+const extensionId = "codex.shared-state-store";
+
+let storeListener: <K extends GlobalStateKey>(
+    keyForListener: K,
+    callBack: (value: GlobalStateValue<K>) => void,
+) => void;
+
+let updateGlobalState: (update: GlobalStateUpdate) => void;
+
+async function initializeGlobalState() {
+    const extension = vscode.extensions.getExtension(extensionId);
+    if (!extension) {
+        console.log(`Extension ${extensionId} not found.`);
+    } else {
+        const api = await extension.activate();
+        if (!api) {
+            console.log(`Extension ${extensionId} does not expose an API.`);
+        } else {
+            storeListener = api.storeListener;
+            updateGlobalState = api.updateStoreState;
+        }
+    }
 }
 
-export { globalStateEmitter, updateGlobalState };
+initializeGlobalState().catch(console.error);
+
+export { storeListener, updateGlobalState };

@@ -2,8 +2,6 @@ import * as vscode from "vscode";
 import { NOTEBOOK_TYPE } from "./utils/codexNotebookUtils";
 import {
     extractVerseRefFromLine,
-    // findReferences,
-    findVerseRef,
     findReferencesUsingMeilisearch,
 } from "./utils/verseRefUtils";
 import { updateGlobalState } from "./globalState";
@@ -164,7 +162,7 @@ const registerReferences = (context: vscode.ExtensionContext) => {
                     "translationNotes.openTnEditor",
                     verseRef,
                 );
-                updateGlobalState(context, {
+                updateGlobalState({
                     key: "verseRef",
                     value: { verseRef, uri },
                 });
