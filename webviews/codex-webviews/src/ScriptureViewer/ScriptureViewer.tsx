@@ -60,33 +60,34 @@ function App() {
                 scriptureCell.kind === verseContentNotebookCellKind
             ) {
                 return (
-                    <div
-                        style={{
-                            textAlign: "justify", // Justify text for a cleaner, more traditional look
-                            margin: "20px 0", // Add some vertical spacing
-                        }}
-                    >
-                        {cellIsMarkdownChapterHeading && (
-                            <h1
-                                style={{
-                                    textAlign: "center",
-                                    margin: "40px 0",
-                                }}
-                            >
-                                {" "}
-                                {/* Center chapter titles */}
-                                {scriptureCell.value
-                                    .replace(/^#+\s*/, "")
-                                    .trim()}
-                            </h1>
-                        )}
-                        {scriptureCell.kind ===
-                            verseContentNotebookCellKind && (
-                            <>
-                                <ScriptureParagraphs paragraphs={paragraphs} />
-                            </>
-                        )}
-                    </div>
+                    (cellIsMarkdownChapterHeading && (
+                        <h1
+                            style={{
+                                textAlign: "center",
+                                marginInline: "1em",
+                            }}
+                        >
+                            {" "}
+                            {/* Center chapter titles */}
+                            {scriptureCell.value.replace(/^#+\s*/, "").trim()}
+                        </h1>
+                    )) || (
+                        <div
+                            style={{
+                                textAlign: "justify", // Justify text for a cleaner, more traditional look
+                                margin: "20px 0", // Add some vertical spacing
+                            }}
+                        >
+                            {scriptureCell.kind ===
+                                verseContentNotebookCellKind && (
+                                <>
+                                    <ScriptureParagraphs
+                                        paragraphs={paragraphs}
+                                    />
+                                </>
+                            )}
+                        </div>
+                    )
                 );
             }
         });
