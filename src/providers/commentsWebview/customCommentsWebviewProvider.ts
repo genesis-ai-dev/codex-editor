@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { globalStateEmitter, updateGlobalState } from "../../globalState";
+import { storeListener, updateGlobalState } from "../../globalState";
 import {
     CommentPostMessages,
     NotebookCommentThread,
@@ -130,17 +130,23 @@ export class CustomWebviewProvider {
     }
 
     resolveWebviewView(webviewView: vscode.WebviewView) {
-        globalStateEmitter.on(
-            "changed",
-            ({ key, value }: { key: string; value: VerseRefGlobalState }) => {
-                if (webviewView.visible && key === "verseRef") {
-                    webviewView.webview.postMessage({
-                        command: "reload",
-                        data: { verseRef: value.verseRef, uri: value.uri },
-                    } as CommentPostMessages);
-                }
-            },
-        );
+        // globalStateEmitter.on(
+        //     "changed",
+        //     ({ key, value }: { key: string; value: VerseRefGlobalState }) => {
+        //         if (webviewView.visible && key === "verseRef") {
+        //             webviewView.webview.postMessage({
+        //                 command: "reload",
+        //                 data: { verseRef: value.verseRef, uri: value.uri },
+        //             } as CommentPostMessages);
+        //         }
+        //     },
+        // );
+        storeListener("verseRef", (value) => {
+            webviewView.webview.postMessage({
+                command: "reload",
+                data: { verseRef: value.verseRef, uri: value.uri },
+            } as CommentPostMessages);
+        });
         loadWebviewHtml(webviewView, this._context.extensionUri);
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
@@ -185,7 +191,7 @@ export class CustomWebviewProvider {
                     const text = document.getText();
                     if (text.includes(verseRef)) {
                         uri = file.toString();
-                        updateGlobalState(this._context, {
+                        updateGlobalState({
                             key: "verseRef",
                             value: {
                                 verseRef,

@@ -631,5 +631,8 @@
     "overrides": {
         "minimatch": "5.1.2",
         "glob": "8.1.0"
-    }
+    },
+    "extensionDependencies": [
+        "codex.shared-state-store"
+    ]
 }
