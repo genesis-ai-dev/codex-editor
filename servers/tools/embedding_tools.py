@@ -37,7 +37,7 @@ class DataBase:
 
     Example Usage:
         database = DataBase('db3')
-        database.upsert_codex_file('C:\\Users\\danie\\example_workspace\\drafts\\Bible\\1CH.codex')
+        database.upsert_bible_file('C:\\Users\\danie\\example_workspace\\drafts\\Bible\\1CH.codex')
         print(database.search('dog', limit=1900))
         database.save()
     """
@@ -133,7 +133,7 @@ class DataBase:
 
 if __name__ == "__main__":
     database = DataBase('db3')
-    #database.upsert_codex_file('C:\\Users\\danie\\example_workspace\\drafts\\Bible\\1CH.codex')
+    #database.upsert_file('C:\\Users\\danie\\example_workspace\\drafts\\Bible\\1CH.codex')
     database.upsert_all([{'id': 1, 'text': "hello this is a test"}, {'id': 2, 'text': "it is so cold in il"}])
     print(database.search('dog', limit=1900))
     database.save()
