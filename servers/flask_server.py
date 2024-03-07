@@ -16,10 +16,10 @@ app = Flask(__name__)
 CORS(app, origins='*')  # Allow requests from any origin
 
 initilaizers = {
-    ".codex": True,
-    ".bible": True,
-    "resources": False,
-    "reference_material": False
+    ".codex": (True, False),
+    ".bible": (True, False),
+    "resources": (False, False),
+    "reference_material": (False, False)
 }
 
 ACTIVE_DATABASE: DataBase | None = None
@@ -81,7 +81,7 @@ def initialize_databases() -> tuple:
 
     return jsonify({"Databases initialized successfully": WORKSPACE_PATH}), 200
 
-def get_active_database(db_name: str) -> DataBase:
+def get_active_database(db_name: str, use_tokenizer: bool, use_fasttext: bool) -> DataBase:
     global ACTIVE_DATABASE
     if not WORKSPACE_PATH:
         raise ValueError("Workspace path is not set. Call /start to initialize.")
@@ -91,7 +91,7 @@ def get_active_database(db_name: str) -> DataBase:
         ACTIVE_DATABASE.close()
         ACTIVE_DATABASE = None
     if not ACTIVE_DATABASE:
-        ACTIVE_DATABASE = DataBase(db_path=target_path, has_tokenizer=initilaizers[db_name])
+        ACTIVE_DATABASE = DataBase(db_path=target_path, has_tokenizer=use_tokenizer, use_fasttext=use_fasttext)
     return ACTIVE_DATABASE
 
 @app.route('/upsert_codex_file', methods=['POST'])
@@ -113,8 +113,9 @@ def upsert_codex_file() -> tuple:
         return jsonify({"error": "Both 'db_name' and 'path' are required parameters"}), 400
     
     try:
-        active_db = get_active_database(db_name)
-        active_db.upsert_codex_file(path)
+        use_tokenizer, use_fasttext = initilaizers[db_name]
+        active_db = get_active_database(db_name, use_tokenizer, use_fasttext)
+        active_db.upsert_file(path)
         return jsonify({"message": "Codex file upserted"}), 200
     except ValueError as e:
         print("CODEX ERROR: ", str(e))
@@ -141,8 +142,9 @@ def upsert_bible_file() -> tuple:
         return jsonify({"error": "Both 'db_name' and 'path' are required parameters"}), 400
     
     try:
-        active_db = get_active_database(db_name)
-        active_db.upsert_bible_file(path)
+        use_tokenizer, use_fasttext = initilaizers[db_name]
+        active_db = get_active_database(db_name, use_tokenizer, use_fasttext)
+        active_db.upsert_file(path)
         return jsonify({"message": "Bible file upserted"}), 200
     except ValueError as e:
         print("BIBLE ERROR: ", str(e))
@@ -161,10 +163,11 @@ def upsert_all_codex_files() -> tuple:
     """
     
     codex_files = glob.glob(f'{WORKSPACE_PATH}/**/*.codex', recursive=True)
-    active_db = get_active_database(".codex")
+    use_tokenizer, use_fasttext = initilaizers[".codex"]
+    active_db = get_active_database(".codex", use_tokenizer, use_fasttext)
 
     for file_path in codex_files:
-        active_db.upsert_codex_file(file_path)
+        active_db.upsert_bible_file(file_path)
         sleep(.1)
     active_db.tokenizer.upsert_all()
     return jsonify({"message": f"Upserted {len(codex_files)} .codex files"}), 200
@@ -179,10 +182,12 @@ def upsert_all_resource_files() -> tuple:
     """
     try:
         resource_files = glob.glob(f'{WORKSPACE_PATH}/resources/*', recursive=True)
-        active_db = get_active_database("resources")
+        use_tokenizer, use_fasttext = initilaizers["resources"]
+        active_db = get_active_database("resources", use_tokenizer, use_fasttext)
 
         for file_path in resource_files:
-            active_db.upsert_resource_file(file_path)
+            active_db.upsert_bible_file(file_path)
+            active_db.save()
 
         return jsonify({"message": f"Upserted {len(resource_files)} resource files"}), 200
     except Exception as e:
@@ -199,10 +204,11 @@ def upsert_all_bible_files() -> tuple:
     """
     try:
         bible_files = glob.glob(f'{WORKSPACE_PATH}/**/*.bible', recursive=True)
-        active_db = get_active_database(".bible")
+        use_tokenizer, use_fasttext = initilaizers[".bible"]
+        active_db = get_active_database(".bible", use_tokenizer, use_fasttext)
 
         for file_path in bible_files:
-            active_db.upsert_bible_file(file_path)
+            active_db.upsert_file(file_path)
         active_db.tokenizer.upsert_all()
 
         return jsonify({"message": f"Upserted {len(bible_files)} .bible files"}), 200
@@ -233,7 +239,8 @@ def upsert_data() -> tuple:
     verse = data.get('verse', "")
 
     try:
-        active_db = get_active_database(db_name)
+        use_tokenizer, use_fasttext = initilaizers[db_name]
+        active_db = get_active_database(db_name, use_tokenizer, use_fasttext)
         reference = f'{book} {chapter}:{verse}'
         active_db.upsert_data(text=text, uri=uri, metadata=metadata, book=book, chapter=chapter, verse=verse, reference=reference)
         return jsonify("Data has been upserted"), 200
@@ -271,7 +278,8 @@ def search() -> tuple:
     limit = request.args.get('limit', default=5, type=int)
 
     try:
-        active_db = get_active_database(db_name)
+        use_tokenizer, use_fasttext = initilaizers[db_name]
+        active_db = get_active_database(db_name, use_tokenizer, use_fasttext)
         results = active_db.search(query_decoded, limit)
         return jsonify(results), 200
     except ValueError as e:
@@ -285,12 +293,14 @@ def search_both() -> tuple:
     limit = request.args.get('limit', default=5, type=int)
 
     try:
-        active_db = get_active_database('.codex')
+        use_tokenizer, use_fasttext = initilaizers['.codex']
+        active_db = get_active_database('.codex', use_tokenizer, use_fasttext)
         first = active_db.search(query=query, limit=limit)
     except Exception as e:
         return jsonify({"error": f"Failed to decode query parameter: {str(e)}"}), 400
     try:
-        active_db = get_active_database('.bible')
+        use_tokenizer, use_fasttext = initilaizers['.bible']
+        active_db = get_active_database('.bible', use_tokenizer, use_fasttext)
         second = active_db.search(query=query, limit=limit)
     except Exception as e:
         return jsonify({"error": f"Failed to decode query parameter: {str(e)}"}), 400
@@ -316,7 +326,8 @@ def save() -> tuple:
     if not db_name:
         return jsonify({"error": "Missing 'db_name' parameter"}), 400
     try:
-        active_db = get_active_database(db_name)
+        use_tokenizer, use_fasttext = initilaizers[db_name]
+        active_db = get_active_database(db_name, use_tokenizer, use_fasttext)
         active_db.save()
         return jsonify({"message": f"Database '{db_name}' state saved"}), 200
     except ValueError as e:
@@ -328,8 +339,8 @@ def save() -> tuple:
 def get_tokens() -> tuple:
     all_tokens = []
     try:
-        for db_name in initilaizers.keys():
-            active_db = get_active_database(db_name)
+        for db_name, (use_tokenizer, use_fasttext) in initilaizers.items():
+            active_db = get_active_database(db_name, use_tokenizer, use_fasttext)
             if active_db.has_tokenizer:
                 all_tokens.append(len(active_db.tokenizer.tokenizer.tokens))
         return jsonify({"tokens": all_tokens}), 200
@@ -351,15 +362,16 @@ def detect_anomalies() -> tuple:
     
 
     try:
-        codex_db = get_active_database('.codex')
+        use_tokenizer, use_fasttext = initilaizers['.codex']
+        codex_db = get_active_database('.codex', use_tokenizer, use_fasttext)
         codex_results = codex_db.search(query=query, limit=limit)
     except Exception as e:
         return jsonify({"error": f"Failed to search in .codex database: {str(e)}"}), 400
-    
     try:
         bible_query = codex_results[0]
         bible_query_formatted = f"{bible_query['book']} {bible_query['chapter']}:{bible_query['verse']}"
-        bible_db = get_active_database('.bible')
+        use_tokenizer, use_fasttext = initilaizers['.bible']
+        bible_db = get_active_database('.bible', use_tokenizer, use_fasttext)
         print(bible_query_formatted)
         bible_query_result = bible_db.get_text_from(book=bible_query['book'], chapter=bible_query['chapter'], verse=bible_query['verse'])
         print(bible_query_result)
@@ -376,7 +388,6 @@ def detect_anomalies() -> tuple:
     for verse in codex_set.symmetric_difference(bible_set):
         # Construct the reference in the expected format "BOOK CHAPTER:VERSE"
         reference = f"{verse[0]} {verse[1]}:{verse[2]}".strip()
-        # Check if the verse exists in both databases
         codex_exists = codex_db.exists([reference])
         bible_exists = bible_db.exists([reference])
 
@@ -395,7 +406,6 @@ def detect_anomalies() -> tuple:
 
     return jsonify(combined_results), 200
 
-
 @app.route("/get_text")
 def get_text_frm():
     return ACTIVE_DATABASE.get_text_from(request.args['book'], request.args['chapter'], request.args['verse'])
@@ -405,14 +415,16 @@ def heartbeat() -> tuple:
     """
     Returns a simple JSON response to indicate that the server is running.
 
+
     Returns:
         A tuple containing a JSON response and an HTTP status code.
     """
     database_names_string = ', '.join(initilaizers.keys())
     if not WORKSPACE_PATH:
         database_names_string = ""
+
     return jsonify({"message": "Server is running", "databases": f'{database_names_string}'}), 200
 
-if __name__ == "__main__":
-    app.run(port=5554, debug=True)
+
+app.run(port=5554, debug=True)
 
