@@ -61,7 +61,7 @@ function App() {
             ) {
                 return (
                     (cellIsMarkdownChapterHeading && (
-                        <h1
+                        <h2
                             style={{
                                 textAlign: "center",
                                 marginInline: "1em",
@@ -70,7 +70,7 @@ function App() {
                             {" "}
                             {/* Center chapter titles */}
                             {scriptureCell.value.replace(/^#+\s*/, "").trim()}
-                        </h1>
+                        </h2>
                     )) || (
                         <div
                             style={{
@@ -261,9 +261,7 @@ function App() {
                         <sup
                             style={{
                                 verticalAlign: "top",
-                                padding: "0.5em 0",
-                                marginRight: "0.3em",
-                                marginLeft: "0.3em",
+                                padding: "0.25em 0",
                                 lineHeight: "1.5em",
                                 fontSize: "0.75em", // Smaller superscript verse numbers
                             }}
