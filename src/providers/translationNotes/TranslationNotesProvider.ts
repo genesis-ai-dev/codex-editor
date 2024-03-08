@@ -132,18 +132,15 @@ export class TranslationNotesProvider implements CustomTextEditorProvider {
         webviewPanel.onDidDispose(() => {
             changeDocumentSubscription.dispose();
         });
-        initializeGlobalState().then((stateStore) => {
-            const disposeFunction = stateStore.storeListener(
-                "verseRef",
-                (value) => {
-                    if (value) {
-                        webviewPanel.webview.postMessage({
-                            command: "changeRef",
-                            data: { verseRef: value.verseRef, uri: value.uri },
-                        } as TranslationNotePostMessages);
-                    }
-                },
-            );
+        initializeGlobalState().then(({ storeListener }) => {
+            const disposeFunction = storeListener("verseRef", (value) => {
+                if (value) {
+                    webviewPanel.webview.postMessage({
+                        command: "changeRef",
+                        data: { verseRef: value.verseRef, uri: value.uri },
+                    } as TranslationNotePostMessages);
+                }
+            });
             webviewPanel.onDidDispose(() => {
                 disposeFunction();
             });

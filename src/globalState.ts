@@ -20,8 +20,7 @@ export async function initializeGlobalState() {
         callBack: (value: GlobalStateValue<K> | undefined) => void,
     ) => DisposeFunction = () => () => undefined;
 
-    let updateGlobalState: (update: GlobalStateUpdate) => void = () =>
-        undefined;
+    let updateStoreState: (update: GlobalStateUpdate) => void = () => undefined;
     let getStoreState: <K extends GlobalStateKey>(
         key: K,
     ) => Promise<GlobalStateValue<K> | undefined> = () =>
@@ -35,15 +34,19 @@ export async function initializeGlobalState() {
         } else {
             storeListener = api.storeListener;
 
-            updateGlobalState = api.updateStoreState;
+            updateStoreState = api.updateStoreState;
             getStoreState = api.getStoreState;
-            return { storeListener, updateGlobalState, getStoreState };
+            return {
+                storeListener,
+                updateStoreState,
+                getStoreState,
+            };
         }
     }
     console.error(`Extension ${extensionId} not found.`);
     return {
         storeListener,
-        updateGlobalState,
+        updateStoreState,
         getStoreState,
     };
 }

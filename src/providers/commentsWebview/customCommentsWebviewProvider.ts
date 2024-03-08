@@ -129,18 +129,15 @@ export class CustomWebviewProvider {
     }
 
     resolveWebviewView(webviewView: vscode.WebviewView) {
-        initializeGlobalState().then((stateStore) => {
-            const disposeFunction = stateStore.storeListener(
-                "verseRef",
-                (value) => {
-                    if (value) {
-                        webviewView.webview.postMessage({
-                            command: "reload",
-                            data: { verseRef: value.verseRef, uri: value.uri },
-                        } as CommentPostMessages);
-                    }
-                },
-            );
+        initializeGlobalState().then(({ storeListener }) => {
+            const disposeFunction = storeListener("verseRef", (value) => {
+                if (value) {
+                    webviewView.webview.postMessage({
+                        command: "reload",
+                        data: { verseRef: value.verseRef, uri: value.uri },
+                    } as CommentPostMessages);
+                }
+            });
             webviewView.onDidDispose(() => {
                 disposeFunction();
             });
@@ -190,8 +187,8 @@ export class CustomWebviewProvider {
                     const text = document.getText();
                     if (text.includes(verseRef)) {
                         uri = file.toString();
-                        initializeGlobalState().then((stateStore) => {
-                            stateStore.updateGlobalState({
+                        initializeGlobalState().then(({ updateStoreState }) => {
+                            updateStoreState({
                                 key: "verseRef",
                                 value: {
                                     verseRef,
@@ -345,10 +342,9 @@ export class CustomWebviewProvider {
                             break;
                         }
                         case "getCurrentVerseRef": {
-                            initializeGlobalState().then((stateStore) => {
-                                stateStore
-                                    .getStoreState("verseRef")
-                                    .then((value) => {
+                            initializeGlobalState().then(
+                                ({ getStoreState }) => {
+                                    getStoreState("verseRef").then((value) => {
                                         if (value) {
                                             webviewView.webview.postMessage({
                                                 command: "reload",
@@ -359,7 +355,8 @@ export class CustomWebviewProvider {
                                             } as CommentPostMessages);
                                         }
                                     });
-                            });
+                                },
+                            );
                             break;
                         }
                         default:
