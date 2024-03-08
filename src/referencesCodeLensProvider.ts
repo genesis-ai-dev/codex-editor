@@ -59,6 +59,13 @@ class ScriptureReferenceCodeLensProvider {
             const cursorPosition = activeEditor.selection.active;
             const line = document.lineAt(cursorPosition.line);
             const verseRef = extractVerseRefFromLine(line.text);
+            let uri = vscode.window.activeTextEditor?.document.uri;
+            const activeFileIsACodexFile = uri?.toString().includes(".codex");
+            // Check if the URI scheme is not 'file', then adjust it to create a file URI
+            if (uri && uri.scheme !== "file") {
+                // Use the fsPath to create a new URI with the 'file' scheme
+                uri = vscode.Uri.file(uri.fsPath);
+            }
             if (verseRef) {
                 const range = new vscode.Range(
                     cursorPosition.line,
@@ -73,13 +80,16 @@ class ScriptureReferenceCodeLensProvider {
                         arguments: [verseRef, document.uri.toString()],
                     }),
                 );
-                lenses.push(
-                    new vscode.CodeLens(range, {
-                        title: "📜 View Bible",
-                        command: `codex-editor-extension.viewScriptureDisplay`,
-                        arguments: [verseRef, document.uri.toString()],
-                    }),
-                );
+                if (activeFileIsACodexFile) {
+                    // Fixme: Scripture display is only for codex notebook files. The file content of the .bible would need to be converted to a codex notebook manually or a virtual file would need to be created
+                    lenses.push(
+                        new vscode.CodeLens(range, {
+                            title: "📜 View Bible",
+                            command: `codex-editor-extension.viewScriptureDisplay`,
+                            arguments: [verseRef, document.uri.toString()],
+                        }),
+                    );
+                }
                 if (SHOW_DISCUSS_COMMAND) {
                     lenses.push(
                         new vscode.CodeLens(range, {
