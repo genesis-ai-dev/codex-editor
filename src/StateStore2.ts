@@ -24,7 +24,7 @@ export async function initializeStateStore() {
     let getStoreState: <K extends StateStoreKey>(
         key: K,
     ) => Promise<StateStoreValue<K> | undefined> = () =>
-        Promise.resolve(undefined);
+            Promise.resolve(undefined);
 
     const extension = vscode.extensions.getExtension(extensionId);
     if (extension) {
