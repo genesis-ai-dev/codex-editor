@@ -69,8 +69,8 @@ class ScriptureReferenceCodeLensProvider {
                 lenses.push(
                     new vscode.CodeLens(range, {
                         title: "📚 Show Reference",
-                        command: `codex-editor-extension.${commandName}`,
-                        arguments: [verseRef],
+                        command: `codex-editor-extension.${showReferencesCommandName}`,
+                        arguments: [verseRef, document.uri.toString()],
                     }),
                 );
                 lenses.push(
@@ -95,7 +95,7 @@ class ScriptureReferenceCodeLensProvider {
     }
 }
 
-const commandName = "showReferences";
+export const showReferencesCommandName = "showReferences";
 const registerReferences = (context: vscode.ExtensionContext) => {
     const provider = new ScriptureReferenceCodeLensProvider();
     context.subscriptions.push(
@@ -107,50 +107,60 @@ const registerReferences = (context: vscode.ExtensionContext) => {
     );
     context.subscriptions.push(
         vscode.commands.registerCommand(
-            `codex-editor-extension.${commandName}`,
-            async (verseRef: string) => {
-                const filesWithReferences =
-                    await findReferencesUsingMeilisearch(verseRef);
-                if (
-                    Array.isArray(filesWithReferences) &&
-                    filesWithReferences.length > 0
-                ) {
-                    const uri = vscode.Uri.file(filesWithReferences[0].uri);
-                    const document =
-                        await vscode.workspace.openTextDocument(uri);
-                    const text = document.getText();
-                    const lines = text.split(/\r?\n/);
-                    const position = filesWithReferences[0].position;
-                    // for (let i = 0; i < lines.length; i++) {
-                    //     const { verseRefWasFound, verseRefInContentFormat } =
-                    //         findVerseRef({
-                    //             verseRef,
-                    //             content: lines[i],
-                    //         });
-                    //     if (verseRefWasFound) {
-                    //         position = new vscode.Position(
-                    //             i,
-                    //             lines[i].indexOf(verseRefInContentFormat),
-                    //         );
-                    //         break;
-                    //     }
-                    // }
-                    vscode.commands
-                        .executeCommand("vscode.open", uri, {
-                            selection: new vscode.Range(position, position),
-                            preview: true,
-                            viewColumn: vscode.ViewColumn.Active,
-                        })
-                        .then(() => {
-                            vscode.commands.executeCommand(
-                                "workbench.action.splitEditorDown",
-                            );
-                        });
-                } else {
-                    vscode.window.showInformationMessage(
-                        `No references found for ${verseRef}`,
-                    );
-                }
+            `codex-editor-extension.${showReferencesCommandName}`,
+            async (verseRef: string, uri: string) => {
+                initializeStateStore().then(({ updateStoreState }) => {
+                    updateStoreState({
+                        key: "verseRef",
+                        value: { verseRef, uri },
+                    });
+                });
+                await vscode.commands.executeCommand(
+                    "translationNotes.openTnEditor",
+                    verseRef,
+                );
+                // const filesWithReferences =
+                //     await findReferencesUsingMeilisearch(verseRef);
+                // if (
+                //     Array.isArray(filesWithReferences) &&
+                //     filesWithReferences.length > 0
+                // ) {
+                //     const uri = vscode.Uri.file(filesWithReferences[0].uri);
+                //     const document =
+                //         await vscode.workspace.openTextDocument(uri);
+                //     const text = document.getText();
+                //     const lines = text.split(/\r?\n/);
+                //     const position = filesWithReferences[0].position;
+                //     // for (let i = 0; i < lines.length; i++) {
+                //     //     const { verseRefWasFound, verseRefInContentFormat } =
+                //     //         findVerseRef({
+                //     //             verseRef,
+                //     //             content: lines[i],
+                //     //         });
+                //     //     if (verseRefWasFound) {
+                //     //         position = new vscode.Position(
+                //     //             i,
+                //     //             lines[i].indexOf(verseRefInContentFormat),
+                //     //         );
+                //     //         break;
+                //     //     }
+                //     // }
+                //     vscode.commands
+                //         .executeCommand("vscode.open", uri, {
+                //             selection: new vscode.Range(position, position),
+                //             preview: true,
+                //             viewColumn: vscode.ViewColumn.Active,
+                //         })
+                //         .then(() => {
+                //             vscode.commands.executeCommand(
+                //                 "workbench.action.splitEditorDown",
+                //             );
+                //         });
+                // } else {
+                //     vscode.window.showInformationMessage(
+                //         `No references found for ${verseRef}`,
+                //     );
+                // }
             },
         ),
     );
@@ -158,10 +168,6 @@ const registerReferences = (context: vscode.ExtensionContext) => {
         vscode.commands.registerCommand(
             `codex-editor-extension.discuss`,
             async (verseRef: string, uri: string) => {
-                await vscode.commands.executeCommand(
-                    "translationNotes.openTnEditor",
-                    verseRef,
-                );
                 initializeStateStore().then(({ updateStoreState }) => {
                     updateStoreState({
                         key: "verseRef",
@@ -169,6 +175,9 @@ const registerReferences = (context: vscode.ExtensionContext) => {
                     });
                 });
 
+                vscode.commands.executeCommand(
+                    "workbench.view.extension.genesis-translator-sidebar-view",
+                );
                 vscode.window.showInformationMessage(
                     `Discussing ${verseRef}...`,
                 );
