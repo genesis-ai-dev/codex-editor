@@ -67,7 +67,7 @@ class SourceCodeLensProvider {
                 );
                 lenses.push(
                     new vscode.CodeLens(range, {
-                        title: "📖 Show Source",
+                        title: "📖 Source",
                         command: `codex-editor-extension.${commandName}`,
                         arguments: [verseRef],
                     }),

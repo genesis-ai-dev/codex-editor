@@ -68,7 +68,7 @@ class ScriptureReferenceCodeLensProvider {
                 );
                 lenses.push(
                     new vscode.CodeLens(range, {
-                        title: "📚 Show Reference",
+                        title: "📚 Reference",
                         command: `codex-editor-extension.${showReferencesCommandName}`,
                         arguments: [verseRef, document.uri.toString()],
                     }),
