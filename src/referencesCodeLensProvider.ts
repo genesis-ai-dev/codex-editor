@@ -4,7 +4,7 @@ import {
     extractVerseRefFromLine,
     findReferencesUsingMeilisearch,
 } from "./utils/verseRefUtils";
-import { updateGlobalState } from "./globalState";
+import { initializeGlobalState } from "./globalState";
 
 const SHOW_DISCUSS_COMMAND = true;
 
@@ -162,10 +162,13 @@ const registerReferences = (context: vscode.ExtensionContext) => {
                     "translationNotes.openTnEditor",
                     verseRef,
                 );
-                updateGlobalState({
-                    key: "verseRef",
-                    value: { verseRef, uri },
+                initializeGlobalState().then((stateStore) => {
+                    stateStore?.updateGlobalState({
+                        key: "verseRef",
+                        value: { verseRef, uri },
+                    });
                 });
+
                 vscode.window.showInformationMessage(
                     `Discussing ${verseRef}...`,
                 );

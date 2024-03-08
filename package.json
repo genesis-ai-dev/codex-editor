@@ -633,6 +633,6 @@
         "glob": "8.1.0"
     },
     "extensionDependencies": [
-        "codex.shared-state-store"
+        "project-accelerate.shared-state-store"
     ]
 }

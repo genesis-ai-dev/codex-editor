@@ -13,7 +13,7 @@ import {
 } from "vscode";
 import { tsvStringToScriptureTSV } from "./utilities/tsvFileConversions";
 import { TranslationNotesPanel } from "./TranslationNotesPanel";
-import { storeListener } from "../../globalState";
+import { initializeGlobalState } from "../../globalState";
 import { extractBookChapterVerse } from "../../utils/extractBookChapterVerse";
 import {
     VerseRefGlobalState,
@@ -132,13 +132,21 @@ export class TranslationNotesProvider implements CustomTextEditorProvider {
         webviewPanel.onDidDispose(() => {
             changeDocumentSubscription.dispose();
         });
-
-
-        storeListener("verseRef", (value) => {
-            webviewPanel.webview.postMessage({
-                command: "changeRef",
-                data: { verseRef: value.verseRef, uri: value.uri },
-            } as TranslationNotePostMessages);
+        initializeGlobalState().then((stateStore) => {
+            const disposeFunction = stateStore.storeListener(
+                "verseRef",
+                (value) => {
+                    if (value) {
+                        webviewPanel.webview.postMessage({
+                            command: "changeRef",
+                            data: { verseRef: value.verseRef, uri: value.uri },
+                        } as TranslationNotePostMessages);
+                    }
+                },
+            );
+            webviewPanel.onDidDispose(() => {
+                disposeFunction();
+            });
         });
     }
 
