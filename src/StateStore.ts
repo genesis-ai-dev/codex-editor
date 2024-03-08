@@ -1,29 +1,29 @@
 import * as vscode from "vscode";
 import { VerseRefGlobalState, SelectedTextDataWithContext } from "../types";
-type GlobalStateUpdate =
+type StateStoreUpdate =
     | { key: "verseRef"; value: VerseRefGlobalState }
     | { key: "uri"; value: string | null }
     | { key: "currentLineSelection"; value: SelectedTextDataWithContext };
 
-type GlobalStateKey = GlobalStateUpdate["key"];
-type GlobalStateValue<K extends GlobalStateKey> = Extract<
-    GlobalStateUpdate,
+type StateStoreKey = StateStoreUpdate["key"];
+type StateStoreValue<K extends StateStoreKey> = Extract<
+    StateStoreUpdate,
     { key: K }
 >["value"];
 
 const extensionId = "project-accelerate.shared-state-store";
 
 type DisposeFunction = () => void;
-export async function initializeGlobalState() {
-    let storeListener: <K extends GlobalStateKey>(
+export async function initializeStateStore() {
+    let storeListener: <K extends StateStoreKey>(
         keyForListener: K,
-        callBack: (value: GlobalStateValue<K> | undefined) => void,
+        callBack: (value: StateStoreValue<K> | undefined) => void,
     ) => DisposeFunction = () => () => undefined;
 
-    let updateStoreState: (update: GlobalStateUpdate) => void = () => undefined;
-    let getStoreState: <K extends GlobalStateKey>(
+    let updateStoreState: (update: StateStoreUpdate) => void = () => undefined;
+    let getStoreState: <K extends StateStoreKey>(
         key: K,
-    ) => Promise<GlobalStateValue<K> | undefined> = () =>
+    ) => Promise<StateStoreValue<K> | undefined> = () =>
         Promise.resolve(undefined);
 
     const extension = vscode.extensions.getExtension(extensionId);

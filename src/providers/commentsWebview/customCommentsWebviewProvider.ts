@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { initializeGlobalState } from "../../globalState";
+import { initializeStateStore } from "../../StateStore";
 import {
     CommentPostMessages,
     NotebookCommentThread,
@@ -129,7 +129,7 @@ export class CustomWebviewProvider {
     }
 
     resolveWebviewView(webviewView: vscode.WebviewView) {
-        initializeGlobalState().then(({ storeListener }) => {
+        initializeStateStore().then(({ storeListener }) => {
             const disposeFunction = storeListener("verseRef", (value) => {
                 if (value) {
                     webviewView.webview.postMessage({
@@ -187,7 +187,7 @@ export class CustomWebviewProvider {
                     const text = document.getText();
                     if (text.includes(verseRef)) {
                         uri = file.toString();
-                        initializeGlobalState().then(({ updateStoreState }) => {
+                        initializeStateStore().then(({ updateStoreState }) => {
                             updateStoreState({
                                 key: "verseRef",
                                 value: {
@@ -342,21 +342,19 @@ export class CustomWebviewProvider {
                             break;
                         }
                         case "getCurrentVerseRef": {
-                            initializeGlobalState().then(
-                                ({ getStoreState }) => {
-                                    getStoreState("verseRef").then((value) => {
-                                        if (value) {
-                                            webviewView.webview.postMessage({
-                                                command: "reload",
-                                                data: {
-                                                    verseRef: value.verseRef,
-                                                    uri: value.uri,
-                                                },
-                                            } as CommentPostMessages);
-                                        }
-                                    });
-                                },
-                            );
+                            initializeStateStore().then(({ getStoreState }) => {
+                                getStoreState("verseRef").then((value) => {
+                                    if (value) {
+                                        webviewView.webview.postMessage({
+                                            command: "reload",
+                                            data: {
+                                                verseRef: value.verseRef,
+                                                uri: value.uri,
+                                            },
+                                        } as CommentPostMessages);
+                                    }
+                                });
+                            });
                             break;
                         }
                         default:
