@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
-import { updateGlobalState } from "../stateStore";
 import { extractVerseRefFromLine } from "../utils/verseRefUtils";
+import { initializeStateStore } from "../stateStore";
 
 export async function checkServerHeartbeat(context: vscode.ExtensionContext) {
     try {
@@ -48,14 +48,16 @@ export function registerTextSelectionHandler(
                     const selectedText: string =
                         event.textEditor.document.getText(event.selections[0]);
                     // Update global state with the selected line content
-                    updateGlobalState(context, {
-                        key: "currentLineSelection",
-                        value: {
-                            selection: currentLineSelection,
-                            completeLineContent,
-                            vrefAtStartOfLine: currentLineVref,
-                            selectedText: selectedText,
-                        },
+                    initializeStateStore().then(({ updateStoreState }) => {
+                        updateStoreState({
+                            key: "currentLineSelection",
+                            value: {
+                                selection: currentLineSelection,
+                                completeLineContent,
+                                vrefAtStartOfLine: currentLineVref,
+                                selectedText: selectedText,
+                            },
+                        });
                     });
                 }
 
