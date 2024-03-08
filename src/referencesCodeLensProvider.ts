@@ -162,8 +162,8 @@ const registerReferences = (context: vscode.ExtensionContext) => {
                     "translationNotes.openTnEditor",
                     verseRef,
                 );
-                initializeGlobalState().then((stateStore) => {
-                    stateStore?.updateGlobalState({
+                initializeGlobalState().then(({ updateStoreState }) => {
+                    updateStoreState({
                         key: "verseRef",
                         value: { verseRef, uri },
                     });
