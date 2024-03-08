@@ -16,13 +16,13 @@ function App() {
     useEffect(() => {
         if (scriptureContent && scriptureContent?.cells.length === 0) {
             vscode.postMessage({
-                command: "fetchData",
+                command: "fetchScriptureData",
             } as ScripturePostMessages);
         }
         const handleMessage = (event: MessageEvent) => {
             const message: ScripturePostMessages = event.data;
             switch (message.command) {
-                case "sendData": {
+                case "sendScriptureData": {
                     if (message.data) {
                         setScriptureContent(message.data);
                     }

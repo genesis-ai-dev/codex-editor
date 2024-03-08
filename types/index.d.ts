@@ -110,5 +110,5 @@ type TranslationNotePostMessages =
     | { command: "changeRef"; data: VerseRefGlobalState };
 
 type ScripturePostMessages =
-    | { command: "sendData"; data: ScriptureContent }
-    | { command: "fetchData" };
+    | { command: "sendScriptureData"; data: ScriptureContent }
+    | { command: "fetchScriptureData" };
