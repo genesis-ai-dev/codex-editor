@@ -72,6 +72,7 @@ type CommentPostMessages =
           command: "deleteComment";
           args: { commentId: number; commentThreadId: string };
       }
+    | { command: "getCurrentVerseRef" }
     | { command: "fetchComments" };
 interface SelectedTextDataWithContext {
     selection: string;

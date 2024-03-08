@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { storeListener, updateGlobalState } from "../../globalState";
+import { initializeGlobalState } from "../../globalState";
 import {
     CommentPostMessages,
     NotebookCommentThread,
@@ -87,7 +87,6 @@ const loadWebviewHtml = (
     <link href="${styleUri}" rel="stylesheet">
     <link href="${codiconsUri}" rel="stylesheet" />
     <script nonce="${nonce}">
-      // const vsCodeApi = acquireVsCodeApi();
       const apiBaseUrl = ${JSON.stringify("http://localhost:3002")}
     </script>
     </head>
@@ -130,23 +129,23 @@ export class CustomWebviewProvider {
     }
 
     resolveWebviewView(webviewView: vscode.WebviewView) {
-        // globalStateEmitter.on(
-        //     "changed",
-        //     ({ key, value }: { key: string; value: VerseRefGlobalState }) => {
-        //         if (webviewView.visible && key === "verseRef") {
-        //             webviewView.webview.postMessage({
-        //                 command: "reload",
-        //                 data: { verseRef: value.verseRef, uri: value.uri },
-        //             } as CommentPostMessages);
-        //         }
-        //     },
-        // );
-        storeListener("verseRef", (value) => {
-            webviewView.webview.postMessage({
-                command: "reload",
-                data: { verseRef: value.verseRef, uri: value.uri },
-            } as CommentPostMessages);
+        initializeGlobalState().then((stateStore) => {
+            const disposeFunction = stateStore.storeListener(
+                "verseRef",
+                (value) => {
+                    if (value) {
+                        webviewView.webview.postMessage({
+                            command: "reload",
+                            data: { verseRef: value.verseRef, uri: value.uri },
+                        } as CommentPostMessages);
+                    }
+                },
+            );
+            webviewView.onDidDispose(() => {
+                disposeFunction();
+            });
         });
+
         loadWebviewHtml(webviewView, this._context.extensionUri);
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
@@ -173,7 +172,7 @@ export class CustomWebviewProvider {
         const findUriForVerseRef = async (
             verseRef: string,
         ): Promise<string | null> => {
-            let uri: string | null = null;
+            let uri: string = "";
             const workspaceFolders = vscode.workspace.workspaceFolders;
             const draftsFolderUri = workspaceFolders
                 ? vscode.Uri.joinPath(workspaceFolders[0].uri, "drafts")
@@ -191,12 +190,14 @@ export class CustomWebviewProvider {
                     const text = document.getText();
                     if (text.includes(verseRef)) {
                         uri = file.toString();
-                        updateGlobalState({
-                            key: "verseRef",
-                            value: {
-                                verseRef,
-                                uri,
-                            },
+                        initializeGlobalState().then((stateStore) => {
+                            stateStore.updateGlobalState({
+                                key: "verseRef",
+                                value: {
+                                    verseRef,
+                                    uri,
+                                },
+                            });
                         });
                         break;
                     }
@@ -341,6 +342,24 @@ export class CustomWebviewProvider {
                         }
                         case "fetchComments": {
                             sendCommentsToWebview(webviewView);
+                            break;
+                        }
+                        case "getCurrentVerseRef": {
+                            initializeGlobalState().then((stateStore) => {
+                                stateStore
+                                    .getStoreState("verseRef")
+                                    .then((value) => {
+                                        if (value) {
+                                            webviewView.webview.postMessage({
+                                                command: "reload",
+                                                data: {
+                                                    verseRef: value.verseRef,
+                                                    uri: value.uri,
+                                                },
+                                            } as CommentPostMessages);
+                                        }
+                                    });
+                            });
                             break;
                         }
                         default:
