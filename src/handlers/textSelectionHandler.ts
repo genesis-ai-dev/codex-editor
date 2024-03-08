@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { updateGlobalState } from "../StateStore";
+import { updateGlobalState } from "../stateStore";
 import { extractVerseRefFromLine } from "../utils/verseRefUtils";
 
 export async function checkServerHeartbeat(context: vscode.ExtensionContext) {

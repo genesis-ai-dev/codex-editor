@@ -4,7 +4,7 @@ import {
     extractVerseRefFromLine,
     findReferencesUsingMeilisearch,
 } from "./utils/verseRefUtils";
-import { initializeStateStore } from "./StateStore";
+import { initializeStateStore } from "./stateStore";
 
 const SHOW_DISCUSS_COMMAND = true;
 
