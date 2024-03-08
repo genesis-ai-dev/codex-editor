@@ -13,7 +13,7 @@ import {
 } from "vscode";
 import { tsvStringToScriptureTSV } from "./utilities/tsvFileConversions";
 import { TranslationNotesPanel } from "./TranslationNotesPanel";
-import { initializeStateStore } from "../../StateStore";
+import { initializeStateStore } from "../../stateStore";
 import { extractBookChapterVerse } from "../../utils/extractBookChapterVerse";
 import {
     VerseRefGlobalState,

@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { initializeStateStore } from "../../StateStore";
+import { initializeStateStore } from "../../stateStore";
 import {
     CommentPostMessages,
     NotebookCommentThread,
