@@ -14,3 +14,4 @@ webviews/obs/build
 /webviews/obs/package-lock.json
 /webviews/commentsWebview
 .DS_Store
+package-lock.json

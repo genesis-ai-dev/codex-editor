@@ -1,4 +1,3 @@
-import path from "node:path";
 import * as vscode from "vscode";
 import { MessageType } from "../CreateProject/types";
 import { downloadResource } from "./functions/download";
@@ -77,9 +76,12 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
                             );
                             return;
                         }
+
                         const downloadedResourceInfo = await downloadResource(
                             (e.payload as any)?.resource as any,
                         );
+                        const localPath: string = downloadedResourceInfo?.folder.path.replace(
+                            vscode.workspace.workspaceFolders?.[0].uri.path + '/', '') ?? "";
 
                         if (!downloadedResourceInfo) {
                             vscode.window.showErrorMessage(
@@ -90,11 +92,7 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
                         const downloadedResource: DownloadedResource = {
                             name: downloadedResourceInfo?.resource.name ?? "",
                             id: downloadedResourceInfo?.resource.id ?? "",
-                            localPath: path.relative(
-                                vscode.workspace.workspaceFolders?.[0].uri
-                                    .path ?? "",
-                                downloadedResourceInfo?.folder?.path ?? "",
-                            ),
+                            localPath: localPath,
                             type: downloadedResourceInfo?.resourceType ?? "",
                             remoteUrl:
                                 downloadedResourceInfo?.resource.url ?? "",
