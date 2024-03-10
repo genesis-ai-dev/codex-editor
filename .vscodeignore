@@ -5,9 +5,15 @@
 # Allowlist what we need
 !out/**
 !assets/**
+!servers/**
 !webviews/**/build/**
 !webviews/**/dist/**
 !webviews/**/out/**
+
+!src/assets/reset.css
+!src/assets/vscode.css
+!**/*.svg
+!node_modules/@vscode/codicons/dist/**
 
 !CHANGELOG.md
 !LICENSE

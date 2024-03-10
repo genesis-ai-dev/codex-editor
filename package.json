@@ -3,7 +3,13 @@
     "displayName": "Codex Scripture Editor",
     "description": "Support for `.codex` notebooks, `.bible` source files, and `.scripture` raw scripture files. Includes Translator's Copilot Language Server for scripture drafting and checking diagnostics and features.",
     "publisher": "project-accelerate",
-    "version": "0.0.1",
+    "homepage": "https://codex-editor.gitbook.io/",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/genesis-ai-dev/codex-editor"
+    },
+    "license": "MIT",
+    "version": "0.0.3",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -13,8 +19,7 @@
     ],
     "activationEvents": [
         "onNotebook:codex-type",
-        "onStartupFinished",
-        "onCommand:dictionaryTable.showDictionaryTable"
+        "onStartupFinished"
     ],
     "main": "./out/extension.js",
     "contributes": {
@@ -84,21 +89,21 @@
                 {
                     "id": "scribe-vsc.obs-create-project",
                     "name": "Obs Editor",
-                    "icon": "src/media/obsIcon.svg",
+                    "icon": "$(file-media)",
                     "type": "webview",
                     "contextualTitle": "Scribe Obs"
                 },
                 {
                     "id": "scribe-vsc.obs-resources",
                     "name": "Resources",
-                    "icon": "src/media/obsIcon.svg",
+                    "icon": "$(file-media)",
                     "type": "webview",
                     "contextualTitle": "Scribe Obs Story Resources"
                 },
                 {
                     "id": "scribe-vsc.obs-outline",
                     "name": "Stories Outline",
-                    "icon": "assets/obsIcon.svg",
+                    "icon": "$(file-media)",
                     "type": "webview",
                     "contextualTitle": "Scribe Obs Story Outline"
                 }
@@ -108,7 +113,7 @@
                     "type": "webview",
                     "id": "dictionary-side-panel",
                     "name": "Dictionary Table",
-                    "icon": "src/media/dictionary.svg",
+                    "icon": "$(notebook)",
                     "contextualTitle": "Dictionary Table"
                 }
             ]
@@ -122,7 +127,7 @@
                 },
                 {
                     "id": "parallel-passages-view",
-                    "title": "Scripture Explorer",
+                    "title": "Parallel Passages",
                     "icon": "$(eye)"
                 },
                 {
@@ -143,12 +148,12 @@
                 {
                     "id": "scribe-vsc-obs-sidebar",
                     "title": "Obs Editor",
-                    "icon": "src/media/obsIcon.svg"
+                    "icon": "$(file-media)"
                 },
                 {
                     "id": "dictionary-summary",
                     "title": "Dictionary Summary",
-                    "icon": "src/media/dictionary.svg"
+                    "icon": "$(notebook)"
                 }
             ]
         },
@@ -343,24 +348,24 @@
                 "command": "commentsExtension.editNote",
                 "title": "Edit",
                 "icon": {
-                    "dark": "resources/edit_inverse.svg",
-                    "light": "resources/edit.svg"
+                    "dark": "$(edit)",
+                    "light": "$(edit)"
                 }
             },
             {
                 "command": "commentsExtension.deleteNote",
                 "title": "Delete",
                 "icon": {
-                    "dark": "resources/close_inverse.svg",
-                    "light": "resources/close.svg"
+                    "dark": "$(trash)",
+                    "light": "$(trash)"
                 }
             },
             {
                 "command": "commentsExtension.deleteNoteComment",
                 "title": "Delete",
                 "icon": {
-                    "dark": "resources/close_inverse.svg",
-                    "light": "resources/close.svg"
+                    "dark": "$(close)",
+                    "light": "$(close)"
                 }
             },
             {
@@ -428,7 +433,7 @@
                     "translators-copilot.llmEndpoint": {
                         "type": "string",
                         "default": "http://localhost:1234/v1",
-                        "description": "The endpoint for the completion API. Either OpenAI or local LLM."
+                        "description": "The endpoint for the completion API. Either OpenAI or local LLM. We would suggest using [LM Studio](https://lmstudio.ai)"
                     },
                     "translators-copilot.api_key": {
                         "type": "string",
@@ -606,7 +611,7 @@
         "mocha": "^10.2.0",
         "prettier": "^3.1.1",
         "ts-loader": "^9.5.1",
-        "typescript": "^5.3.2",
+        "typescript": "^5.4.2",
         "vscode-test": "^1.5.0",
         "webpack": "^5.89.0",
         "webpack-cli": "^5.1.4"
@@ -633,6 +638,8 @@
         "glob": "8.1.0"
     },
     "extensionDependencies": [
-        "project-accelerate.shared-state-store"
+        "project-accelerate.shared-state-store",
+        "ms-python.python",
+        "project-accelerate.scripture-language-support"
     ]
 }
