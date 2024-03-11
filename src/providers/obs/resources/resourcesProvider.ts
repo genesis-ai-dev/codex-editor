@@ -11,6 +11,7 @@ import {
     openTn,
     openTranslationHelper,
     openTw,
+    openTwl,
 } from "./functions/openResource";
 import { getUri } from "../CreateProject/utilities/getUri";
 import { getNonce } from "../CreateProject/utilities/getNonce";
@@ -263,6 +264,10 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
             }
             case "tw": {
                 await openTw(this._context!, resource);
+                break;
+            }
+            case "twl": {
+                await openTwl(this._context!, resource);
                 break;
             }
             default:
