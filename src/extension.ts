@@ -3,7 +3,10 @@
 import * as vscode from "vscode";
 import { CodexKernel } from "./controller";
 import { CodexContentSerializer } from "./serializer";
-import { checkServerHeartbeat } from "./handlers/textSelectionHandler";
+import {
+    checkServerHeartbeat,
+    registerTextSelectionHandler,
+} from "./handlers/textSelectionHandler";
 
 import {
     NOTEBOOK_TYPE,
@@ -160,7 +163,7 @@ let clientStarting = false;
 let python: PythonExtension;
 let pyglsLogger: vscode.LogOutputChannel;
 
-let scmInterval: NodeJS.Timeout;
+let scmInterval: any; // Webpack & typescript for vscode are having issues
 
 export async function activate(context: vscode.ExtensionContext) {
     /** BEGIN CODEX EDITOR EXTENSION FUNCTIONALITY */
@@ -760,6 +763,7 @@ export async function activate(context: vscode.ExtensionContext) {
     registerDictionaryTableProvider(context);
     registerDictionarySummaryProvider(context);
     registerScriptureViewerProvider(context);
+    registerTextSelectionHandler(context, () => undefined);
     context.subscriptions.push(CreateProjectProvider.register(context));
     context.subscriptions.push(ResourcesProvider.register(context));
     context.subscriptions.push(StoryOutlineProvider.register(context));

@@ -7,7 +7,7 @@ import {
     ViewColumn,
 } from "vscode";
 import * as vscode from "vscode";
-import { ScripturePostMessages } from "../../../types";
+import { ScriptureContent, ScripturePostMessages } from "../../../types";
 
 function getNonce() {
     let text = "";
@@ -37,9 +37,10 @@ const sendDataToWebview = async (webview: vscode.WebviewView["webview"]) => {
             const fileContentUint8Array =
                 await vscode.workspace.fs.readFile(uri);
             const fileContent = new TextDecoder().decode(fileContentUint8Array);
+            console.log({ fileContent });
             webview.postMessage({
-                command: "sendData",
-                data: JSON.parse(fileContent),
+                command: "sendScriptureData",
+                data: JSON.parse(fileContent) as ScriptureContent,
             } as ScripturePostMessages);
         } catch (error) {
             console.error("Error reading file:", error);
@@ -183,9 +184,8 @@ export class ScriptureViewerPanel {
         webview.onDidReceiveMessage(
             async (message: ScripturePostMessages) => {
                 const command = message.command;
-
                 switch (command) {
-                    case "fetchData": {
+                    case "fetchScriptureData": {
                         sendDataToWebview(webview);
                         break;
                     }

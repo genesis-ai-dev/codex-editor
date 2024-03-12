@@ -72,7 +72,7 @@ export const downloadSBTranslationResources = async ({
             folder: downloadResourceFolder,
         };
     } catch (err) {
-        console.error(err);
+        console.error("Error downloading resource", err);
         throw err;
     }
 };

@@ -318,21 +318,64 @@ function App() {
                     <VSCodeButton onClick={() => searchResources(query)}>Search</VSCodeButton>                   
                 </div>
             )}
-            {loading ? <p>Loading, this may take up to 30 minutes, please do not close this tab.</p> : null}
-                {resourceResults.resourceResults.length > 0 ? (
-                    <ul>
-                        {resourceResults.resourceResults.map((resource, index) => (
-                            <li key={index}>
-                                <a href={resource.uri} target="_blank" rel="noopener noreferrer">
-                                    {resource.text}
-                                </a>
-                                <p>Created at: {new Date(resource.createdAt).toLocaleDateString()}</p>
-                            </li>
-                        ))}
-                    </ul>
-                ) : (
-                    null
-                )}
+            {loading ? (
+                <div
+                    style={{
+                        marginBottom: "20px",
+                        background: "var(--vscode-sideBar-background)",
+                        borderRadius: "10px",
+                        alignContent: "center",
+                        display: "flex",
+                        flexDirection: "column",
+                        padding: "20px",
+                        width: "100%",
+                        textAlign: "center",
+                    }}
+                >
+                    <p>Loading, this may take up to 30 minutes, please do not close this tab.</p>
+                </div>
+            ) : null}
+            {resourceResults.resourceResults.length > 0 ? (
+                <div
+                    style={{
+                        marginBottom: "20px",
+                        background: "var(--vscode-sideBar-background)",
+                        borderRadius: "10px",
+                        alignContent: "center",
+                        display: "flex",
+                        flexDirection: "column",
+                        padding: "20px",
+                        width: "100%",
+                        marginTop: "20px"
+                    }}
+                >
+                    {resourceResults.resourceResults.map((resource, index) => (
+                        <div key={index} style={{ marginBottom: "30px" }}>
+                            <p>{resource.text}</p>
+
+                            <button
+                                onClick={() =>
+                                    handleUriClick(
+                                        resource.uri,
+                                        resource.text,
+                                    )
+                                }
+                                style={{
+                                    marginTop: "10px",
+                                    padding: "5px 10px",
+                                    width: "95%",
+                                    alignSelf: "center",
+                                }}
+                            >
+                                Open
+                            </button>
+                            <p style={{ marginTop: "5px" }}>
+                                Created at: {new Date(resource.createdAt).toLocaleDateString()}
+                            </p>
+                        </div>
+                    ))}
+                </div>
+            ) : null}
          <VSCodeButton onClick={handleEmbedResources}>
                         Regenerate meaning database.
                     </VSCodeButton>

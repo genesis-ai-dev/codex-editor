@@ -23,7 +23,7 @@
 export const extractBookChapterVerse = (
     refString: string,
 ): { bookID: string; chapter: number; verse: number } => {
-    const match = refString.match(/([A-Za-z]{3}) (\d+):(\d+)/);
+    const match = refString.match(/([A-Za-z0-9]{3}) (\d+):(\d+)/);
 
     return match
         ? {

@@ -1,4 +1,3 @@
-import path from "node:path";
 import * as vscode from "vscode";
 import { MessageType } from "../CreateProject/types";
 import { downloadResource } from "./functions/download";
@@ -10,13 +9,18 @@ import {
     openBible,
     openOBS,
     openTn,
-    openTranslationHelper,
+    openTq,
+    openTranslationHelper
     openTnAcademy,
+    openTw,
+    openTwl,
 } from "./functions/openResource";
 import { getUri } from "../CreateProject/utilities/getUri";
 import { getNonce } from "../CreateProject/utilities/getNonce";
 import { DownloadedResource, OpenResource } from "./types";
 import { VIEW_TYPES } from "../utilities";
+import { extractBookChapterVerse } from "../../../utils/extractBookChapterVerse";
+import { VerseRefGlobalState } from "../../../../types";
 
 export class ResourcesProvider implements vscode.WebviewViewProvider {
     private _webviewView: vscode.WebviewView | undefined;
@@ -75,17 +79,27 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
                             );
                             return;
                         }
+
                         const downloadedResourceInfo = await downloadResource(
                             (e.payload as any)?.resource as any,
                         );
+                        const localPath: string =
+                            downloadedResourceInfo?.folder.path.replace(
+                                vscode.workspace.workspaceFolders?.[0].uri
+                                    .path + "/",
+                                "",
+                            ) ?? "";
+
+                        if (!downloadedResourceInfo) {
+                            vscode.window.showErrorMessage(
+                                "Failed to download resource!",
+                            );
+                            return;
+                        }
                         const downloadedResource: DownloadedResource = {
                             name: downloadedResourceInfo?.resource.name ?? "",
                             id: downloadedResourceInfo?.resource.id ?? "",
-                            localPath: path.relative(
-                                vscode.workspace.workspaceFolders?.[0].uri
-                                    .path ?? "",
-                                downloadedResourceInfo?.folder?.path ?? "",
-                            ),
+                            localPath: localPath,
                             type: downloadedResourceInfo?.resourceType ?? "",
                             remoteUrl:
                                 downloadedResourceInfo?.resource.url ?? "",
@@ -243,12 +257,32 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
             case "bible":
                 newViewCol = (await openBible(resource))?.viewColumn;
                 break;
-            case "tn" || "obs-tn":
-                newViewCol = (await openTn(resource))?.viewColumn;
+            case "tn": {
+                const verseRef = (await this._context?.globalState.get(
+                    "verseRef",
+                )) as VerseRefGlobalState | undefined;
+
+                const { bookID } = extractBookChapterVerse(
+                    verseRef?.verseRef ?? "GEN 1:1",
+                );
+                newViewCol = (await openTn(resource, bookID))?.viewColumn;
+                break;
+            }
+            case "tw": {
+                await openTw(this._context!, resource);
+                break;
+            }
+            case "twl": {
+                await openTwl(this._context!, resource);
                 break;
             case "ta":
                 await openTnAcademy(resource);
                 break;
+            }
+            case "tq": {
+                await openTq(this._context!, resource);
+                break;
+            }
             default:
                 newViewCol = (await openTranslationHelper(resource))
                     ?.viewColumn;

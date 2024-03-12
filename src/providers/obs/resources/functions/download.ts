@@ -58,7 +58,7 @@ export const downloadResource = async (resource: Resource) => {
             });
             return {
                 resource,
-                folder: results.folder,
+                folder: results?.folder,
                 resourceType: selectResource,
             };
         }

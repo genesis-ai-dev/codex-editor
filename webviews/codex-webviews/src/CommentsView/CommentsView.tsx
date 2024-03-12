@@ -35,6 +35,12 @@ function App() {
                 command: "fetchComments",
             } as CommentPostMessages);
         }
+
+        // get the current verseRef in the shared state store
+        vscode.postMessage({
+            command: "getCurrentVerseRef",
+        } as CommentPostMessages);
+
         const handleMessage = (event: MessageEvent) => {
             const message: CommentPostMessages = event.data;
             switch (message.command) {
@@ -42,17 +48,14 @@ function App() {
                     if (message.content) {
                         const comments = JSON.parse(message.content);
                         setCommentThread(comments);
-                        // console.log({ comments });
                     }
                     break;
                 }
                 case "reload": {
-                    // console.log(verseRef, message.data?.verseRef);
                     setVerseRef(message.data?.verseRef);
                     setUri(message.data?.uri);
                     break;
                 }
-                // Handle other cases
             }
         };
 

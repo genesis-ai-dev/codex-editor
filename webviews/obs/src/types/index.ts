@@ -13,6 +13,8 @@ export enum MessageType {
     SEARCH_RESULTS = "searchResults",
     changeTnAcademyResource = "changeTnAcademyResource",
     SYNC_TA_FOLDERS = "syncTAFolders",
+    SEARCH_TW = "search_tw",
+    GET_TW_CONTENT = "get-tw-content",
 }
 
 export type Language = {
@@ -41,4 +43,10 @@ export type DownloadedResource = {
     id: string;
     // uri: Record<string, any>;
     type: "obs" | "bible";
+};
+
+export type TranslationWord = {
+    name: string;
+    path: string;
+    ref: string;
 };
