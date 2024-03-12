@@ -5,6 +5,7 @@ enum ViewTypes {
     OBS = "scribe.obs",
     BIBLE = "default",
     TRANSLATION_HELPER = "resources.translationHelper",
+    TN_ACADEMY = "resources.tnAcademy",
 }
 
 export const openOBS = async (
@@ -184,4 +185,11 @@ export const openTn = async (
     return {
         viewColumn: newViewCol,
     };
+};
+
+export const openTnAcademy = async (resource: DownloadedResource) => {
+    await vscode.commands.executeCommand(
+        "codex-editor-extension.openTnAcademy",
+        resource,
+    );
 };

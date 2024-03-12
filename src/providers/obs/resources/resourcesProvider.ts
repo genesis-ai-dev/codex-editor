@@ -11,6 +11,7 @@ import {
     openOBS,
     openTn,
     openTranslationHelper,
+    openTnAcademy,
 } from "./functions/openResource";
 import { getUri } from "../CreateProject/utilities/getUri";
 import { getNonce } from "../CreateProject/utilities/getNonce";
@@ -81,11 +82,13 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
                             name: downloadedResourceInfo?.resource.name ?? "",
                             id: downloadedResourceInfo?.resource.id ?? "",
                             localPath: path.relative(
-                                vscode.workspace.workspaceFolders?.[0].uri.path ?? "",
+                                vscode.workspace.workspaceFolders?.[0].uri
+                                    .path ?? "",
                                 downloadedResourceInfo?.folder?.path ?? "",
                             ),
                             type: downloadedResourceInfo?.resourceType ?? "",
-                            remoteUrl: downloadedResourceInfo?.resource.url ?? "",
+                            remoteUrl:
+                                downloadedResourceInfo?.resource.url ?? "",
                             version:
                                 downloadedResourceInfo?.resource.release
                                     .tag_name,
@@ -113,7 +116,6 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
                         break;
                     }
                     case MessageType.OPEN_RESOURCE:
-                        console.log("Opening resource: ", e.payload);
                         this._openResource((e.payload as any)?.resource as any);
                         break;
 
@@ -232,6 +234,7 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
         const currentStoryId: string | undefined =
             this._context?.workspaceState.get("currentStoryId");
 
+        console.log("Resource type: ", resource);
         switch (resource.type) {
             case "obs":
                 newViewCol = (await openOBS(resource, currentStoryId))
@@ -242,6 +245,9 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
                 break;
             case "tn" || "obs-tn":
                 newViewCol = (await openTn(resource))?.viewColumn;
+                break;
+            case "ta":
+                await openTnAcademy(resource);
                 break;
             default:
                 newViewCol = (await openTranslationHelper(resource))
@@ -263,8 +269,6 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
             "openResources",
             [],
         ) ?? []) as OpenResource[];
-
-        console.log("Updated resources: ", updatedResources);
 
         return {
             viewColumn: newViewCol,
