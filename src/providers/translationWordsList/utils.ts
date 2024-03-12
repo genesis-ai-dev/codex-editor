@@ -1,6 +1,6 @@
 import { DownloadedResource } from "../obs/resources/types";
 import * as vscode from "vscode";
-import { parseTwlTsv, twlTsvToChapterVerseRef } from "./tsv";
+import { parseTwlTsv, tsvToChapterVerseRef } from "./tsv";
 import { TwlBooksWithChaptersAndVerses } from "./types";
 import { extractBookChapterVerse } from "../../utils/extractBookChapterVerse";
 import { fileExists } from "../obs/CreateProject/utilities/obs";
@@ -10,9 +10,6 @@ export const getVerseTranslationWordsList = async (
     verseRef: string,
 ) => {
     const { bookID, chapter, verse } = extractBookChapterVerse(verseRef);
-
-    console.log("bookID: ", bookID);
-
     if (!vscode.workspace.workspaceFolders?.[0]) {
         vscode.window.showErrorMessage(
             "No workspace is open. Please open a workspace.",
@@ -44,7 +41,7 @@ export const getVerseTranslationWordsList = async (
         .map((p) => (p.status === "fulfilled" ? p.value : null))
         .filter(Boolean);
 
-    const chapterVerseRef = twlTsvToChapterVerseRef(
+    const chapterVerseRef = tsvToChapterVerseRef(
         TsvDataWithTwUri as NonNullable<(typeof TsvDataWithTwUri)[number]>[],
     );
 
@@ -57,8 +54,6 @@ export const getVerseTranslationWordsList = async (
             ),
         })),
     );
-
-    console.log("filteredWords: ", wordsWithExistsOnDisk);
 
     return wordsWithExistsOnDisk ?? [];
 };

@@ -17,13 +17,25 @@ export const parseTwlTsv = (tsv: string) => {
     return parsedTsv;
 };
 
-export const twlTsvToChapterVerseRef = (twlTsv: TwlTsvRow[]) => {
+export const tsvToChapterVerseRef = (twlTsv: TwlTsvRow[]) => {
     const chapterVerseRef: ChapterVerseRef = {};
     twlTsv.forEach((row) => {
         const ref = row.Reference;
         const [chapter, verse] = ref.split(":");
         if (!chapterVerseRef[chapter]) {
             chapterVerseRef[chapter] = {};
+        }
+
+        // check if a verse is a range
+        if (verse?.includes("-")) {
+            const [startVerse, endVerse] = verse.split("-").map(Number);
+            for (let i = startVerse; i <= endVerse; i++) {
+                if (!chapterVerseRef[chapter][i]) {
+                    chapterVerseRef[chapter][i] = [];
+                }
+                chapterVerseRef[chapter][i].push(row);
+            }
+            return;
         }
 
         if (!chapterVerseRef[chapter][verse]) {
