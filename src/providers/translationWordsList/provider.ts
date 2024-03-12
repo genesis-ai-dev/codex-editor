@@ -3,12 +3,14 @@ import { DownloadedResource } from "../obs/resources/types";
 import { getNonce, getUri } from "../obs/utilities";
 import { MessageType } from "../obs/CreateProject/types";
 import { getVerseTranslationWordsList } from "./utils";
+import { initializeStateStore } from "../../stateStore";
 
 export class TranslationWordsListProvider {
     static instance: TranslationWordsListProvider;
     webview?: vscode.WebviewPanel;
     resource: DownloadedResource;
     context: vscode.ExtensionContext;
+    stateStore?: Awaited<ReturnType<typeof initializeStateStore>>;
 
     constructor(
         context: vscode.ExtensionContext,
@@ -16,12 +18,18 @@ export class TranslationWordsListProvider {
     ) {
         this.resource = resource;
         this.context = context;
+        initializeStateStore().then((stateStore) => {
+            this.stateStore = stateStore;
+        });
     }
 
     async startWebview(
-        verseRef: string,
         viewColumn: vscode.ViewColumn = vscode.ViewColumn.Beside,
     ) {
+        if (!this.stateStore) {
+            this.stateStore = await initializeStateStore();
+            console.log("stateStore", this.stateStore);
+        }
         const panel = vscode.window.createWebviewPanel(
             "codex.translationWordsViewer",
             "Translation Words -" + this.resource.name,
@@ -100,13 +108,33 @@ export class TranslationWordsListProvider {
         );
 
         // TODO: Add global state to keep track of the current verseRef
+        const verseRefListenerDisposeFunction = this.stateStore?.storeListener(
+            "verseRef",
+            async (value) => {
+                console.log("state update: verseRef ---------> ", value);
+                if (value) {
+                    const wordsList = await getVerseTranslationWordsList(
+                        this.resource,
+                        value?.verseRef ?? "GEN 1:1",
+                    );
 
+                    panel.webview.postMessage({
+                        type: "update-twl",
+                        payload: {
+                            wordsList: wordsList,
+                        },
+                    });
+                }
+            },
+        );
         const onDidChangeViewState = panel.onDidChangeViewState(async (e) => {
             if (e.webviewPanel.visible) {
                 try {
+                    const verseRefStore =
+                        await this.stateStore?.getStoreState("verseRef");
                     const wordsList = await getVerseTranslationWordsList(
                         this.resource,
-                        verseRef,
+                        verseRefStore?.verseRef ?? "GEN 1:1",
                     );
 
                     panel.webview.postMessage({
@@ -129,6 +157,11 @@ export class TranslationWordsListProvider {
                     });
                 }
             }
+        });
+
+        panel.onDidDispose(() => {
+            onDidChangeViewState.dispose();
+            verseRefListenerDisposeFunction?.();
         });
 
         return {

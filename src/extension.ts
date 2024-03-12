@@ -3,7 +3,10 @@
 import * as vscode from "vscode";
 import { CodexKernel } from "./controller";
 import { CodexContentSerializer } from "./serializer";
-import { checkServerHeartbeat } from "./handlers/textSelectionHandler";
+import {
+    checkServerHeartbeat,
+    registerTextSelectionHandler,
+} from "./handlers/textSelectionHandler";
 
 import {
     NOTEBOOK_TYPE,
@@ -632,6 +635,7 @@ export async function activate(context: vscode.ExtensionContext) {
     registerDictionaryTableProvider(context);
     registerDictionarySummaryProvider(context);
     registerScriptureViewerProvider(context);
+    registerTextSelectionHandler(context, () => undefined);
     context.subscriptions.push(CreateProjectProvider.register(context));
     context.subscriptions.push(ResourcesProvider.register(context));
     context.subscriptions.push(StoryOutlineProvider.register(context));
