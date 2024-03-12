@@ -7,9 +7,11 @@ import {
 } from "@vscode/webview-ui-toolkit/react";
 import { vscode } from "@/utilities/vscode";
 import { MessageType } from "@/types";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 const MarkdownViewer = () => {
+    const { taDirectories, taSubDirectories, taContent } =
+        useTranslationAcademyDirectories();
     const markdown = `### How to Get Answers
 
 There are several resources available for finding answers to questions:
@@ -29,50 +31,99 @@ There are several resources available for finding answers to questions:
         });
     };
 
-    // receive message from extension
-    useEffect(() => {
-        const listener = (event: MessageEvent) => {
-            console.log("listener fn called !!!");
-            if (event.data.type === MessageType.SYNC_TA_FOLDERS) {
-                console.log("message received");
-            }
-        };
-        window.addEventListener("message", listener);
-        vscode.setMessageListeners((message) => {
-            if (message.type === MessageType.SYNC_TA_FOLDERS) {
-                console.log("message received");
-            }
-        });
-        return () => {
-            window.removeEventListener("message", listener);
-        };
-    }, []);
+    console.log("taDirectories: ", taDirectories);
+
+    const [selectedDirectory, setSelectedDirectory] = useState<string>("");
 
     return (
         <>
             <div className="flex items-center gap-4 mb-6">
-                <VSCodeDropdown>
-                    <VSCodeOption>Intro</VSCodeOption>
-                    <VSCodeOption>Process</VSCodeOption>
-                    <VSCodeOption>Translate</VSCodeOption>
+                <VSCodeDropdown
+                    onChange={(e) => {
+                        console.log(
+                            "e.target.value: ",
+                            (e.target as any)?.value,
+                        );
+                        vscode.postMessage({
+                            type: MessageType.GET_TA_FOLDER_CONTENT,
+                            payload: (e.target as any)?.value,
+                        });
+                        setSelectedDirectory((e.target as any)?.value);
+                    }}
+                >
+                    {taDirectories.map((directory) => (
+                        <VSCodeOption key={directory}>{directory}</VSCodeOption>
+                    ))}
                 </VSCodeDropdown>
-                <VSCodeDropdown>
-                    <VSCodeOption>Finding Answers</VSCodeOption>
-                    <VSCodeOption>Gl Strategy</VSCodeOption>
-                    <VSCodeOption>Open License</VSCodeOption>
-                    <VSCodeOption>Statement of Faith</VSCodeOption>
-                    <VSCodeOption>Ta intro</VSCodeOption>
-                    <VSCodeOption>UW intro</VSCodeOption>
+                <VSCodeDropdown
+                    onChange={(e) => {
+                        vscode.postMessage({
+                            type: MessageType.GET_TA_CONTENT,
+                            payload: {
+                                directory: selectedDirectory,
+                                subDirectory: (e.target as any)?.value,
+                            },
+                        });
+                    }}
+                >
+                    {taSubDirectories.map((subDirectory) => (
+                        <VSCodeOption key={subDirectory}>
+                            {subDirectory}
+                        </VSCodeOption>
+                    ))}
                 </VSCodeDropdown>
                 <VSCodeButton appearance="primary" onClick={sendMessage}>
                     View
                 </VSCodeButton>
             </div>
             <div
-                dangerouslySetInnerHTML={{ __html: markdownToHTML(markdown) }}
+                className="prose-base"
+                dangerouslySetInnerHTML={{
+                    __html: markdownToHTML(taContent ?? ""),
+                }}
             />
         </>
     );
 };
 
 renderToPage(<MarkdownViewer />);
+
+const useTranslationAcademyDirectories = () => {
+    const [taDirectories, setTaDirectories] = useState<string[]>([]);
+
+    const [taSubDirectories, setTaSubDirectories] = useState<string[]>([]);
+
+    const [taContent, setTaContent] = useState<string | null>(null);
+
+    useEffect(() => {
+        vscode.setMessageListeners((event) => {
+            console.log("event.data: ", event.data);
+            switch (event.data.type) {
+                case MessageType.SYNC_TA_FOLDERS:
+                    setTaDirectories(event.data.payload ?? []);
+                    console.log(
+                        "event.data.payload-sync folders: ",
+                        event.data.payload,
+                    );
+                    break;
+                case MessageType.SYNC_TA_FOLDER_CONTENT:
+                    setTaSubDirectories(event.data.payload ?? []);
+                    console.log(
+                        "event.data.payload-get folder content: ",
+                        event.data.payload,
+                    );
+                    break;
+
+                case MessageType.SYNC_TA_CONTENT:
+                    setTaContent(event.data.payload);
+                    console.log(
+                        "event.data.payload-get folder content: ",
+                        event.data.payload,
+                    );
+                    break;
+            }
+        });
+    }, []);
+
+    return { taDirectories, taSubDirectories, taContent };
+};

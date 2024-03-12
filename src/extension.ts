@@ -227,7 +227,10 @@ export async function activate(context: vscode.ExtensionContext) {
                 panel = vscode.window.createWebviewPanel(
                     "tnAcademy",
                     "Translation Academy",
-                    vscode.ViewColumn.Beside,
+                    {
+                        preserveFocus: true,
+                        viewColumn: vscode.ViewColumn.Beside,
+                    },
                     {
                         enableScripts: true,
                     },
@@ -254,11 +257,61 @@ export async function activate(context: vscode.ExtensionContext) {
 
                 // receive message from webview
                 panel.webview.onDidReceiveMessage(
-                    (message) => {
+                    async (message) => {
                         switch (message.type) {
-                            case MessageType.changeTnAcademyResource:
-                                vscode.window.showErrorMessage(message.payload);
-                                return;
+                            case MessageType.GET_TA_FOLDER_CONTENT: {
+                                const directory = message.payload as string;
+
+                                const folderUri = vscode.Uri.joinPath(
+                                    resourceRootUri,
+                                    directory,
+                                );
+
+                                const folderContents =
+                                    await vscode.workspace.fs.readDirectory(
+                                        folderUri,
+                                    );
+
+                                panel?.webview.postMessage({
+                                    type: MessageType.SYNC_TA_FOLDER_CONTENT,
+                                    payload: folderContents
+                                        .filter(
+                                            ([, type]) =>
+                                                type ===
+                                                vscode.FileType.Directory,
+                                        )
+                                        .map(([name]) => name),
+                                });
+                                break;
+                            }
+                            case MessageType.GET_TA_CONTENT: {
+                                const subDirectory = message.payload
+                                    .subDirectory as string;
+                                const directory = message.payload
+                                    .directory as string;
+
+                                const folderUri = vscode.Uri.joinPath(
+                                    resourceRootUri,
+                                    directory,
+                                    subDirectory,
+                                );
+
+                                const mdFile = vscode.Uri.joinPath(
+                                    folderUri,
+                                    "01.md",
+                                );
+
+                                const fileContents =
+                                    await vscode.workspace.fs.readFile(mdFile);
+
+                                const md = fileContents.toString();
+
+                                panel?.webview.postMessage({
+                                    type: MessageType.SYNC_TA_CONTENT,
+                                    payload: md,
+                                });
+                                break;
+                            }
                         }
                     },
                     undefined,
@@ -312,11 +365,6 @@ export async function activate(context: vscode.ExtensionContext) {
                 panel.onDidChangeViewState(
                     (e) => {
                         if (e.webviewPanel.active) {
-                            console.log(
-                                "sending message to webview",
-                                e?.webviewPanel.active,
-                            );
-
                             panel?.webview.postMessage({
                                 type: MessageType.SYNC_TA_FOLDERS,
                                 payload: folderEntries.map(

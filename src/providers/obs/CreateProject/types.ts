@@ -13,8 +13,12 @@ export enum MessageType {
     SEARCH_RESULTS = "searchResults",
     SEARCH_TW = "search_tw",
     GET_TW_CONTENT = "get-tw-content",
-      changeTnAcademyResource = "changeTnAcademyResource",
+    changeTnAcademyResource = "changeTnAcademyResource",
     SYNC_TA_FOLDERS = "syncTaFolders",
+    GET_TA_FOLDER_CONTENT = "get-ta-FolderContent",
+    SYNC_TA_FOLDER_CONTENT = "sync-ta-FolderContent",
+    SYNC_TA_CONTENT = "sync-ta-content",
+    GET_TA_CONTENT = "get-ta-content",
 }
 
 export type Language = {

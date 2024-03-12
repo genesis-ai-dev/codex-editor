@@ -10,7 +10,7 @@ import {
     openOBS,
     openTn,
     openTq,
-    openTranslationHelper
+    openTranslationHelper,
     openTnAcademy,
     openTw,
     openTwl,
@@ -275,7 +275,8 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
             case "twl": {
                 await openTwl(this._context!, resource);
                 break;
-            case "ta":
+            }
+            case "ta": {
                 await openTnAcademy(resource);
                 break;
             }
