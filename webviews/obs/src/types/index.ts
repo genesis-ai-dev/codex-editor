@@ -11,6 +11,8 @@ export enum MessageType {
     TEST_MESSAGE = "testMessage",
     SEARCH_QUERY = "searchQuery",
     SEARCH_RESULTS = "searchResults",
+    changeTnAcademyResource = "changeTnAcademyResource",
+    SYNC_TA_FOLDERS = "syncTAFolders",
     SEARCH_TW = "search_tw",
     GET_TW_CONTENT = "get-tw-content",
 }

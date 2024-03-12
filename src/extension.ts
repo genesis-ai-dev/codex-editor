@@ -90,6 +90,9 @@ import {
 import { TranslationNotesProvider } from "./providers/translationNotes/TranslationNotesProvider";
 import { registerScriptureViewerProvider } from "./providers/scriptureView/ScriptureViewerPanel";
 import { registerScmStatusBar } from "./providers/scm/statusBar";
+import { getNonce } from "./providers/obs/utilities";
+import { MessageType } from "./providers/obs/CreateProject/types";
+import { DownloadedResource } from "./providers/obs/resources/types";
 
 const MIN_PYTHON = semver.parse("3.7.9");
 const ROOT_PATH = getWorkSpaceFolder();
@@ -168,31 +171,31 @@ export async function activate(context: vscode.ExtensionContext) {
     // Add .bible files to the files.readonlyInclude glob pattern to make them readonly without overriding existing patterns
     const config = vscode.workspace.getConfiguration();
 
-    config.update(
-        "editor.wordWrap",
-        "on",
-        vscode.ConfigurationTarget.Workspace,
-    );
-    // Turn off line numbers by default in workspace
-    config.update(
-        "editor.lineNumbers",
-        "off",
-        vscode.ConfigurationTarget.Workspace,
-    );
-    // Set to serif font by default in workspace
-    config.update(
-        "editor.fontFamily",
-        "serif",
-        vscode.ConfigurationTarget.Workspace,
-    );
-    // Set to 16px font size by default in workspace
-    config.update("editor.fontSize", 16, vscode.ConfigurationTarget.Workspace);
-    // Set cursor style to line-thin by default in workspace
-    config.update(
-        "editor.cursorStyle",
-        "line-thin",
-        vscode.ConfigurationTarget.Workspace,
-    );
+    // config.update(
+    //     "editor.wordWrap",
+    //     "on",
+    //     vscode.ConfigurationTarget.Workspace,
+    // );
+    // // Turn off line numbers by default in workspace
+    // config.update(
+    //     "editor.lineNumbers",
+    //     "off",
+    //     vscode.ConfigurationTarget.Workspace,
+    // );
+    // // Set to serif font by default in workspace
+    // config.update(
+    //     "editor.fontFamily",
+    //     "serif",
+    //     vscode.ConfigurationTarget.Workspace,
+    // );
+    // // Set to 16px font size by default in workspace
+    // config.update("editor.fontSize", 16, vscode.ConfigurationTarget.Workspace);
+    // // Set cursor style to line-thin by default in workspace
+    // config.update(
+    //     "editor.cursorStyle",
+    //     "line-thin",
+    //     vscode.ConfigurationTarget.Workspace,
+    // );
     // TODO: set up the layout for the workspace
     // FIXME: this way of doing things clobbers the users existing settings.
     // These settings should probably be bundled in the app only, and not applied via the extension.
@@ -211,6 +214,131 @@ export async function activate(context: vscode.ExtensionContext) {
             indexVrefs,
         ),
     );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor-extension.openTnAcademy",
+            async (resource: DownloadedResource) => {
+                let panel: vscode.WebviewPanel | undefined = undefined;
+                vscode.window.showInformationMessage(
+                    "Opening Translation Academy",
+                );
+
+                panel = vscode.window.createWebviewPanel(
+                    "tnAcademy",
+                    "Translation Academy",
+                    vscode.ViewColumn.Beside,
+                    {
+                        enableScripts: true,
+                    },
+                );
+                const workspaceRootUri =
+                    vscode.workspace.workspaceFolders?.[0].uri;
+
+                if (!workspaceRootUri) {
+                    vscode.window.showErrorMessage(
+                        "No workspace folder found. Please open a folder to store your project in.",
+                    );
+                    return;
+                }
+                const resourceRootUri = vscode.Uri.joinPath(
+                    workspaceRootUri,
+                    resource.localPath,
+                );
+
+                const resourceFolders =
+                    await vscode.workspace.fs.readDirectory(resourceRootUri);
+                const folderEntries = resourceFolders.filter(
+                    ([_name, type]) => type === vscode.FileType.Directory,
+                );
+
+                // receive message from webview
+                panel.webview.onDidReceiveMessage(
+                    (message) => {
+                        switch (message.type) {
+                            case MessageType.changeTnAcademyResource:
+                                vscode.window.showErrorMessage(message.payload);
+                                return;
+                        }
+                    },
+                    undefined,
+                    context.subscriptions,
+                );
+
+                const styleUri = panel.webview.asWebviewUri(
+                    vscode.Uri.joinPath(
+                        context.extensionUri,
+                        "webviews",
+                        "obs",
+                        "build",
+                        "assets",
+                        "index.css",
+                    ),
+                );
+
+                const scriptUri = panel.webview.asWebviewUri(
+                    vscode.Uri.joinPath(
+                        context.extensionUri,
+                        "webviews",
+                        "obs",
+                        "build",
+                        "assets",
+                        "views",
+                        "MarkdownViewer.js",
+                    ),
+                );
+
+                const nonce = getNonce();
+
+                panel.webview.html = getWebviewContent();
+                function getWebviewContent() {
+                    return `<!DOCTYPE html>
+                <html lang="en">
+                  <head>
+                    <meta charset="UTF-8" />
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+                    <link href="${styleUri}" type="text/css" rel="stylesheet" />
+                    <title>Translation Academy</title>
+                  </head>
+                  <body>
+                    <div id="root"></div>
+                    <script type="module" nonce="${nonce}" src="${scriptUri}"></script>
+                  </body>
+                </html>
+                `;
+                }
+
+                // send message to webview
+                panel.onDidChangeViewState(
+                    (e) => {
+                        if (e.webviewPanel.active) {
+                            console.log(
+                                "sending message to webview",
+                                e?.webviewPanel.active,
+                            );
+
+                            panel?.webview.postMessage({
+                                type: MessageType.SYNC_TA_FOLDERS,
+                                payload: folderEntries.map(
+                                    ([name, _type]) => name,
+                                ),
+                            });
+                        }
+                    },
+                    undefined,
+                    context.subscriptions,
+                );
+                panel.onDidDispose(
+                    () => {
+                        panel = undefined;
+                    },
+                    undefined,
+                    context.subscriptions,
+                );
+            },
+        ),
+    );
+
     context.subscriptions.push(
         vscode.commands.registerCommand(
             "codex-editor-extension.checkTaskStatus",

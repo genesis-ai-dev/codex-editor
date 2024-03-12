@@ -283,6 +283,10 @@
                 "title": "Show Scripture References"
             },
             {
+                "command": "codex-editor-extension.openTnAcademy",
+                "title": "Open Translation Academy"
+            },
+            {
                 "command": "codex-editor-extension.showSource",
                 "title": "Show Scripture Source"
             },

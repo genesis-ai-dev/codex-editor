@@ -11,7 +11,6 @@ const Providers = ({
 }) => {
     useEffect(() => {
         vscode.setMessageListeners((e) => {
-            console.log("providers - e received:", e.type);
         });
     }, []);
 

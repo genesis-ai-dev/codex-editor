@@ -55,7 +55,6 @@ const ResourcesTable = () => {
         });
 
     const handleDownload = (resource: any) => {
-        console.log(resource);
         vscode.postMessage({
             type: MessageType.DOWNLOAD_RESOURCE,
             payload: {

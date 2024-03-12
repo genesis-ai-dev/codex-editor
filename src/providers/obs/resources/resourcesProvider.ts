@@ -10,7 +10,8 @@ import {
     openOBS,
     openTn,
     openTq,
-    openTranslationHelper,
+    openTranslationHelper
+    openTnAcademy,
     openTw,
     openTwl,
 } from "./functions/openResource";
@@ -129,7 +130,6 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
                         break;
                     }
                     case MessageType.OPEN_RESOURCE:
-                        console.log("Opening resource: ", e.payload);
                         this._openResource((e.payload as any)?.resource as any);
                         break;
 
@@ -248,6 +248,7 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
         const currentStoryId: string | undefined =
             this._context?.workspaceState.get("currentStoryId");
 
+        console.log("Resource type: ", resource);
         switch (resource.type) {
             case "obs":
                 newViewCol = (await openOBS(resource, currentStoryId))
@@ -274,6 +275,9 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
             case "twl": {
                 await openTwl(this._context!, resource);
                 break;
+            case "ta":
+                await openTnAcademy(resource);
+                break;
             }
             case "tq": {
                 await openTq(this._context!, resource);
@@ -299,8 +303,6 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
             "openResources",
             [],
         ) ?? []) as OpenResource[];
-
-        console.log("Updated resources: ", updatedResources);
 
         return {
             viewColumn: newViewCol,
