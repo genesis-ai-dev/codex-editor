@@ -158,6 +158,13 @@ export class TranslationWordsListProvider {
             "TranslationWordsList.js",
         ]);
 
+        const codiconsUri = getUri(webview, extensionUri, [
+            "node_modules",
+            "@vscode/codicons",
+            "dist",
+            "codicon.css",
+        ]);
+
         const nonce = getNonce();
 
         // Tip: Install the es6-string-html VS Code extension to enable code highlighting below
@@ -169,6 +176,7 @@ export class TranslationWordsListProvider {
           <meta name="viewport" content="width=device-width, initial-scale=1.0" />
           <!-- <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';"> -->
           <link rel="stylesheet" type="text/css" href="${stylesUri}">
+            <link rel="stylesheet" type="text/css" href="${codiconsUri}">
           <title>Translation Words Webview</title>
         </head>
         <body>
