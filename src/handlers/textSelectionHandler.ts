@@ -35,8 +35,10 @@ export function registerTextSelectionHandler(
         vscode.window.onDidChangeTextEditorSelection(
             async (event: vscode.TextEditorSelectionChangeEvent) => {
                 const activeEditor = vscode.window.activeTextEditor;
-
-                if (activeEditor) {
+                if (
+                    activeEditor &&
+                    activeEditor.document.languageId === "scripture"
+                ) {
                     const currentLine = activeEditor.document.lineAt(
                         event.selections[0].active,
                     );
@@ -56,6 +58,13 @@ export function registerTextSelectionHandler(
                                 completeLineContent,
                                 vrefAtStartOfLine: currentLineVref,
                                 selectedText: selectedText,
+                            },
+                        });
+                        updateStoreState({
+                            key: "verseRef",
+                            value: {
+                                verseRef: currentLineVref ?? "GEN 1:1",
+                                uri: activeEditor.document.uri.toString(),
                             },
                         });
                     });

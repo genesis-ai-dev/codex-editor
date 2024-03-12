@@ -3,12 +3,14 @@ import { DownloadedResource } from "../obs/resources/types";
 import { getNonce, getUri } from "../obs/utilities";
 import { MessageType } from "../obs/CreateProject/types";
 import { getVerseTranslationQuestions } from "./utils";
+import { initializeStateStore } from "../../stateStore";
 
 export class TranslationQuestionsProvider {
     static instance: TranslationQuestionsProvider;
     webview?: vscode.WebviewPanel;
     resource: DownloadedResource;
     context: vscode.ExtensionContext;
+    stateStore?: Awaited<ReturnType<typeof initializeStateStore>>;
 
     constructor(
         context: vscode.ExtensionContext,
@@ -16,12 +18,19 @@ export class TranslationQuestionsProvider {
     ) {
         this.resource = resource;
         this.context = context;
+        initializeStateStore().then((stateStore) => {
+            this.stateStore = stateStore;
+        });
     }
 
     async startWebview(
-        verseRef: string,
         viewColumn: vscode.ViewColumn = vscode.ViewColumn.Beside,
     ) {
+        if (!this.stateStore) {
+            this.stateStore = await initializeStateStore();
+            console.log("stateStore", this.stateStore);
+        }
+
         const panel = vscode.window.createWebviewPanel(
             "codex.translationQuestions",
             "Translation Questions -" + this.resource.name,
@@ -47,16 +56,15 @@ export class TranslationQuestionsProvider {
             },
         );
 
-        // TODO: Add global state to keep track of the current verseRef
-
         const onDidChangeViewState = panel.onDidChangeViewState(async (e) => {
             if (e.webviewPanel.visible) {
+                const verseRefStore =
+                    await this.stateStore?.getStoreState("verseRef");
                 const translationQuestions = await getVerseTranslationQuestions(
                     this.resource,
-                    verseRef,
+                    verseRefStore?.verseRef ?? "GEN 1:1",
                 );
 
-                console.log(translationQuestions);
                 e.webviewPanel.webview.postMessage({
                     type: "update-tq",
                     payload: {
@@ -64,6 +72,34 @@ export class TranslationQuestionsProvider {
                     },
                 });
             }
+        });
+
+        const verseRefListenerDisposeFunction = this.stateStore?.storeListener(
+            "verseRef",
+            async (value) => {
+                console.log("state update: verseRef ---------> ", value);
+                if (value) {
+                    const translationQuestions =
+                        await getVerseTranslationQuestions(
+                            this.resource,
+                            value.verseRef,
+                        );
+                    console.log(
+                        "state update: translationQuestions",
+                        translationQuestions,
+                    );
+                    panel.webview.postMessage({
+                        type: "update-tq",
+                        payload: {
+                            translationQuestions: translationQuestions ?? [],
+                        },
+                    });
+                }
+            },
+        );
+        panel.onDidDispose(() => {
+            onDidChangeViewState.dispose();
+            verseRefListenerDisposeFunction?.();
         });
 
         return {

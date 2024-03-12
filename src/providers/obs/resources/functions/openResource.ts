@@ -194,7 +194,7 @@ export const openTwl = async (
     resource: DownloadedResource,
 ) => {
     const twlProvider = new TranslationWordsListProvider(context, resource);
-    const twl = await twlProvider.startWebview("MRK 1:1");
+    const twl = await twlProvider.startWebview();
 
     return {
         viewColumn: twl.viewColumn,
@@ -207,5 +207,5 @@ export const openTq = async (
 ) => {
     const tqProvider = new TranslationQuestionsProvider(context, resource);
 
-    return await tqProvider.startWebview("1CH 13:2");
+    return await tqProvider.startWebview();
 };
