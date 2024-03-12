@@ -28,11 +28,11 @@ const TranslationWordsList = () => {
                 onClick={() =>
                     setCurrentIndex((prev) => (prev === 0 ? prev : prev - 1))
                 }
-                appearance="icon"
+                appearance="secondary"
                 aria-label="left"
+                className="col-span-1 h-fit w-fit"
             >
-                <span className="arrow-button codicon codicon-chevron-left"></span>
-                Previous
+                <i className="codicon codicon-chevron-left"></i>
             </VSCodeButton>
             {/* Middle Element */}
             <div id="note-container" className="col-span-6">
@@ -49,11 +49,11 @@ const TranslationWordsList = () => {
                             : prev + 1,
                     )
                 }
-                appearance="icon"
+                appearance="secondary"
                 aria-label="right"
+                className="col-span-1 h-fit w-fit ml-auto"
             >
-                <span className="arrow-button codicon codicon-chevron-right"></span>
-                Next
+                <i className="codicon codicon-chevron-right"></i>
             </VSCodeButton>
         </div>
     );

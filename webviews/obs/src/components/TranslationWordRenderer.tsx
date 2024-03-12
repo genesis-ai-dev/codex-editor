@@ -20,7 +20,7 @@ const TranslationWordRenderer = ({
     return (
         <div
             dangerouslySetInnerHTML={{ __html: content ?? "" }}
-            className="prose prose-xl"
+            className="prose-lg"
         />
     );
 };

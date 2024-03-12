@@ -15,16 +15,23 @@ const TranslationQuestions = () => {
                 onClick={() =>
                     setCurrentIndex((prev) => (prev === 0 ? prev : prev - 1))
                 }
-                appearance="icon"
+                appearance="secondary"
+                className="h-fit w-fit col-span-1"
                 aria-label="left"
             >
-                <span className="arrow-button codicon codicon-chevron-left"></span>
-                Previous
+                <i className="codicon codicon-chevron-left"></i>
             </VSCodeButton>
             {/* Middle Element */}
-            <div id="note-container prose" className="col-span-6">
-                <div>{currentTranslationQuestion?.Question}</div>
-                <div>{currentTranslationQuestion?.Response}</div>
+            <div
+                id="note-container prose"
+                className="col-span-6 w-full space-y-4"
+            >
+                <div className="font-semibold text-lg">
+                    {currentTranslationQuestion?.Question}
+                </div>
+                <div className="text-base">
+                    {currentTranslationQuestion?.Response}
+                </div>
             </div>
             {/* Right Button */}
             <VSCodeButton
@@ -35,11 +42,11 @@ const TranslationQuestions = () => {
                             : prev + 1,
                     )
                 }
-                appearance="icon"
+                appearance="secondary"
+                className="h-fit w-fit col-span-1 ml-auto"
                 aria-label="right"
             >
-                <span className="arrow-button codicon codicon-chevron-right"></span>
-                Next
+                <i className="codicon codicon-chevron-right"></i>
             </VSCodeButton>
         </div>
     );
