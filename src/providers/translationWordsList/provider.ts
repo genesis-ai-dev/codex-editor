@@ -2,7 +2,6 @@ import * as vscode from "vscode";
 import { DownloadedResource } from "../obs/resources/types";
 import { getNonce, getUri } from "../obs/utilities";
 import { MessageType } from "../obs/CreateProject/types";
-import { globalStateEmitter } from "../../globalState";
 import { getVerseTranslationWordsList } from "./utils";
 
 export class TranslationWordsListProvider {

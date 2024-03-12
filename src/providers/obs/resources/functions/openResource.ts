@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { DownloadedResource } from "../types";
 import { TranslationWordsProvider } from "../../../translationWords/provider";
 import { TranslationWordsListProvider } from "../../../translationWordsList/provider";
+import { TranslationQuestionsProvider } from "../../../TranslationQuestions/provider";
 
 enum ViewTypes {
     OBS = "scribe.obs",
@@ -198,4 +199,13 @@ export const openTwl = async (
     return {
         viewColumn: twl.viewColumn,
     };
+};
+
+export const openTq = async (
+    context: vscode.ExtensionContext,
+    resource: DownloadedResource,
+) => {
+    const tqProvider = new TranslationQuestionsProvider(context, resource);
+
+    return await tqProvider.startWebview("1CH 13:2");
 };
