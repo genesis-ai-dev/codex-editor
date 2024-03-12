@@ -42,15 +42,6 @@
             }
         ],
         "views": {
-            "genesis-translator-sidebar-view": [
-                {
-                    "type": "webview",
-                    "id": "genesis-translator-sidebar",
-                    "name": "Genesis Translator",
-                    "icon": "$(comment-discussion)",
-                    "contextualTitle": "Genesis Translator"
-                }
-            ],
             "parallel-passages-view": [
                 {
                     "type": "webview",
@@ -58,15 +49,6 @@
                     "name": "Parallel Passages",
                     "icon": "$(eye)",
                     "contextualTitle": "Parallel Passages"
-                }
-            ],
-            "comments-sidebar-view": [
-                {
-                    "type": "webview",
-                    "id": "comments-sidebar",
-                    "name": "Comments",
-                    "icon": "$(note)",
-                    "contextualTitle": "Comments"
                 }
             ],
             "scripture-explorer-activity-bar": [
@@ -136,16 +118,6 @@
                     "icon": "$(open-editors-view-icon)"
                 },
                 {
-                    "id": "genesis-translator-sidebar-view",
-                    "title": "Genesis Translator Bar",
-                    "icon": "$(comment-discussion)"
-                },
-                {
-                    "id": "comments-sidebar-view",
-                    "title": "Comments",
-                    "icon": "$(note)"
-                },
-                {
                     "id": "scribe-vsc-obs-sidebar",
                     "title": "Obs Editor",
                     "icon": "$(file-media)"
@@ -190,67 +162,6 @@
                     "command": "scriptureViewer.showScriptureViewer",
                     "when": "view == scriptureViewer",
                     "group": "navigation"
-                }
-            ],
-            "commandPalette": [
-                {
-                    "command": "commentsExtension.createNote",
-                    "when": "false"
-                },
-                {
-                    "command": "commentsExtension.replyNote",
-                    "when": "false"
-                },
-                {
-                    "command": "commentsExtension.deleteNote",
-                    "when": "false"
-                },
-                {
-                    "command": "commentsExtension.deleteNoteComment",
-                    "when": "false"
-                }
-            ],
-            "comments/commentThread/title": [
-                {
-                    "command": "commentsExtension.deleteNote",
-                    "group": "navigation",
-                    "when": "commentController == comment-project && !commentThreadIsEmpty"
-                }
-            ],
-            "comments/commentThread/context": [
-                {
-                    "command": "commentsExtension.createNote",
-                    "group": "inline",
-                    "when": "commentController == comment-project && commentThreadIsEmpty"
-                },
-                {
-                    "command": "commentsExtension.replyNote",
-                    "group": "inline",
-                    "when": "commentController == comment-project && !commentThreadIsEmpty"
-                }
-            ],
-            "comments/comment/title": [
-                {
-                    "command": "commentsExtension.editNote",
-                    "group": "group@1",
-                    "when": "commentController == comment-project"
-                },
-                {
-                    "command": "commentsExtension.deleteNoteComment",
-                    "group": "group@2",
-                    "when": "commentController == comment-project && comment == canDelete"
-                }
-            ],
-            "comments/comment/context": [
-                {
-                    "command": "commentsExtension.cancelSaveNote",
-                    "group": "inline@1",
-                    "when": "commentController == comment-project"
-                },
-                {
-                    "command": "commentsExtension.saveNote",
-                    "group": "inline@2",
-                    "when": "commentController == comment-project"
                 }
             ],
             "editor/title": [
@@ -335,52 +246,6 @@
                 "category": "pygls"
             },
             {
-                "command": "commentsExtension.createNote",
-                "title": "Create Note",
-                "enablement": "!commentIsEmpty"
-            },
-            {
-                "command": "commentsExtension.replyNote",
-                "title": "Reply",
-                "enablement": "!commentIsEmpty"
-            },
-            {
-                "command": "commentsExtension.editNote",
-                "title": "Edit",
-                "icon": {
-                    "dark": "$(edit)",
-                    "light": "$(edit)"
-                }
-            },
-            {
-                "command": "commentsExtension.deleteNote",
-                "title": "Delete",
-                "icon": {
-                    "dark": "$(trash)",
-                    "light": "$(trash)"
-                }
-            },
-            {
-                "command": "commentsExtension.deleteNoteComment",
-                "title": "Delete",
-                "icon": {
-                    "dark": "$(close)",
-                    "light": "$(close)"
-                }
-            },
-            {
-                "command": "commentsExtension.saveNote",
-                "title": "Save"
-            },
-            {
-                "command": "commentsExtension.cancelSaveNote",
-                "title": "Cancel"
-            },
-            {
-                "command": "commentsExtension.dispose",
-                "title": "Remove All Notes"
-            },
-            {
                 "command": "dictionaryTable.showDictionaryTable",
                 "title": "Dictionary Table: Show"
             },
@@ -427,36 +292,6 @@
             }
         ],
         "configuration": [
-            {
-                "title": "translators-copilot",
-                "properties": {
-                    "translators-copilot.llmEndpoint": {
-                        "type": "string",
-                        "default": "http://localhost:1234/v1",
-                        "description": "The endpoint for the completion API. Either OpenAI or local LLM. We would suggest using [LM Studio](https://lmstudio.ai)"
-                    },
-                    "translators-copilot.api_key": {
-                        "type": "string",
-                        "default": "",
-                        "description": "Your own openai API key. Ignorable for local LLM."
-                    },
-                    "translators-copilot.model": {
-                        "type": "string",
-                        "default": "gpt-3.5-turbo",
-                        "description": "Model name selected for inference. Ignorable for local LLM."
-                    },
-                    "translators-copilot.max_tokens": {
-                        "type": "number",
-                        "default": 2048,
-                        "description": "The maximum number of output tokens for the completion API."
-                    },
-                    "translators-copilot.temperature": {
-                        "type": "number",
-                        "default": 0.2,
-                        "description": "The randomness level of output generation. A higher value leads to more random outputs."
-                    }
-                }
-            },
             {
                 "type": "object",
                 "title": "Json Server Configuration",
@@ -639,6 +474,7 @@
     "extensionDependencies": [
         "project-accelerate.shared-state-store",
         "ms-python.python",
-        "project-accelerate.scripture-language-support"
+        "project-accelerate.scripture-language-support",
+        "project-accelerate.codex-chat-and-comments"
     ]
 }
