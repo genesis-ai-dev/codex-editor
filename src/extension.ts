@@ -87,7 +87,6 @@ import {
     sync,
 } from "./providers/scm/git";
 import { TranslationNotesProvider } from "./providers/translationNotes/TranslationNotesProvider";
-import { registerScriptureViewerProvider } from "./providers/scriptureView/ScriptureViewerPanel";
 import { registerScmStatusBar } from "./providers/scm/statusBar";
 
 const MIN_PYTHON = semver.parse("3.7.9");
@@ -627,7 +626,6 @@ export async function activate(context: vscode.ExtensionContext) {
     registerParallelViewWebviewProvider(context);
     registerDictionaryTableProvider(context);
     registerDictionarySummaryProvider(context);
-    registerScriptureViewerProvider(context);
     registerTextSelectionHandler(context, () => undefined);
     context.subscriptions.push(CreateProjectProvider.register(context));
     context.subscriptions.push(ResourcesProvider.register(context));
