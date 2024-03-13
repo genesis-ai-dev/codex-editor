@@ -1,14 +1,18 @@
 import React, { useEffect, useState } from "react";
-import { MessageType, TranslationWord } from "../types";
+import { MessageType } from "../types";
 import { vscode } from "../utilities/vscode";
 import { markdownToHTML } from "../utilities/markdownToHTML";
 
 const TranslationWordRenderer = ({
     translationWord,
 }: {
-    translationWord: TranslationWord | null;
+    translationWord: { path: string } | null;
 }) => {
     const { content, loading } = useTranslationWordContent(translationWord);
+
+    if (content === null && !loading) {
+        return null;
+    }
 
     if (loading) {
         return <div>Loading...</div>;
@@ -16,12 +20,14 @@ const TranslationWordRenderer = ({
     return (
         <div
             dangerouslySetInnerHTML={{ __html: content ?? "" }}
-            className="prose prose-xl"
+            className="prose-lg"
         />
     );
 };
 
-const useTranslationWordContent = (translationWord: TranslationWord | null) => {
+const useTranslationWordContent = (
+    translationWord: { path: string } | null,
+) => {
     const [content, setContent] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
 
@@ -29,7 +35,11 @@ const useTranslationWordContent = (translationWord: TranslationWord | null) => {
         vscode.setMessageListeners((event) => {
             switch (event.data.type) {
                 case "update-tw-content":
-                    setContent(markdownToHTML(event.data.payload.content));
+                    setContent(
+                        event.data.payload.content !== null
+                            ? markdownToHTML(event.data.payload.content)
+                            : null,
+                    );
                     setLoading(false);
                     break;
             }

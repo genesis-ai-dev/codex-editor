@@ -3,7 +3,10 @@
 import * as vscode from "vscode";
 import { CodexKernel } from "./controller";
 import { CodexContentSerializer } from "./serializer";
-import { checkServerHeartbeat } from "./handlers/textSelectionHandler";
+import {
+    checkServerHeartbeat,
+    registerTextSelectionHandler,
+} from "./handlers/textSelectionHandler";
 
 import {
     NOTEBOOK_TYPE,
@@ -69,7 +72,6 @@ import {
     integer,
 } from "vscode-languageclient/node";
 import { registerCommentsProvider } from "./commentsProvider";
-import { registerChatProvider } from "./providers/chat/customChatWebviewProvider";
 import { registerCommentsWebviewProvider } from "./providers/commentsWebview/customCommentsWebviewProvider";
 import { registerParallelViewWebviewProvider } from "./providers/parallelPassagesWebview/customParallelPassagesWebviewProvider";
 import { registerDictionaryTableProvider } from "./providers/dictionaryTable/dictionaryTableProvider";
@@ -85,7 +87,6 @@ import {
     sync,
 } from "./providers/scm/git";
 import { TranslationNotesProvider } from "./providers/translationNotes/TranslationNotesProvider";
-import { registerScriptureViewerProvider } from "./providers/scriptureView/ScriptureViewerPanel";
 import { registerScmStatusBar } from "./providers/scm/statusBar";
 
 const MIN_PYTHON = semver.parse("3.7.9");
@@ -93,9 +94,6 @@ const ROOT_PATH = getWorkSpaceFolder();
 
 const PATHS_TO_POPULATE = [
     // "metadata.json", // This is where we store the project metadata in scripture burrito format, but we create this using the project initialization command
-    { filePath: "comments.json", defaultContent: "" }, // This is where we store the VS Code comments api comments, such as on .bible files
-    { filePath: "notebook-comments.json", defaultContent: "[]" }, // We can't use the VS Code comments api for notebooks (.codex files), so a second files avoids overwriting conflicts
-    { filePath: "chat-threads.json", defaultContent: "[]" }, // This is where chat thread conversations are saved
     { filePath: "drafts/" }, // This is where we store the project drafts, including project.dictionary and embedding dbs
     { filePath: "drafts/target/" }, // This is where we store the drafted scripture in particular as .codex files
     { filePath: "drafts/project.dictionary", defaultContent: "" }, // This is where we store the project dictionary
@@ -668,13 +666,10 @@ export async function activate(context: vscode.ExtensionContext) {
     isExtensionInitialized = true;
     registerReferencesCodeLens(context);
     registerSourceCodeLens(context);
-    registerCommentsProvider(context);
-    registerChatProvider(context);
-    registerCommentsWebviewProvider(context);
     registerParallelViewWebviewProvider(context);
     registerDictionaryTableProvider(context);
     registerDictionarySummaryProvider(context);
-    registerScriptureViewerProvider(context);
+    registerTextSelectionHandler(context, () => undefined);
     context.subscriptions.push(CreateProjectProvider.register(context));
     context.subscriptions.push(ResourcesProvider.register(context));
     context.subscriptions.push(StoryOutlineProvider.register(context));

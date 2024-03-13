@@ -9,8 +9,10 @@ import {
     openBible,
     openOBS,
     openTn,
+    openTq,
     openTranslationHelper,
     openTw,
+    openTwl,
 } from "./functions/openResource";
 import { getUri } from "../CreateProject/utilities/getUri";
 import { getNonce } from "../CreateProject/utilities/getNonce";
@@ -80,8 +82,12 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
                         const downloadedResourceInfo = await downloadResource(
                             (e.payload as any)?.resource as any,
                         );
-                        const localPath: string = downloadedResourceInfo?.folder.path.replace(
-                            vscode.workspace.workspaceFolders?.[0].uri.path + '/', '') ?? "";
+                        const localPath: string =
+                            downloadedResourceInfo?.folder.path.replace(
+                                vscode.workspace.workspaceFolders?.[0].uri
+                                    .path + "/",
+                                "",
+                            ) ?? "";
 
                         if (!downloadedResourceInfo) {
                             vscode.window.showErrorMessage(
@@ -263,6 +269,14 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
             }
             case "tw": {
                 await openTw(this._context!, resource);
+                break;
+            }
+            case "twl": {
+                await openTwl(this._context!, resource);
+                break;
+            }
+            case "tq": {
+                await openTq(this._context!, resource);
                 break;
             }
             default:
