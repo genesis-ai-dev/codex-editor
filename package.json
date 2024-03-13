@@ -145,22 +145,12 @@
                     "command": "dictionaryTable.showDictionaryTable",
                     "when": "view == dictionaryTable",
                     "group": "navigation"
-                },
-                {
-                    "command": "scriptureViewer.showScriptureViewer",
-                    "when": "view == scriptureViewer",
-                    "group": "navigation"
                 }
             ],
             "view/item/context": [
                 {
                     "command": "dictionaryTable.showDictionaryTable",
                     "when": "view == dictionaryTable",
-                    "group": "navigation"
-                },
-                {
-                    "command": "scriptureViewer.showScriptureViewer",
-                    "when": "view == scriptureViewer",
                     "group": "navigation"
                 }
             ],
@@ -252,10 +242,6 @@
             {
                 "command": "translationNotes.openTnEditor",
                 "title": "Open Translation Notes"
-            },
-            {
-                "command": "scriptureViewer.showScriptureViewer",
-                "title": "Show Scripture Viewer"
             },
             {
                 "command": "codex-editor.scm.stageAndCommitAll",
