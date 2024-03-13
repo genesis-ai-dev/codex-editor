@@ -40,7 +40,13 @@ export function registerTextSelectionHandler(
                     activeEditor.document.languageId === "scripture"
                 ) {
                     const currentLine = activeEditor.document.lineAt(
-                        event.selections[0].active,
+                        Math.max(
+                            0,
+                            Math.min(
+                                event.selections[0].active.line,
+                                activeEditor.document.lineCount - 1,
+                            ),
+                        ),
                     );
                     const completeLineContent = currentLine.text;
                     const currentLineVref =

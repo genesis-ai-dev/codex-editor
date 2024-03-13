@@ -267,16 +267,6 @@
                 ]
             }
         ],
-        "languages": [
-            {
-                "id": "scripture",
-                "extensions": [
-                    ".codex",
-                    ".scripture"
-                ],
-                "configuration": "./src/scripture-language-configuration.json"
-            }
-        ],
         "configuration": [
             {
                 "type": "object",
