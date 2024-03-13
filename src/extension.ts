@@ -177,9 +177,11 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.ConfigurationTarget.Workspace,
     );
     // Set to serif font by default in workspace
+
+    const fallbackFont = "serif";
     config.update(
         "editor.fontFamily",
-        "serif",
+        fallbackFont,
         vscode.ConfigurationTarget.Workspace,
     );
     // Set to 16px font size by default in workspace
@@ -394,8 +396,49 @@ export async function activate(context: vscode.ExtensionContext) {
                 await vscode.commands.executeCommand(
                     "scripture-explorer-activity-bar.refreshEntry",
                 );
+                await vscode.commands.executeCommand(
+                    "codex-editor.setEditorFontToTargetLanguage",
+                );
             },
         ),
+    );
+
+    vscode.commands.registerCommand(
+        "codex-editor.setEditorFontToTargetLanguage",
+        async () => {
+            const projectMetadata = await getProjectMetadata();
+            const targetLanguageCode = projectMetadata?.languages?.find(
+                (language) => language.projectStatus === LanguageProjectStatus.TARGET,
+            )?.tag;
+            if (targetLanguageCode) {
+                const fontApiUrl = `https://lff.api.languagetechnology.org/lang/${targetLanguageCode}`;
+                const fontApiResponse = await fetch(fontApiUrl);
+                const fontApiData = await fontApiResponse.json();
+                const defaultFontFamily = fontApiData.defaultfamily[0];
+                const fontFile = fontApiData.families[defaultFontFamily].defaults.ttf;
+                const fontFileRemoteUrl = fontApiData.families[defaultFontFamily].files[fontFile].url;
+                const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+                if (workspaceRoot) {
+                    const fontFilePath = path.join(workspaceRoot, ".project", "fonts", fontFile);
+                    const fontFilePathUri = vscode.Uri.file(fontFilePath);
+                    try {
+                        await vscode.workspace.fs.stat(fontFilePathUri);
+                    } catch {
+                        const fontFileResponse = await fetch(fontFileRemoteUrl);
+                        const fontFileBuffer = await fontFileResponse.arrayBuffer();
+                        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(fontFilePath)));
+                        await vscode.workspace.fs.writeFile(fontFilePathUri, new Uint8Array(fontFileBuffer));
+                    }
+                }
+                const config = vscode.workspace.getConfiguration();
+                config.update(
+                    "editor.fontFamily",
+                    `${defaultFontFamily} ${fallbackFont}`,
+                    vscode.ConfigurationTarget.Workspace,
+                );
+                vscode.window.showInformationMessage(`Font set to ${defaultFontFamily} with fallback to ${fallbackFont}`);
+            }
+        },
     );
 
     // Register and create the Scripture Tree View
@@ -647,6 +690,10 @@ export async function activate(context: vscode.ExtensionContext) {
         "workbench.view.extension.scripture-explorer-activity-bar",
     );
     vscode.commands.executeCommand("workbench.action.focusAuxiliaryBar");
+
+    // Try to set workspace font to target language font
+    vscode.window.showInformationMessage("Setting font to target language...");
+    vscode.commands.executeCommand("codex-editor.setEditorFontToTargetLanguage");
 
     scmInterval = setInterval(stageAndCommit, 1000 * 60 * 15);
 }
