@@ -1,6 +1,5 @@
 import { LanguageMetadata, LanguageProjectStatus } from 'codex-types';
 import * as vscode from "vscode";
-import * as fs from "fs";
 import * as path from "path";
 import { CellTypes, CodexCell } from "../../utils/codexNotebookUtils";
 import { vrefData } from "../../utils/verseRefUtils/verseData";
@@ -150,15 +149,5 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
                 );
             }
         });
-    }
-
-    private pathExists(p: string): boolean {
-        try {
-            fs.accessSync(p);
-        } catch (err) {
-            return false;
-        }
-
-        return true;
     }
 }
