@@ -5,5 +5,10 @@
     "typescript.tsc.autoDetect": "off",
     "editor.formatOnSave": true,
     "editor.defaultFormatter": "esbenp.prettier-vscode",
-    "cSpell.words": ["uidotdev"]
+    "cSpell.words": ["uidotdev"],
+    "editor.wordWrap": "on",
+    "editor.lineNumbers": "off",
+    "editor.fontFamily": "serif",
+    "editor.fontSize": 16,
+    "editor.cursorStyle": "line-thin"
 }
