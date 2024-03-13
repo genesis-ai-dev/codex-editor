@@ -46,6 +46,15 @@
                     "contextualTitle": "Genesis Translator"
                 }
             ],
+            "semantic-view": [
+                {
+                  "type": "webview",
+                  "id": "semantic-sidebar",
+                  "name": "Semantic View",
+                  "icon": "$(unfold)",
+                  "contextualTitle": "Semantic View"
+                }],
+
             "parallel-passages-view": [
                 {
                     "type": "webview",
@@ -72,6 +81,7 @@
                     "icon": "$(open-editors-view-icon)"
                 }
             ],
+        
             "resource-explorer": [
                 {
                     "id": "resource-explorer",
@@ -122,8 +132,13 @@
                 },
                 {
                     "id": "parallel-passages-view",
-                    "title": "Scripture Explorer",
+                    "title": "Parallel Passages",
                     "icon": "$(eye)"
+                },
+                {
+                    "id": "semantic-view",
+                    "title": "Semantic View",
+                    "icon": "$(unfold)"
                 },
                 {
                     "id": "resource-explorer",

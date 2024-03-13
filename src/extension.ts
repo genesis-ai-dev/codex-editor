@@ -72,6 +72,7 @@ import { registerCommentsProvider } from "./commentsProvider";
 import { registerChatProvider } from "./providers/chat/customChatWebviewProvider";
 import { registerCommentsWebviewProvider } from "./providers/commentsWebview/customCommentsWebviewProvider";
 import { registerParallelViewWebviewProvider } from "./providers/parallelPassagesWebview/customParallelPassagesWebviewProvider";
+import { registerSemanticViewProvider } from "./providers/semanticView/customSemanticViewProvider";
 import { registerDictionaryTableProvider } from "./providers/dictionaryTable/dictionaryTableProvider";
 import { CreateProjectProvider } from "./providers/obs/CreateProject/CreateProjectProvider";
 import { registerDictionarySummaryProvider } from "./providers/dictionaryTable/dictionarySummaryProvider";
@@ -629,6 +630,7 @@ export async function activate(context: vscode.ExtensionContext) {
     registerChatProvider(context);
     registerCommentsWebviewProvider(context);
     registerParallelViewWebviewProvider(context);
+    registerSemanticViewProvider(context);
     registerDictionaryTableProvider(context);
     registerDictionarySummaryProvider(context);
     registerScriptureViewerProvider(context);
