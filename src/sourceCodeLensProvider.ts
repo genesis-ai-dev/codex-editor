@@ -5,6 +5,7 @@ import {
     findReferences,
     findVerseRef,
 } from "./utils/verseRefUtils";
+import { searchVerseRefPositionIndex } from "./commands/indexVrefsCommand";
 const commandName = "showSource";
 class ScriptureReferenceProvider {
     async provideDefinition(
@@ -111,41 +112,31 @@ const registerReferences = (context: vscode.ExtensionContext) => {
         vscode.commands.registerCommand(
             `codex-editor-extension.${commandName}`,
             async (verseRef: string) => {
-                const filesWithReferences = await findReferences({
-                    verseRef,
-                    fileType: ".bible",
-                });
-                console.log({ filesWithReferences });
-                if (
-                    Array.isArray(filesWithReferences) &&
-                    filesWithReferences.length > 0
-                ) {
-                    const uri = vscode.Uri.file(filesWithReferences[0]);
-                    const document =
-                        await vscode.workspace.openTextDocument(uri);
-                    const text = document.getText();
-                    const lines = text.split(/\r?\n/);
-                    let position = new vscode.Position(0, 0); // Default to the start of the file
-
-                    for (let i = 0; i < lines.length; i++) {
-                        const { verseRefWasFound, verseRefInContentFormat } =
-                            findVerseRef({
-                                verseRef,
-                                content: lines[i],
-                            });
-                        if (verseRefWasFound) {
-                            position = new vscode.Position(
-                                i,
-                                lines[i].indexOf(verseRefInContentFormat),
-                            );
-                            break;
-                        }
+                if (verseRef) {
+                    const results = await searchVerseRefPositionIndex(verseRef);
+                    if (!results || results.length < 1) {
+                        return;
                     }
-                    vscode.commands.executeCommand("vscode.open", uri, {
-                        selection: new vscode.Range(position, position),
-                        preview: true,
-                        viewColumn: vscode.ViewColumn.Beside,
-                    });
+                    const selectedResult = results[0]; // FIXME: if there are multiple bibles, use the bible that matches the source in metadata file
+
+                    vscode.commands.executeCommand(
+                        "vscode.open",
+                        vscode.Uri.file(selectedResult.uri),
+                        {
+                            selection: new vscode.Range(
+                                new vscode.Position(
+                                    selectedResult.position.line,
+                                    selectedResult.position.character,
+                                ),
+                                new vscode.Position(
+                                    selectedResult.position.line,
+                                    selectedResult.position.character,
+                                ),
+                            ),
+                            preview: true,
+                            viewColumn: vscode.ViewColumn.Beside,
+                        },
+                    );
                 } else {
                     vscode.window.showInformationMessage(
                         `No references found for ${verseRef}`,

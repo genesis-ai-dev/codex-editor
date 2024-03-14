@@ -31,7 +31,10 @@ import {
     initializeProjectMetadata,
     promptForProjectDetails,
 } from "./utils/projectUtils";
-import { checkTaskStatus, indexVrefs } from "./commands/indexVrefsCommand";
+import {
+    searchVerseRefPositionIndex,
+    indexVerseRefsInSourceText,
+} from "./commands/indexVrefsCommand";
 import {
     triggerInlineCompletion,
     provideInlineCompletionItems,
@@ -158,6 +161,7 @@ let pyglsLogger: vscode.LogOutputChannel;
 let scmInterval: any; // Webpack & typescript for vscode are having issues
 
 export async function activate(context: vscode.ExtensionContext) {
+    indexVerseRefsInSourceText();
     /** BEGIN CODEX EDITOR EXTENSION FUNCTIONALITY */
 
     // Add .bible files to the files.readonlyInclude glob pattern to make them readonly without overriding existing patterns
@@ -205,24 +209,19 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand(
             "codex-editor-extension.indexVrefs",
-            indexVrefs,
+            indexVerseRefsInSourceText,
         ),
     );
     context.subscriptions.push(
         vscode.commands.registerCommand(
-            "codex-editor-extension.checkTaskStatus",
+            "codex-editor-extension.searchIndex",
             async () => {
-                const taskNumber = await vscode.window.showInputBox({
+                const searchString = await vscode.window.showInputBox({
                     prompt: "Enter the task number to check its status",
                     placeHolder: "Task number",
-                    validateInput: (text) => {
-                        return isNaN(parseInt(text, 10))
-                            ? "Please enter a valid number"
-                            : null;
-                    },
                 });
-                if (taskNumber !== undefined) {
-                    checkTaskStatus(parseInt(taskNumber, 10));
+                if (searchString !== undefined) {
+                    searchVerseRefPositionIndex(searchString);
                 }
             },
         ),
@@ -406,26 +405,41 @@ export async function activate(context: vscode.ExtensionContext) {
         async () => {
             const projectMetadata = await getProjectMetadata();
             const targetLanguageCode = projectMetadata?.languages?.find(
-                (language) => language.projectStatus === LanguageProjectStatus.TARGET,
+                (language) =>
+                    language.projectStatus === LanguageProjectStatus.TARGET,
             )?.tag;
             if (targetLanguageCode) {
                 const fontApiUrl = `https://lff.api.languagetechnology.org/lang/${targetLanguageCode}`;
                 const fontApiResponse = await fetch(fontApiUrl);
                 const fontApiData = await fontApiResponse.json();
                 const defaultFontFamily = fontApiData.defaultfamily[0];
-                const fontFile = fontApiData.families[defaultFontFamily].defaults.ttf;
-                const fontFileRemoteUrl = fontApiData.families[defaultFontFamily].files[fontFile].url;
-                const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+                const fontFile =
+                    fontApiData.families[defaultFontFamily].defaults.ttf;
+                const fontFileRemoteUrl =
+                    fontApiData.families[defaultFontFamily].files[fontFile].url;
+                const workspaceRoot =
+                    vscode.workspace.workspaceFolders?.[0].uri.fsPath;
                 if (workspaceRoot) {
-                    const fontFilePath = path.join(workspaceRoot, ".project", "fonts", fontFile);
+                    const fontFilePath = path.join(
+                        workspaceRoot,
+                        ".project",
+                        "fonts",
+                        fontFile,
+                    );
                     const fontFilePathUri = vscode.Uri.file(fontFilePath);
                     try {
                         await vscode.workspace.fs.stat(fontFilePathUri);
                     } catch {
                         const fontFileResponse = await fetch(fontFileRemoteUrl);
-                        const fontFileBuffer = await fontFileResponse.arrayBuffer();
-                        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(fontFilePath)));
-                        await vscode.workspace.fs.writeFile(fontFilePathUri, new Uint8Array(fontFileBuffer));
+                        const fontFileBuffer =
+                            await fontFileResponse.arrayBuffer();
+                        await vscode.workspace.fs.createDirectory(
+                            vscode.Uri.file(path.dirname(fontFilePath)),
+                        );
+                        await vscode.workspace.fs.writeFile(
+                            fontFilePathUri,
+                            new Uint8Array(fontFileBuffer),
+                        );
                     }
                 }
                 const config = vscode.workspace.getConfiguration();
@@ -434,7 +448,9 @@ export async function activate(context: vscode.ExtensionContext) {
                     `${defaultFontFamily} ${fallbackFont}`,
                     vscode.ConfigurationTarget.Workspace,
                 );
-                vscode.window.showInformationMessage(`Font set to ${defaultFontFamily} with fallback to ${fallbackFont}`);
+                vscode.window.showInformationMessage(
+                    `Font set to ${defaultFontFamily} with fallback to ${fallbackFont}`,
+                );
             }
         },
     );
@@ -688,7 +704,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Try to set workspace font to target language font
     vscode.window.showInformationMessage("Setting font to target language...");
-    vscode.commands.executeCommand("codex-editor.setEditorFontToTargetLanguage");
+    vscode.commands.executeCommand(
+        "codex-editor.setEditorFontToTargetLanguage",
+    );
 
     scmInterval = setInterval(stageAndCommit, 1000 * 60 * 15);
 }

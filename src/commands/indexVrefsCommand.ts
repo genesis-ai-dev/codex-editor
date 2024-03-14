@@ -1,22 +1,31 @@
 import * as vscode from "vscode";
-import { client } from "../meilisearchClient";
-import { findVerseRef } from "../utils/verseRefUtils";
 import { getFullListOfOrgVerseRefs } from "../utils";
+import MiniSearch, { SearchResult } from "minisearch";
 
-export async function indexVrefs() {
+const miniSearch = new MiniSearch({
+    fields: ["vref"], // fields to index for full-text search
+    storeFields: ["id", "vref", "uri", "position"], // fields to return with search results
+});
+interface VrefIndex {
+    id: string;
+    vref: string;
+    uri: string;
+    position: { line: number; character: number };
+}
+
+interface VrefSearchResult extends SearchResult {
+    vref: string;
+    uri: string;
+    position: { line: number; character: number };
+}
+export async function indexVerseRefsInSourceText() {
     const orgVerseRefsSet = new Set(getFullListOfOrgVerseRefs()); // Convert list to a Set for faster lookup
     try {
         const files = await vscode.workspace.findFiles(
-            "resources/**",
+            // "resources/**",
             "**/*.bible",
         ); // Adjust the glob pattern to match your files
-        const documentsToIndex: {
-            id: string;
-            vref: string;
-            uri: string;
-            position: { line: number; character: number };
-        }[] = [];
-
+        const documentsToIndex: VrefIndex[] = [];
         // Use Promise.all to process files in parallel
         await Promise.all(
             files.map(async (file) => {
@@ -25,7 +34,6 @@ export async function indexVrefs() {
                         await vscode.workspace.openTextDocument(file);
                     const text = document.getText();
                     const lines = text.split(/\r?\n/);
-
                     lines.forEach((line, lineIndex) => {
                         // Extract potential verse references from the line
                         const potentialVrefs = extractPotentialVrefs(line); // Implement this based on your pattern
@@ -37,7 +45,7 @@ export async function indexVrefs() {
                                         /[^a-zA-Z0-9-_]/g,
                                         "_",
                                     )}_${lineIndex}_${line.indexOf(vref)}`,
-                                    vref: vref,
+                                    vref: vref.replace(/\s/g, "_") + "_",
                                     uri: file.fsPath,
                                     position: {
                                         line: lineIndex,
@@ -55,16 +63,7 @@ export async function indexVrefs() {
             }),
         );
 
-        // After collecting documents, batch them to Meilisearch
-        const index = client.index("vrefs"); // Replace 'vrefs' with your chosen index name
-        // Consider batching if documentsToIndex is large
-        await index.deleteAllDocuments();
-        if (documentsToIndex.length > 0) {
-            await index
-                .addDocuments(documentsToIndex)
-                .then((res) => console.log(res));
-        }
-
+        await miniSearch.addAllAsync(documentsToIndex);
         vscode.window.showInformationMessage(
             "Indexing of verse references completed successfully.",
         );
@@ -80,21 +79,19 @@ function extractPotentialVrefs(line: string): string[] {
     return matches || [];
 }
 
-export async function checkTaskStatus(taskUid: number) {
+export async function searchVerseRefPositionIndex(searchString: string) {
     try {
-        const status = await client.getTask(taskUid);
-        console.log(status); // Log the current status of the task
-        if (status.status === "succeeded") {
-            vscode.window.showInformationMessage(
-                "Indexing completed successfully.",
-            );
-        } else if (status.status === "failed") {
-            vscode.window.showErrorMessage("Indexing failed: " + status.error);
-            console.log({ status });
-        } else {
-            // If the task is still processing, you might want to check again later
-            console.log("Task is still processing...");
-        }
+        // Normalize the search string to match the format used in indexing
+        const normalizedSearchString = searchString.replace(/\s/g, "_") + "_";
+        // Perform the search with a filter for exact matches on the 'vref' field
+        const results: VrefSearchResult[] = miniSearch.search(
+            normalizedSearchString,
+            {
+                filter: (result) => result.vref === normalizedSearchString,
+            },
+        ) as any;
+        console.log(results);
+        return results;
     } catch (error: any) {
         vscode.window.showErrorMessage(
             "Error fetching task status: " + error.message,
