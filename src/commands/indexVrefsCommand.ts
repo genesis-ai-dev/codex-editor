@@ -25,11 +25,11 @@ export async function indexVerseRefsInSourceText() {
             // "resources/**",
             "**/*.bible",
         ); // Adjust the glob pattern to match your files
-        const documentsToIndex: VrefIndex[] = [];
         // Use Promise.all to process files in parallel
         await Promise.all(
             files.map(async (file) => {
                 try {
+                    const linesToIndex: VrefIndex[] = [];
                     const document =
                         await vscode.workspace.openTextDocument(file);
                     const text = document.getText();
@@ -40,7 +40,7 @@ export async function indexVerseRefsInSourceText() {
                         potentialVrefs.forEach((vref) => {
                             if (orgVerseRefsSet.has(vref)) {
                                 // Add to documentsToIndex
-                                documentsToIndex.push({
+                                linesToIndex.push({
                                     id: `${file.fsPath.replace(
                                         /[^a-zA-Z0-9-_]/g,
                                         "_",
@@ -55,6 +55,7 @@ export async function indexVerseRefsInSourceText() {
                             }
                         });
                     });
+                    await miniSearch.addAllAsync(linesToIndex);
                 } catch (error) {
                     console.error(
                         `Error processing file ${file.fsPath}: ${error}`,
@@ -63,7 +64,6 @@ export async function indexVerseRefsInSourceText() {
             }),
         );
 
-        await miniSearch.addAllAsync(documentsToIndex);
         vscode.window.showInformationMessage(
             "Indexing of verse references completed successfully.",
         );
