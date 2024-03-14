@@ -45,7 +45,7 @@ export async function indexVerseRefsInSourceText() {
                                         /[^a-zA-Z0-9-_]/g,
                                         "_",
                                     )}_${lineIndex}_${line.indexOf(vref)}`,
-                                    vref: vref.replace(/\s/g, "_") + "_",
+                                    vref: vref,
                                     uri: file.fsPath,
                                     position: {
                                         line: lineIndex,
@@ -82,7 +82,7 @@ function extractPotentialVrefs(line: string): string[] {
 export async function searchVerseRefPositionIndex(searchString: string) {
     try {
         // Normalize the search string to match the format used in indexing
-        const normalizedSearchString = searchString.replace(/\s/g, "_") + "_";
+        const normalizedSearchString = searchString;
         // Perform the search with a filter for exact matches on the 'vref' field
         const results: VrefSearchResult[] = miniSearch.search(
             normalizedSearchString,
