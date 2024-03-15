@@ -264,7 +264,7 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
                 const { bookID } = extractBookChapterVerse(
                     verseRef?.verseRef ?? "GEN 1:1",
                 );
-                newViewCol = (await openTn(resource, bookID))?.viewColumn;
+                newViewCol = (await openTn(this.context, resource))?.viewColumn;
                 break;
             }
             case "tw": {
