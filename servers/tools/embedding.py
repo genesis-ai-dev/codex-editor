@@ -1,12 +1,8 @@
 import datetime
-import glob
 import logging
-import os
 from pathlib import Path
 from sqlite3 import IntegrityError
 from typing import Union, List, Any, Generator
-
-import tqdm
 from gensim.models import FastText, Word2Vec
 from gensim.utils import simple_preprocess
 from txtai import Embeddings
@@ -59,15 +55,20 @@ class DataBase:
         self.queue: List[Any] = []
         self.open = True
         self.logger = logging.getLogger(__name__)
-
+        self.model_name = f"{'/'.join(self.db_path.split('/')[:-2])}/fast_text.bin"
         if has_tokenizer:
             self.tokenizer = genetik_tokenizer.TokenDatabase(self.db_path)
         else:
             self.tokenizer = None
 
         if use_fasttext:
-            self.fasttext_model = FastText()
+            try:
+                self.fasttext_model = FastText.load(self.model_name)
+            except:
+                self.logger.exception("FastText model could not be found.")
+                self.fasttext_model = FastText()
         else:
+            self.fasttext_model = None
             self.fasttext_model = None
 
         try:
@@ -219,19 +220,25 @@ class DataBase:
         elif file_path.suffix == '.bible':
             results = extract_verses_bible(file_path.as_posix())
             self.logger.info(f"Going through {len(results)} results")
-            for result in tqdm(results, desc="Processing results"):
+
+            for result in results:
                 if len(result['text']) > 11:  # 000 000:000
+
                     text, book, chapter, verse = map(result.get, ['text', 'book', 'chapter', 'verse'])
                     reference = f'{book} {chapter}:{verse}'
+
                     try:
                         self.queue_upsert(text=text, book=book, chapter=chapter, reference=reference, verse=verse, uri=file_path.as_posix(), save_now=False)
                     except IntegrityError:
                         self.logger.exception("Integrity error")
+
             self.save()
             self.logger.info("Reading file")
+
             with file_path.open("r") as file:
                 self.tokenizer.upsert_text(file.read())
                 self.tokenizer.upsert_all()
+
             self.upsert_queue()
             if self.use_fasttext:
                 self.train_fasttext()
@@ -260,15 +267,35 @@ class DataBase:
 
     def train_fasttext(self) -> None:
         if self.fasttext_model:
-            if self.has_tokenizer and self.tokenizer:
-                # Use tokenizer's vocabulary for training
-                sentences = [self.tokenizer.get_tokens(text) for text in self.embeddings.search("SELECT text FROM txtai")]
-            else:
-                # Use text data from the database for training
-                sentences = [text for text in self.embeddings.search("SELECT text FROM txtai")]
+            # Retrieve text data from the database
+            texts = self.embeddings.search("SELECT * FROM txtai", limit=10000)
+            print("Retrieved texts:", len(texts))  # Print the number of retrieved texts
+            
+            sentences = []
+            for text in texts:
+                text = remove_punctuation(text['text']).lower()
 
-            self.fasttext_model.build_vocab(sentences)
-            self.fasttext_model.train(sentences, total_examples=len(sentences), epochs=10)
+                # Tokenize the text using split()
+                # tokenized = self.tokenizer.tokenizer.tokenize(text)
+                # detokenized = self.tokenizer.tokenizer.detokenize(tokenized, "|||").split("|||")
+
+                sentences.append(text.split(" "))
+            print("test text", sentences[0])
+            # Build the vocabulary
+            try:
+                self.fasttext_model.build_vocab(sentences, update=True)
+            except:
+                self.fasttext_model.build_vocab(sentences)
+            
+            print("Vocabulary size:", len(self.fasttext_model.wv))  # Print the vocabulary size
+            
+            # Train the model
+            self.fasttext_model.train(sentences, total_examples=len(sentences), epochs=15)
+            self.fasttext_model.save(self.model_name)
+
+    def get_similar_words(self, word, k=5):
+        print(len(self.fasttext_model.wv))
+        return [word for word, _ in self.fasttext_model.wv.most_similar(remove_punctuation(word), topn=k)]
 
     def save(self) -> None:
         """
@@ -288,10 +315,14 @@ class DataBase:
         self.embeddings.close()
 
 if __name__ == "__main__":
-    db_path = "dbs/db7/embedding"
-    database = DataBase(db_path)
+    db_path = "/Users/daniellosey/Desktop/temp_ws/nlp/embeddings/.bible"
+    database = DataBase(db_path, use_fasttext=True, has_tokenizer=True)
     database.save()
-    print(database.exists(["GEN 1:10", "GEN 1:2"]))
-    search_results = database.search(query="")
-    print("Search Results:", search_results)
+
+    # print(database.exists(["GEN 1:10", "PRO 1:2"]))
+    # search_results = database.search(query="Insightful decisions are on the lips of a king, his mouth should not betray justice.")
+    # print("Search Results: ", search_results)
+
+    database.train_fasttext()
+    print("Similar Words: ", database.get_similar_words("love"))
 

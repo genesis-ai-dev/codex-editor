@@ -1,6 +1,6 @@
 from genetok import tokenizer
 from typing import List
-import sys, os
+import sys, os, re
 
 def split(string, n):
     return [string[i:i+n] for i in range(0, len(string), n)]
@@ -82,6 +82,8 @@ class TokenDatabase:
         Args:
             text (str): The text to add to the buffer.
         """
+        # Remove punctuation, convert to lowercase, remove newlines and tabs
+        text = re.sub(r'[^\w\s]', '', text.lower().replace('\n', ' ').replace('\t', ' '))
         self.text += text
     
     def upsert_all(self):
@@ -95,7 +97,6 @@ class TokenDatabase:
             self.save()
             self.text = ""
             sys.stdout = sys.__stdout__
-
 
 if __name__ == "__main__":
     db_path = "third"

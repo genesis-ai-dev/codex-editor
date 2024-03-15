@@ -16,8 +16,8 @@ app = Flask(__name__)
 CORS(app, origins='*')  # Allow requests from any origin
 
 initilaizers = {
-    ".codex": (True, False),
-    ".bible": (True, False),
+    ".codex": (True, True),
+    ".bible": (True, True),
     "resources": (False, False),
     "reference_material": (False, False)
 }
@@ -122,6 +122,13 @@ def upsert_codex_file() -> tuple:
 
         return jsonify({"error": str(e)}), 500
 
+@app.route("/train_gensim_model", methods=['GET'])
+def train_gensim_model() -> tuple:
+    db_name: str = request.args.get("db_name", default=".codex")
+    use_tokenizer, use_fasttext = initilaizers[db_name]
+    active_db = get_active_database(db_name=db_name, use_tokenizer=use_tokenizer, use_fasttext=use_fasttext)
+    active_db.train_fasttext()
+    return jsonify("Ok"), 200
 
 @app.route('/upsert_bible_file', methods=['POST'])
 def upsert_bible_file() -> tuple:
@@ -167,7 +174,7 @@ def upsert_all_codex_files() -> tuple:
     active_db = get_active_database(".codex", use_tokenizer, use_fasttext)
 
     for file_path in codex_files:
-        active_db.upsert_bible_file(file_path)
+        active_db.upsert_file(file_path)
         sleep(.1)
     active_db.tokenizer.upsert_all()
     return jsonify({"message": f"Upserted {len(codex_files)} .codex files"}), 200
@@ -186,7 +193,7 @@ def upsert_all_resource_files() -> tuple:
         active_db = get_active_database("resources", use_tokenizer, use_fasttext)
 
         for file_path in resource_files:
-            active_db.upsert_bible_file(file_path)
+            active_db.upsert_file(file_path)
             active_db.save()
 
         return jsonify({"message": f"Upserted {len(resource_files)} resource files"}), 200
@@ -306,9 +313,33 @@ def search_both() -> tuple:
         return jsonify({"error": f"Failed to decode query parameter: {str(e)}"}), 400
     
     result = jsonify({'target': first, 'source': second})
-    print(result)
     return result, 200
 
+@app.route("/get_most_similar", methods=["GET"])
+def get_most_similar() -> tuple:
+    """
+    Gets the most similar words from the FastText model in the database for a given word.
+
+    Expects 'word' in the request arguments.
+
+    Returns:
+        A tuple containing a JSON response and an HTTP status code.
+    """
+    word = request.args.get('word')
+    if not word:
+        return jsonify({"error": "Missing 'word' parameter"}), 400
+
+    try:
+        db_name = request.args.get('db_name', default='.codex')
+        use_tokenizer, use_fasttext = initilaizers[db_name]
+        if not use_fasttext:
+            return jsonify({"error": "FastText is not enabled for this database"}), 400
+
+        active_db = get_active_database(db_name, use_tokenizer, use_fasttext)
+        similar_words = active_db.get_similar_words(word)
+        return jsonify(similar_words), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/save', methods=['POST'])
 def save() -> tuple:
@@ -372,9 +403,7 @@ def detect_anomalies() -> tuple:
         bible_query_formatted = f"{bible_query['book']} {bible_query['chapter']}:{bible_query['verse']}"
         use_tokenizer, use_fasttext = initilaizers['.bible']
         bible_db = get_active_database('.bible', use_tokenizer, use_fasttext)
-        print(bible_query_formatted)
         bible_query_result = bible_db.get_text_from(book=bible_query['book'], chapter=bible_query['chapter'], verse=bible_query['verse'])
-        print(bible_query_result)
         bible_results = bible_db.search(query=bible_query_result[0]['text'], limit=limit)
     except Exception as e:
         return jsonify({"error": f"Failed to search in .bible database: {str(e)}"}), 400
