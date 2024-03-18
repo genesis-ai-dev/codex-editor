@@ -1,39 +1,9 @@
 import * as vscode from "vscode";
 import { NOTEBOOK_TYPE } from "./utils/codexNotebookUtils";
-import {
-    extractVerseRefFromLine,
-    findReferencesUsingMeilisearch,
-} from "./utils/verseRefUtils";
+import { extractVerseRefFromLine } from "./utils/verseRefUtils";
 import { initializeStateStore } from "./stateStore";
 
 const SHOW_DISCUSS_COMMAND = true;
-
-class ScriptureReferenceProvider {
-    async provideDefinition(
-        document: vscode.TextDocument,
-        position: vscode.Position,
-        token: vscode.CancellationToken,
-    ): Promise<vscode.Definition | null> {
-        const line = document.lineAt(position);
-        const verseRef = extractVerseRefFromLine(line.text);
-        if (!verseRef) {
-            return null;
-        }
-
-        const references = await findReferencesUsingMeilisearch(verseRef);
-        if (!references) {
-            return null;
-        }
-
-        return references.map(
-            (filePath) =>
-                new vscode.Location(
-                    vscode.Uri.file(filePath.uri),
-                    new vscode.Position(0, 0),
-                ),
-        );
-    }
-}
 
 class ScriptureReferenceCodeLensProvider {
     private _onDidChangeCodeLenses: vscode.EventEmitter<void>;
@@ -197,20 +167,6 @@ const registerReferences = (context: vscode.ExtensionContext) => {
                     `Discussing ${verseRef}...`,
                 );
             },
-        ),
-    );
-
-    context.subscriptions.push(
-        vscode.languages.registerDefinitionProvider(
-            // { scheme: "file" }, // all files option
-            ["scripture"],
-            new ScriptureReferenceProvider(),
-        ),
-    );
-    context.subscriptions.push(
-        vscode.languages.registerDefinitionProvider(
-            { notebookType: NOTEBOOK_TYPE }, // This targets notebook cells within "codex-type" notebooks
-            new ScriptureReferenceProvider(),
         ),
     );
 };

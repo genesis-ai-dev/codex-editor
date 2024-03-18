@@ -84,24 +84,3 @@ export function extractVerseRefFromLine(line: string): string | null {
     const match = line.match(verseRefRegex);
     return match ? match[0] : null;
 }
-
-import { client } from "../../meilisearchClient";
-
-export async function findReferencesUsingMeilisearch(verseRef: string) {
-    try {
-        const index = client.index("vrefs"); // Use the same index name as before
-        const searchResponse = await index.search(verseRef);
-        console.log({ searchResponse });
-
-        return searchResponse.hits.map((hit) => ({
-            uri: hit.uri,
-            position: new vscode.Position(
-                hit.position.line,
-                hit.position.character,
-            ),
-        }));
-    } catch (error) {
-        console.error("Error finding references using Meilisearch:", error);
-        return [];
-    }
-}
