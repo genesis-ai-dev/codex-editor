@@ -84,7 +84,9 @@ import { StoryOutlineProvider } from "./providers/obs/storyOutline/storyOutlineP
 import { ObsEditorProvider } from "./providers/obs/editor/ObsEditorProvider";
 import {
     addRemote,
+    checkConfigRemoteAndUpdateIt,
     initProject,
+    promptForLocalSync,
     stageAndCommit,
     sync,
 } from "./providers/scm/git";
@@ -883,7 +885,22 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     }
 
-    scmInterval = setInterval(stageAndCommit, 1000 * 60 * 15);
+    scmInterval = setInterval(promptForLocalSync, 1000 * 60 * 15);
+
+    // check if the config's remote url has changed
+    const configChangeSubscription = vscode.workspace.onDidChangeConfiguration(
+        (e) => {
+            if (e.affectsConfiguration("codex-editor.scm.remoteUrl")) {
+                checkConfigRemoteAndUpdateIt();
+            }
+        },
+    );
+
+    context.subscriptions.push(configChangeSubscription);
+    // Haven't found a way to wait for successful activation of all the things before doing this
+    setTimeout(() => {
+        checkConfigRemoteAndUpdateIt();
+    }, 3000);
 }
 
 export function deactivate(): Thenable<void> {

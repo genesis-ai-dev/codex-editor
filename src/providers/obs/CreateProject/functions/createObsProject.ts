@@ -28,7 +28,11 @@ export const createObsProject = async (
 
     const { createdProjectURI } = res;
 
-    await initProject(createdProjectURI);
+    await initProject(
+        projectFields.name,
+        projectFields.email,
+        createdProjectURI,
+    );
 
     const CURRENT_WINDOW = {
         title: "Current Window",

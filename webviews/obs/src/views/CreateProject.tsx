@@ -32,6 +32,9 @@ const Sidebar = () => {
     const [sourceActive, setSourceActive] = useState(false);
     const [targetActive, setTargetActive] = useState(false);
     const [targetLanguageQuery, setTargetLanguageQuery] = useState("");
+    const [name, setName] = useState("");
+
+    const [email, setEmail] = useState("");
 
     const filteredSourceLanguages =
         sourceLanguageQuery !== ""
@@ -63,6 +66,8 @@ const Sidebar = () => {
                         abbreviation,
                         sourceLanguage,
                         copyright,
+                        name,
+                        email,
                     },
                 });
                 break;
@@ -83,6 +88,8 @@ const Sidebar = () => {
                             ...targetLanguage,
                             projectStatus: "target",
                         },
+                        name,
+                        email,
                     },
                 });
                 break;
@@ -112,6 +119,30 @@ const Sidebar = () => {
                 </VSCodeDropdown>
 
                 <div className="lg:col-span-1">
+                    <VSCodeTextField
+                        type="text"
+                        name="name"
+                        id="name"
+                        value={name}
+                        onChange={(e) => {
+                            setName((e.target as HTMLInputElement).value);
+                        }}
+                        className={"w-48 lg:w-full rounded text-sm mb-6"}
+                    >
+                        Name of the User
+                    </VSCodeTextField>
+                    <VSCodeTextField
+                        type="text"
+                        name="email"
+                        id="email"
+                        value={email}
+                        onChange={(e) => {
+                            setEmail((e.target as HTMLInputElement).value);
+                        }}
+                        className={"w-48 lg:w-full rounded text-sm mb-6"}
+                    >
+                        Email of the User
+                    </VSCodeTextField>
                     <VSCodeTextField
                         type="text"
                         name="project_name"
