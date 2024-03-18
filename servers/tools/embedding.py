@@ -290,7 +290,7 @@ class DataBase:
             print("Vocabulary size:", len(self.fasttext_model.wv))  # Print the vocabulary size
             
             # Train the model
-            self.fasttext_model.train(sentences, total_examples=len(sentences), epochs=15)
+            self.fasttext_model.train(sentences, total_examples=len(sentences), epochs=5)
             self.fasttext_model.save(self.model_name)
 
     def get_similar_words(self, word, k=5):
