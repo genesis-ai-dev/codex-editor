@@ -66,7 +66,7 @@ class DataBase:
                 self.fasttext_model = FastText.load(self.model_name)
             except:
                 self.logger.exception("FastText model could not be found.")
-                self.fasttext_model = FastText()
+                self.fasttext_model = FastText(vector_size=10)
         else:
             self.fasttext_model = None
             self.fasttext_model = None
