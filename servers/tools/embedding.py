@@ -51,8 +51,23 @@ class Database:
         self.open = True
         self.logger = logging.getLogger(__name__)
         self.model_name = f"{'/'.join(self.db_path.split('/')[:-2])}/fast_text.bin"
-        self.tokenizer = genetik_tokenizer.TokenDatabase(self.db_path) if has_tokenizer else None
-        self.fasttext_model = FastText.load(self.model_name) if use_fasttext else None
+        if has_tokenizer:
+            try:
+                self.tokenizer = genetik_tokenizer.TokenDatabase(self.db_path)
+            except Exception as e:
+                self.logger.exception(f"Error initializing TokenDatabase: {e}")
+                self.tokenizer = genetik_tokenizer.TokenDatabase(self.db_path, single_words=True, default_tokens=[])
+        else:
+            self.tokenizer = None
+
+        if use_fasttext:
+            try:
+                self.fasttext_model = FastText.load(self.model_name)
+            except Exception as e:
+                self.logger.exception(f"Error loading FastText model: {e}")
+                self.fasttext_model = FastText()
+        else:
+            self.fasttext_model = None
 
     def upsert(self, text: str, reference: str, book: str, chapter: str, verse: str, uri: str, metadata: str = '', save_now: bool = True) -> None:
         sanitized_data = sanitize_data(text, reference, book, chapter, verse, metadata)
