@@ -222,3 +222,10 @@ export const openTq = async (
 
     return await tqProvider.startWebview();
 };
+
+export const openTnAcademy = async (resource: DownloadedResource) => {
+    await vscode.commands.executeCommand(
+        "codex-editor-extension.openTnAcademy",
+        resource,
+    );
+};
