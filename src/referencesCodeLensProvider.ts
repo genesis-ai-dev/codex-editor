@@ -45,7 +45,7 @@ class ScriptureReferenceCodeLensProvider {
                 );
                 lenses.push(
                     new vscode.CodeLens(range, {
-                        title: "📚 Reference",
+                        title: "📚 Resources",
                         command: `codex-editor-extension.${showReferencesCommandName}`,
                         arguments: [verseRef, document.uri.toString()],
                     }),
@@ -59,7 +59,7 @@ class ScriptureReferenceCodeLensProvider {
                     // Fixme: Scripture display is only for codex notebook files. The file content of the .bible would need to be converted to a codex notebook manually or a virtual file would need to be created
                     lenses.push(
                         new vscode.CodeLens(range, {
-                            title: "📜 View Bible",
+                            title: "📄 Preview",
                             command: `codex-editor-extension.viewScriptureDisplay`,
                             arguments: [verseRef, document.uri.toString()],
                         }),
