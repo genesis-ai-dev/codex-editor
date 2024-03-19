@@ -574,7 +574,7 @@ export async function activate(context: vscode.ExtensionContext) {
                                 workspaceRoot,
                                 ".project",
                                 "sourceTextBibles",
-                                `${sourceLanguageCode}.bible`,
+                                `${selectedCorpusMetadata.file}.bible`,
                             );
                             const bibleFileUri = vscode.Uri.file(bibleFilePath);
                             await vscode.workspace.fs.writeFile(
