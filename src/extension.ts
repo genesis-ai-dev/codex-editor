@@ -189,19 +189,21 @@ export async function activate(context: vscode.ExtensionContext) {
     // Set to serif font by default in workspace
 
     const fallbackFont = "serif";
-    config.update(
-        "editor.fontFamily",
-        fallbackFont,
-        vscode.ConfigurationTarget.Workspace,
-    );
+    // config.update(
+    //     "editor.fontFamily",
+    //     fallbackFont,
+    //     vscode.ConfigurationTarget.Workspace,
+    // );
+
     // Set to 16px font size by default in workspace
-    config.update("editor.fontSize", 16, vscode.ConfigurationTarget.Workspace);
+    // config.update("editor.fontSize", 16, vscode.ConfigurationTarget.Workspace);
     // Set cursor style to line-thin by default in workspace
     config.update(
         "editor.cursorStyle",
         "line-thin",
         vscode.ConfigurationTarget.Workspace,
     );
+
     // TODO: set up the layout for the workspace
     // FIXME: this way of doing things clobbers the users existing settings.
     // These settings should probably be bundled in the app only, and not applied via the extension.
@@ -841,6 +843,8 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.executeCommand("workbench.action.focusAuxiliaryBar");
 
     // Try to set workspace font to target language font
+    // FIXME: we should be language-scoping to scripture language or file type if possible, and then pulling down both source and target fonts
+    // Cf. https://stackoverflow.com/a/64722109
     vscode.window.showInformationMessage("Setting font to target language...");
     vscode.commands.executeCommand(
         "codex-editor.setEditorFontToTargetLanguage",
