@@ -9,10 +9,10 @@ from txtai import Embeddings
 import string
 try:
     from tools.codex_tools import extract_verses, extract_verses_bible
-    from tools.nlp import genetik_tokenizer
+    from servers.tools.nlp import genetic_tokenizer
 except ImportError:
     from codex_tools import extract_verses, extract_verses_bible
-    from nlp import genetik_tokenizer
+    from servers.tools.nlp import genetic_tokenizer
 
 
 translator = str.maketrans('', '', string.punctuation)
@@ -29,7 +29,7 @@ class Database:
         self.use_fasttext = use_fasttext
         self.model_name = f"{'/'.join(self.db_path.split('/')[:-2])}/fast_text.bin"
         self.database_name = database_name
-        self.tokenizer = genetik_tokenizer.TokenDatabase(self.db_path) if has_tokenizer else None
+        self.tokenizer = genetic_tokenizer.TokenDatabase(self.db_path) if has_tokenizer else None
 
         if use_fasttext:
             try:

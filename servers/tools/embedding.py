@@ -9,10 +9,10 @@ from txtai import Embeddings
 import string
 try:
     from tools.codex_tools import extract_verses, extract_verses_bible
-    from tools.nlp import genetik_tokenizer
+    from servers.tools.nlp import genetic_tokenizer
 except ImportError:
-    from codex_tools import extract_verses, extract_verses_bible
-    from nlp import genetik_tokenizer
+    from .codex_tools import extract_verses, extract_verses_bible
+    from .nlp import genetic_tokenizer
 
 translator = str.maketrans('', '', string.punctuation)
 
@@ -54,11 +54,11 @@ class Database:
         self.model_name = f"{'/'.join(self.db_path.split('/')[:-2])}/fast_text.bin"
         if has_tokenizer:
             try:
-                self.tokenizer = genetik_tokenizer.TokenDatabase(self.db_path + database_name)
+                self.tokenizer = genetic_tokenizer.TokenDatabase(self.db_path + database_name)
                 self.tokenizer.save()
             except Exception as e:
                 self.logger.exception(f"Error initializing TokenDatabase: {e}")
-                self.tokenizer = genetik_tokenizer.TokenDatabase(self.db_path + database_name, single_words=True, default_tokens=[])
+                self.tokenizer = genetic_tokenizer.TokenDatabase(self.db_path + database_name, single_words=True, default_tokens=[])
         else:
             self.tokenizer = None
 
@@ -203,6 +203,6 @@ def process_verses(results, file_path, db_instance):
     for result in results:
         if len(result['text']) > 11:
             text, book, chapter, verse = result['text'], result['book'], result['chapter'], result['verse']
-            reference =db_instance.database_name+ f'{book} {chapter}:{verse}'
+            reference = file_path + db_instance.database_name+ f'{book} {chapter}:{verse}'
             db_instance.queue_upsert(text=text, book=book, chapter=chapter, reference=reference, verse=verse, uri=file_path.as_posix())
             db_instance.tokenizer.upsert_text(text)
