@@ -79,22 +79,16 @@ function extractPotentialVrefs(line: string): string[] {
     return matches || [];
 }
 
-export async function searchVerseRefPositionIndex(searchString: string) {
-    try {
-        // Normalize the search string to match the format used in indexing
-        const normalizedSearchString = searchString;
-        // Perform the search with a filter for exact matches on the 'vref' field
-        const results: VrefSearchResult[] = miniSearch.search(
-            normalizedSearchString,
-            {
-                filter: (result) => result.vref === normalizedSearchString,
-            },
-        ) as any;
-        console.log(results);
-        return results;
-    } catch (error: any) {
-        vscode.window.showErrorMessage(
-            "Error fetching task status: " + error.message,
-        );
-    }
+export function searchVerseRefPositionIndex(searchString: string) {
+    // Normalize the search string to match the format used in indexing
+    const normalizedSearchString = searchString;
+    // Perform the search with a filter for exact matches on the 'vref' field
+    const results: VrefSearchResult[] = miniSearch.search(
+        normalizedSearchString,
+        {
+            filter: (result) => result.vref === normalizedSearchString,
+        },
+    ) as any;
+    console.log(results);
+    return results;
 }
