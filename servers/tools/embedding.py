@@ -45,7 +45,7 @@ def process_verses(results, file_path, database_name, self):
            self.queue_upsert(text=text, book=book, chapter=chapter, reference=reference, verse=verse, uri=file_path.as_posix(), database_name=database_name)
            self.tokenizer.upsert_text(text)
 
-class DataBase:
+class Database:
    def __init__(self, db_path: str, has_tokenizer: bool = False, use_fasttext: bool = False) -> None:
        self.db_path = Path(db_path).as_posix()
        self.embeddings = Embeddings(path="sentence-transformers/nli-mpnet-base-v2", content=True, objects=True)
