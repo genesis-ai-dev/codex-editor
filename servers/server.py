@@ -74,7 +74,7 @@ def start_flask_server() -> None:
     with open(os.devnull, 'w') as devnull:
         subprocess.Popen([sys.executable, flask_server_path], stdout=devnull, stderr=devnull)
         
-#threading.Thread(target=start_flask_server, daemon=True).start()
+threading.Thread(target=start_flask_server, daemon=True).start()
 
 # Initialize the language server with metadata
 server = LanguageServer("code-action-server", "v0.1")  # TODO: #1 Dynamically populate metadata from package.json?

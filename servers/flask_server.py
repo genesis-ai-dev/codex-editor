@@ -151,6 +151,7 @@ def upsert_all_resource_files():
 def upsert_all_bible_files():
     try:
         bible_files = glob.glob(f'{WORKSPACE_PATH}/**/*.bible', recursive=True)
+        
         active_db = get_database('.bible')
 
         for file_path in bible_files:
@@ -159,7 +160,7 @@ def upsert_all_bible_files():
         active_db.tokenizer.upsert_all()
         active_db.save()
 
-        return jsonify({"message": f"Upserted {len(bible_files)} .bible files"}), 200
+        return jsonify({"message": f"Upserted {len(bible_files)} .bible files {bible_files} from {WORKSPACE_PATH}"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
