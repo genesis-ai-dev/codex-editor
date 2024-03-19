@@ -44,20 +44,20 @@ export class StoryOutlineProvider implements vscode.WebviewViewProvider {
                 switch (e.type) {
                     case MessageType.openStory: {
                         if (!vscode.workspace.workspaceFolders?.length) {
-                            return vscode.window.showErrorMessage(
-                                "No workspace opened",
-                            );
+                            console.error("No workspace opened");
+                            return;
                         }
 
                         if (!(e.payload as Record<string, any>).storyNumber) {
-                            return vscode.window.showErrorMessage(
-                                "No story number provided",
-                            );
+                            console.error("No story number provided");
+                            return;
                         }
                         const storyURI = vscode.Uri.joinPath(
                             vscode.workspace.workspaceFolders?.[0].uri,
                             "ingredients",
-                            `${(e.payload as Record<string, any>).storyNumber}.md`,
+                            `${
+                                (e.payload as Record<string, any>).storyNumber
+                            }.md`,
                         );
                         await vscode.commands.executeCommand(
                             "vscode.openWith",

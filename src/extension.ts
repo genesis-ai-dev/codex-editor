@@ -170,6 +170,29 @@ const PATHS_TO_POPULATE = [
 //         return;
 //     }
 // }
+async function openWorkspace() {
+    let workspaceFolder;
+    const openFolder = await vscode.window.showOpenDialog({
+        canSelectFolders: true,
+        canSelectFiles: false,
+        canSelectMany: false,
+        openLabel: "Choose project folder",
+    });
+    if (openFolder && openFolder.length > 0) {
+        await vscode.commands.executeCommand(
+            "vscode.openFolder",
+            openFolder[0],
+            false,
+        );
+        workspaceFolder = vscode.workspace.workspaceFolders
+            ? vscode.workspace.workspaceFolders[0]
+            : undefined;
+    }
+    if (!workspaceFolder) {
+        console.error("No workspace opened.");
+        return;
+    }
+}
 
 let isExtensionInitialized = false;
 let client: LanguageClient | undefined;
@@ -275,9 +298,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 try {
                     jumpToCellInNotebook(notebookPath, chapterIndex);
                 } catch (error) {
-                    vscode.window.showErrorMessage(
-                        `Failed to open chapter: ${error}`,
-                    );
+                    console.error(`Failed to open chapter: ${error}`);
                 }
             },
         ),
@@ -296,9 +317,7 @@ export async function activate(context: vscode.ExtensionContext) {
                         vscode.ViewColumn.Beside,
                     );
                 } catch (error) {
-                    vscode.window.showErrorMessage(
-                        `Failed to open document: ${error}`,
-                    );
+                    console.error(`Failed to open document: ${error}`);
                 }
             },
         ),
@@ -323,7 +342,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     ? vscode.workspace.workspaceFolders[0]
                     : undefined;
                 if (!workspaceFolder) {
-                    vscode.window.showErrorMessage(
+                    console.error(
                         "No workspace folder found. Please open a folder to store your project in.",
                     );
                     return;
@@ -412,7 +431,7 @@ export async function activate(context: vscode.ExtensionContext) {
                             });
                         }
                     } else {
-                        vscode.window.showErrorMessage(
+                        vscode.window.showInformationMessage(
                             "Project initialization cancelled.",
                         );
                     }
@@ -576,7 +595,9 @@ export async function activate(context: vscode.ExtensionContext) {
                             const zippedLines = vrefLines
                                 .map(
                                     (vrefLine, index) =>
-                                        `${vrefLine} ${bibleLines[index] || ""}`,
+                                        `${vrefLine} ${
+                                            bibleLines[index] || ""
+                                        }`,
                                 )
                                 .filter((line) => line.trim() !== "");
 

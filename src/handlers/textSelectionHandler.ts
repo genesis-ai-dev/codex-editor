@@ -111,9 +111,9 @@ export async function performSearch(
         } catch (error: unknown) {
             console.error("Error performing search:", error);
             if (error instanceof Error) {
-                vscode.window.showErrorMessage(error.message);
+                console.error(error.message);
             } else {
-                vscode.window.showErrorMessage("An unknown error occurred");
+                console.error("An unknown error occurred");
             }
         }
     }

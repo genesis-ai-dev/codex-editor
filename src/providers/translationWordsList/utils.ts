@@ -11,9 +11,7 @@ export const getVerseTranslationWordsList = async (
 ) => {
     const { bookID, chapter, verse } = extractBookChapterVerse(verseRef);
     if (!vscode.workspace.workspaceFolders?.[0]) {
-        vscode.window.showErrorMessage(
-            "No workspace is open. Please open a workspace.",
-        );
+        console.error("No workspace is open. Please open a workspace.");
         return;
     }
     const resourceDirUri = vscode.Uri.joinPath(

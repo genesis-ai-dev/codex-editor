@@ -14,7 +14,7 @@ export const addDownloadedResourceToProjectConfig = async (
     });
 
     if (!configFileUri) {
-        await vscode.window.showErrorMessage("No workspace opened");
+        console.error("No workspace opened");
         return;
     }
 
@@ -56,7 +56,7 @@ export const getDownloadedResourcesFromProjectConfig = async () => {
     });
 
     if (!configFileUri) {
-        await vscode.window.showErrorMessage("No workspace opened");
+        console.error("No workspace opened");
         return;
     }
 

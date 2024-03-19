@@ -243,7 +243,6 @@ export class CustomWebviewProvider {
         };
         webviewView.webview.onDidReceiveMessage(
             async (message: CommentPostMessages) => {
-                console.log({ message }, "onDidReceiveMessage");
                 try {
                     switch (message.command) {
                         case "updateCommentThread": {
@@ -362,7 +361,6 @@ export class CustomWebviewProvider {
                     }
                 } catch (error) {
                     console.error("Error:", error);
-                    vscode.window.showErrorMessage("Service access failed.");
                 }
             },
         );

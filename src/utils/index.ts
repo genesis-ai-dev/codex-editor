@@ -12,7 +12,7 @@ export const getWorkSpaceFolder = (): string | undefined => {
         ? vscode.workspace.workspaceFolders[0].uri.fsPath
         : null;
     if (!workspaceFolder) {
-        vscode.window.showErrorMessage("No workspace found");
+        console.error("No workspace found");
         return;
     }
     return workspaceFolder;
