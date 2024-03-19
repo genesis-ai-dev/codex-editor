@@ -111,9 +111,9 @@ const registerReferences = (context: vscode.ExtensionContext) => {
     context.subscriptions.push(
         vscode.commands.registerCommand(
             `codex-editor-extension.${commandName}`,
-            async (verseRef: string) => {
+            (verseRef: string) => {
                 if (verseRef) {
-                    const results = await searchVerseRefPositionIndex(verseRef);
+                    const results = searchVerseRefPositionIndex(verseRef);
                     if (!results || results.length < 1) {
                         vscode.window.showInformationMessage(
                             `No references found for ${verseRef}`,
