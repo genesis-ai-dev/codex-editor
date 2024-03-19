@@ -26,7 +26,7 @@
         "viewsWelcome": [
             {
                 "view": "scripture-explorer-activity-bar",
-                "contents": "Welcome to the Codex Scripture Editor! Please setup a new translation project by clicking the button below.\n\n[Setup a New Project](command:codex-editor-extension.initializeNewProject)"
+                "contents": "Welcome to the Codex Scripture Editor! Please setup a new translation project by using the form below."
             }
         ],
         "notebookEditorDecorations": [
@@ -56,32 +56,36 @@
                     "id": "scripture-explorer-activity-bar",
                     "name": "Scripture Explorer",
                     "visibility": "visible",
+                    "initialSize": 1,
                     "icon": "$(open-editors-view-icon)"
+                },
+                {
+                    "id": "scribe-vsc.obs-create-project",
+                    "name": "Project Creation",
+                    "icon": "$(file-media)",
+                    "visibility": "visible",
+                    "type": "webview",
+                    "contextualTitle": "Create a new project",
+                    "initialSize": 4
                 }
             ],
             "resource-explorer": [
                 {
                     "id": "resource-explorer",
                     "name": "Resource Explorer",
-                    "visibility": "visible",
+                    "visibility": "collapsed",
                     "icon": "$(open-editors-view-icon)"
-                }
-            ],
-            "scribe-vsc-obs-sidebar": [
-                {
-                    "id": "scribe-vsc.obs-create-project",
-                    "name": "Obs Editor",
-                    "icon": "$(file-media)",
-                    "type": "webview",
-                    "contextualTitle": "Scribe Obs"
                 },
                 {
                     "id": "scribe-vsc.obs-resources",
                     "name": "Resources",
                     "icon": "$(file-media)",
+                    "visibility": "visible",
                     "type": "webview",
                     "contextualTitle": "Scribe Obs Story Resources"
-                },
+                }
+            ],
+            "scribe-vsc-obs-sidebar": [
                 {
                     "id": "scribe-vsc.obs-outline",
                     "name": "Stories Outline",
@@ -119,7 +123,7 @@
                 },
                 {
                     "id": "scribe-vsc-obs-sidebar",
-                    "title": "Obs Editor",
+                    "title": "OBS Editor",
                     "icon": "$(file-media)"
                 },
                 {
