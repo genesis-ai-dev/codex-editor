@@ -115,28 +115,44 @@ const registerReferences = (context: vscode.ExtensionContext) => {
                 if (verseRef) {
                     const results = await searchVerseRefPositionIndex(verseRef);
                     if (!results || results.length < 1) {
+                        vscode.window.showInformationMessage(
+                            `No references found for ${verseRef}`,
+                        );
                         return;
                     }
-                    const selectedResult = results[0]; // FIXME: if there are multiple bibles, use the bible that matches the source in metadata file
-
-                    vscode.commands.executeCommand(
-                        "vscode.open",
-                        vscode.Uri.file(selectedResult.uri),
-                        {
-                            selection: new vscode.Range(
-                                new vscode.Position(
-                                    selectedResult.position.line,
-                                    selectedResult.position.character,
-                                ),
-                                new vscode.Position(
-                                    selectedResult.position.line,
-                                    selectedResult.position.character,
-                                ),
+                    // Create an array of vscode.Location objects for all results
+                    const locations = results.map((result) => {
+                        const uri = vscode.Uri.file(result.uri);
+                        const range = new vscode.Range(
+                            new vscode.Position(
+                                result.position.line,
+                                result.position.character,
                             ),
-                            preview: true,
-                            viewColumn: vscode.ViewColumn.Beside,
-                        },
-                    );
+                            new vscode.Position(
+                                result.position.line,
+                                result.position.character,
+                            ),
+                        );
+                        return new vscode.Location(uri, range);
+                    });
+
+                    // Check if there are any locations to show
+                    if (locations.length > 0) {
+                        const activeEditor = vscode.window.activeTextEditor;
+                        if (activeEditor) {
+                            vscode.commands.executeCommand(
+                                "editor.action.peekLocations",
+                                activeEditor.document.uri,
+                                activeEditor.selection.start,
+                                locations,
+                                "peek",
+                            );
+                        }
+                    } else {
+                        vscode.window.showInformationMessage(
+                            `No references found for ${verseRef}`,
+                        );
+                    }
                 } else {
                     vscode.window.showInformationMessage(
                         `No references found for ${verseRef}`,
