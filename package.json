@@ -168,6 +168,10 @@
                 "command": "codex-editor-extension.initializeNewProject"
             },
             {
+                "command": "codex-editor-extension.downloadSourceTextBibles",
+                "title": "Download Source Text Bible"
+            },
+            {
                 "command": "codex-notebook-extension.openFile",
                 "title": "Open File"
             },

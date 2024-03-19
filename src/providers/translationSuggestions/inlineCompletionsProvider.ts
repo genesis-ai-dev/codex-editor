@@ -38,9 +38,9 @@ export async function provideInlineCompletionItems(
 function preprocessDocument(docText: string) {
     // Split all lines
     const lines = docText.split("\r\n");
-    // Apply preprocessing rules to each line
+    // Apply preprocessing rules to each line except the last
     for (let i = 0; i < lines.length; i++) {
-        if (i > 0 && lines[i - 1].trim() !== "" && isStartWithComment(lines[i])) {
+        if (i > 0 && lines[i - 2].trim() !== "" && isStartWithComment(lines[i])) {
             lines[i] = "\r\n" + lines[i];
         }
     }
