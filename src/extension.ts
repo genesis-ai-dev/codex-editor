@@ -91,6 +91,7 @@ import {
 } from "./providers/scm/git";
 import { TranslationNotesProvider } from "./providers/translationNotes/TranslationNotesProvider";
 import { registerScmStatusBar } from "./providers/scm/statusBar";
+import { EbibleCorpusMetadata, downloadEBibleText, ensureVrefList, getEBCorpusMetadataByLanguageCode } from "./utils/ebibleCorpusUtils";
 
 const MIN_PYTHON = semver.parse("3.7.9");
 const ROOT_PATH = getWorkSpaceFolder();
@@ -396,6 +397,9 @@ export async function activate(context: vscode.ExtensionContext) {
                 await vscode.commands.executeCommand(
                     "codex-editor.setEditorFontToTargetLanguage",
                 );
+                await vscode.commands.executeCommand(
+                    "codex-editor.downloadSourceTextBibles",
+                );
             },
         ),
     );
@@ -454,6 +458,85 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         },
     );
+
+    vscode.commands.registerCommand(
+        "codex-editor-extension.downloadSourceTextBibles",
+        async () => {
+            const projectMetadata = await getProjectMetadata();
+            const sourceLanguageCode = projectMetadata?.languages?.find(
+                (language) =>
+                    language.projectStatus === LanguageProjectStatus.SOURCE,
+            )?.tag;
+            if (sourceLanguageCode) {
+                const ebibleCorpusMetadata: EbibleCorpusMetadata[] = getEBCorpusMetadataByLanguageCode(sourceLanguageCode);
+                if (ebibleCorpusMetadata.length === 0) {
+                    vscode.window.showErrorMessage(
+                        `No source text bibles found for ${sourceLanguageCode} in the eBible corpus.`,
+                    );
+                    return;
+                }
+                const selectedCorpus = await vscode.window.showQuickPick(
+                    ebibleCorpusMetadata.map((corpus) => corpus.file),
+                    {
+                        placeHolder: "Select a source text bible to download",
+                    },
+                );
+
+                if (selectedCorpus) {
+                    const selectedCorpusMetadata = ebibleCorpusMetadata.find(
+                        (corpus) => corpus.file === selectedCorpus,
+                    );
+                    if (selectedCorpusMetadata) {
+                        const workspaceRoot =
+                            vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+                        if (workspaceRoot) {
+                            const vrefPath = await ensureVrefList(workspaceRoot);
+
+                            const sourceTextBiblePath = path.join(
+                                workspaceRoot,
+                                ".project",
+                                "sourceTextBibles",
+                                selectedCorpusMetadata.file,
+                            );
+                            const sourceTextBiblePathUri =
+                                vscode.Uri.file(sourceTextBiblePath);
+                            try {
+                                console.log("Checking if source text bible exists");
+                                await vscode.workspace.fs.stat(
+                                    sourceTextBiblePathUri,
+                                );
+                                vscode.window.showInformationMessage(
+                                    `Source text bible ${selectedCorpusMetadata.file} already exists.`,
+                                );
+                            } catch {
+                                await downloadEBibleText(selectedCorpusMetadata, workspaceRoot);
+                                vscode.window.showInformationMessage(
+                                    `Source text bible for ${selectedCorpusMetadata.lang} downloaded successfully.`,
+                                );
+                            }
+
+                            // Read the vref.txt file and the newly downloaded source text bible file
+                            const vrefFilePath = vscode.Uri.file(vrefPath);
+                            const vrefFileData = await vscode.workspace.fs.readFile(vrefFilePath);
+                            const vrefLines = new TextDecoder("utf-8").decode(vrefFileData).split(/\r?\n/).filter(line => line.trim() !== "");
+
+                            const sourceTextBibleData = await vscode.workspace.fs.readFile(sourceTextBiblePathUri);
+                            const bibleLines = new TextDecoder("utf-8").decode(sourceTextBibleData).split(/\r?\n/).filter(line => line.trim() !== "");
+
+                            // Zip the lines together
+                            const zippedLines = vrefLines.map((vrefLine, index) => `${vrefLine} ${bibleLines[index] || ''}`).filter(line => line.trim() !== "");
+
+                            // Write the zipped lines to a new .bible file
+                            const bibleFilePath = path.join(workspaceRoot, ".project", "sourceTextBibles", `${sourceLanguageCode}.bible`);
+                            const bibleFileUri = vscode.Uri.file(bibleFilePath);
+                            await vscode.workspace.fs.writeFile(bibleFileUri, new TextEncoder().encode(zippedLines.join("\n")));
+
+                            vscode.window.showInformationMessage(`.bible file created successfully at ${bibleFilePath}`);
+                        }
+                    }
+                }
+            }
+        });
 
     // Register and create the Scripture Tree View
     const scriptureTreeViewProvider = new CodexNotebookProvider(ROOT_PATH);
@@ -696,7 +779,7 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(commandRegistration);
 
     // Make scripture-explorer-activity-bar the active primary sidebar view by default
-    vscode.commands.executeCommand("workbench.action.activityBarLocation.hide");
+    // vscode.commands.executeCommand("workbench.action.activityBarLocation.hide");
     vscode.commands.executeCommand(
         "workbench.view.extension.scripture-explorer-activity-bar",
     );
@@ -706,6 +789,10 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.window.showInformationMessage("Setting font to target language...");
     vscode.commands.executeCommand(
         "codex-editor.setEditorFontToTargetLanguage",
+    );
+    vscode.window.showInformationMessage("Ensuring Source Bible is downloaded...");
+    vscode.commands.executeCommand(
+        "codex-editor.downloadSourceTextBibles",
     );
 
     scmInterval = setInterval(stageAndCommit, 1000 * 60 * 15);
