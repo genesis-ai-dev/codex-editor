@@ -9,6 +9,7 @@ import {
     openBible,
     openOBS,
     openTn,
+    openTnAcademy,
     openTq,
     openTranslationHelper,
     openTw,
@@ -277,6 +278,10 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
             }
             case "tq": {
                 await openTq(this._context!, resource);
+                break;
+            }
+            case "ta": {
+                await openTnAcademy(resource);
                 break;
             }
             default:
