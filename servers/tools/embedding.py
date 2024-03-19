@@ -36,9 +36,10 @@ EMBEDDINGS: Embeddings | None = None
 class Database:
     def __init__(self, db_path: str, database_name: str, has_tokenizer: bool = False, use_fasttext: bool = False) -> None:
         global EMBEDDINGS
-        self.db_path = Path(db_path).as_posix()
+        self.db_path = Path(db_path).as_posix() + "/unified_database/"
         if EMBEDDINGS is None:
             EMBEDDINGS = Embeddings(path="sentence-transformers/nli-mpnet-base-v2", content=True, objects=True)
+            EMBEDDINGS.save(db_path)
             try:
                 EMBEDDINGS.load(self.db_path)
             except Exception as e:
@@ -72,14 +73,16 @@ class Database:
     def upsert(self, text: str, reference: str, book: str, chapter: str, verse: str, uri: str, metadata: str = '', save_now: bool = True) -> None:
         sanitized_data = sanitize_data(text, reference, book, chapter, verse, metadata)
         data = create_data(sanitized_data, uri, self.database_name)
-        self.embeddings.upsert([(reference, data)])
+        unique_id = f"{reference}_{self.database_name}"
+        self.embeddings.upsert([(unique_id, data)])
         if save_now:
             self.save()
 
     def queue_upsert(self, text: str, reference: str, book: str, chapter: str, verse: str, uri: str, metadata: str = '', save_now: bool = True) -> None:
         sanitized_data = sanitize_data(text, reference, book, chapter, verse, metadata)
         data = create_data(sanitized_data, uri, self.database_name)
-        self.queue.append((reference, data))
+        unique_id = f"{reference}_{self.database_name}"
+        self.queue.append((unique_id, data))
         if len(self.queue) % 1000 == 0:
             self.embeddings.upsert(self.queue)
             self.save()
