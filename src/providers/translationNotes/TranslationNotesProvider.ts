@@ -28,7 +28,7 @@ const getTnUri = (bookID: string): Uri => {
     return Uri.joinPath(
         workspaceRootUri,
         // `resources/unfoldingWord/tn_${bookID}.tsv`,
-        `.scribe/resources/en_tn/tn_${bookID}.tsv`,
+        `.project/resources/en_tn/tn_${bookID}.tsv`,
     );
 };
 

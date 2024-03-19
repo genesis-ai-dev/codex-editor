@@ -181,7 +181,7 @@ def upsert_all_resource_files() -> tuple:
         A tuple containing a JSON response and an HTTP status code.
     """
     try:
-        resource_files = glob.glob(f'{WORKSPACE_PATH}/resources/*', recursive=True)
+        resource_files = glob.glob(f'{WORKSPACE_PATH}/.project/resources/*', recursive=True)
         use_tokenizer, use_fasttext = initilaizers["resources"]
         active_db = get_active_database("resources", use_tokenizer, use_fasttext)
 

@@ -20,7 +20,7 @@ export class ResourceProvider implements vscode.TreeDataProvider<Node> {
     readonly onDidChangeTreeData: vscode.Event<Node | undefined | void> =
         this._onDidChangeTreeData.event;
 
-    constructor(private workspaceRoot: string | undefined) {}
+    constructor(private workspaceRoot: string | undefined) { }
 
     refresh(): void {
         this._onDidChangeTreeData.fire();
@@ -48,6 +48,7 @@ export class ResourceProvider implements vscode.TreeDataProvider<Node> {
                     );
                     const resourcePath = path.join(
                         this.workspaceRoot,
+                        ".project",
                         "resources",
                         element.resourceUri.fsPath,
                     );
@@ -55,7 +56,7 @@ export class ResourceProvider implements vscode.TreeDataProvider<Node> {
                 }
             }
         } else {
-            const resourcePath = path.join(this.workspaceRoot, "resources");
+            const resourcePath = path.join(this.workspaceRoot, ".project", "resources");
             return this.getFilesInDirectory(resourcePath);
         }
         return Promise.resolve([]);
