@@ -37,9 +37,10 @@ class Database:
     def __init__(self, db_path: str, database_name: str, has_tokenizer: bool = False, use_fasttext: bool = False) -> None:
         global EMBEDDINGS
         self.db_path = Path(db_path).as_posix() + "/unified_database/"
+        self.logger = logging.getLogger(__name__)
+
         if EMBEDDINGS is None:
             EMBEDDINGS = Embeddings(path="sentence-transformers/nli-mpnet-base-v2", content=True, objects=True)
-            EMBEDDINGS.save(db_path)
             try:
                 EMBEDDINGS.load(self.db_path)
             except Exception as e:
@@ -50,7 +51,6 @@ class Database:
         self.use_fasttext = use_fasttext
         self.queue = []
         self.open = True
-        self.logger = logging.getLogger(__name__)
         self.model_name = f"{'/'.join(self.db_path.split('/')[:-2])}/fast_text.bin"
         if has_tokenizer:
             try:
@@ -70,7 +70,7 @@ class Database:
         else:
             self.fasttext_model = None
 
-    def upsert(self, text: str, reference: str, book: str, chapter: str, verse: str, uri: str, metadata: str = '', save_now: bool = True) -> None:
+    def upsert(self, text: str, reference: str, book: str, chapter: str, verse: str, uri: str, metadata: str = '', save_now: bool = False) -> None:
         sanitized_data = sanitize_data(text, reference, book, chapter, verse, metadata)
         data = create_data(sanitized_data, uri, self.database_name)
         unique_id = f"{reference}_{self.database_name}"
