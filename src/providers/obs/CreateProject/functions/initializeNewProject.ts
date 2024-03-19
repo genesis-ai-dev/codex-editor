@@ -4,6 +4,7 @@ import {
     ProjectDetails,
 } from "../../../../utils/projectUtils";
 import { createProjectNotebooks } from "../../../../utils/codexNotebookUtils";
+import { indexVerseRefsInSourceText } from "../../../../commands/indexVrefsCommand";
 
 export const initializeNewProject = async (
     projectDetails: ProjectDetails | undefined,
@@ -82,6 +83,14 @@ export const initializeNewProject = async (
                 );
                 await createProjectNotebooks({ books });
             }
+
+            // Refresh the scripture tree view
+            await vscode.commands.executeCommand(
+                "scripture-explorer-activity-bar.refreshEntry",
+            );
+            // Trigger indexing of verse references in the source text
+            indexVerseRefsInSourceText();
+
         } else {
             vscode.window.showErrorMessage("Project initialization cancelled.");
         }
