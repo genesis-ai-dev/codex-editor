@@ -74,8 +74,6 @@ import {
     State,
     integer,
 } from "vscode-languageclient/node";
-import { registerCommentsProvider } from "./commentsProvider";
-import { registerCommentsWebviewProvider } from "./providers/commentsWebview/customCommentsWebviewProvider";
 import { registerParallelViewWebviewProvider } from "./providers/parallelPassagesWebview/customParallelPassagesWebviewProvider";
 import { registerDictionaryTableProvider } from "./providers/dictionaryTable/dictionaryTableProvider";
 import { CreateProjectProvider } from "./providers/obs/CreateProject/CreateProjectProvider";
