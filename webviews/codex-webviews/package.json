@@ -10,7 +10,7 @@
         "build:CommentsView": "APP_NAME=CommentsView vite build",
         "build:ParallelView": "APP_NAME=ParallelView vite build",
         "build:TranslationNotesView": "APP_NAME=TranslationNotesView vite build",
-        "build:all": "npm run build:ChatView && npm run build:CommentsView && npm run build:ParallelView && npm run build:ScriptureViewer && npm run build:TranslationNotesView",
+        "build:all": "npm run build:ParallelView && npm run build:TranslationNotesView",
         "watch": "nodemon --watch src --ext ts,tsx --exec npm run build:all",
         "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
         "preview": "vite preview"

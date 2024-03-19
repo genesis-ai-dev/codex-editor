@@ -54,8 +54,8 @@ export async function findReferences({
             ? fileType.substring(1)
             : fileType;
         const pattern = normalizedFileType
-            ? `resources/**/*.${normalizedFileType}`
-            : "resources/**";
+            ? `.project/resources/**/*.${normalizedFileType}`
+            : ".project/resources/**";
         const files = await vscode.workspace.findFiles(
             new vscode.RelativePattern(folder, pattern),
         );

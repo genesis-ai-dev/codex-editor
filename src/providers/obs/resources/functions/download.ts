@@ -36,14 +36,14 @@ export const downloadResource = async (resource: Resource) => {
             throw new Error("No resource given not found");
         }
 
-        // create the .scribe/resources folder if it does not exist
+        // create the .project/resources folder if it does not exist
         const currentFolderURI = vscode.workspace.workspaceFolders?.[0].uri;
         if (!currentFolderURI) {
             throw new Error("No workspace opened");
         }
         const resourcesFolder = vscode.Uri.joinPath(
             currentFolderURI,
-            ".scribe",
+            ".project",
             "resources",
         );
         const resourcesFolderExists = await directoryExists(resourcesFolder);
@@ -101,7 +101,7 @@ export const downloadResource = async (resource: Resource) => {
                 const bufferContent = Buffer.from(
                     await item.async("arraybuffer"),
                 );
-                // save the resource to the local disk in the current project folder named .scribe/resources
+                // save the resource to the local disk in the current project folder named .project/resources
                 await vscode.workspace.fs.writeFile(
                     vscode.Uri.joinPath(resourcesFolder, item.name),
                     bufferContent,

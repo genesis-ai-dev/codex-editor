@@ -331,7 +331,7 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
             const resourceRootUri = workspaceRootUri?.with({
                 path: vscode.Uri.joinPath(
                     workspaceRootUri,
-                    ".scribe/resources",
+                    ".project/resources",
                     resource.name,
                 ).path,
             });
