@@ -63,6 +63,8 @@ def debug():
 def initialize_databases():
     global WORKSPACE_PATH
     work_path = request.args.get("data_path", default="")
+    if "codex-editor " in work_path:
+        return jsonify("Ignoring request")
     if not work_path:
         return jsonify({"error": "Missing 'data_path' argument"}), 400
     WORKSPACE_PATH = work_path.replace('file://', '')
@@ -120,6 +122,7 @@ def upsert_bible_file():
 @app.route('/upsert_all_codex_files', methods=['GET'])
 def upsert_all_codex_files():
     codex_files = glob.glob(f'{WORKSPACE_PATH}/**/*.codex', recursive=True)
+
     active_db = get_database('.codex')
 
     for file_path in codex_files:
@@ -127,7 +130,7 @@ def upsert_all_codex_files():
     active_db.tokenizer.upsert_all()
     active_db.upsert_queue()
     active_db.save()
-    return jsonify({"message": f"Upserted {len(codex_files)} .codex files {codex_files} from {codex_files}"}), 200
+    return jsonify({"message": f"Upserted {len(codex_files)} .codex files {codex_files} from {WORKSPACE_PATH}"}), 200
 
 
 @app.route('/upsert_all_resource_files', methods=['GET'])
