@@ -44,6 +44,7 @@ class Database:
             try:
                 EMBEDDINGS.load(self.db_path)
             except Exception as e:
+                EMBEDDINGS.save(self.db_path)
                 self.logger.exception(f"Error loading embeddings: {e}")
         self.embeddings = EMBEDDINGS
         self.database_name = database_name
@@ -203,6 +204,6 @@ def process_verses(results, file_path, db_instance):
     for result in results:
         if len(result['text']) > 11:
             text, book, chapter, verse = result['text'], result['book'], result['chapter'], result['verse']
-            reference = file_path + db_instance.database_name+ f'{book} {chapter}:{verse}'
-            db_instance.queue_upsert(text=text, book=book, chapter=chapter, reference=reference, verse=verse, uri=file_path.as_posix())
+            reference = "db:"+db_instance.database_name+ f'{book} {chapter}:{verse}'
+            db_instance.queue_upsert(text=text, book=book, chapter=chapter, reference=reference, verse=verse, uri=str(file_path.as_posix()))
             db_instance.tokenizer.upsert_text(text)

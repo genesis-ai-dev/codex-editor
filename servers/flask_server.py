@@ -127,7 +127,7 @@ def upsert_all_codex_files():
     active_db.tokenizer.upsert_all()
     active_db.upsert_queue()
     active_db.save()
-    return jsonify({"message": f"Upserted {len(codex_files)} .codex files"}), 200
+    return jsonify({"message": f"Upserted {len(codex_files)} .codex files {codex_files} from {codex_files}"}), 200
 
 
 @app.route('/upsert_all_resource_files', methods=['GET'])
@@ -149,20 +149,19 @@ def upsert_all_resource_files():
 
 @app.route('/upsert_all_bible_files', methods=['GET'])
 def upsert_all_bible_files():
-    try:
-        bible_files = glob.glob(f'{WORKSPACE_PATH}/**/*.bible', recursive=True)
-        
-        active_db = get_database('.bible')
+    bible_files = glob.glob(f'{WORKSPACE_PATH}/**/*.bible', recursive=True)
+    
+    active_db = get_database('.bible')
 
-        for file_path in bible_files:
-            active_db.upsert_file(file_path)
-        active_db.upsert_queue()
-        active_db.tokenizer.upsert_all()
-        active_db.save()
+    for file_path in bible_files:
+        active_db.upsert_file(file_path)
+    active_db.upsert_queue()
+    active_db.tokenizer.upsert_all()
+    active_db.save()
 
-        return jsonify({"message": f"Upserted {len(bible_files)} .bible files {bible_files} from {WORKSPACE_PATH}"}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    return jsonify({"message": f"Upserted {len(bible_files)} .bible files {bible_files} from {WORKSPACE_PATH}"}), 200
+    # except Exception as e:
+    #     return jsonify({"error": str(e)}), 500
 
 
 @app.route('/upsert_data', methods=['POST'])
