@@ -123,9 +123,10 @@ def upsert_all_codex_files():
     active_db = get_database('.codex')
 
     for file_path in codex_files:
-        active_db.upsert_file(file_path)
-        sleep(0.1)
+        active_db.queue_upsert(file_path)
     active_db.tokenizer.upsert_all()
+    active_db.upsert_queue()
+    active_db.save()
     return jsonify({"message": f"Upserted {len(codex_files)} .codex files"}), 200
 
 
@@ -136,8 +137,10 @@ def upsert_all_resource_files():
         active_db = get_database('resources')
 
         for file_path in resource_files:
-            active_db.upsert_file(file_path)
-            active_db.save()
+            active_db.queue_upsert(file_path)
+        active_db.upsert_queue()
+        active_db.save()
+
 
         return jsonify({"message": f"Upserted {len(resource_files)} resource files"}), 200
     except Exception as e:
@@ -151,8 +154,10 @@ def upsert_all_bible_files():
         active_db = get_database('.bible')
 
         for file_path in bible_files:
-            active_db.upsert_file(file_path)
+            active_db.queue_upsert(file_path)
+        active_db.upsert_queue()
         active_db.tokenizer.upsert_all()
+        active_db.save()
 
         return jsonify({"message": f"Upserted {len(bible_files)} .bible files"}), 200
     except Exception as e:
