@@ -123,7 +123,7 @@ def upsert_all_codex_files():
     active_db = get_database('.codex')
 
     for file_path in codex_files:
-        active_db.queue_upsert(file_path)
+        active_db.upsert_file(file_path)
     active_db.tokenizer.upsert_all()
     active_db.upsert_queue()
     active_db.save()
@@ -137,7 +137,7 @@ def upsert_all_resource_files():
         active_db = get_database('resources')
 
         for file_path in resource_files:
-            active_db.queue_upsert(file_path)
+            active_db.upsert_file(file_path)
         active_db.upsert_queue()
         active_db.save()
 
@@ -154,7 +154,7 @@ def upsert_all_bible_files():
         active_db = get_database('.bible')
 
         for file_path in bible_files:
-            active_db.queue_upsert(file_path)
+            active_db.upsert_file(file_path)
         active_db.upsert_queue()
         active_db.tokenizer.upsert_all()
         active_db.save()
