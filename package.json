@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.0.3",
+    "version": "0.0.5",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -42,15 +42,6 @@
             }
         ],
         "views": {
-            "semantic-view": [
-                {
-                    "type": "webview",
-                    "id": "semantic-sidebar",
-                    "name": "Semantic View",
-                    "icon": "$(unfold)",
-                    "contextualTitle": "Semantic View"
-                }
-            ],
             "parallel-passages-view": [
                 {
                     "type": "webview",
@@ -110,6 +101,13 @@
                     "name": "Dictionary Table",
                     "icon": "$(notebook)",
                     "contextualTitle": "Dictionary Table"
+                },
+                {
+                    "type": "webview",
+                    "id": "semantic-sidebar",
+                    "name": "Thesaurus",
+                    "icon": "$(unfold)",
+                    "contextualTitle": "Semantic View"
                 }
             ]
         },
@@ -455,12 +453,14 @@
         "codex-types": "^0.0.2",
         "fitty": "^2.4.2",
         "html-loader": "^4.2.0",
+        "i": "^0.3.7",
         "jszip": "^3.10.1",
         "markdown-loader": "^8.0.0",
         "md5": "^2.3.0",
         "minisearch": "^6.3.0",
         "moment": "^2.30.1",
         "path": "^0.12.7",
+        "pnpm": "^8.15.5",
         "semver": "^7.6.0",
         "sinon": "^17.0.1",
         "uuid": "^9.0.1",
@@ -473,6 +473,8 @@
     "extensionDependencies": [
         "project-accelerate.shared-state-store",
         "ms-python.python",
-        "project-accelerate.scripture-language-support"
+        "project-accelerate.scripture-language-support",
+        "project-accelerate.codex-scripture-viewer",
+        "project-accelerate.codex-chat-and-comments"
     ]
 }
