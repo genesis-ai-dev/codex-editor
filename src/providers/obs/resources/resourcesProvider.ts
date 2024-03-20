@@ -1,4 +1,3 @@
-import path from "node:path";
 import * as vscode from "vscode";
 import { MessageType } from "../CreateProject/types";
 import { downloadResource } from "./functions/download";
@@ -10,8 +9,11 @@ import {
     openBible,
     openOBS,
     openTn,
+    openTnAcademy,
+    openTq,
     openTranslationHelper,
     openTw,
+    openTwl,
 } from "./functions/openResource";
 import { getUri } from "../CreateProject/utilities/getUri";
 import { getNonce } from "../CreateProject/utilities/getNonce";
@@ -77,9 +79,16 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
                             );
                             return;
                         }
+
                         const downloadedResourceInfo = await downloadResource(
                             (e.payload as any)?.resource as any,
                         );
+                        const localPath: string =
+                            downloadedResourceInfo?.folder.path.replace(
+                                vscode.workspace.workspaceFolders?.[0].uri
+                                    .path + "/",
+                                "",
+                            ) ?? "";
 
                         if (!downloadedResourceInfo) {
                             vscode.window.showErrorMessage(
@@ -90,11 +99,7 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
                         const downloadedResource: DownloadedResource = {
                             name: downloadedResourceInfo?.resource.name ?? "",
                             id: downloadedResourceInfo?.resource.id ?? "",
-                            localPath: path.relative(
-                                vscode.workspace.workspaceFolders?.[0].uri
-                                    .path ?? "",
-                                downloadedResourceInfo?.folder?.path ?? "",
-                            ),
+                            localPath: localPath,
                             type: downloadedResourceInfo?.resourceType ?? "",
                             remoteUrl:
                                 downloadedResourceInfo?.resource.url ?? "",
@@ -260,11 +265,23 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
                 const { bookID } = extractBookChapterVerse(
                     verseRef?.verseRef ?? "GEN 1:1",
                 );
-                newViewCol = (await openTn(resource, bookID))?.viewColumn;
+                newViewCol = (await openTn(this.context, resource))?.viewColumn;
                 break;
             }
             case "tw": {
                 await openTw(this._context!, resource);
+                break;
+            }
+            case "twl": {
+                await openTwl(this._context!, resource);
+                break;
+            }
+            case "tq": {
+                await openTq(this._context!, resource);
+                break;
+            }
+            case "ta": {
+                await openTnAcademy(resource);
                 break;
             }
             default:
@@ -319,7 +336,7 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
             const resourceRootUri = workspaceRootUri?.with({
                 path: vscode.Uri.joinPath(
                     workspaceRootUri,
-                    ".scribe/resources",
+                    ".project/resources",
                     resource.name,
                 ).path,
             });

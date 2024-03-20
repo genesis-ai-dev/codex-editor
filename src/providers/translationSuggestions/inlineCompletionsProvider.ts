@@ -38,9 +38,9 @@ export async function provideInlineCompletionItems(
 function preprocessDocument(docText: string) {
     // Split all lines
     const lines = docText.split("\r\n");
-    // Apply preprocessing rules to each line
+    // Apply preprocessing rules to each line except the last
     for (let i = 0; i < lines.length; i++) {
-        if (i > 0 && lines[i - 1].trim() !== "" && isStartWithComment(lines[i])) {
+        if (i > 0 && lines[i - 2].trim() !== "" && isStartWithComment(lines[i])) {
             lines[i] = "\r\n" + lines[i];
         }
     }
@@ -79,6 +79,15 @@ async function getCompletionText(
     let prompt = "";
     // Define a set of stop sequences that signal the end of a completion suggestion.
     const stop = ["\n", "\n\n", "\r\r", "\r\n\r", "\n\r\n", "```"];
+
+    // Extract the most recent vref from the text content to the left of the cursor
+    const vrefs = textBeforeCursor.match(verseRefRegex);
+    const mostRecentVref = vrefs ? vrefs[vrefs.length - 1] : null;
+    if (mostRecentVref) {
+        // If a vref is found, extract the book part (e.g., "MAT" from "MAT 1:1") and add it to the stop symbols
+        const bookPart = mostRecentVref.split(" ")[0];
+        stop.push(bookPart);
+    }
 
     // Retrieve the content of the current line up to the cursor position and trim any whitespace.
     const lineContent = document.lineAt(position.line).text;
@@ -179,7 +188,7 @@ async function getCompletionTextGPT(
         {
             role: "system",
             content:
-                "No communication! Just continue writing the code provided by the user.",
+                "No communication! Just continue writing the text provided by the user in the language they are using.",
         },
         { role: "user", content: textBeforeCursor },
     ];

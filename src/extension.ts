@@ -3,7 +3,10 @@
 import * as vscode from "vscode";
 import { CodexKernel } from "./controller";
 import { CodexContentSerializer } from "./serializer";
-import { checkServerHeartbeat } from "./handlers/textSelectionHandler";
+import {
+    checkServerHeartbeat,
+    registerTextSelectionHandler,
+} from "./handlers/textSelectionHandler";
 
 import {
     NOTEBOOK_TYPE,
@@ -28,7 +31,10 @@ import {
     initializeProjectMetadata,
     promptForProjectDetails,
 } from "./utils/projectUtils";
-import { checkTaskStatus, indexVrefs } from "./commands/indexVrefsCommand";
+import {
+    searchVerseRefPositionIndex,
+    indexVerseRefsInSourceText,
+} from "./commands/indexVrefsCommand";
 import {
     triggerInlineCompletion,
     provideInlineCompletionItems,
@@ -69,7 +75,6 @@ import {
     integer,
 } from "vscode-languageclient/node";
 import { registerCommentsProvider } from "./commentsProvider";
-import { registerChatProvider } from "./providers/chat/customChatWebviewProvider";
 import { registerCommentsWebviewProvider } from "./providers/commentsWebview/customCommentsWebviewProvider";
 import { registerParallelViewWebviewProvider } from "./providers/parallelPassagesWebview/customParallelPassagesWebviewProvider";
 import { registerSemanticViewProvider } from "./providers/semanticView/customSemanticViewProvider";
@@ -86,71 +91,86 @@ import {
     sync,
 } from "./providers/scm/git";
 import { TranslationNotesProvider } from "./providers/translationNotes/TranslationNotesProvider";
-import { registerScriptureViewerProvider } from "./providers/scriptureView/ScriptureViewerPanel";
 import { registerScmStatusBar } from "./providers/scm/statusBar";
+import { DownloadedResource } from "./providers/obs/resources/types";
+import { translationAcademy } from "./providers/translationAcademy/provider";
+import {
+    EbibleCorpusMetadata,
+    downloadEBibleText,
+    ensureVrefList,
+    getEBCorpusMetadataByLanguageCode,
+} from "./utils/ebibleCorpusUtils";
 
 const MIN_PYTHON = semver.parse("3.7.9");
 const ROOT_PATH = getWorkSpaceFolder();
 
 const PATHS_TO_POPULATE = [
     // "metadata.json", // This is where we store the project metadata in scripture burrito format, but we create this using the project initialization command
-    { filePath: "comments.json", defaultContent: "" }, // This is where we store the VS Code comments api comments, such as on .bible files
-    { filePath: "notebook-comments.json", defaultContent: "[]" }, // We can't use the VS Code comments api for notebooks (.codex files), so a second files avoids overwriting conflicts
-    { filePath: "chat-threads.json", defaultContent: "[]" }, // This is where chat thread conversations are saved
     { filePath: "drafts/" }, // This is where we store the project drafts, including project.dictionary and embedding dbs
     { filePath: "drafts/target/" }, // This is where we store the drafted scripture in particular as .codex files
     { filePath: "drafts/project.dictionary", defaultContent: "" }, // This is where we store the project dictionary
+    { filePath: "chat-threads.json", defaultContent: "" }, // This is where we store the chat threads
 ];
 
-if (!ROOT_PATH) {
-    vscode.window
-        .showInformationMessage(
-            "No project found. You need to select a project folder for your new project, or open an existing project folder.",
-            { modal: true },
-            "Select a Folder",
-        )
-        .then((result) => {
-            if (result === "Select a Folder") {
-                openWorkspace();
-                vscode.commands.executeCommand(
-                    "codex-editor-extension.initializeNewProject",
-                );
-            } else {
-                vscode.commands.executeCommand("workbench.action.quit");
-            }
-        });
-} else {
-    const metadataPath = path.join(ROOT_PATH, "metadata.json");
-    if (!vscode.workspace.fs.stat(vscode.Uri.file(metadataPath))) {
-        vscode.commands.executeCommand(
-            "codex-editor-extension.initializeNewProject",
-        );
-    }
-}
+// The following block ensures a smooth user experience by guiding the user through the initial setup process before the extension is fully activated. This is crucial for setting up the necessary project environment and avoiding any functionality issues that might arise from missing project configurations.
 
-async function openWorkspace() {
-    let workspaceFolder;
-    const openFolder = await vscode.window.showOpenDialog({
-        canSelectFolders: true,
-        canSelectFiles: false,
-        canSelectMany: false,
-        openLabel: "Choose project folder",
-    });
-    if (openFolder && openFolder.length > 0) {
-        await vscode.commands.executeCommand(
-            "vscode.openFolder",
-            openFolder[0],
-            false,
-        );
-        workspaceFolder = vscode.workspace.workspaceFolders
-            ? vscode.workspace.workspaceFolders[0]
-            : undefined;
-    }
-    if (!workspaceFolder) {
-        vscode.window.showErrorMessage("No workspace opened.");
-        return;
-    }
-}
+// NOTE: the following two blocks are deactivated for now while we work on the project management extension. We might not need them.
+// // First, check if a project root path is set, indicating whether the user has an existing project open.
+// if (!ROOT_PATH) {
+//     // If no project is found, prompt the user to select a project folder. This step is essential to ensure that the extension operates within the context of a project, which is necessary for most of its functionalities.
+//     vscode.window
+//         .showInformationMessage(
+//             "No project found. You need to select a project folder for your new project, or open an existing project folder.",
+//             { modal: true }, // The modal option is used here to make sure the user addresses this prompt before proceeding, ensuring that the extension does not proceed without a project context.
+//             "Select a Folder",
+//         )
+//         .then((result) => {
+//             // Depending on the user's choice, either guide them to select a folder and initialize a new project or quit the application. This decision point is crucial for aligning the extension's state with the user's intent.
+//             if (result === "Select a Folder") {
+//                 openWorkspace();
+//                 // This command initializes a new project, setting up the necessary project structure and files, ensuring that the user starts with a properly configured environment.
+//                 vscode.commands.executeCommand(
+//                     "codex-editor-extension.initializeNewProject",
+//                 );
+//             } else {
+//                 // If the user decides not to select a folder, quitting the application prevents them from encountering unanticipated behavior due to the lack of a project context.
+//                 vscode.commands.executeCommand("workbench.action.quit");
+//             }
+//         });
+// } else {
+//     // If a project root path exists, check for the presence of a metadata file to determine if the project needs initialization. This step ensures that existing projects are correctly recognized and that the extension does not reinitialize them unnecessarily.
+//     const metadataPath = path.join(ROOT_PATH, "metadata.json");
+//     if (!vscode.workspace.fs.stat(vscode.Uri.file(metadataPath))) {
+//         // Initialize a new project if the metadata file is missing, ensuring that the project has all the necessary configurations for the extension to function correctly.
+//         vscode.commands.executeCommand(
+//             "codex-editor-extension.initializeNewProject",
+//         );
+//     }
+// }
+
+// // This function handles the workspace folder selection and opening process. It is a critical part of the initial setup, ensuring that the user doesn't work with a virtual workspace or an empty folder, which could lead to unexpected behavior.
+// async function openWorkspace() {
+//     let workspaceFolder;
+//     const openFolder = await vscode.window.showOpenDialog({
+//         canSelectFolders: true,
+//         canSelectFiles: false,
+//         canSelectMany: false,
+//         openLabel: "Choose project folder",
+//     });
+//     if (openFolder && openFolder.length > 0) {
+//         await vscode.commands.executeCommand(
+//             "vscode.openFolder",
+//             openFolder[0],
+//             false,
+//         );
+//         workspaceFolder = vscode.workspace.workspaceFolders
+//             ? vscode.workspace.workspaceFolders[0]
+//             : undefined;
+//     }
+//     if (!workspaceFolder) {
+//         return;
+//     }
+// }
 
 let isExtensionInitialized = false;
 let client: LanguageClient | undefined;
@@ -161,6 +181,7 @@ let pyglsLogger: vscode.LogOutputChannel;
 let scmInterval: any; // Webpack & typescript for vscode are having issues
 
 export async function activate(context: vscode.ExtensionContext) {
+    indexVerseRefsInSourceText();
     /** BEGIN CODEX EDITOR EXTENSION FUNCTIONALITY */
 
     // Add .bible files to the files.readonlyInclude glob pattern to make them readonly without overriding existing patterns
@@ -178,19 +199,23 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.ConfigurationTarget.Workspace,
     );
     // Set to serif font by default in workspace
-    config.update(
-        "editor.fontFamily",
-        "serif",
-        vscode.ConfigurationTarget.Workspace,
-    );
+
+    const fallbackFont = "serif";
+    // config.update(
+    //     "editor.fontFamily",
+    //     fallbackFont,
+    //     vscode.ConfigurationTarget.Workspace,
+    // );
+
     // Set to 16px font size by default in workspace
-    config.update("editor.fontSize", 16, vscode.ConfigurationTarget.Workspace);
+    // config.update("editor.fontSize", 16, vscode.ConfigurationTarget.Workspace);
     // Set cursor style to line-thin by default in workspace
     config.update(
         "editor.cursorStyle",
         "line-thin",
         vscode.ConfigurationTarget.Workspace,
     );
+
     // TODO: set up the layout for the workspace
     // FIXME: this way of doing things clobbers the users existing settings.
     // These settings should probably be bundled in the app only, and not applied via the extension.
@@ -206,24 +231,29 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand(
             "codex-editor-extension.indexVrefs",
-            indexVrefs,
+            indexVerseRefsInSourceText,
         ),
     );
+
     context.subscriptions.push(
         vscode.commands.registerCommand(
-            "codex-editor-extension.checkTaskStatus",
+            "codex-editor-extension.openTnAcademy",
+            async (resource: DownloadedResource) => {
+                await translationAcademy(context, resource);
+            },
+        ),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor-extension.searchIndex",
             async () => {
-                const taskNumber = await vscode.window.showInputBox({
+                const searchString = await vscode.window.showInputBox({
                     prompt: "Enter the task number to check its status",
                     placeHolder: "Task number",
-                    validateInput: (text) => {
-                        return isNaN(parseInt(text, 10))
-                            ? "Please enter a valid number"
-                            : null;
-                    },
                 });
-                if (taskNumber !== undefined) {
-                    checkTaskStatus(parseInt(taskNumber, 10));
+                if (searchString !== undefined) {
+                    searchVerseRefPositionIndex(searchString);
                 }
             },
         ),
@@ -395,8 +425,186 @@ export async function activate(context: vscode.ExtensionContext) {
                 await vscode.commands.executeCommand(
                     "scripture-explorer-activity-bar.refreshEntry",
                 );
+                await vscode.commands.executeCommand(
+                    "codex-editor.setEditorFontToTargetLanguage",
+                );
+                await vscode.commands.executeCommand(
+                    "codex-editor.downloadSourceTextBibles",
+                );
             },
         ),
+    );
+
+    vscode.commands.registerCommand(
+        "codex-editor.setEditorFontToTargetLanguage",
+        async () => {
+            const projectMetadata = await getProjectMetadata();
+            const targetLanguageCode = projectMetadata?.languages?.find(
+                (language) =>
+                    language.projectStatus === LanguageProjectStatus.TARGET,
+            )?.tag;
+            if (targetLanguageCode) {
+                const fontApiUrl = `https://lff.api.languagetechnology.org/lang/${targetLanguageCode}`;
+                const fontApiResponse = await fetch(fontApiUrl);
+                const fontApiData = await fontApiResponse.json();
+                const defaultFontFamily = fontApiData.defaultfamily[0];
+                const fontFile =
+                    fontApiData.families[defaultFontFamily].defaults.ttf;
+                const fontFileRemoteUrl =
+                    fontApiData.families[defaultFontFamily].files[fontFile].url;
+                const workspaceRoot =
+                    vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+                if (workspaceRoot) {
+                    const fontFilePath = path.join(
+                        workspaceRoot,
+                        ".project",
+                        "fonts",
+                        fontFile,
+                    );
+                    const fontFilePathUri = vscode.Uri.file(fontFilePath);
+                    try {
+                        await vscode.workspace.fs.stat(fontFilePathUri);
+                    } catch {
+                        const fontFileResponse = await fetch(fontFileRemoteUrl);
+                        const fontFileBuffer =
+                            await fontFileResponse.arrayBuffer();
+                        await vscode.workspace.fs.createDirectory(
+                            vscode.Uri.file(path.dirname(fontFilePath)),
+                        );
+                        await vscode.workspace.fs.writeFile(
+                            fontFilePathUri,
+                            new Uint8Array(fontFileBuffer),
+                        );
+                    }
+                }
+                const config = vscode.workspace.getConfiguration();
+                config.update(
+                    "editor.fontFamily",
+                    `${defaultFontFamily} ${fallbackFont}`,
+                    vscode.ConfigurationTarget.Workspace,
+                );
+                vscode.window.showInformationMessage(
+                    `Font set to ${defaultFontFamily} with fallback to ${fallbackFont}`,
+                );
+            }
+        },
+    );
+
+    vscode.commands.registerCommand(
+        "codex-editor-extension.downloadSourceTextBibles",
+        async () => {
+            const projectMetadata = await getProjectMetadata();
+            const sourceLanguageCode = projectMetadata?.languages?.find(
+                (language) =>
+                    language.projectStatus === LanguageProjectStatus.SOURCE,
+            )?.tag;
+            if (sourceLanguageCode) {
+                const ebibleCorpusMetadata: EbibleCorpusMetadata[] =
+                    getEBCorpusMetadataByLanguageCode(sourceLanguageCode);
+                if (ebibleCorpusMetadata.length === 0) {
+                    vscode.window.showErrorMessage(
+                        `No source text bibles found for ${sourceLanguageCode} in the eBible corpus.`,
+                    );
+                    return;
+                }
+                const selectedCorpus = await vscode.window.showQuickPick(
+                    ebibleCorpusMetadata.map((corpus) => corpus.file),
+                    {
+                        placeHolder: "Select a source text bible to download",
+                    },
+                );
+
+                if (selectedCorpus) {
+                    const selectedCorpusMetadata = ebibleCorpusMetadata.find(
+                        (corpus) => corpus.file === selectedCorpus,
+                    );
+                    if (selectedCorpusMetadata) {
+                        const workspaceRoot =
+                            vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+                        if (workspaceRoot) {
+                            const vrefPath =
+                                await ensureVrefList(workspaceRoot);
+
+                            const sourceTextBiblePath = path.join(
+                                workspaceRoot,
+                                ".project",
+                                "sourceTextBibles",
+                                selectedCorpusMetadata.file,
+                            );
+                            const sourceTextBiblePathUri =
+                                vscode.Uri.file(sourceTextBiblePath);
+                            try {
+                                console.log(
+                                    "Checking if source text bible exists",
+                                );
+                                await vscode.workspace.fs.stat(
+                                    sourceTextBiblePathUri,
+                                );
+                                vscode.window.showInformationMessage(
+                                    `Source text bible ${selectedCorpusMetadata.file} already exists.`,
+                                );
+                            } catch {
+                                await downloadEBibleText(
+                                    selectedCorpusMetadata,
+                                    workspaceRoot,
+                                );
+                                vscode.window.showInformationMessage(
+                                    `Source text bible for ${selectedCorpusMetadata.lang} downloaded successfully.`,
+                                );
+                            }
+
+                            // Read the vref.txt file and the newly downloaded source text bible file
+                            const vrefFilePath = vscode.Uri.file(vrefPath);
+                            const vrefFileData =
+                                await vscode.workspace.fs.readFile(
+                                    vrefFilePath,
+                                );
+                            const vrefLines = new TextDecoder("utf-8")
+                                .decode(vrefFileData)
+                                .split(/\r?\n/)
+                                .filter((line) => line.trim() !== "");
+
+                            const sourceTextBibleData =
+                                await vscode.workspace.fs.readFile(
+                                    sourceTextBiblePathUri,
+                                );
+                            const bibleLines = new TextDecoder("utf-8")
+                                .decode(sourceTextBibleData)
+                                .split(/\r?\n/)
+                                .filter((line) => line.trim() !== "");
+
+                            // Zip the lines together
+                            const zippedLines = vrefLines
+                                .map(
+                                    (vrefLine, index) =>
+                                        `${vrefLine} ${bibleLines[index] || ""}`,
+                                )
+                                .filter((line) => line.trim() !== "");
+
+                            // Write the zipped lines to a new .bible file
+                            const bibleFilePath = path.join(
+                                workspaceRoot,
+                                ".project",
+                                "sourceTextBibles",
+                                `${selectedCorpusMetadata.file}.bible`,
+                            );
+                            const bibleFileUri = vscode.Uri.file(bibleFilePath);
+                            await vscode.workspace.fs.writeFile(
+                                bibleFileUri,
+                                new TextEncoder().encode(
+                                    zippedLines.join("\n"),
+                                ),
+                            );
+
+                            vscode.window.showInformationMessage(
+                                `.bible file created successfully at ${bibleFilePath}`,
+                            );
+                        }
+                    }
+                }
+            }
+            indexVerseRefsInSourceText();
+        },
     );
 
     // Register and create the Scripture Tree View
@@ -626,14 +834,11 @@ export async function activate(context: vscode.ExtensionContext) {
     isExtensionInitialized = true;
     registerReferencesCodeLens(context);
     registerSourceCodeLens(context);
-    registerCommentsProvider(context);
-    registerChatProvider(context);
-    registerCommentsWebviewProvider(context);
     registerParallelViewWebviewProvider(context);
     registerSemanticViewProvider(context);
     registerDictionaryTableProvider(context);
     registerDictionarySummaryProvider(context);
-    registerScriptureViewerProvider(context);
+    registerTextSelectionHandler(context, () => undefined);
     context.subscriptions.push(CreateProjectProvider.register(context));
     context.subscriptions.push(ResourcesProvider.register(context));
     context.subscriptions.push(StoryOutlineProvider.register(context));
@@ -644,11 +849,23 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(commandRegistration);
 
     // Make scripture-explorer-activity-bar the active primary sidebar view by default
-    vscode.commands.executeCommand("workbench.action.activityBarLocation.hide");
+    // vscode.commands.executeCommand("workbench.action.activityBarLocation.hide");
     vscode.commands.executeCommand(
         "workbench.view.extension.scripture-explorer-activity-bar",
     );
     vscode.commands.executeCommand("workbench.action.focusAuxiliaryBar");
+
+    // Try to set workspace font to target language font
+    // FIXME: we should be language-scoping to scripture language or file type if possible, and then pulling down both source and target fonts
+    // Cf. https://stackoverflow.com/a/64722109
+    vscode.window.showInformationMessage("Setting font to target language...");
+    vscode.commands.executeCommand(
+        "codex-editor.setEditorFontToTargetLanguage",
+    );
+    vscode.window.showInformationMessage(
+        "Ensuring Source Bible is downloaded...",
+    );
+    vscode.commands.executeCommand("codex-editor.downloadSourceTextBibles");
 
     scmInterval = setInterval(stageAndCommit, 1000 * 60 * 15);
 }

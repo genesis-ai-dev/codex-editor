@@ -29,7 +29,7 @@ export const getAllTranslationWordsOfResource = async (resourceId: string) => {
     }
     const resourcesDirUri = Uri.joinPath(
         workspace?.workspaceFolders?.[0].uri,
-        `.scribe/resources`,
+        `.project/resources`,
     );
 
     const resourceBibleDirUri = Uri.joinPath(

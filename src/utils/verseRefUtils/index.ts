@@ -6,7 +6,7 @@ export const findVerseRef = ({
     content,
 }: {
     verseRef: string;
-    content: string,
+    content: string;
 }) => {
     // Utilize expanded strings for lookup
     const lookupStrings = getLookupStringsForBook(verseRef.split(" ")[0]);
@@ -15,10 +15,14 @@ export const findVerseRef = ({
 
     // Check each lookup string to see if it's present in the content
     for (const lookupString of lookupStrings) {
-        const tsvVerseRef = `${lookupString}\t${verseRef.split(" ")[1]}\t${verseRef.split(" ")[2]}`;
+        const tsvVerseRef = `${lookupString}\t${verseRef.split(" ")[1]}\t${
+            verseRef.split(" ")[2]
+        }`;
         if (content.includes(verseRef) || content.includes(tsvVerseRef)) {
             verseRefWasFound = true;
-            verseRefInContentFormat = content.includes(verseRef) ? verseRef : tsvVerseRef;
+            verseRefInContentFormat = content.includes(verseRef)
+                ? verseRef
+                : tsvVerseRef;
             break;
         }
     }
@@ -50,8 +54,8 @@ export async function findReferences({
             ? fileType.substring(1)
             : fileType;
         const pattern = normalizedFileType
-            ? `resources/**/*.${normalizedFileType}`
-            : "resources/**";
+            ? `.project/resources/**/*.${normalizedFileType}`
+            : ".project/resources/**";
         const files = await vscode.workspace.findFiles(
             new vscode.RelativePattern(folder, pattern),
         );
@@ -72,32 +76,11 @@ export async function findReferences({
     return filesWithReferences;
 }
 
-export const verseRefRegex = /(\b[A-Z]{3}\s\d+:\d+\b)/;
+export const verseRefRegex = /(\b[A-Z, 1-9]{3}\s\d+:\d+\b)/;
 
 export function extractVerseRefFromLine(line: string): string | null {
     // Implement logic to extract the verse reference (e.g., 'MAT 1:1') from a line
     // Return the verse reference as a string, or null if not found
     const match = line.match(verseRefRegex);
     return match ? match[0] : null;
-}
-
-import { client } from "../../meilisearchClient";
-
-export async function findReferencesUsingMeilisearch(verseRef: string) {
-    try {
-        const index = client.index("vrefs"); // Use the same index name as before
-        const searchResponse = await index.search(verseRef);
-        console.log({ searchResponse });
-
-        return searchResponse.hits.map((hit) => ({
-            uri: hit.uri,
-            position: new vscode.Position(
-                hit.position.line,
-                hit.position.character,
-            ),
-        }));
-    } catch (error) {
-        console.error("Error finding references using Meilisearch:", error);
-        return [];
-    }
 }

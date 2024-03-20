@@ -72,6 +72,7 @@ type CommentPostMessages =
           command: "deleteComment";
           args: { commentId: number; commentThreadId: string };
       }
+    | { command: "getCurrentVerseRef" }
     | { command: "fetchComments" };
 interface SelectedTextDataWithContext {
     selection: string;
@@ -109,5 +110,5 @@ type TranslationNotePostMessages =
     | { command: "changeRef"; data: VerseRefGlobalState };
 
 type ScripturePostMessages =
-    | { command: "sendData"; data: ScriptureContent }
-    | { command: "fetchData" };
+    | { command: "sendScriptureData"; data: ScriptureContent }
+    | { command: "fetchScriptureData" };

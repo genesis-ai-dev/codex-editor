@@ -78,9 +78,11 @@ export class TranslationWordsProvider {
                         return;
                     }
                     case MessageType.GET_TW_CONTENT: {
-                        const translationWord: TranslationWord = (
-                            e.payload as Record<string, any>
-                        )?.translationWord;
+                        const translationWord: {
+                            path: string;
+                        } = (e.payload as Record<string, any>)?.translationWord;
+
+                        console.log(translationWord, e.payload);
 
                         if (!translationWord) {
                             return;

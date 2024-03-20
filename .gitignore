@@ -13,3 +13,5 @@ webviews/obs/build
 /webviews/obs/build/vite.svg
 /webviews/obs/package-lock.json
 /webviews/commentsWebview
+.DS_Store
+package-lock.json

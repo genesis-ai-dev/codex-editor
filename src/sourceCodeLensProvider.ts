@@ -5,6 +5,7 @@ import {
     findReferences,
     findVerseRef,
 } from "./utils/verseRefUtils";
+import { searchVerseRefPositionIndex } from "./commands/indexVrefsCommand";
 const commandName = "showSource";
 class ScriptureReferenceProvider {
     async provideDefinition(
@@ -67,7 +68,7 @@ class SourceCodeLensProvider {
                 );
                 lenses.push(
                     new vscode.CodeLens(range, {
-                        title: "📖 Show Source",
+                        title: "📖 Source",
                         command: `codex-editor-extension.${commandName}`,
                         arguments: [verseRef],
                     }),
@@ -110,42 +111,48 @@ const registerReferences = (context: vscode.ExtensionContext) => {
     context.subscriptions.push(
         vscode.commands.registerCommand(
             `codex-editor-extension.${commandName}`,
-            async (verseRef: string) => {
-                const filesWithReferences = await findReferences({
-                    verseRef,
-                    fileType: ".bible",
-                });
-                console.log({ filesWithReferences });
-                if (
-                    Array.isArray(filesWithReferences) &&
-                    filesWithReferences.length > 0
-                ) {
-                    const uri = vscode.Uri.file(filesWithReferences[0]);
-                    const document =
-                        await vscode.workspace.openTextDocument(uri);
-                    const text = document.getText();
-                    const lines = text.split(/\r?\n/);
-                    let position = new vscode.Position(0, 0); // Default to the start of the file
-
-                    for (let i = 0; i < lines.length; i++) {
-                        const { verseRefWasFound, verseRefInContentFormat } =
-                            findVerseRef({
-                                verseRef,
-                                content: lines[i],
-                            });
-                        if (verseRefWasFound) {
-                            position = new vscode.Position(
-                                i,
-                                lines[i].indexOf(verseRefInContentFormat),
-                            );
-                            break;
-                        }
+            (verseRef: string) => {
+                if (verseRef) {
+                    const results = searchVerseRefPositionIndex(verseRef);
+                    if (!results || results.length < 1) {
+                        vscode.window.showInformationMessage(
+                            `No references found for ${verseRef}`,
+                        );
+                        return;
                     }
-                    vscode.commands.executeCommand("vscode.open", uri, {
-                        selection: new vscode.Range(position, position),
-                        preview: true,
-                        viewColumn: vscode.ViewColumn.Beside,
+                    // Create an array of vscode.Location objects for all results
+                    const locations = results.map((result) => {
+                        const uri = vscode.Uri.file(result.uri);
+                        const range = new vscode.Range(
+                            new vscode.Position(
+                                result.position.line,
+                                result.position.character,
+                            ),
+                            new vscode.Position(
+                                result.position.line,
+                                result.position.character,
+                            ),
+                        );
+                        return new vscode.Location(uri, range);
                     });
+
+                    // Check if there are any locations to show
+                    if (locations.length > 0) {
+                        const activeEditor = vscode.window.activeTextEditor;
+                        if (activeEditor) {
+                            vscode.commands.executeCommand(
+                                "editor.action.peekLocations",
+                                activeEditor.document.uri,
+                                activeEditor.selection.start,
+                                locations,
+                                "peek",
+                            );
+                        }
+                    } else {
+                        vscode.window.showInformationMessage(
+                            `No references found for ${verseRef}`,
+                        );
+                    }
                 } else {
                     vscode.window.showInformationMessage(
                         `No references found for ${verseRef}`,

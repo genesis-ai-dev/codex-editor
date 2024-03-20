@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { globalStateEmitter, updateGlobalState } from "../../globalState";
+import { initializeStateStore } from "../../stateStore";
 import {
     CommentPostMessages,
     NotebookCommentThread,
@@ -87,7 +87,6 @@ const loadWebviewHtml = (
     <link href="${styleUri}" rel="stylesheet">
     <link href="${codiconsUri}" rel="stylesheet" />
     <script nonce="${nonce}">
-      // const vsCodeApi = acquireVsCodeApi();
       const apiBaseUrl = ${JSON.stringify("http://localhost:3002")}
     </script>
     </head>
@@ -130,17 +129,20 @@ export class CustomWebviewProvider {
     }
 
     resolveWebviewView(webviewView: vscode.WebviewView) {
-        globalStateEmitter.on(
-            "changed",
-            ({ key, value }: { key: string; value: VerseRefGlobalState }) => {
-                if (webviewView.visible && key === "verseRef") {
+        initializeStateStore().then(({ storeListener }) => {
+            const disposeFunction = storeListener("verseRef", (value) => {
+                if (value) {
                     webviewView.webview.postMessage({
                         command: "reload",
                         data: { verseRef: value.verseRef, uri: value.uri },
                     } as CommentPostMessages);
                 }
-            },
-        );
+            });
+            webviewView.onDidDispose(() => {
+                disposeFunction();
+            });
+        });
+
         loadWebviewHtml(webviewView, this._context.extensionUri);
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
@@ -167,7 +169,7 @@ export class CustomWebviewProvider {
         const findUriForVerseRef = async (
             verseRef: string,
         ): Promise<string | null> => {
-            let uri: string | null = null;
+            let uri: string = "";
             const workspaceFolders = vscode.workspace.workspaceFolders;
             const draftsFolderUri = workspaceFolders
                 ? vscode.Uri.joinPath(workspaceFolders[0].uri, "drafts")
@@ -185,12 +187,14 @@ export class CustomWebviewProvider {
                     const text = document.getText();
                     if (text.includes(verseRef)) {
                         uri = file.toString();
-                        updateGlobalState(this._context, {
-                            key: "verseRef",
-                            value: {
-                                verseRef,
-                                uri,
-                            },
+                        initializeStateStore().then(({ updateStoreState }) => {
+                            updateStoreState({
+                                key: "verseRef",
+                                value: {
+                                    verseRef,
+                                    uri,
+                                },
+                            });
                         });
                         break;
                     }
@@ -335,6 +339,22 @@ export class CustomWebviewProvider {
                         }
                         case "fetchComments": {
                             sendCommentsToWebview(webviewView);
+                            break;
+                        }
+                        case "getCurrentVerseRef": {
+                            initializeStateStore().then(({ getStoreState }) => {
+                                getStoreState("verseRef").then((value) => {
+                                    if (value) {
+                                        webviewView.webview.postMessage({
+                                            command: "reload",
+                                            data: {
+                                                verseRef: value.verseRef,
+                                                uri: value.uri,
+                                            },
+                                        } as CommentPostMessages);
+                                    }
+                                });
+                            });
                             break;
                         }
                         default:

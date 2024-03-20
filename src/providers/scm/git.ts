@@ -5,6 +5,7 @@ import * as vscode from "vscode";
 const GIT_IGNORE_CONTENT = `
 # Codex Editor
 .scribe/*
+.project/*
 `;
 
 export const initProject = async (projectUri?: vscode.Uri) => {

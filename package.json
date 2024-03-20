@@ -3,7 +3,13 @@
     "displayName": "Codex Scripture Editor",
     "description": "Support for `.codex` notebooks, `.bible` source files, and `.scripture` raw scripture files. Includes Translator's Copilot Language Server for scripture drafting and checking diagnostics and features.",
     "publisher": "project-accelerate",
-    "version": "0.0.1",
+    "homepage": "https://codex-editor.gitbook.io/",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/genesis-ai-dev/codex-editor"
+    },
+    "license": "MIT",
+    "version": "0.0.3",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -13,15 +19,14 @@
     ],
     "activationEvents": [
         "onNotebook:codex-type",
-        "onStartupFinished",
-        "onCommand:dictionaryTable.showDictionaryTable"
+        "onStartupFinished"
     ],
     "main": "./out/extension.js",
     "contributes": {
         "viewsWelcome": [
             {
                 "view": "scripture-explorer-activity-bar",
-                "contents": "Welcome to the Codex Scripture Editor! Please setup a new translation project by clicking the button below.\n\n[Setup a New Project](command:codex-editor-extension.initializeNewProject)"
+                "contents": "Welcome to the Codex Scripture Editor! Please setup a new translation project by using the form below."
             }
         ],
         "notebookEditorDecorations": [
@@ -64,50 +69,45 @@
                     "contextualTitle": "Parallel Passages"
                 }
             ],
-            "comments-sidebar-view": [
-                {
-                    "type": "webview",
-                    "id": "comments-sidebar",
-                    "name": "Comments",
-                    "icon": "$(note)",
-                    "contextualTitle": "Comments"
-                }
-            ],
             "scripture-explorer-activity-bar": [
                 {
                     "id": "scripture-explorer-activity-bar",
                     "name": "Scripture Explorer",
                     "visibility": "visible",
+                    "initialSize": 1,
                     "icon": "$(open-editors-view-icon)"
+                },
+                {
+                    "id": "scribe-vsc.obs-create-project",
+                    "name": "Project Creation",
+                    "icon": "$(file-media)",
+                    "visibility": "visible",
+                    "type": "webview",
+                    "contextualTitle": "Create a new project",
+                    "initialSize": 4
                 }
             ],
             "resource-explorer": [
                 {
                     "id": "resource-explorer",
                     "name": "Resource Explorer",
-                    "visibility": "visible",
+                    "visibility": "collapsed",
                     "icon": "$(open-editors-view-icon)"
-                }
-            ],
-            "scribe-vsc-obs-sidebar": [
-                {
-                    "id": "scribe-vsc.obs-create-project",
-                    "name": "Obs Editor",
-                    "icon": "src/media/obsIcon.svg",
-                    "type": "webview",
-                    "contextualTitle": "Scribe Obs"
                 },
                 {
                     "id": "scribe-vsc.obs-resources",
                     "name": "Resources",
-                    "icon": "src/media/obsIcon.svg",
+                    "icon": "$(file-media)",
+                    "visibility": "visible",
                     "type": "webview",
                     "contextualTitle": "Scribe Obs Story Resources"
-                },
+                }
+            ],
+            "scribe-vsc-obs-sidebar": [
                 {
                     "id": "scribe-vsc.obs-outline",
                     "name": "Stories Outline",
-                    "icon": "assets/obsIcon.svg",
+                    "icon": "$(file-media)",
                     "type": "webview",
                     "contextualTitle": "Scribe Obs Story Outline"
                 }
@@ -117,7 +117,7 @@
                     "type": "webview",
                     "id": "dictionary-side-panel",
                     "name": "Dictionary Table",
-                    "icon": "src/media/dictionary.svg",
+                    "icon": "$(notebook)",
                     "contextualTitle": "Dictionary Table"
                 }
             ]
@@ -145,24 +145,14 @@
                     "icon": "$(open-editors-view-icon)"
                 },
                 {
-                    "id": "genesis-translator-sidebar-view",
-                    "title": "Genesis Translator Bar",
-                    "icon": "$(comment-discussion)"
-                },
-                {
-                    "id": "comments-sidebar-view",
-                    "title": "Comments",
-                    "icon": "$(note)"
-                },
-                {
                     "id": "scribe-vsc-obs-sidebar",
-                    "title": "Obs Editor",
-                    "icon": "src/media/obsIcon.svg"
+                    "title": "OBS Editor",
+                    "icon": "$(file-media)"
                 },
                 {
                     "id": "dictionary-summary",
                     "title": "Dictionary Summary",
-                    "icon": "src/media/dictionary.svg"
+                    "icon": "$(notebook)"
                 }
             ]
         },
@@ -182,11 +172,6 @@
                     "command": "dictionaryTable.showDictionaryTable",
                     "when": "view == dictionaryTable",
                     "group": "navigation"
-                },
-                {
-                    "command": "scriptureViewer.showScriptureViewer",
-                    "when": "view == scriptureViewer",
-                    "group": "navigation"
                 }
             ],
             "view/item/context": [
@@ -194,72 +179,6 @@
                     "command": "dictionaryTable.showDictionaryTable",
                     "when": "view == dictionaryTable",
                     "group": "navigation"
-                },
-                {
-                    "command": "scriptureViewer.showScriptureViewer",
-                    "when": "view == scriptureViewer",
-                    "group": "navigation"
-                }
-            ],
-            "commandPalette": [
-                {
-                    "command": "commentsExtension.createNote",
-                    "when": "false"
-                },
-                {
-                    "command": "commentsExtension.replyNote",
-                    "when": "false"
-                },
-                {
-                    "command": "commentsExtension.deleteNote",
-                    "when": "false"
-                },
-                {
-                    "command": "commentsExtension.deleteNoteComment",
-                    "when": "false"
-                }
-            ],
-            "comments/commentThread/title": [
-                {
-                    "command": "commentsExtension.deleteNote",
-                    "group": "navigation",
-                    "when": "commentController == comment-project && !commentThreadIsEmpty"
-                }
-            ],
-            "comments/commentThread/context": [
-                {
-                    "command": "commentsExtension.createNote",
-                    "group": "inline",
-                    "when": "commentController == comment-project && commentThreadIsEmpty"
-                },
-                {
-                    "command": "commentsExtension.replyNote",
-                    "group": "inline",
-                    "when": "commentController == comment-project && !commentThreadIsEmpty"
-                }
-            ],
-            "comments/comment/title": [
-                {
-                    "command": "commentsExtension.editNote",
-                    "group": "group@1",
-                    "when": "commentController == comment-project"
-                },
-                {
-                    "command": "commentsExtension.deleteNoteComment",
-                    "group": "group@2",
-                    "when": "commentController == comment-project && comment == canDelete"
-                }
-            ],
-            "comments/comment/context": [
-                {
-                    "command": "commentsExtension.cancelSaveNote",
-                    "group": "inline@1",
-                    "when": "commentController == comment-project"
-                },
-                {
-                    "command": "commentsExtension.saveNote",
-                    "group": "inline@2",
-                    "when": "commentController == comment-project"
                 }
             ],
             "editor/title": [
@@ -276,6 +195,10 @@
                 "command": "codex-editor-extension.initializeNewProject"
             },
             {
+                "command": "codex-editor-extension.downloadSourceTextBibles",
+                "title": "Download Source Text Bible"
+            },
+            {
                 "command": "codex-notebook-extension.openFile",
                 "title": "Open File"
             },
@@ -284,8 +207,8 @@
                 "title": "indexVrefs"
             },
             {
-                "command": "codex-editor-extension.checkTaskStatus",
-                "title": "checkTaskStatus"
+                "command": "codex-editor-extension.searchIndex",
+                "title": "searchIndex"
             },
             {
                 "command": "codex-editor-extension.showReferences",
@@ -344,62 +267,12 @@
                 "category": "pygls"
             },
             {
-                "command": "commentsExtension.createNote",
-                "title": "Create Note",
-                "enablement": "!commentIsEmpty"
-            },
-            {
-                "command": "commentsExtension.replyNote",
-                "title": "Reply",
-                "enablement": "!commentIsEmpty"
-            },
-            {
-                "command": "commentsExtension.editNote",
-                "title": "Edit",
-                "icon": {
-                    "dark": "resources/edit_inverse.svg",
-                    "light": "resources/edit.svg"
-                }
-            },
-            {
-                "command": "commentsExtension.deleteNote",
-                "title": "Delete",
-                "icon": {
-                    "dark": "resources/close_inverse.svg",
-                    "light": "resources/close.svg"
-                }
-            },
-            {
-                "command": "commentsExtension.deleteNoteComment",
-                "title": "Delete",
-                "icon": {
-                    "dark": "resources/close_inverse.svg",
-                    "light": "resources/close.svg"
-                }
-            },
-            {
-                "command": "commentsExtension.saveNote",
-                "title": "Save"
-            },
-            {
-                "command": "commentsExtension.cancelSaveNote",
-                "title": "Cancel"
-            },
-            {
-                "command": "commentsExtension.dispose",
-                "title": "Remove All Notes"
-            },
-            {
                 "command": "dictionaryTable.showDictionaryTable",
                 "title": "Dictionary Table: Show"
             },
             {
                 "command": "translationNotes.openTnEditor",
                 "title": "Open Translation Notes"
-            },
-            {
-                "command": "scriptureViewer.showScriptureViewer",
-                "title": "Show Scripture Viewer"
             },
             {
                 "command": "codex-editor.scm.stageAndCommitAll",
@@ -425,47 +298,7 @@
                 ]
             }
         ],
-        "languages": [
-            {
-                "id": "scripture",
-                "extensions": [
-                    ".codex",
-                    ".scripture"
-                ],
-                "configuration": "./src/scripture-language-configuration.json"
-            }
-        ],
         "configuration": [
-            {
-                "title": "translators-copilot",
-                "properties": {
-                    "translators-copilot.llmEndpoint": {
-                        "type": "string",
-                        "default": "http://localhost:1234/v1",
-                        "description": "The endpoint for the completion API. Either OpenAI or local LLM."
-                    },
-                    "translators-copilot.api_key": {
-                        "type": "string",
-                        "default": "",
-                        "description": "Your own openai API key. Ignorable for local LLM."
-                    },
-                    "translators-copilot.model": {
-                        "type": "string",
-                        "default": "gpt-3.5-turbo",
-                        "description": "Model name selected for inference. Ignorable for local LLM."
-                    },
-                    "translators-copilot.max_tokens": {
-                        "type": "number",
-                        "default": 2048,
-                        "description": "The maximum number of output tokens for the completion API."
-                    },
-                    "translators-copilot.temperature": {
-                        "type": "number",
-                        "default": 0.2,
-                        "description": "The randomness level of output generation. A higher value leads to more random outputs."
-                    }
-                }
-            },
             {
                 "type": "object",
                 "title": "Json Server Configuration",
@@ -607,7 +440,6 @@
         "@types/glob": "^8.1.0",
         "@types/md5": "^2.3.5",
         "@types/mocha": "^8.2.3",
-        "@types/moment": "^2.13.0",
         "@types/node": "14.x",
         "@types/semver": "^7.5.6",
         "@types/sinon": "^17.0.3",
@@ -620,7 +452,7 @@
         "mocha": "^10.2.0",
         "prettier": "^3.1.1",
         "ts-loader": "^9.5.1",
-        "typescript": "^5.3.2",
+        "typescript": "^5.4.2",
         "vscode-test": "^1.5.0",
         "webpack": "^5.89.0",
         "webpack-cli": "^5.1.4"
@@ -635,7 +467,7 @@
         "jszip": "^3.10.1",
         "markdown-loader": "^8.0.0",
         "md5": "^2.3.0",
-        "meilisearch": "^0.37.0",
+        "minisearch": "^6.3.0",
         "moment": "^2.30.1",
         "path": "^0.12.7",
         "semver": "^7.6.0",
@@ -646,5 +478,10 @@
     "overrides": {
         "minimatch": "5.1.2",
         "glob": "8.1.0"
-    }
+    },
+    "extensionDependencies": [
+        "project-accelerate.shared-state-store",
+        "ms-python.python",
+        "project-accelerate.scripture-language-support"
+    ]
 }

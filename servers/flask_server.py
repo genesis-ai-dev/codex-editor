@@ -148,8 +148,8 @@ def upsert_all_codex_files():
 def upsert_all_resource_files():
     """Upsert all resource files from the workspace path into the database."""
     try:
-        resource_files = glob.glob(f'{WORKSPACE_PATH}/resources/*', recursive=True)
-        active_db = get_database('resources')
+        resource_files = glob.glob(f'{WORKSPACE_PATH}/.project/resources/*', recursive=True)
+        active_db = get_database("resources")
 
         for file_path in resource_files:
             active_db.upsert_file(file_path)
