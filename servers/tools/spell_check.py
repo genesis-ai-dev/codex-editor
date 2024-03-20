@@ -18,10 +18,10 @@ from io import TextIOWrapper
 
 
 try:
-    from tools.nlp import genetik_tokenizer
+    from servers.tools.nlp import genetic_tokenizer
 
 except ImportError:
-    from nlp import genetik_tokenizer
+    from tools.nlp import genetic_tokenizer
 
 translator = str.maketrans('', '', string.punctuation)
 
@@ -74,7 +74,7 @@ class Dictionary:
         """
         self.path = project_path + '/project.dictionary'  # TODO: #4 Use all .dictionary files in drafts directory
         self.dictionary = self.load_dictionary()  # Load the .dictionary (json file)
-        self.tokenizer = genetik_tokenizer.TokenDatabase(self.path, single_words=True)#,# defualt_tokens=[word['headword'] for word in self.dictionary['entries']])
+        self.tokenizer = genetic_tokenizer.TokenDatabase(self.path, single_words=True)#,# defualt_tokens=[word['headword'] for word in self.dictionary['entries']])
     
     def load_dictionary(self) -> Dict:
         """

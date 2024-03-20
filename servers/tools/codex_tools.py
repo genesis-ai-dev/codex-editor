@@ -67,4 +67,7 @@ if __name__ == "__main__":
     # Example usage:
 
     extracted_verses = extract_verses('/Users/daniellosey/Desktop/code/biblica/example_workspace/drafts/target/GEN.codex')
-    print(extracted_verses[0])
+    print(extracted_verses[1])
+
+
+

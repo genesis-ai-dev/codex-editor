@@ -191,7 +191,6 @@ const loadWebviewHtml = (
     webviewView.webview.html = html;
     webviewView.webview.onDidReceiveMessage(
         async (message: any) => { // Changed the type to any to handle multiple message types
-            vscode.window.showInformationMessage(`Searching for: ${message.command}`);
             switch (message.command) {
                 case "openFileAtLocation":
                     vscode.window.showInformationMessage(message.uri);

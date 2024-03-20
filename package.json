@@ -42,6 +42,15 @@
             }
         ],
         "views": {
+            "semantic-view": [
+                {
+                    "type": "webview",
+                    "id": "semantic-sidebar",
+                    "name": "Semantic View",
+                    "icon": "$(unfold)",
+                    "contextualTitle": "Semantic View"
+                }
+            ],
             "parallel-passages-view": [
                 {
                     "type": "webview",
@@ -115,6 +124,11 @@
                     "id": "parallel-passages-view",
                     "title": "Parallel Passages",
                     "icon": "$(eye)"
+                },
+                {
+                    "id": "semantic-view",
+                    "title": "Semantic View",
+                    "icon": "$(unfold)"
                 },
                 {
                     "id": "resource-explorer",
@@ -439,6 +453,7 @@
         "@vscode/python-extension": "^1.0.5",
         "bible-reference-range": "^1.1.1",
         "codex-types": "^0.0.2",
+        "fitty": "^2.4.2",
         "html-loader": "^4.2.0",
         "jszip": "^3.10.1",
         "markdown-loader": "^8.0.0",

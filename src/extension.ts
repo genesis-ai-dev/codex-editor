@@ -75,6 +75,7 @@ import {
     integer,
 } from "vscode-languageclient/node";
 import { registerParallelViewWebviewProvider } from "./providers/parallelPassagesWebview/customParallelPassagesWebviewProvider";
+import { registerSemanticViewProvider } from "./providers/semanticView/customSemanticViewProvider";
 import { registerDictionaryTableProvider } from "./providers/dictionaryTable/dictionaryTableProvider";
 import { CreateProjectProvider } from "./providers/obs/CreateProject/CreateProjectProvider";
 import { registerDictionarySummaryProvider } from "./providers/dictionaryTable/dictionarySummaryProvider";
@@ -168,6 +169,7 @@ const PATHS_TO_POPULATE = [
 //         return;
 //     }
 // }
+
 async function openWorkspace() {
     let workspaceFolder;
     const openFolder = await vscode.window.showOpenDialog({
@@ -853,6 +855,7 @@ export async function activate(context: vscode.ExtensionContext) {
     registerReferencesCodeLens(context);
     registerSourceCodeLens(context);
     registerParallelViewWebviewProvider(context);
+    registerSemanticViewProvider(context);
     registerDictionaryTableProvider(context);
     registerDictionarySummaryProvider(context);
     registerTextSelectionHandler(context, () => undefined);
