@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 from sqlite3 import IntegrityError
 from typing import Union, List, Any, Generator
-from gensim.models import FastText, Word2Vec
+from gensim.models import FastText
 from gensim.utils import simple_preprocess
 from txtai import Embeddings
 import string
@@ -14,27 +14,79 @@ except ImportError:
     from .codex_tools import extract_verses, extract_verses_bible
     from .nlp import genetic_tokenizer
 
-translator = str.maketrans('', '', string.punctuation)
+translator = str.maketrans('', '', string.punctuation+"'"+'"')
 
 def remove_punctuation(text: str) -> str:
-   return text.translate(translator).strip()
+    """
+    Remove punctuation from the given text.
+
+    Parameters:
+    - text (str): The text to remove punctuation from.
+
+    Returns:
+    - str: The text with punctuation removed.
+    """
+    return text.translate(translator).strip()
 
 def sql_safe(text: str) -> str:
-   return text.replace("'", "''").replace("\\", "/").replace('"', "'") # if text else text
+    """
+    Make a string safe for SQL queries by escaping single quotes and backslashes.
+
+    Parameters:
+    - text (str): The text to be sanitized for SQL.
+
+    Returns:
+    - str: The sanitized text.
+    """
+    return text.replace("'", "''").replace("\\", "/").replace('"', "'") # if text else text
 
 def sanitize_data(text: str, reference: str, book: str, chapter: str, verse: str, metadata: str) -> List[str]:
-   return list(map(sql_safe, [text, reference, book, verse, metadata, chapter]))
+    """
+    Sanitize a set of strings for SQL queries and return them as a list.
+
+    Parameters:
+    - text (str): The main text content.
+    - reference (str): The reference identifier.
+    - book (str): The book name.
+    - chapter (str): The chapter number.
+    - verse (str): The verse number.
+    - metadata (str): Additional metadata.
+
+    Returns:
+    - List[str]: A list of sanitized strings.
+    """
+    return list(map(sql_safe, [text, reference, book, chapter, verse, metadata]))
 
 def create_data(sanitized_data: List[str], uri: str, database_name: str) -> dict:
-   return {
-       'text': sanitized_data[0], 'book': sanitized_data[1], 'verse': sanitized_data[2], 'chapter': sanitized_data[3],
-       'createdAt': str(datetime.datetime.now()), 'uri': uri, 'metadata': sanitized_data[4], 'database': database_name
-   }
+    """
+    Create a dictionary of data from sanitized inputs and additional information.
+
+    Parameters:
+    - sanitized_data (List[str]): A list of sanitized strings.
+    - uri (str): The URI for the data.
+    - database_name (str): The name of the database.
+
+    Returns:
+    - dict: A dictionary containing the data.
+    """
+    return {
+        'text': sanitized_data[0], 'reference': sanitized_data[1], 'book': sanitized_data[2], 'chapter': sanitized_data[3],
+        'verse': sanitized_data[4], 'metadata': sanitized_data[5], 'createdAt': str(datetime.datetime.now()), 'uri': uri, 'database': database_name
+    }
 
 EMBEDDINGS: Embeddings | None = None
 
 class Database:
     def __init__(self, db_path: str, database_name: str, has_tokenizer: bool = False, use_fasttext: bool = False) -> None:
+        """
+        Initialize the Database object with paths and configurations.
+
+        Parameters:
+        - db_path (str): The path to the database directory.
+        - database_name (str): The name of the database.
+        - has_tokenizer (bool): Flag indicating if a tokenizer is used.
+        - use_fasttext (bool): Flag indicating if FastText is used.
+        """
         global EMBEDDINGS
         self.db_path = Path(db_path).as_posix() + "/unified_database/"
         self.logger = logging.getLogger(__name__)
@@ -73,6 +125,19 @@ class Database:
             self.fasttext_model = None
 
     def upsert(self, text: str, reference: str, book: str, chapter: str, verse: str, uri: str, metadata: str = '', save_now: bool = False) -> None:
+        """
+        Insert or update a record in the database.
+
+        Parameters:
+        - text (str): The main text content.
+        - reference (str): The reference identifier.
+        - book (str): The book name.
+        - chapter (str): The chapter number.
+        - verse (str): The verse number.
+        - uri (str): The URI for the data.
+        - metadata (str): Additional metadata.
+        - save_now (bool): If True, save changes immediately.
+        """
         sanitized_data = sanitize_data(text, reference, book, chapter, verse, metadata)
         data = create_data(sanitized_data, uri, self.database_name)
         unique_id = f"{reference}_{self.database_name}"
@@ -81,6 +146,19 @@ class Database:
             self.save()
 
     def queue_upsert(self, text: str, reference: str, book: str, chapter: str, verse: str, uri: str, metadata: str = '', save_now: bool = True) -> None:
+        """
+        Queue an upsert operation to be executed later.
+
+        Parameters:
+        - text (str): The main text content.
+        - reference (str): The reference identifier.
+        - book (str): The book name.
+        - chapter (str): The chapter number.
+        - verse (str): The verse number.
+        - uri (str): The URI for the data.
+        - metadata (str): Additional metadata.
+        - save_now (bool): If True, save changes immediately.
+        """
         sanitized_data = sanitize_data(text, reference, book, chapter, verse, metadata)
         data = create_data(sanitized_data, uri, self.database_name)
         unique_id = f"{reference}_{self.database_name}"
@@ -91,9 +169,28 @@ class Database:
             self.queue = []
 
     def search(self, query: str, limit: int = 5) -> list:
-        return self.embeddings.search(f"select text, book, verse, chapter, createdAt, uri, metadata from txtai where similar('{remove_punctuation(query)}') and database='{self.database_name}'", limit=limit)
+        """
+        Search the database for records similar to the query.
+
+        Parameters:
+        - query (str): The search query.
+        - limit (int): The maximum number of results to return.
+
+        Returns:
+        - list: A list of search results.
+        """
+        return self.embeddings.search(f"select text, book, verse, chapter, createdAt, uri, metadata, id from txtai where similar('{remove_punctuation(query)}') and database='{self.database_name}'", limit=limit)
 
     def exists(self, ids: List[str]) -> List[str]:
+        """
+        Check which of the given IDs exist in the database.
+
+        Parameters:
+        - ids (List[str]): A list of IDs to check.
+
+        Returns:
+        - List[str]: A list of IDs that exist in the database.
+        """
         existing_ids = []
         for id in ids:
             result = self.embeddings.search(f"select book from txtai where id='{id}' and database='{self.database_name}'")
@@ -102,15 +199,38 @@ class Database:
         return existing_ids
 
     def get_text(self, id: str) -> str:
+        """
+        Retrieve the text content for a given ID.
+
+        Parameters:
+        - id (str): The ID of the record.
+
+        Returns:
+        - str: The text content of the record.
+        """
         text = self.embeddings.search(f"select text from txtai where id='{id}' and database='{self.database_name}'")
         return text
 
     def get_text_from(self, book: str, chapter: str, verse: str) -> str:
+        """
+        Retrieve text content from the database based on book, chapter, and verse.
+
+        Parameters:
+        - book (str): The book name.
+        - chapter (str): The chapter number.
+        - verse (str): The verse number.
+
+        Returns:
+        - str: The text content of the specified location.
+        """
         self.logger.debug(f"Getting text from book={book}, chapter={chapter}, verse={verse}, database={self.database_name}")
         text = self.embeddings.search(f"select text from txtai where book='{book}' and chapter='{chapter}' and verse='{verse}' and database='{self.database_name}'")
         return text
 
     def upsert_queue(self) -> None:
+        """
+        Upsert all queued items to the database and clear the queue.
+        """
         self.queue = [item for item in self.queue if item]
         if self.queue:
             self.embeddings.upsert(self.queue)
@@ -118,6 +238,12 @@ class Database:
         self.queue = []
 
     def upsert_file(self, path: str) -> None:
+        """
+        Upsert the contents of a file into the database.
+
+        Parameters:
+        - path (str): The path to the file.
+        """
         file_path = Path(path) if Path(path).is_absolute() else Path("/") / path
 
         process_funcs = {
@@ -127,30 +253,46 @@ class Database:
         process_func = process_funcs.get(file_path.suffix, self.process_other_file)
         process_func(file_path)
 
-        if self.use_fasttext:
-            self.train_fasttext()
+        # if self.use_fasttext:
+        #     self.train_fasttext()
         self.logger.info(f"Resource file {file_path} upserted successfully.")
 
     def process_codex_file(self, file_path: Path) -> None:
+        """
+        Process a .codex file and upsert its contents into the database.
+
+        Parameters:
+        - file_path (Path): The path to the .codex file.
+        """
         results = extract_verses(file_path.as_posix())
         process_verses(results, file_path, self)
         self.tokenizer.upsert_all()
         self.upsert_queue()
 
     def process_bible_file(self, file_path: Path) -> None:
+        """
+        Process a .bible file and upsert its contents into the database.
+
+        Parameters:
+        - file_path (Path): The path to the .bible file.
+        """
         results = extract_verses_bible(file_path.as_posix())
         self.logger.info(f"Going through {len(results)} results")
 
         process_verses(results, file_path, self)
 
-        self.save()
         self.logger.info("Reading file")
         with file_path.open("r") as file:
             self.tokenizer.upsert_text(file.read())
             self.tokenizer.upsert_all()
-        self.upsert_queue()
 
     def process_other_file(self, file_path: Path) -> None:
+        """
+        Process a file with an unsupported extension and upsert its contents into the database.
+
+        Parameters:
+        - file_path (Path): The path to the file.
+        """
         if file_path.suffix not in ('.txt', '.md', '.tsv', '.codex', '.bible', '.html', '.csv', '.'):
             self.logger.warning(f"Unsupported file type: {file_path}")
             return
@@ -171,9 +313,12 @@ class Database:
         self.upsert_queue()
 
     def train_fasttext(self) -> None:
+        """
+        Train the FastText model with data from the database.
+        """
         if self.fasttext_model:
             texts = self.embeddings.search("SELECT * FROM txtai", limit=10000)
-            sentences = [remove_punctuation(text['text']).lower().split(" ") for text in texts]
+            sentences = [remove_punctuation(text['text']).split(" ") for text in texts]
 
             try:
                 self.fasttext_model.build_vocab(sentences, update=True)
@@ -183,27 +328,55 @@ class Database:
             self.fasttext_model.train(sentences, total_examples=len(sentences), epochs=5)
             self.fasttext_model.save(self.model_name)
 
-    def get_similar_words(self, word, k=5):
+    def get_similar_words(self, word, k=10):
+        """
+        Get a list of words similar to the given word using the FastText model.
+
+        Parameters:
+        - word (str): The word to find similar words for.
+        - k (int): The number of similar words to return.
+
+        Returns:
+        - list: A list of similar words.
+        """
         return [word for word, _ in self.fasttext_model.wv.most_similar(remove_punctuation(word), topn=k)]
 
     def save(self) -> None:
+        """
+        Save the embeddings to the database path.
+        """
         self.embeddings.save(self.db_path)
         self.cleanup_db_path()
 
     def cleanup_db_path(self) -> None:
+        """
+        Clean up the database path by removing the 'config' file and directory if empty.
+        """
         db_path = Path(self.db_path)
         if db_path.exists() and db_path.is_dir() and list(db_path.iterdir()) == [db_path / 'config']:
             (db_path / 'config').unlink()
             db_path.rmdir()
 
     def close(self) -> None:
+        """
+        Close the database and release any resources.
+        """
         self.open = False
         self.embeddings.close()
 
+
 def process_verses(results, file_path, db_instance):
+    """
+    Process a list of verse results and upsert them into the database.
+
+    Parameters:
+    - results (list): A list of verse results to process.
+    - file_path (Path): The path to the file containing the verses.
+    - db_instance (Database): The database instance to use for upserting.
+    """
     for result in results:
         if len(result['text']) > 11:
             text, book, chapter, verse = result['text'], result['book'], result['chapter'], result['verse']
-            reference = "db:"+db_instance.database_name+ f'{book} {chapter}:{verse}'
+            reference = f'{db_instance.database_name} {book} {chapter}:{verse}'  # Modified line
             db_instance.queue_upsert(text=text, book=book, chapter=chapter, reference=reference, verse=verse, uri=str(file_path.as_posix()))
             db_instance.tokenizer.upsert_text(text)

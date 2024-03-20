@@ -21,7 +21,7 @@ try:
     from servers.tools.nlp import genetic_tokenizer
 
 except ImportError:
-    from servers.tools.nlp import genetic_tokenizer
+    from tools.nlp import genetic_tokenizer
 
 translator = str.maketrans('', '', string.punctuation)
 

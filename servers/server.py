@@ -3,7 +3,13 @@ import os
 import threading
 import socket
 from typing import NoReturn
-
+import sys
+# from pygls.server import LanguageServer
+# from tools.ls_tools import ServerFunctions
+# from servable.spelling import ServableSpelling
+# from servable.servable_wb import wb_line_diagnostic
+# from servable.verse_validator import ServableVrefs
+# from servable.servable_embedding import ServableEmbedding
 try:
     import sys # TODO: See if this takes too much time
 
@@ -73,8 +79,8 @@ def start_flask_server() -> None:
     flask_server_path = os.path.join(os.path.dirname(__file__), "flask_server.py")
     with open(os.devnull, 'w') as devnull:
         subprocess.Popen([sys.executable, flask_server_path], stdout=devnull, stderr=devnull)
-        
-#threading.Thread(target=start_flask_server, daemon=True).start()
+
+threading.Thread(target=start_flask_server, daemon=True).start()
 
 # Initialize the language server with metadata
 server = LanguageServer("code-action-server", "v0.1")  # TODO: #1 Dynamically populate metadata from package.json?

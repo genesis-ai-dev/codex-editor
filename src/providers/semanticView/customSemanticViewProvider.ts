@@ -99,10 +99,8 @@ const loadWebviewHtml = (
     webviewView.webview.html = html;
     webviewView.webview.onDidReceiveMessage(
         async (message: any) => {
-            vscode.window.showInformationMessage(`Searching for: ${message.command}`);
             switch (message.command) {
                 case "openFileAtLocation":
-                    vscode.window.showInformationMessage(message.uri);
                     simpleOpen(message.uri);
                     break;
                 case "getSimilar":
