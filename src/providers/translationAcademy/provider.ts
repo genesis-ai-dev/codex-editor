@@ -25,7 +25,7 @@ export async function translationAcademy(
     const workspaceRootUri = vscode.workspace.workspaceFolders?.[0].uri;
 
     if (!workspaceRootUri) {
-        vscode.window.showErrorMessage(
+        console.error(
             "No workspace folder found. Please open a folder to store your project in.",
         );
         return;

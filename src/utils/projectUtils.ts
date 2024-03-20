@@ -164,7 +164,7 @@ export async function initializeProjectMetadata(details: ProjectDetails) {
         : undefined;
 
     if (!workspaceFolder) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        console.error("No workspace folder found.");
         return;
     }
 
@@ -173,7 +173,7 @@ export async function initializeProjectMetadata(details: ProjectDetails) {
         vscode?.workspace?.workspaceFolders[0];
 
     if (!WORKSPACE_FOLDER) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        console.error("No workspace folder found.");
         return;
     }
 

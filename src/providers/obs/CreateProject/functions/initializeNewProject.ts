@@ -15,7 +15,7 @@ export const initializeNewProject = async (
                 ? vscode.workspace.workspaceFolders[0]
                 : undefined;
             if (!workspaceFolder) {
-                vscode.window.showErrorMessage("No workspace found");
+                console.error("No workspace found");
                 return;
             }
             const projectFilePath = vscode.Uri.joinPath(
@@ -92,7 +92,9 @@ export const initializeNewProject = async (
             indexVerseRefsInSourceText();
 
         } else {
-            vscode.window.showErrorMessage("Project initialization cancelled.");
+            vscode.window.showInformationMessage(
+                "Project initialization cancelled.",
+            );
         }
     } catch (error) {
         vscode.window.showErrorMessage(

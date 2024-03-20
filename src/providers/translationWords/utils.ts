@@ -22,9 +22,7 @@ export const getTranslationWordsForVerse = async (verseRef: string) => {};
 
 export const getAllTranslationWordsOfResource = async (resourceId: string) => {
     if (!workspace?.workspaceFolders?.[0]) {
-        window.showErrorMessage(
-            "No resources found. Please open a project first.",
-        );
+        console.error("No resources found. Please open a project first.");
         return;
     }
     const resourcesDirUri = Uri.joinPath(

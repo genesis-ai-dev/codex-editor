@@ -74,8 +74,8 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
                     case MessageType.DOWNLOAD_RESOURCE: {
                         const context = this._context;
                         if (!context) {
-                            vscode.window.showErrorMessage(
-                                "No workspace opened as no context found!",
+                            console.error(
+                                "No workspace opened and no context found!",
                             );
                             return;
                         }
@@ -363,9 +363,7 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
         const context = this._context;
         const webviewPanel = this._webviewView;
         if (!context) {
-            vscode.window.showErrorMessage(
-                "No workspace opened as no context found!",
-            );
+            console.error("No workspace opened and no context found!");
             return;
         }
         const downloadedResources = (context?.workspaceState.get(
