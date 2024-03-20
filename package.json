@@ -42,15 +42,6 @@
             }
         ],
         "views": {
-            "genesis-translator-sidebar-view": [
-                {
-                    "type": "webview",
-                    "id": "genesis-translator-sidebar",
-                    "name": "Genesis Translator",
-                    "icon": "$(comment-discussion)",
-                    "contextualTitle": "Genesis Translator"
-                }
-            ],
             "semantic-view": [
                 {
                     "type": "webview",
