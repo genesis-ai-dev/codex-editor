@@ -169,8 +169,7 @@ const PATHS_TO_POPULATE = [
 //         return;
 //     }
 // }
-<<<<<<< HEAD
-=======
+
 async function openWorkspace() {
     let workspaceFolder;
     const openFolder = await vscode.window.showOpenDialog({
@@ -194,7 +193,6 @@ async function openWorkspace() {
         return;
     }
 }
->>>>>>> 36680e8df44d94ad8246adf71395c2a3031e30f4
 
 let isExtensionInitialized = false;
 let client: LanguageClient | undefined;
