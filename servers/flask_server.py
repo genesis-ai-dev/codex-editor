@@ -154,12 +154,7 @@ def upsert_all_resource_files():
     """Upsert all resource files from the workspace path into the database."""
     try:
         resource_files = glob.glob(f'{WORKSPACE_PATH}/.project/resources/*', recursive=True)
-<<<<<<< HEAD
         active_db = get_database("resources")
-=======
-        use_tokenizer, use_fasttext = initilaizers["resources"]
-        active_db = get_active_database("resources", use_tokenizer, use_fasttext)
->>>>>>> 36680e8df44d94ad8246adf71395c2a3031e30f4
 
         for file_path in resource_files:
             active_db.upsert_file(file_path)
