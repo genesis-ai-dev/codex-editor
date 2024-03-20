@@ -9,6 +9,8 @@ from typing import TextIO
 import sys
 import glob
 from time import sleep
+import os 
+import shutil
 
 app = Flask(__name__)
 CORS(app, origins='*')  # Allow requests from any origin
@@ -82,6 +84,9 @@ def get_database(db_name: str) -> Database:
     if db_name not in DATABASES:
         use_tokenizer, use_fasttext = initializers[db_name]
         db_path = f"{WORKSPACE_PATH}/nlp/embeddings"
+        unified_db_path = f"{db_path}/unified_database"
+        if not os.path.exists(unified_db_path):
+            shutil.rmtree(f"{WORKSPACE_PATH}/nlp/", ignore_errors=True)
         DATABASES[db_name] = Database(db_path=db_path, database_name=db_name, has_tokenizer=use_tokenizer, use_fasttext=use_fasttext)
     return DATABASES[db_name]
 
