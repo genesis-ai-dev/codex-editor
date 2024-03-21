@@ -274,7 +274,7 @@ def get_most_similar():
             return jsonify({"error": "FastText is not enabled for this database"}), 400
 
         similar_words = active_db.get_similar_words(word)
-        similar_words_dicts = [{"word": word, "score": score} for word, score in similar_words]
+        similar_words_dicts = [{"word": word, "score": score} for word, score in similar_words[1:]]
         return jsonify(similar_words_dicts), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -316,7 +316,10 @@ def detect_anomalies():
     try:
         codex_db = get_database('.codex')
         codex_results = codex_db.search(query=query_decoded, limit=limit)
-        if not codex_results:
+        if len(codex_results) <= 1:
+            codex_results = []
+        else:
+            codex_results = codex_results[1:]
             return jsonify({"error": "No results found in .codex database"}), 404
 
         bible_db = get_database('.bible')
@@ -326,8 +329,10 @@ def detect_anomalies():
                 bible_id = f"{codex_result['id'].replace('.codex', '.bible')}"
                 bible_query_result = bible_db.get_text(bible_id)
                 if bible_query_result:
-                    bible_results.extend(bible_db.search(query=bible_query_result[0]['text'], limit=limit))
-
+                    # Filter out the very first result from the search
+                    search_results = bible_db.search(query=bible_query_result[0]['text'], limit=limit)
+                    if search_results:
+                        bible_results.extend(search_results[1:])
 
             except Exception as e:
                 print(f"Failed to search in .bible database for id {bible_id}: {str(e)}")
