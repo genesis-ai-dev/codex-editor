@@ -53,8 +53,8 @@ function App() {
             switch (message.command) {
                 case "searchResults": {
                     const { bible_results, codex_results, detailed_anomalies }: { bible_results: Item[], codex_results: Item[], detailed_anomalies: DetailedAnomaly[] } = message.data;
-                    const parsedBibleResults = bible_results.map((item: Item) => ({...item, createdAt: new Date(item.createdAt)}));
-                    const parsedCodexResults = codex_results.map((item: Item) => ({...item, createdAt: new Date(item.createdAt)}));
+                    const parsedBibleResults = bible_results?.map((item: Item) => ({...item, createdAt: new Date(item.createdAt)}));
+                    const parsedCodexResults = codex_results?.map((item: Item) => ({...item, createdAt: new Date(item.createdAt)}));
                     setSearchResults({ bibleResults: parsedBibleResults, codexResults: parsedCodexResults, detailedAnomalies: detailed_anomalies});
                     break;
                 }
@@ -62,7 +62,7 @@ function App() {
                     setLoading(false);
                     break;
                 case "resourceResults": {
-                    const resourceItems: ResourceItem[] = message.data.map((item: any) => ({
+                    const resourceItems: ResourceItem[] = message?.data?.map((item: any) => ({
                         text: item.text,
                         uri: item.uri,
                         createdAt: item.createdAt,

@@ -20,8 +20,17 @@ export const initProject = async (projectUri?: vscode.Uri) => {
         return;
     }
 
+    // FIXME: this code will fail the project creation process if no workspace is open
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+        vscode.window.showErrorMessage(
+            "No workspace folder found. Please open a folder and try again.",
+        );
+        return;
+    }
+
     const repository = await gitApi.init(
-        projectUri ?? vscode.workspace.workspaceFolders![0].uri,
+        projectUri ?? workspaceFolders[0].uri,
     );
 
     if (!repository) {
@@ -33,7 +42,7 @@ export const initProject = async (projectUri?: vscode.Uri) => {
 
     // Create .gitignore file
     const gitIgnoreUri = vscode.Uri.joinPath(
-        projectUri ?? vscode.workspace.workspaceFolders![0].uri,
+        projectUri ?? workspaceFolders[0].uri,
         ".gitignore",
     );
 
@@ -62,6 +71,10 @@ export const stageAndCommit = async () => {
     const gitApi: API = vscode.extensions
         .getExtension("vscode.git")
         ?.exports.getAPI(1);
+    if (!gitApi || gitApi.repositories.length === 0) {
+        console.error("Git API not found or no repositories available.");
+        return;
+    }
     const repository = gitApi.repositories[0];
     const resources = [...repository.state.workingTreeChanges];
     const uris = resources.map((r) => r.uri).map((u) => u.path);
@@ -73,6 +86,10 @@ export const sync = async () => {
     const gitApi: API = vscode.extensions
         .getExtension("vscode.git")
         ?.exports.getAPI(1);
+    if (!gitApi || gitApi.repositories.length === 0) {
+        console.error("Git API not found or no repositories available.");
+        return;
+    }
     const repository = gitApi.repositories[0];
     await stageAndCommit().catch(console.error);
     await repository.pull().catch(console.error);
@@ -83,6 +100,10 @@ export const addRemote = async (url: string) => {
     const gitApi: API = vscode.extensions
         .getExtension("vscode.git")
         ?.exports.getAPI(1);
+    if (!gitApi || gitApi.repositories.length === 0) {
+        console.error("Git API not found or no repositories available.");
+        return;
+    }
     const repository = gitApi.repositories[0];
     await repository.addRemote("origin", url);
 
@@ -96,6 +117,10 @@ export const isRemoteDiff = async () => {
     const gitApi: API = vscode.extensions
         .getExtension("vscode.git")
         ?.exports.getAPI(1);
+    if (!gitApi || gitApi.repositories.length === 0) {
+        console.error("Git API not found or no repositories available.");
+        return;
+    }
     const repository = gitApi.repositories[0];
 
     await repository.fetch("origin").catch(console.error);
@@ -131,14 +156,28 @@ export const hasRemote = async () => {
     const gitApi: API = vscode.extensions
         .getExtension("vscode.git")
         ?.exports.getAPI(1);
-    const repository = gitApi.repositories[0];
-    return Boolean(repository.state.remotes.length);
+    if (!gitApi || gitApi.repositories.length === 0) {
+        console.error("Git API not found or no repositories available at `hasRemote`.");
+        return false;
+    }
+    const repository = gitApi?.repositories[0];
+    if (!repository) {
+        return false;
+    }
+    return Boolean(repository?.state?.remotes?.length);
 };
 
 export const hasPendingChanges = async () => {
     const gitApi: API = vscode.extensions
         .getExtension("vscode.git")
         ?.exports.getAPI(1);
-    const repository = gitApi.repositories[0];
-    return Boolean(repository.state.workingTreeChanges.length);
+    if (!gitApi || gitApi.repositories.length === 0) {
+        console.error("Git API not found or no repositories available at `hasPendingChanges`.");
+        return false;
+    }
+    const repository = gitApi?.repositories[0];
+    if (!repository) {
+        return false;
+    }
+    return Boolean(repository?.state?.workingTreeChanges?.length);
 };

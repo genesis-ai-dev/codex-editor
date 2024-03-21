@@ -113,63 +113,40 @@ const PATHS_TO_POPULATE = [
 // The following block ensures a smooth user experience by guiding the user through the initial setup process before the extension is fully activated. This is crucial for setting up the necessary project environment and avoiding any functionality issues that might arise from missing project configurations.
 
 // NOTE: the following two blocks are deactivated for now while we work on the project management extension. We might not need them.
-// // First, check if a project root path is set, indicating whether the user has an existing project open.
-// if (!ROOT_PATH) {
-//     // If no project is found, prompt the user to select a project folder. This step is essential to ensure that the extension operates within the context of a project, which is necessary for most of its functionalities.
-//     vscode.window
-//         .showInformationMessage(
-//             "No project found. You need to select a project folder for your new project, or open an existing project folder.",
-//             { modal: true }, // The modal option is used here to make sure the user addresses this prompt before proceeding, ensuring that the extension does not proceed without a project context.
-//             "Select a Folder",
-//         )
-//         .then((result) => {
-//             // Depending on the user's choice, either guide them to select a folder and initialize a new project or quit the application. This decision point is crucial for aligning the extension's state with the user's intent.
-//             if (result === "Select a Folder") {
-//                 openWorkspace();
-//                 // This command initializes a new project, setting up the necessary project structure and files, ensuring that the user starts with a properly configured environment.
-//                 vscode.commands.executeCommand(
-//                     "codex-editor-extension.initializeNewProject",
-//                 );
-//             } else {
-//                 // If the user decides not to select a folder, quitting the application prevents them from encountering unanticipated behavior due to the lack of a project context.
-//                 vscode.commands.executeCommand("workbench.action.quit");
-//             }
-//         });
-// } else {
-//     // If a project root path exists, check for the presence of a metadata file to determine if the project needs initialization. This step ensures that existing projects are correctly recognized and that the extension does not reinitialize them unnecessarily.
-//     const metadataPath = path.join(ROOT_PATH, "metadata.json");
-//     if (!vscode.workspace.fs.stat(vscode.Uri.file(metadataPath))) {
-//         // Initialize a new project if the metadata file is missing, ensuring that the project has all the necessary configurations for the extension to function correctly.
-//         vscode.commands.executeCommand(
-//             "codex-editor-extension.initializeNewProject",
-//         );
-//     }
-// }
+// First, check if a project root path is set, indicating whether the user has an existing project open.
+if (!ROOT_PATH) {
+    // If no project is found, prompt the user to select a project folder. This step is essential to ensure that the extension operates within the context of a project, which is necessary for most of its functionalities.
+    vscode.window
+        .showInformationMessage(
+            "No project found. You need to select a project folder for your new project, or open an existing project folder.",
+            { modal: true }, // The modal option is used here to make sure the user addresses this prompt before proceeding, ensuring that the extension does not proceed without a project context.
+            "Select a Folder",
+        )
+        .then((result) => {
+            // Depending on the user's choice, either guide them to select a folder and initialize a new project or quit the application. This decision point is crucial for aligning the extension's state with the user's intent.
+            if (result === "Select a Folder") {
+                openWorkspace();
+                // This command initializes a new project, setting up the necessary project structure and files, ensuring that the user starts with a properly configured environment.
+                vscode.commands.executeCommand(
+                    "codex-editor-extension.initializeNewProject",
+                );
+            } else {
+                // If the user decides not to select a folder, quitting the application prevents them from encountering unanticipated behavior due to the lack of a project context.
+                vscode.commands.executeCommand("workbench.action.quit");
+            }
+        });
+} else {
+    // If a project root path exists, check for the presence of a metadata file to determine if the project needs initialization. This step ensures that existing projects are correctly recognized and that the extension does not reinitialize them unnecessarily.
+    const metadataPath = path.join(ROOT_PATH, "metadata.json");
+    if (!vscode.workspace.fs.stat(vscode.Uri.file(metadataPath))) {
+        // Initialize a new project if the metadata file is missing, ensuring that the project has all the necessary configurations for the extension to function correctly.
+        vscode.commands.executeCommand(
+            "codex-editor-extension.initializeNewProject",
+        );
+    }
+}
 
-// // This function handles the workspace folder selection and opening process. It is a critical part of the initial setup, ensuring that the user doesn't work with a virtual workspace or an empty folder, which could lead to unexpected behavior.
-// async function openWorkspace() {
-//     let workspaceFolder;
-//     const openFolder = await vscode.window.showOpenDialog({
-//         canSelectFolders: true,
-//         canSelectFiles: false,
-//         canSelectMany: false,
-//         openLabel: "Choose project folder",
-//     });
-//     if (openFolder && openFolder.length > 0) {
-//         await vscode.commands.executeCommand(
-//             "vscode.openFolder",
-//             openFolder[0],
-//             false,
-//         );
-//         workspaceFolder = vscode.workspace.workspaceFolders
-//             ? vscode.workspace.workspaceFolders[0]
-//             : undefined;
-//     }
-//     if (!workspaceFolder) {
-//         return;
-//     }
-// }
-
+// This function handles the workspace folder selection and opening process. It is a critical part of the initial setup, ensuring that the user doesn't work with a virtual workspace or an empty folder, which could lead to unexpected behavior.
 async function openWorkspace() {
     let workspaceFolder;
     const openFolder = await vscode.window.showOpenDialog({
@@ -189,7 +166,6 @@ async function openWorkspace() {
             : undefined;
     }
     if (!workspaceFolder) {
-        console.error("No workspace opened.");
         return;
     }
 }
@@ -447,7 +423,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     "codex-editor.setEditorFontToTargetLanguage",
                 );
                 await vscode.commands.executeCommand(
-                    "codex-editor.downloadSourceTextBibles",
+                    "codex-editor-extension.downloadSourceTextBibles",
                 );
             },
         ),
@@ -516,110 +492,115 @@ export async function activate(context: vscode.ExtensionContext) {
                 (language) =>
                     language.projectStatus === LanguageProjectStatus.SOURCE,
             )?.tag;
-            if (sourceLanguageCode) {
-                const ebibleCorpusMetadata: EbibleCorpusMetadata[] =
-                    getEBCorpusMetadataByLanguageCode(sourceLanguageCode);
-                if (ebibleCorpusMetadata.length === 0) {
-                    vscode.window.showErrorMessage(
-                        `No source text bibles found for ${sourceLanguageCode} in the eBible corpus.`,
-                    );
-                    return;
-                }
-                const selectedCorpus = await vscode.window.showQuickPick(
-                    ebibleCorpusMetadata.map((corpus) => corpus.file),
-                    {
-                        placeHolder: "Select a source text bible to download",
-                    },
+            let ebibleCorpusMetadata: EbibleCorpusMetadata[] =
+                getEBCorpusMetadataByLanguageCode(sourceLanguageCode || "");
+            if (ebibleCorpusMetadata.length === 0) {
+                vscode.window.showInformationMessage(
+                    `No source text bibles found for ${sourceLanguageCode || "(no source language specified in metadata.json)"} in the eBible corpus.`,
                 );
+                ebibleCorpusMetadata = getEBCorpusMetadataByLanguageCode(""); // Get all bibles if no source language is specified
+            }
+            const selectedCorpus = await vscode.window.showQuickPick(
+                ebibleCorpusMetadata.map((corpus) => corpus.file),
+                {
+                    placeHolder: "Select a source text bible to download",
+                },
+            );
 
-                if (selectedCorpus) {
-                    const selectedCorpusMetadata = ebibleCorpusMetadata.find(
-                        (corpus) => corpus.file === selectedCorpus,
-                    );
-                    if (selectedCorpusMetadata) {
-                        const workspaceRoot =
-                            vscode.workspace.workspaceFolders?.[0].uri.fsPath;
-                        if (workspaceRoot) {
-                            const vrefPath =
-                                await ensureVrefList(workspaceRoot);
+            if (selectedCorpus) {
+                const selectedCorpusMetadata = ebibleCorpusMetadata.find(
+                    (corpus) => corpus.file === selectedCorpus,
+                );
+                if (selectedCorpusMetadata) {
+                    const workspaceRoot =
+                        vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+                    if (workspaceRoot) {
+                        const vrefPath =
+                            await ensureVrefList(workspaceRoot);
 
-                            const sourceTextBiblePath = path.join(
-                                workspaceRoot,
-                                ".project",
-                                "sourceTextBibles",
-                                selectedCorpusMetadata.file,
+                        const sourceTextBiblePath = path.join(
+                            workspaceRoot,
+                            ".project",
+                            "sourceTextBibles",
+                            selectedCorpusMetadata.file,
+                        );
+                        const sourceTextBiblePathUri =
+                            vscode.Uri.file(sourceTextBiblePath);
+                        try {
+                            console.log(
+                                "Checking if source text bible exists",
                             );
-                            const sourceTextBiblePathUri =
-                                vscode.Uri.file(sourceTextBiblePath);
-                            try {
-                                console.log(
-                                    "Checking if source text bible exists",
-                                );
-                                await vscode.workspace.fs.stat(
-                                    sourceTextBiblePathUri,
-                                );
-                                vscode.window.showInformationMessage(
-                                    `Source text bible ${selectedCorpusMetadata.file} already exists.`,
-                                );
-                            } catch {
-                                await downloadEBibleText(
-                                    selectedCorpusMetadata,
-                                    workspaceRoot,
-                                );
-                                vscode.window.showInformationMessage(
-                                    `Source text bible for ${selectedCorpusMetadata.lang} downloaded successfully.`,
-                                );
-                            }
-
-                            // Read the vref.txt file and the newly downloaded source text bible file
-                            const vrefFilePath = vscode.Uri.file(vrefPath);
-                            const vrefFileData =
-                                await vscode.workspace.fs.readFile(
-                                    vrefFilePath,
-                                );
-                            const vrefLines = new TextDecoder("utf-8")
-                                .decode(vrefFileData)
-                                .split(/\r?\n/)
-                                .filter((line) => line.trim() !== "");
-
-                            const sourceTextBibleData =
-                                await vscode.workspace.fs.readFile(
-                                    sourceTextBiblePathUri,
-                                );
-                            const bibleLines = new TextDecoder("utf-8")
-                                .decode(sourceTextBibleData)
-                                .split(/\r?\n/)
-                                .filter((line) => line.trim() !== "");
-
-                            // Zip the lines together
-                            const zippedLines = vrefLines
-                                .map(
-                                    (vrefLine, index) =>
-                                        `${vrefLine} ${
-                                            bibleLines[index] || ""
-                                        }`,
-                                )
-                                .filter((line) => line.trim() !== "");
-
-                            // Write the zipped lines to a new .bible file
-                            const bibleFilePath = path.join(
-                                workspaceRoot,
-                                ".project",
-                                "sourceTextBibles",
-                                `${selectedCorpusMetadata.file}.bible`,
+                            await vscode.workspace.fs.stat(
+                                sourceTextBiblePathUri,
                             );
-                            const bibleFileUri = vscode.Uri.file(bibleFilePath);
-                            await vscode.workspace.fs.writeFile(
-                                bibleFileUri,
-                                new TextEncoder().encode(
-                                    zippedLines.join("\n"),
-                                ),
-                            );
-
                             vscode.window.showInformationMessage(
-                                `.bible file created successfully at ${bibleFilePath}`,
+                                `Source text bible ${selectedCorpusMetadata.file} already exists.`,
+                            );
+                        } catch {
+                            await downloadEBibleText(
+                                selectedCorpusMetadata,
+                                workspaceRoot,
+                            );
+                            vscode.window.showInformationMessage(
+                                `Source text bible for ${selectedCorpusMetadata.lang} downloaded successfully.`,
                             );
                         }
+
+                        // Read the vref.txt file and the newly downloaded source text bible file
+                        const vrefFilePath = vscode.Uri.file(vrefPath);
+                        const vrefFileData =
+                            await vscode.workspace.fs.readFile(
+                                vrefFilePath,
+                            );
+                        const vrefLines = new TextDecoder("utf-8")
+                            .decode(vrefFileData)
+                            .split(/\r?\n/)
+                            .filter((line) => line.trim() !== "");
+
+                        const sourceTextBibleData =
+                            await vscode.workspace.fs.readFile(
+                                sourceTextBiblePathUri,
+                            );
+                        const bibleLines = new TextDecoder("utf-8")
+                            .decode(sourceTextBibleData)
+                            .split(/\r?\n/)
+                            .filter((line) => line.trim() !== "");
+
+                        // Zip the lines together
+                        const zippedLines = vrefLines
+                            .map(
+                                (vrefLine, index) =>
+                                    `${vrefLine} ${bibleLines[index] || ""
+                                    }`,
+                            )
+                            .filter((line) => line.trim() !== "");
+
+                        console.log('ruhrihrruih', { selectedCorpusMetadata });
+                        // Write the zipped lines to a new .bible file
+                        let fileNameWithoutExtension;
+                        if (selectedCorpusMetadata.file.includes(".")) {
+                            fileNameWithoutExtension = selectedCorpusMetadata.file.split(".")[0];
+                        } else {
+                            fileNameWithoutExtension = selectedCorpusMetadata.file;
+                        }
+
+                        const bibleFilePath = path.join(
+                            workspaceRoot,
+                            ".project",
+                            "sourceTextBibles",
+                            `${fileNameWithoutExtension}.bible`,
+                        );
+                        const bibleFileUri = vscode.Uri.file(bibleFilePath);
+                        await vscode.workspace.fs.writeFile(
+                            bibleFileUri,
+                            new TextEncoder().encode(
+                                zippedLines.join("\n"),
+                            ),
+                        );
+
+                        vscode.window.showInformationMessage(
+                            `.bible file created successfully at ${bibleFilePath}`,
+                        );
                     }
                 }
             }
@@ -885,7 +866,7 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.window.showInformationMessage(
         "Ensuring Source Bible is downloaded...",
     );
-    vscode.commands.executeCommand("codex-editor.downloadSourceTextBibles");
+    vscode.commands.executeCommand("codex-editor-extension.downloadSourceTextBibles");
 
     scmInterval = setInterval(stageAndCommit, 1000 * 60 * 15);
 }

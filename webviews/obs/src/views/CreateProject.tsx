@@ -75,8 +75,14 @@ const Sidebar = () => {
                         projectCategory,
                         userName,
                         abbreviation,
-                        sourceLanguage,
-                        targetLanguage,
+                        sourceLanguage: {
+                            ...sourceLanguage,
+                            projectStatus: "source",
+                        },
+                        targetLanguage: {
+                            ...targetLanguage,
+                            projectStatus: "target",
+                        },
                     },
                 });
                 break;

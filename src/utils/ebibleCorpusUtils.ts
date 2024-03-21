@@ -2,6 +2,10 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 
 export function getEBCorpusMetadataByLanguageCode(languageCode: string): EbibleCorpusMetadata[] {
+    if (languageCode === "") {
+        return eBibleCorpusMetadata;
+    }
+
     return eBibleCorpusMetadata.filter((metadata) => metadata.code === languageCode)
         .map((metadata) => {
             return {

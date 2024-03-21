@@ -53,10 +53,9 @@ export class StoryOutlineProvider implements vscode.WebviewViewProvider {
                             return;
                         }
                         const storyURI = vscode.Uri.joinPath(
-                            vscode.workspace.workspaceFolders?.[0].uri,
+                            vscode.workspace?.workspaceFolders?.[0].uri,
                             "ingredients",
-                            `${
-                                (e.payload as Record<string, any>).storyNumber
+                            `${(e.payload as Record<string, any>)?.storyNumber
                             }.md`,
                         );
                         await vscode.commands.executeCommand(
@@ -69,9 +68,9 @@ export class StoryOutlineProvider implements vscode.WebviewViewProvider {
                                 viewColumn: vscode.ViewColumn.One,
                             },
                         );
-                        await this._context?.workspaceState.update(
+                        await this._context?.workspaceState?.update(
                             "currentStoryId",
-                            (e.payload as Record<string, any>).storyNumber,
+                            (e.payload as Record<string, any>)?.storyNumber,
                         );
 
                         if (!this._context) {

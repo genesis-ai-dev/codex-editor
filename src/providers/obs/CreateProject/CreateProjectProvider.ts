@@ -6,6 +6,7 @@ import { getNonce } from "./utilities/getNonce";
 import { initializeNewProject } from "./functions/initializeNewProject";
 import { ProjectDetails } from "../../../utils/projectUtils";
 import { initProject } from "../../scm/git";
+import { indexVerseRefsInSourceText } from "../../../commands/indexVrefsCommand";
 
 export class CreateProjectProvider implements vscode.WebviewViewProvider {
     private _webviewView: vscode.WebviewView | undefined;
@@ -51,6 +52,10 @@ export class CreateProjectProvider implements vscode.WebviewViewProvider {
                     case MessageType.createProject:
                         await initializeNewProject(e.payload as ProjectDetails);
                         await initProject();
+                        await vscode.commands.executeCommand(
+                            "codex-editor-extension.downloadSourceTextBibles",
+                        );
+                        indexVerseRefsInSourceText();
                         break;
                     default:
                         break;

@@ -153,7 +153,7 @@ def upsert_all_codex_files():
 def upsert_all_resource_files():
     """Upsert all resource files from the workspace path into the database."""
     try:
-        resource_files = glob.glob(f'{WORKSPACE_PATH}/.project/resources/*', recursive=True)
+        resource_files = glob.glob(f'{WORKSPACE_PATH}/.project/resources/*.*', recursive=True)
         active_db = get_database("resources")
 
         for file_path in resource_files:
@@ -210,6 +210,7 @@ def upsert_data():
 def upsert_all():
     """Upsert all data into the specified database."""
     db_name = request.args.get('db_name', default='.codex')
+    print(f"Upserting all data into {db_name} database")
     active_db = get_database(db_name)
     if active_db.tokenizer:
         active_db.tokenizer.upsert_all()
@@ -369,12 +370,22 @@ def get_text_frm():
 
 @app.route('/heartbeat', methods=['GET'])
 def heartbeat():
-    """Check if the server is running and list available databases."""
-    database_names_string = ', '.join(initializers.keys())
+    """Check if the server is running, list available databases, and provide a sample query for each."""
+    databases_info = []
+    for db_name in initializers.keys():
+        sample_query_result = None
+        try:
+            db = get_database(db_name)
+            sample_query_result = db.search("Genesis 1:1", limit=1)
+        except Exception as e:
+            sample_query_result = f"Failed to execute sample query: {str(e)}"
+        databases_info.append({"name": db_name, "sample_query": sample_query_result})
+
     if not WORKSPACE_PATH:
-        database_names_string = ""
+        databases_info = []
 
-    return jsonify({"message": "Server is running", "databases": f'{database_names_string}'}), 200
+    return jsonify({"message": "Server is running", "databases_info": databases_info}), 200
 
 
-app.run(port=5554, debug=True)
+# FIXME: increment port number if it's already in use
+app.run(port=5554, debug=True) 

@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.0.5",
+    "version": "0.0.7",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -348,7 +348,7 @@
                     "pygls.server.pythonPath": {
                         "scope": "resource",
                         "type": "string",
-                        "default": "python3",
+                        "default": "python",
                         "description": "The python interpreter to use to run the server.\nBy default, this extension will attempt to use the Python interpreter configured via the Python extension, setting this setting will override this behavior."
                     },
                     "pygls.trace.server": {
