@@ -498,7 +498,10 @@ export async function activate(context: vscode.ExtensionContext) {
                 getEBCorpusMetadataByLanguageCode(sourceLanguageCode || "");
             if (ebibleCorpusMetadata.length === 0) {
                 vscode.window.showInformationMessage(
-                    `No source text bibles found for ${sourceLanguageCode || "(no source language specified in metadata.json)"} in the eBible corpus.`,
+                    `No source text bibles found for ${
+                        sourceLanguageCode ||
+                        "(no source language specified in metadata.json)"
+                    } in the eBible corpus.`,
                 );
                 ebibleCorpusMetadata = getEBCorpusMetadataByLanguageCode(""); // Get all bibles if no source language is specified
             }
@@ -517,8 +520,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     const workspaceRoot =
                         vscode.workspace.workspaceFolders?.[0].uri.fsPath;
                     if (workspaceRoot) {
-                        const vrefPath =
-                            await ensureVrefList(workspaceRoot);
+                        const vrefPath = await ensureVrefList(workspaceRoot);
 
                         const sourceTextBiblePath = path.join(
                             workspaceRoot,
@@ -529,9 +531,7 @@ export async function activate(context: vscode.ExtensionContext) {
                         const sourceTextBiblePathUri =
                             vscode.Uri.file(sourceTextBiblePath);
                         try {
-                            console.log(
-                                "Checking if source text bible exists",
-                            );
+                            console.log("Checking if source text bible exists");
                             await vscode.workspace.fs.stat(
                                 sourceTextBiblePathUri,
                             );
@@ -551,9 +551,7 @@ export async function activate(context: vscode.ExtensionContext) {
                         // Read the vref.txt file and the newly downloaded source text bible file
                         const vrefFilePath = vscode.Uri.file(vrefPath);
                         const vrefFileData =
-                            await vscode.workspace.fs.readFile(
-                                vrefFilePath,
-                            );
+                            await vscode.workspace.fs.readFile(vrefFilePath);
                         const vrefLines = new TextDecoder("utf-8")
                             .decode(vrefFileData)
                             .split(/\r?\n/)
@@ -572,18 +570,18 @@ export async function activate(context: vscode.ExtensionContext) {
                         const zippedLines = vrefLines
                             .map(
                                 (vrefLine, index) =>
-                                    `${vrefLine} ${bibleLines[index] || ""
-                                    }`,
+                                    `${vrefLine} ${bibleLines[index] || ""}`,
                             )
                             .filter((line) => line.trim() !== "");
 
-                        console.log('ruhrihrruih', { selectedCorpusMetadata });
                         // Write the zipped lines to a new .bible file
                         let fileNameWithoutExtension;
                         if (selectedCorpusMetadata.file.includes(".")) {
-                            fileNameWithoutExtension = selectedCorpusMetadata.file.split(".")[0];
+                            fileNameWithoutExtension =
+                                selectedCorpusMetadata.file.split(".")[0];
                         } else {
-                            fileNameWithoutExtension = selectedCorpusMetadata.file;
+                            fileNameWithoutExtension =
+                                selectedCorpusMetadata.file;
                         }
 
                         const bibleFilePath = path.join(
@@ -595,9 +593,7 @@ export async function activate(context: vscode.ExtensionContext) {
                         const bibleFileUri = vscode.Uri.file(bibleFilePath);
                         await vscode.workspace.fs.writeFile(
                             bibleFileUri,
-                            new TextEncoder().encode(
-                                zippedLines.join("\n"),
-                            ),
+                            new TextEncoder().encode(zippedLines.join("\n")),
                         );
 
                         vscode.window.showInformationMessage(
@@ -868,7 +864,24 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.window.showInformationMessage(
         "Ensuring Source Bible is downloaded...",
     );
-    vscode.commands.executeCommand("codex-editor-extension.downloadSourceTextBibles");
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (workspaceFolders) {
+        const workspaceRoot = workspaceFolders[0].uri.fsPath;
+        const bibleFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceRoot, "**/*.bible"),
+            "**/node_modules/**", // exclude node_modules
+            1, // limit search results to 1
+        );
+        if (bibleFiles.length === 0) {
+            vscode.commands.executeCommand(
+                "codex-editor-extension.downloadSourceTextBibles",
+            );
+        } else {
+            vscode.window.showInformationMessage(
+                "Bible files already exist in the workspace.",
+            );
+        }
+    }
 
     scmInterval = setInterval(stageAndCommit, 1000 * 60 * 15);
 }
