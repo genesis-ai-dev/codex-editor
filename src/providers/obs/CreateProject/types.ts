@@ -18,6 +18,8 @@ export enum MessageType {
     SYNC_TA_FOLDER_CONTENT = "sync-ta-folder-content",
     SYNC_TA_FOLDERS = "syncTaFolders",
     SYNC_TA_CONTENT = "sync-ta-content",
+    GET_USFM = "get-usfm",
+    SCROLL_TO_CHAPTER = "scrollToChapter",
 }
 
 export type Language = {

@@ -4,6 +4,7 @@ import { TranslationWordsProvider } from "../../../translationWords/provider";
 import { TranslationWordsListProvider } from "../../../translationWordsList/provider";
 import { TranslationQuestionsProvider } from "../../../TranslationQuestions/provider";
 import { TnProvider } from "../../../translationNotes/provider";
+import { USFMViewerProvider } from "../../../usfm-viewer/provider";
 
 enum ViewTypes {
     OBS = "scribe.obs",
@@ -58,46 +59,14 @@ export const openOBS = async (
 };
 
 export const openBible = async (
+    context: vscode.ExtensionContext,
     resource: DownloadedResource,
-    bibleBook?: string,
 ) => {
-    const workspaceRootUri = vscode.workspace.workspaceFolders?.[0].uri;
-    if (!workspaceRootUri) {
-        return;
-    }
-    const resourceRootUri = vscode.Uri.joinPath(
-        workspaceRootUri,
-        resource.localPath,
-    );
-
-    const bookUri = vscode.Uri.joinPath(
-        resourceRootUri,
-        `${bibleBook ?? "01-GEN"}.usfm`,
-    );
-
-    const existingViewCols = vscode.window.tabGroups.all.map(
-        (editor) => editor.viewColumn,
-    );
-
-    await vscode.commands.executeCommand(
-        "vscode.openWith",
-        bookUri,
-        ViewTypes.BIBLE, // use resource type to load the according view
-        { viewColumn: vscode.ViewColumn.Beside, preview: true },
-    );
-
-    // get the view cols and tab id of the opened resource
-
-    const newViewCols = vscode.window.tabGroups.all.map(
-        (tabGroup) => tabGroup.viewColumn,
-    );
-
-    const newViewCol = newViewCols.find(
-        (col) => !existingViewCols.includes(col),
-    );
+    const usfmProvider = new USFMViewerProvider(context, resource);
+    const usfmViewer = await usfmProvider.startWebview();
 
     return {
-        viewColumn: newViewCol,
+        viewColumn: usfmViewer.viewColumn,
     };
 };
 
