@@ -72,8 +72,9 @@ async function upsertAllResourceFiles(webview: vscode.Webview): Promise<void> {
 async function simpleOpen(uri: string) {
     try {
         const parsedUri = vscode.Uri.parse(uri);
-        if (parsedUri.toString().endsWith(".codex")) {
-            vscode.workspace.openNotebookDocument(parsedUri);
+        if (parsedUri.toString().includes(".codex")){
+            jumpToCellInNotebook(uri.toString(),  0);
+
         }
         else {
             const document = await vscode.workspace.openTextDocument(parsedUri);

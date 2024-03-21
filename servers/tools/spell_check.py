@@ -15,17 +15,14 @@ import re
 import string
 import sys
 from io import TextIOWrapper
-
-
 try:
     from servers.tools.nlp import genetic_tokenizer
-
 except ImportError:
     from tools.nlp import genetic_tokenizer
 
-translator = str.maketrans('', '', string.punctuation)
+    translator = str.maketrans('', '', string.punctuation)
 
-USE_IMAGE_HASH = False
+    USE_IMAGE_HASH = False
 
 
 def criteria(dictionary_word: Dict, word: str, dictionary) -> float:

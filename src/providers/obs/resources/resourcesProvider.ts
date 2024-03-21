@@ -255,7 +255,8 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
                     ?.viewColumn;
                 break;
             case "bible":
-                newViewCol = (await openBible(resource))?.viewColumn;
+                newViewCol = (await openBible(this.context, resource))
+                    ?.viewColumn;
                 break;
             case "tn": {
                 const verseRef = (await this._context?.globalState.get(

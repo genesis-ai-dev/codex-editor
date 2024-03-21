@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+#root {
+    max-width: 1280px;
+    margin: 0 auto;
+    /* padding: 2rem; */
+    text-align: left;
+}
+
+@keyframes logo-spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    a:nth-of-type(2) .logo {
+        animation: logo-spin infinite 20s linear;
+    }
+}
+
+.card {
+    padding: 2em;
+}
+
+.read-the-docs {
+    color: #888;
+}
+
+.perf .title .section,
+.perf .heading .section,
+.sectionBody .paragraph {
+    @apply mx-3;
+}
+
+.perf .title .section,
+.perf .heading .section {
+    @apply flex items-center;
+}
+
+.editor {
+    @apply my-2;
+}
+
+.heading .ms {
+    @apply uppercase text-lg tracking-wider text-primary;
+}
+
+/* .editor *[contenteditable='true']:focus {
+	@apply bg-primary-50 outline-none rounded-sm;
+} */
+
+.mark.chapter {
+    @apply border-b mb-2 pb-1 uppercase tracking-wider font-semibold break-before-column block before:content-['Chapter_:_'];
+}
+
+p.paragraph:has(.chapter) {
+    @apply mt-2;
+}
+
+.mark.verse {
+    @apply text-lg mr-1  font-semibold after:content-['.'];
+}
+
+.major-title,
+.major-secondary-heading {
+    @apply text-primary;
+}
+
+.graft {
+    @apply text-primary text-sm align-super;
+}
+
+.editor .perf .footnote:before {
+    @apply cursor-pointer font-semibold;
+    content: " ‡";
+}
+.editor .perf .xref:before {
+    @apply cursor-pointer font-semibold;
+    content: " x";
+}
+
+.perf .sectionHeading {
+    @apply hidden;
+}
+
+.perf .xq,
+.perf .fq {
+    @apply text-primary text-sm;
+}
+[contenteditable]:focus {
+    outline: 0px solid transparent;
+}
+.ref-editor ::selection {
+    @apply bg-primary-50;
+}
