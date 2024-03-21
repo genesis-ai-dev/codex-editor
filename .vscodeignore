@@ -6,9 +6,11 @@
 !out/**
 !assets/**
 !servers/**
-!webviews/**/build/**
-!webviews/**/dist/**
-!webviews/**/out/**
+
+!webviews/codex-webviews/dist/**
+!webviews/obs/build/**
+!webviews/dictionary-side-panel/dist/**
+!webviews/editable-react-table/dist/**
 
 !src/assets/reset.css
 !src/assets/vscode.css

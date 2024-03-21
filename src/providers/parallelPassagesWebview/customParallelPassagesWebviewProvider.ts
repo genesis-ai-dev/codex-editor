@@ -74,6 +74,7 @@ async function simpleOpen(uri: string) {
         const parsedUri = vscode.Uri.parse(uri);
         if (parsedUri.toString().includes(".codex")){
             jumpToCellInNotebook(uri.toString(),  0);
+
         }
         else {
             const document = await vscode.workspace.openTextDocument(parsedUri);
