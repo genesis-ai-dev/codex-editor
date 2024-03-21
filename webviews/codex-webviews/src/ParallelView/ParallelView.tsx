@@ -1,5 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { VSCodePanelTab, VSCodePanelView, VSCodePanels, VSCodeButton, VSCodeTextField } from "@vscode/webview-ui-toolkit/react";
+import {
+    VSCodePanelTab,
+    VSCodePanelView,
+    VSCodePanels,
+    VSCodeButton,
+    VSCodeTextField,
+} from "@vscode/webview-ui-toolkit/react";
 
 const vscode = acquireVsCodeApi();
 
@@ -22,9 +28,9 @@ interface SearchResult {
 }
 
 interface ResourceItem {
-    text: string,
-    uri: string,
-    createdAt: string,
+    text: string;
+    uri: string;
+    createdAt: string;
 }
 interface ResourceResults {
     resourceResults: ResourceItem[];
@@ -37,36 +43,66 @@ interface OpenFileMessage {
 }
 
 interface searchCommand {
-    command: string,
-    query: string,
-    database: string,
+    command: string;
+    query: string;
+    database: string;
 }
 
 function App() {
-    const [searchResults, setSearchResults] = useState<SearchResult>({bibleResults: [], codexResults: [], detailedAnomalies: []});
+    const [searchResults, setSearchResults] = useState<SearchResult>({
+        bibleResults: [],
+        codexResults: [],
+        detailedAnomalies: [],
+    });
     const [loading, setLoading] = useState<boolean>(false);
-    const [resourceResults, setResourceResults] = useState<ResourceResults>({resourceResults: []});
+    const [resourceResults, setResourceResults] = useState<ResourceResults>({
+        resourceResults: [],
+    });
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             const message = event.data;
             switch (message.command) {
                 case "searchResults": {
-                    const { bible_results, codex_results, detailed_anomalies }: { bible_results: Item[], codex_results: Item[], detailed_anomalies: DetailedAnomaly[] } = message.data;
-                    const parsedBibleResults = bible_results?.map((item: Item) => ({...item, createdAt: new Date(item.createdAt)}));
-                    const parsedCodexResults = codex_results?.map((item: Item) => ({...item, createdAt: new Date(item.createdAt)}));
-                    setSearchResults({ bibleResults: parsedBibleResults, codexResults: parsedCodexResults, detailedAnomalies: detailed_anomalies});
+                    const {
+                        bible_results,
+                        codex_results,
+                        detailed_anomalies,
+                    }: {
+                        bible_results: Item[];
+                        codex_results: Item[];
+                        detailed_anomalies: DetailedAnomaly[];
+                    } = message.data;
+                    const parsedBibleResults = bible_results?.map(
+                        (item: Item) => ({
+                            ...item,
+                            createdAt: new Date(item.createdAt),
+                        }),
+                    );
+                    const parsedCodexResults = codex_results?.map(
+                        (item: Item) => ({
+                            ...item,
+                            createdAt: new Date(item.createdAt),
+                        }),
+                    );
+                    setSearchResults({
+                        bibleResults: parsedBibleResults,
+                        codexResults: parsedCodexResults,
+                        detailedAnomalies: detailed_anomalies,
+                    });
                     break;
                 }
                 case "completed":
                     setLoading(false);
                     break;
                 case "resourceResults": {
-                    const resourceItems: ResourceItem[] = message?.data?.map((item: any) => ({
-                        text: item.text,
-                        uri: item.uri,
-                        createdAt: item.createdAt,
-                    }));
+                    const resourceItems: ResourceItem[] = message?.data?.map(
+                        (item: any) => ({
+                            text: item.text,
+                            uri: item.uri,
+                            createdAt: item.createdAt,
+                        }),
+                    );
                     setResourceResults({ resourceResults: resourceItems });
                 }
             }
@@ -112,118 +148,149 @@ function App() {
             command: "embedResource",
         });
     };
-    
+
     const searchBoth = (query: string) => {
         vscode.postMessage({
             command: "search",
             database: "both",
             query: query,
         } as searchCommand);
-    }
+    };
     const searchResources = (query: string) => {
         vscode.postMessage({
             command: "search",
             database: "resources",
             query: query,
         } as searchCommand);
-    }
+    };
 
-   
-
-
-    const PassageTab = ({callback, resultType}: {callback: () => void; resultType: "bibleResults" | "codexResults";}) => {  
+    const PassageTab = ({
+        callback,
+        resultType,
+    }: {
+        callback: () => void;
+        resultType: "bibleResults" | "codexResults";
+    }) => {
         const [query, setQuery] = React.useState("");
-        return (    
-                <div
-            style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "2em",
-                alignItems: "center",
-                justifyContent: "center",
-                width: "95%",
-                margin: "auto",
-            }}
-        >
-        <div style={{ display: "flex", alignItems: "center", marginTop: "2em", width: "100%"}}>
-            <VSCodeTextField placeholder="Enter text here" style={{ flexGrow: 1 }} onChange={(e) => setQuery((e.target as HTMLInputElement).value)} />
-            <VSCodeButton onClick={() => searchBoth(query)}>Search</VSCodeButton>
-        </div>
-            
-            {loading ? <p>Loading, this may take up to 30 minutes, please do not close this tab.</p> : null}
-            {searchResults.bibleResults.length > 0 || searchResults.codexResults.length > 0 ? (
+        return (
+            <div
+                style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "2em",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: "95%",
+                    margin: "auto",
+                }}
+            >
                 <div
                     style={{
                         display: "flex",
-                        flexDirection: "column",
                         alignItems: "center",
-                        gap: "1em",
+                        marginTop: "2em",
+                        width: "100%",
                     }}
                 >
-                    {searchResults[resultType].map((item, index) => (
-                        <div
-                            key={index}
-                            style={{
-                                marginBottom: "20px",
-                                background: "var(--vscode-sideBar-background)",
-                                borderRadius: "10px",
-                                alignContent: "center",
-                                display: "flex",
-                                flexDirection: "column",
-                                padding: "20px",
-                                width: "100%"
-                            }}
-                        >
-                            <h3>
-                                {item.book} {item.chapter}:{item.verse}
-                            </h3>
-                            <p
-                                style={{
-                                    background:
-                                        "var(--vscode-sideBar-dropBackground)",
-                                    borderRadius: "10px",
-                                    margin: "10px",
-                                    padding: "5px",
-                                }}
-                            >
-                                {item.text}
-                            </p>
-                            <p>
-                                <strong>Last indexed:</strong>{" "}
-                                {item.createdAt.toLocaleString()}
-                            </p>
-                            <button
-                                onClick={() =>
-                                    handleUriClick(
-                                        item.uri,
-                                        `${item.chapter}:${item.verse}`,
-                                    )
-                                }
-                                style={{
-                                    marginTop: "10px",
-                                    padding: "5px 10px",
-                                    width: "95%",
-                                    alignSelf: "center",
-                                }}> Open</button>
-                        </div>
-                    ))}
-                </div>
-            ) : (
-                null
-            )}
-            {!loading && (
-                <div style={{
-                        display: "flex",
-                        flexDirection: "row",
-                        gap: "10px"
-                    }}>
-                    <VSCodeButton onClick={callback}>
-                        Regenerate meaning database.
+                    <VSCodeTextField
+                        placeholder="Enter text here"
+                        style={{ flexGrow: 1 }}
+                        onChange={(e) =>
+                            setQuery((e.target as HTMLInputElement).value)
+                        }
+                    />
+                    <VSCodeButton onClick={() => searchBoth(query)}>
+                        Search
                     </VSCodeButton>
                 </div>
-            )}
-        </div>
-        );}
+
+                {loading ? (
+                    <p>
+                        Loading, this may take up to 30 minutes, please do not
+                        close this tab.
+                    </p>
+                ) : null}
+                {searchResults?.bibleResults?.length > 0 ||
+                searchResults?.codexResults?.length > 0 ? (
+                    <div
+                        style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            gap: "1em",
+                        }}
+                    >
+                        {searchResults &&
+                            searchResults[resultType]?.map((item, index) => (
+                                <div
+                                    key={index}
+                                    style={{
+                                        marginBottom: "20px",
+                                        background:
+                                            "var(--vscode-sideBar-background)",
+                                        borderRadius: "10px",
+                                        alignContent: "center",
+                                        display: "flex",
+                                        flexDirection: "column",
+                                        padding: "20px",
+                                        width: "100%",
+                                    }}
+                                >
+                                    <h3>
+                                        {item.book} {item.chapter}:{item.verse}
+                                    </h3>
+                                    <p
+                                        style={{
+                                            background:
+                                                "var(--vscode-sideBar-dropBackground)",
+                                            borderRadius: "10px",
+                                            margin: "10px",
+                                            padding: "5px",
+                                        }}
+                                    >
+                                        {item.text}
+                                    </p>
+                                    <p>
+                                        <strong>Last indexed:</strong>{" "}
+                                        {item.createdAt.toLocaleString()}
+                                    </p>
+                                    <button
+                                        onClick={() =>
+                                            handleUriClick(
+                                                item.uri,
+                                                `${item.chapter}:${item.verse}`,
+                                            )
+                                        }
+                                        style={{
+                                            marginTop: "10px",
+                                            padding: "5px 10px",
+                                            width: "95%",
+                                            alignSelf: "center",
+                                        }}
+                                    >
+                                        {" "}
+                                        Open
+                                    </button>
+                                </div>
+                            ))}
+                    </div>
+                ) : null}
+                {!loading && (
+                    <div
+                        style={{
+                            display: "flex",
+                            flexDirection: "row",
+                            gap: "10px",
+                        }}
+                    >
+                        <VSCodeButton onClick={callback}>
+                            Regenerate meaning database.
+                        </VSCodeButton>
+                    </div>
+                )}
+            </div>
+        );
+    };
 
     const AnomalyTab: React.FC = () => {
         const [query, setQuery] = React.useState("");
@@ -234,13 +301,17 @@ function App() {
             reference: string;
         }
 
-        const anomaliesByReason: Record<string, string[]> = searchResults.detailedAnomalies.reduce((acc: Record<string, string[]>, anomaly: Anomaly) => {
-            if (!acc[anomaly.reason]) {
-                acc[anomaly.reason] = [];
-            }
-            acc[anomaly.reason].push(anomaly.reference);
-            return acc;
-        }, {});
+        const anomaliesByReason: Record<string, string[]> =
+            searchResults.detailedAnomalies.reduce(
+                (acc: Record<string, string[]>, anomaly: Anomaly) => {
+                    if (!acc[anomaly.reason]) {
+                        acc[anomaly.reason] = [];
+                    }
+                    acc[anomaly.reason].push(anomaly.reference);
+                    return acc;
+                },
+                {},
+            );
 
         return (
             <div
@@ -260,11 +331,36 @@ function App() {
                     boxShadow: "0 4px 8px rgba(0,0,0,0.1)",
                 }}
             >
-                <div style={{ display: "flex", alignItems: "center", marginTop: "2em", width: "100%"}}>
-                    <VSCodeTextField placeholder="Enter text here" style={{ flexGrow: 1 }} onChange={(e) => setQuery((e.target as HTMLInputElement).value)} />
-                    <VSCodeButton onClick={() => searchBoth(query)}>Search</VSCodeButton>                   
+                <div
+                    style={{
+                        display: "flex",
+                        alignItems: "center",
+                        marginTop: "2em",
+                        width: "100%",
+                    }}
+                >
+                    <VSCodeTextField
+                        placeholder="Enter text here"
+                        style={{ flexGrow: 1 }}
+                        onChange={(e) =>
+                            setQuery((e.target as HTMLInputElement).value)
+                        }
+                    />
+                    <VSCodeButton onClick={() => searchBoth(query)}>
+                        Search
+                    </VSCodeButton>
                 </div>
-                {loading ? <p style={{ fontWeight: "bold", color: "var(--vscode-editorWarning-foreground)" }}>Loading, this may take up to 30 minutes, please do not close this tab.</p> : null}
+                {loading ? (
+                    <p
+                        style={{
+                            fontWeight: "bold",
+                            color: "var(--vscode-editorWarning-foreground)",
+                        }}
+                    >
+                        Loading, this may take up to 30 minutes, please do not
+                        close this tab.
+                    </p>
+                ) : null}
                 {Object.keys(anomaliesByReason).length > 0 ? (
                     <div style={{ overflowX: "auto", width: "95%" }}>
                         <table
@@ -276,19 +372,48 @@ function App() {
                         >
                             <thead>
                                 <tr>
-                                    {Object.keys(anomaliesByReason).map((reason, index) => (
-                                        <th key={index} style={{ padding: "10px", borderBottom: "2px solid var(--vscode-editor-selectionBackground)" }}>{reason}</th>
-                                    ))}
+                                    {Object.keys(anomaliesByReason).map(
+                                        (reason, index) => (
+                                            <th
+                                                key={index}
+                                                style={{
+                                                    padding: "10px",
+                                                    borderBottom:
+                                                        "2px solid var(--vscode-editor-selectionBackground)",
+                                                }}
+                                            >
+                                                {reason}
+                                            </th>
+                                        ),
+                                    )}
                                 </tr>
                             </thead>
                             <tbody>
-                                {Object.values(anomaliesByReason).map((references, index) => (
-                                    <td key={index} style={{ padding: "10px", borderBottom: "1px solid var(--vscode-editor-inactiveSelectionBackground)" }}>
-                                        {references.map((reference, refIndex) => (
-                                            <p key={refIndex} style={{ margin: "5px 0" }}>{reference}</p>
-                                        ))}
-                                    </td>
-                                ))}
+                                {Object.values(anomaliesByReason).map(
+                                    (references, index) => (
+                                        <td
+                                            key={index}
+                                            style={{
+                                                padding: "10px",
+                                                borderBottom:
+                                                    "1px solid var(--vscode-editor-inactiveSelectionBackground)",
+                                            }}
+                                        >
+                                            {references.map(
+                                                (reference, refIndex) => (
+                                                    <p
+                                                        key={refIndex}
+                                                        style={{
+                                                            margin: "5px 0",
+                                                        }}
+                                                    >
+                                                        {reference}
+                                                    </p>
+                                                ),
+                                            )}
+                                        </td>
+                                    ),
+                                )}
                             </tbody>
                         </table>
                     </div>
@@ -301,110 +426,140 @@ function App() {
     const ResourceTab: React.FC = () => {
         const [query, setQuery] = React.useState("");
         return (
-                <div
-                    style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "2em",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        width: "95%",
-                        margin: "auto",
-                    }}
-                >     
-                  {!loading && (
-                <div style={{ display: "flex", alignItems: "center", marginTop: "2em", width: "100%"}}>
-                    <VSCodeTextField placeholder="Enter text here" style={{ flexGrow: 1 }} onChange={(e) => setQuery((e.target as HTMLInputElement).value)} />
-                    <VSCodeButton onClick={() => searchResources(query)}>Search</VSCodeButton>                   
-                </div>
-            )}
-            {loading ? (
-                <div
-                    style={{
-                        marginBottom: "20px",
-                        background: "var(--vscode-sideBar-background)",
-                        borderRadius: "10px",
-                        alignContent: "center",
-                        display: "flex",
-                        flexDirection: "column",
-                        padding: "20px",
-                        width: "100%",
-                        textAlign: "center",
-                    }}
-                >
-                    <p>Loading, this may take up to 30 minutes, please do not close this tab.</p>
-                </div>
-            ) : null}
-            {resourceResults.resourceResults.length > 0 ? (
-                <div
-                    style={{
-                        marginBottom: "20px",
-                        background: "var(--vscode-sideBar-background)",
-                        borderRadius: "10px",
-                        alignContent: "center",
-                        display: "flex",
-                        flexDirection: "column",
-                        padding: "20px",
-                        width: "100%",
-                        marginTop: "20px"
-                    }}
-                >
-                    {resourceResults.resourceResults.map((resource, index) => (
-                        <div key={index} style={{ marginBottom: "30px" }}>
-                            <p>{resource.text}</p>
+            <div
+                style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "2em",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: "95%",
+                    margin: "auto",
+                }}
+            >
+                {!loading && (
+                    <div
+                        style={{
+                            display: "flex",
+                            alignItems: "center",
+                            marginTop: "2em",
+                            width: "100%",
+                        }}
+                    >
+                        <VSCodeTextField
+                            placeholder="Enter text here"
+                            style={{ flexGrow: 1 }}
+                            onChange={(e) =>
+                                setQuery((e.target as HTMLInputElement).value)
+                            }
+                        />
+                        <VSCodeButton onClick={() => searchResources(query)}>
+                            Search
+                        </VSCodeButton>
+                    </div>
+                )}
+                {loading ? (
+                    <div
+                        style={{
+                            marginBottom: "20px",
+                            background: "var(--vscode-sideBar-background)",
+                            borderRadius: "10px",
+                            alignContent: "center",
+                            display: "flex",
+                            flexDirection: "column",
+                            padding: "20px",
+                            width: "100%",
+                            textAlign: "center",
+                        }}
+                    >
+                        <p>
+                            Loading, this may take up to 30 minutes, please do
+                            not close this tab.
+                        </p>
+                    </div>
+                ) : null}
+                {resourceResults.resourceResults.length > 0 ? (
+                    <div
+                        style={{
+                            marginBottom: "20px",
+                            background: "var(--vscode-sideBar-background)",
+                            borderRadius: "10px",
+                            alignContent: "center",
+                            display: "flex",
+                            flexDirection: "column",
+                            padding: "20px",
+                            width: "100%",
+                            marginTop: "20px",
+                        }}
+                    >
+                        {resourceResults.resourceResults.map(
+                            (resource, index) => (
+                                <div
+                                    key={index}
+                                    style={{ marginBottom: "30px" }}
+                                >
+                                    <p>{resource.text}</p>
 
-                            <button
-                                onClick={() =>
-                                    handleUriClick(
-                                        resource.uri,
-                                        resource.text,
-                                    )
-                                }
-                                style={{
-                                    marginTop: "10px",
-                                    padding: "5px 10px",
-                                    width: "95%",
-                                    alignSelf: "center",
-                                }}
-                            >
-                                Open
-                            </button>
-                            <p style={{ marginTop: "5px" }}>
-                                Created at: {new Date(resource.createdAt).toLocaleDateString()}
-                            </p>
-                        </div>
-                    ))}
-                </div>
-            ) : null}
-         <VSCodeButton onClick={handleEmbedResources}>
-                        Regenerate meaning database.
-                    </VSCodeButton>
+                                    <button
+                                        onClick={() =>
+                                            handleUriClick(
+                                                resource.uri,
+                                                resource.text,
+                                            )
+                                        }
+                                        style={{
+                                            marginTop: "10px",
+                                            padding: "5px 10px",
+                                            width: "95%",
+                                            alignSelf: "center",
+                                        }}
+                                    >
+                                        Open
+                                    </button>
+                                    <p style={{ marginTop: "5px" }}>
+                                        Created at:{" "}
+                                        {new Date(
+                                            resource.createdAt,
+                                        ).toLocaleDateString()}
+                                    </p>
+                                </div>
+                            ),
+                        )}
+                    </div>
+                ) : null}
+                <VSCodeButton onClick={handleEmbedResources}>
+                    Regenerate meaning database.
+                </VSCodeButton>
             </div>
         );
     };
     return (
         <VSCodePanels>
             <VSCodePanelTab id="tab1">Draft</VSCodePanelTab>
-                <VSCodePanelView id="view1">
-                    <PassageTab callback={handleEmbedAllDocuments} resultType="codexResults" />
-                </VSCodePanelView>
+            <VSCodePanelView id="view1">
+                <PassageTab
+                    callback={handleEmbedAllDocuments}
+                    resultType="codexResults"
+                />
+            </VSCodePanelView>
 
             <VSCodePanelTab id="tab2">Source</VSCodePanelTab>
-                <VSCodePanelView id="view2">
-                    <PassageTab callback={handleEmbedBible} resultType="bibleResults" />
-                </VSCodePanelView>
+            <VSCodePanelView id="view2">
+                <PassageTab
+                    callback={handleEmbedBible}
+                    resultType="bibleResults"
+                />
+            </VSCodePanelView>
 
             <VSCodePanelTab id="tab3">Anomalies</VSCodePanelTab>
-                <VSCodePanelView id="view3">
-                    <AnomalyTab />
-                </VSCodePanelView>
+            <VSCodePanelView id="view3">
+                <AnomalyTab />
+            </VSCodePanelView>
             <VSCodePanelTab id="tab4">Resources</VSCodePanelTab>
-                <VSCodePanelView id="view4">
-                    <ResourceTab />
-                </VSCodePanelView>
+            <VSCodePanelView id="view4">
+                <ResourceTab />
+            </VSCodePanelView>
         </VSCodePanels>
-
     );
 }
 export default App;
-
