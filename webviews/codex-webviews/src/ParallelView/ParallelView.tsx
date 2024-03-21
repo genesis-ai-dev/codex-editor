@@ -302,7 +302,7 @@ function App() {
         }
 
         const anomaliesByReason: Record<string, string[]> =
-            searchResults.detailedAnomalies.reduce(
+            searchResults?.detailedAnomalies?.reduce(
                 (acc: Record<string, string[]>, anomaly: Anomaly) => {
                     if (!acc[anomaly.reason]) {
                         acc[anomaly.reason] = [];
@@ -361,7 +361,8 @@ function App() {
                         close this tab.
                     </p>
                 ) : null}
-                {Object.keys(anomaliesByReason).length > 0 ? (
+                {anomaliesByReason &&
+                Object.keys(anomaliesByReason)?.length > 0 ? (
                     <div style={{ overflowX: "auto", width: "95%" }}>
                         <table
                             style={{
@@ -372,24 +373,25 @@ function App() {
                         >
                             <thead>
                                 <tr>
-                                    {Object.keys(anomaliesByReason).map(
-                                        (reason, index) => (
-                                            <th
-                                                key={index}
-                                                style={{
-                                                    padding: "10px",
-                                                    borderBottom:
-                                                        "2px solid var(--vscode-editor-selectionBackground)",
-                                                }}
-                                            >
-                                                {reason}
-                                            </th>
-                                        ),
-                                    )}
+                                    {anomaliesByReason &&
+                                        Object.keys(anomaliesByReason)?.map(
+                                            (reason, index) => (
+                                                <th
+                                                    key={index}
+                                                    style={{
+                                                        padding: "10px",
+                                                        borderBottom:
+                                                            "2px solid var(--vscode-editor-selectionBackground)",
+                                                    }}
+                                                >
+                                                    {reason}
+                                                </th>
+                                            ),
+                                        )}
                                 </tr>
                             </thead>
                             <tbody>
-                                {Object.values(anomaliesByReason).map(
+                                {Object.values(anomaliesByReason)?.map(
                                     (references, index) => (
                                         <td
                                             key={index}
@@ -399,7 +401,7 @@ function App() {
                                                     "1px solid var(--vscode-editor-inactiveSelectionBackground)",
                                             }}
                                         >
-                                            {references.map(
+                                            {references?.map(
                                                 (reference, refIndex) => (
                                                     <p
                                                         key={refIndex}
@@ -492,7 +494,7 @@ function App() {
                             marginTop: "20px",
                         }}
                     >
-                        {resourceResults.resourceResults.map(
+                        {resourceResults?.resourceResults?.map(
                             (resource, index) => (
                                 <div
                                     key={index}
