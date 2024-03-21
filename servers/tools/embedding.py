@@ -100,12 +100,13 @@ class Database:
                 self.logger.exception(f"Error loading embeddings: {e}")
         self.embeddings = EMBEDDINGS
         self.database_name = database_name
-        self.has_tokenizer = has_tokenizer
-        self.use_fasttext = use_fasttext
-        self.queue = []
-        self.open = True
-        self.model_name = f"{'/'.join(self.db_path.split('/')[:-2])}/fast_text.bin"
-        if has_tokenizer:
+        self.has_tokenizer: bool = has_tokenizer
+        self.use_fasttext: bool = use_fasttext
+        self.queue: List[Any] = []  # Replace 'Any' with the actual type when known
+        self.open: bool = True
+        self.tokenizer = None
+        self.model_name: str = f"{'/'.join(self.db_path.split('/')[:-2])}/fast_text.bin"
+        if self.has_tokenizer:
             try:
                 self.tokenizer = genetic_tokenizer.TokenDatabase(self.db_path + database_name)
                 self.tokenizer.save()
@@ -266,7 +267,8 @@ class Database:
         """
         results = extract_verses(file_path.as_posix())
         process_verses(results, file_path, self)
-        self.tokenizer.upsert_all()
+        if self.tokenizer:
+            self.tokenizer.upsert_all()
         self.upsert_queue()
 
     def process_bible_file(self, file_path: Path) -> None:
@@ -282,9 +284,10 @@ class Database:
         process_verses(results, file_path, self)
 
         self.logger.info("Reading file")
-        with file_path.open("r") as file:
-            self.tokenizer.upsert_text(file.read())
-            self.tokenizer.upsert_all()
+        if self.tokenizer:
+            with file_path.open("r") as file:
+                self.tokenizer.upsert_text(file.read())
+                self.tokenizer.upsert_all()
 
     def process_other_file(self, file_path: Path) -> None:
         """
@@ -325,7 +328,7 @@ class Database:
             except:
                 self.fasttext_model.build_vocab(sentences)
 
-            self.fasttext_model.train(sentences, total_examples=len(sentences), epochs=5)
+            self.fasttext_model.train(sentences, total_examples=len(sentences), epochs=10)
             self.fasttext_model.save(self.model_name)
 
     def get_similar_words(self, word, k=10):
@@ -339,7 +342,7 @@ class Database:
         Returns:
         - list: A list of similar words.
         """
-        return [word for word, _ in self.fasttext_model.wv.most_similar(remove_punctuation(word), topn=k)]
+        return self.fasttext_model.wv.most_similar(remove_punctuation(word), topn=k)
 
     def save(self) -> None:
         """

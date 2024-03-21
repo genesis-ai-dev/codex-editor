@@ -22,9 +22,8 @@ initializers = {
     "reference_material": (False, False)
 }
 
-DATABASES = {}
-WORKSPACE_PATH = ""
-
+DATABASES: Dict[str, Any] = {}
+WORKSPACE_PATH: str = ""
 
 class DebugHandler(logging.Handler):
     """Custom logging handler to store log records."""
@@ -274,7 +273,8 @@ def get_most_similar():
             return jsonify({"error": "FastText is not enabled for this database"}), 400
 
         similar_words = active_db.get_similar_words(word)
-        return jsonify(similar_words), 200
+        similar_words_dicts = [{"word": word, "score": score} for word, score in similar_words]
+        return jsonify(similar_words_dicts), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

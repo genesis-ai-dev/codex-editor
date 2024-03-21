@@ -1,7 +1,6 @@
 import * as vscode from "vscode";
 import { jumpToCellInNotebook } from "../../utils";
 import { registerTextSelectionHandler, performSearch } from "../../handlers/textSelectionHandler";
-import { SearchResponse } from "meilisearch";
 
 const abortController: AbortController | null = null;
 
@@ -73,8 +72,8 @@ async function upsertAllResourceFiles(webview: vscode.Webview): Promise<void> {
 async function simpleOpen(uri: string) {
     try {
         const parsedUri = vscode.Uri.parse(uri);
-        if (parsedUri.toString().endsWith(".codex")){
-            vscode.workspace.openNotebookDocument(parsedUri);
+        if (parsedUri.toString().includes(".codex")){
+            jumpToCellInNotebook(uri.toString(),  0);
         }
         else {
             const document = await vscode.workspace.openTextDocument(parsedUri);
