@@ -107,7 +107,9 @@ const PATHS_TO_POPULATE = [
     { filePath: "drafts/" }, // This is where we store the project drafts, including project.dictionary and embedding dbs
     { filePath: "drafts/target/" }, // This is where we store the drafted scripture in particular as .codex files
     { filePath: "drafts/project.dictionary", defaultContent: "" }, // This is where we store the project dictionary
-    { filePath: "chat-threads.json", defaultContent: "" }, // This is where we store the chat threads
+    { filePath: "comments.json", defaultContent: "" }, // This is where we store the VS Code comments api comments, such as on .bible files
+    { filePath: "notebook-comments.json", defaultContent: "[]" }, // We can't use the VS Code comments api for notebooks (.codex files), so a second files avoids overwriting conflicts
+    { filePath: "chat-threads.json", defaultContent: "[]" }, // This is where chat thread conversations are saved
 ];
 
 // The following block ensures a smooth user experience by guiding the user through the initial setup process before the extension is fully activated. This is crucial for setting up the necessary project environment and avoiding any functionality issues that might arise from missing project configurations.
