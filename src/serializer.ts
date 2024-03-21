@@ -36,7 +36,11 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
         }
         // Create array of Notebook cells for the VS Code API from file contents
         const cells = raw.cells.map((item) => {
-            const cell = new vscode.NotebookCellData(item.kind, item.value, item.language);
+            const cell = new vscode.NotebookCellData(
+                item.kind,
+                item.value,
+                item.language,
+            );
             cell.metadata = item.metadata || {}; // Ensure metadata is included if available
             return cell;
         });
@@ -60,6 +64,6 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
             });
         }
 
-        return new TextEncoder().encode(JSON.stringify(contents));
+        return new TextEncoder().encode(JSON.stringify(contents, null, 4));
     }
 }
