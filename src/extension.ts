@@ -557,8 +557,7 @@ export async function activate(context: vscode.ExtensionContext) {
                             await vscode.workspace.fs.readFile(vrefFilePath);
                         const vrefLines = new TextDecoder("utf-8")
                             .decode(vrefFileData)
-                            .split(/\r?\n/)
-                            .filter((line) => line.trim() !== "");
+                            .split(/\r?\n/);
 
                         const sourceTextBibleData =
                             await vscode.workspace.fs.readFile(
@@ -566,8 +565,7 @@ export async function activate(context: vscode.ExtensionContext) {
                             );
                         const bibleLines = new TextDecoder("utf-8")
                             .decode(sourceTextBibleData)
-                            .split(/\r?\n/)
-                            .filter((line) => line.trim() !== "");
+                            .split(/\r?\n/);
 
                         // Zip the lines together
                         const zippedLines = vrefLines
