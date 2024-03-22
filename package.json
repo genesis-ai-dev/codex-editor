@@ -71,16 +71,17 @@
             ],
             "resource-explorer": [
                 {
-                    "id": "resource-explorer",
-                    "name": "Resource Explorer",
-                    "visibility": "collapsed",
+                    "id": "codex.downloaded-resources",
+                    "name": "Downloaded",
+                    "visibility": "visible",
+                    "type": "webview",
                     "icon": "$(open-editors-view-icon)"
                 },
                 {
                     "id": "scribe-vsc.obs-resources",
-                    "name": "Resources",
+                    "name": "All Resources",
                     "icon": "$(file-media)",
-                    "visibility": "visible",
+                    "visibility": "collapsed",
                     "type": "webview",
                     "contextualTitle": "Scribe Obs Story Resources"
                 }

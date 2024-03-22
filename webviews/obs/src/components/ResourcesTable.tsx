@@ -9,20 +9,9 @@ import {
     VSCodeDropdown,
     VSCodeOption,
 } from "@vscode/webview-ui-toolkit/react";
-import { TRANSLATION_RESOURCE_TYPES } from "../utilities/fetchTranslationResource";
 import { MessageType } from "../types";
+import { RESOURCE_TYPES } from "../utilities/resources";
 
-const RESOURCE_TYPES = [
-    {
-        label: "OBS",
-        key: "obs",
-    },
-    {
-        label: "Bible",
-        key: "bible",
-    },
-    ...TRANSLATION_RESOURCE_TYPES,
-] as const;
 const ResourcesTable = () => {
     const [resourceType, setResourceType] =
         useState<(typeof RESOURCE_TYPES)[number]["key"]>("obs");

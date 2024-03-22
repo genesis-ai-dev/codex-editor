@@ -44,8 +44,11 @@ export type Copyright = {
 export type DownloadedResource = {
     name: string;
     id: string;
+    type: "obs" | "bible" | "tn" | "tw" | "ta" | "tq";
+    localPath: string;
+    remoteUrl: string;
+    version: string;
     // uri: Record<string, any>;
-    type: "obs" | "bible";
 };
 
 export type TranslationWord = {

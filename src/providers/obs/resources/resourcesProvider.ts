@@ -230,7 +230,7 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
     `;
     }
 
-    private async _openResource(resource: DownloadedResource) {
+    public async _openResource(resource: DownloadedResource) {
         const openResources = (this._context?.workspaceState.get(
             "openResources",
             [],
@@ -360,9 +360,8 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
         });
     }
 
-    syncDownloadedResources = async () => {
+    syncDownloadedResources = async (webviewPanel = this._webviewView) => {
         const context = this._context;
-        const webviewPanel = this._webviewView;
         if (!context) {
             console.error("No workspace opened and no context found!");
             return;

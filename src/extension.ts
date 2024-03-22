@@ -100,6 +100,7 @@ import {
     ensureVrefList,
     getEBCorpusMetadataByLanguageCode,
 } from "./utils/ebibleCorpusUtils";
+import { DownloadedResourcesProvider } from "./providers/downloadedResource/provider";
 
 const MIN_PYTHON = semver.parse("3.7.9");
 const ROOT_PATH = getWorkSpaceFolder();
@@ -644,6 +645,8 @@ export async function activate(context: vscode.ExtensionContext) {
             },
         ),
     );
+
+    DownloadedResourcesProvider.register(context);
 
     // Check and create missing project files or directories as specified in PATHS_TO_POPULATE
     if (ROOT_PATH) {
