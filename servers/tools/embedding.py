@@ -146,6 +146,21 @@ class Database:
         if save_now:
             self.save()
 
+    def save_codex_to_file(self) -> None:
+        """
+        Save the contents of the database to a text file, removing newlines and punctuation.
+
+        Parameters:
+        - output_file (str): The path to the output text file.
+        """
+        texts_codex = self.embeddings.search(f"SELECT text FROM txtai WHERE database='.codex'", limit=1000000)
+        texts_bible = self.embeddings.search(f"SELECT text FROM txtai WHERE database='.bible'", limit=1000000)
+        processed_text = ' '.join(remove_punctuation(text['text'].replace('\n', ' ')) for text in texts_codex + texts_bible)
+        processed_text = remove_punctuation(processed_text)
+
+        with open(self.db_path+"complete_draft.txt", 'w+', encoding='utf-8') as file:
+            file.write(processed_text)
+
     def queue_upsert(self, text: str, reference: str, book: str, chapter: str, verse: str, uri: str, metadata: str = '', save_now: bool = True) -> None:
         """
         Queue an upsert operation to be executed later.
@@ -348,6 +363,7 @@ class Database:
         """
         Save the embeddings to the database path.
         """
+        self.save_codex_to_file() # TODO: See if this takes too long, shouldn't
         self.embeddings.save(self.db_path)
         self.cleanup_db_path()
 
@@ -383,3 +399,8 @@ def process_verses(results, file_path, db_instance):
             reference = f'{db_instance.database_name} {book} {chapter}:{verse}'  # Modified line
             db_instance.queue_upsert(text=text, book=book, chapter=chapter, reference=reference, verse=verse, uri=str(file_path.as_posix()))
             db_instance.tokenizer.upsert_text(text)
+
+
+
+
+

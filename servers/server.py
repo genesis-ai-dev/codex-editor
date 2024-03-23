@@ -10,6 +10,7 @@ from servable.spelling import ServableSpelling
 from servable.servable_wb import wb_line_diagnostic
 from servable.verse_validator import ServableVrefs
 from servable.servable_embedding import ServableEmbedding
+from servable.servable_forcasting import ServableForcasting
 try:
     import sys # TODO: See if this takes too much time
 
@@ -19,6 +20,7 @@ try:
     import genetok
     import flask # forces install if it is not installed
     import flask_cors # forces install if it is not installed
+    import sklearn
     import sys
 except ImportError:
     import sys
@@ -78,12 +80,14 @@ threading.Thread(target=start_flask_server, daemon=True).start()
 server = LanguageServer("code-action-server", "v0.1")  # TODO: #1 Dynamically populate metadata from package.json?
 
 # Create server functions and servables
-server_functions = ServerFunctions(server=server, data_path='/drafts')
+server_functions = ServerFunctions(server=server, data_path='/.project')
 spelling = ServableSpelling(sf=server_functions, relative_checking=True)
 vrefs = ServableVrefs(sf=server_functions)
+forcasting = ServableForcasting(sf=server_functions, chunk_size=7)
 
 # Register completions, diagnostics, and actions with the server
-server_functions.add_completion(spelling.spell_completion)
+#server_functions.add_completion(spelling.spell_completion)
+server_functions.add_completion(forcasting.text_completion)
 
 server_functions.add_diagnostic(spelling.spell_diagnostic)
 server_functions.add_diagnostic(wb_line_diagnostic)

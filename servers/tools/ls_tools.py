@@ -79,7 +79,7 @@ class ServerFunctions:
                 ls.publish_diagnostics(document_uri, all_diagnostics)
         self.diagnostic = diagnostics
 
-        @self.server.feature(lsp_types.TEXT_DOCUMENT_COMPLETION, lsp_types.CompletionOptions(trigger_characters=[""]))
+        @self.server.feature(lsp_types.TEXT_DOCUMENT_COMPLETION, lsp_types.CompletionOptions(trigger_characters=["", " "]))
         def completions(ls, params: lsp_types.CompletionParams):
             range = Range(start=params.position,
                           end=Position(line=params.position.line, character=params.position.character + 5))

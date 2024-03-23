@@ -229,4 +229,4 @@ if __name__ == "__main__":
     name = input("What file should be read? ")
     generator = TextGenerator(name, chunk_size=5)
     prompt = input("Provide a prompt (each word must exist in the file): ")
-    generator.interactive_sentence_builder(prompt, depth=1)
+    generator.interactive_sentence_builder(prompt, depth=20)
