@@ -349,11 +349,11 @@
                     "pygls.server.pythonPath": {
                         "scope": "resource",
                         "type": "string",
-                        "default": "python",
+                        "default": "python3",
                         "description": "The python interpreter to use to run the server.\nBy default, this extension will attempt to use the Python interpreter configured via the Python extension, setting this setting will override this behavior."
                     },
                     "pygls.trace.server": {
-                        "scope": "resource",
+                    "scope": "resource",
                         "type": "string",
                         "default": "off",
                         "enum": [

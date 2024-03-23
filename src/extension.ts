@@ -101,7 +101,10 @@ import {
     getEBCorpusMetadataByLanguageCode,
 } from "./utils/ebibleCorpusUtils";
 import { DownloadedResourcesProvider } from "./providers/downloadedResource/provider";
+import { exec as execCallback } from 'child_process';
+import { promisify } from 'util';
 
+const exec = promisify(execCallback);
 const MIN_PYTHON = semver.parse("3.7.9");
 const ROOT_PATH = getWorkSpaceFolder();
 
@@ -1126,11 +1129,13 @@ async function getPythonCommand(
     resource?: vscode.Uri,
 ): Promise<string[] | undefined> {
     const config = vscode.workspace.getConfiguration("pygls.server", resource);
-    const pythonPath = await getPythonInterpreter(resource);
+    const pythonPath = await getHighestPythonVersion();
     if (!pythonPath) {
+        pyglsLogger.error("No valid Python interpreter found.");
         return;
     }
     const command = [pythonPath];
+    vscode.window.showInformationMessage(`Using Python interpreter: ${pythonPath}`);
     const enableDebugger = config.get<boolean>("debug");
 
     if (!enableDebugger) {
@@ -1138,7 +1143,7 @@ async function getPythonCommand(
     }
 
     const debugHost = config.get<string>("debugHost");
-    const debugPort = config.get<integer>("debugPort");
+    const debugPort = config.get<number>("debugPort");
 
     if (!debugHost || !debugPort) {
         pyglsLogger.error(
@@ -1161,6 +1166,35 @@ async function getPythonCommand(
     }
 
     return command;
+}
+async function getHighestPythonVersion(): Promise<string | undefined> {
+    if (process.platform === 'win32') {
+        // On Windows, try to use the Python Launcher to find the highest version
+        try {
+            const { stdout } = await exec('py -0');
+            const versions = stdout.split('\n').filter(line => line.startsWith(' '));
+            if (versions.length > 0) {
+                const highestVersion = versions[0].trim().split(' ')[0];
+                return `py -${highestVersion}`;
+            }
+        } catch (err) {
+            // If the Python Launcher is not available, fall back to other methods
+        }
+    }
+
+    // Define a range of Python versions to check (commonly used versions)
+    const versionsToCheck = ['3.12', '3.11','3.10', '3.9', '3.8', '3.7', '3.6'];
+    for (const version of versionsToCheck) {
+        const command = process.platform === 'win32' ? `python${version.replace('.', '')}` : `python${version}`;
+        try {
+            // Try to execute `pythonX.Y --version` or `pythonXY --version` on Windows
+            await exec(`${command} --version`);
+            return command; // Return the command if the version is found
+        } catch (err) {
+            // Ignore errors and try the next version
+        }
+    }
+    return undefined; // Return undefined if no suitable version is found
 }
 
 /**

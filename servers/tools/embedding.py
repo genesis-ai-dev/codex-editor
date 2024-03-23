@@ -153,9 +153,8 @@ class Database:
         Parameters:
         - output_file (str): The path to the output text file.
         """
-        texts_codex = self.embeddings.search(f"SELECT text FROM txtai WHERE database='.codex'", limit=1000000)
-        texts_bible = self.embeddings.search(f"SELECT text FROM txtai WHERE database='.bible'", limit=1000000)
-        processed_text = ' '.join(remove_punctuation(text['text'].replace('\n', ' ')) for text in texts_codex + texts_bible)
+        texts_codex_bible = self.embeddings.search("SELECT text FROM txtai WHERE database IN ('.codex', '.bible')", limit=1000000)
+        processed_text = ' '.join(remove_punctuation(text['text'].replace('\n', ' ')) for text in texts_codex_bible)
         processed_text = remove_punctuation(processed_text)
 
         with open(self.db_path+"complete_draft.txt", 'w+', encoding='utf-8') as file:
@@ -344,6 +343,7 @@ class Database:
                 self.fasttext_model.build_vocab(sentences)
 
             self.fasttext_model.train(sentences, total_examples=len(sentences), epochs=10)
+            print("model_name: ", self.model_name)
             self.fasttext_model.save(self.model_name)
 
     def get_similar_words(self, word, k=10):

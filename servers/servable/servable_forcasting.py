@@ -1,10 +1,9 @@
-import os
+import requests
 from typing import List
 from lsprotocol.types import CompletionParams, Range, CompletionItem, TextEdit, Position
 from pygls.server import LanguageServer
 from experiments.forcasting2 import TextGenerator
 from tools.ls_tools import ServerFunctions
-import requests
 
 
 def print(*args, **kwargs):
@@ -43,6 +42,7 @@ class ServableForcasting:
             document_uri = params.text_document.uri
             document = server.workspace.get_document(document_uri)
             line = document.lines[params.position.line]
+
             seed_sentence = line.strip()
             print("sentence: ", seed_sentence)
             if self.text_generator is not None:

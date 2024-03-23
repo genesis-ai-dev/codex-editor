@@ -64,6 +64,7 @@ function App() {
         rotationAngles: [0],
         fontSizes: [10, 60] as [number, number],
         enableOptimizations: true,
+        color: () => "white", // Add this line to set the color to white
     };
 
     return (
