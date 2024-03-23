@@ -82,10 +82,10 @@ def get_database(db_name: str) -> Database:
     """Retrieve or create a database instance by name."""
     if db_name not in DATABASES:
         use_tokenizer, use_fasttext = initializers[db_name]
-        db_path = f"{WORKSPACE_PATH}/nlp/embeddings"
+        db_path = f"{WORKSPACE_PATH}/.project/nlp/embeddings"
         unified_db_path = f"{db_path}/unified_database"
         if not os.path.exists(unified_db_path):
-            shutil.rmtree(f"{WORKSPACE_PATH}/nlp/", ignore_errors=True)
+            shutil.rmtree(f"{WORKSPACE_PATH}/.project/nlp/", ignore_errors=True)
         DATABASES[db_name] = Database(db_path=db_path, database_name=db_name, has_tokenizer=use_tokenizer, use_fasttext=use_fasttext)
     return DATABASES[db_name]
 
@@ -329,10 +329,8 @@ def detect_anomalies():
                 bible_id = f"{codex_result['id'].replace('.codex', '.bible')}"
                 bible_query_result = bible_db.get_text(bible_id)
                 if bible_query_result:
-                    # Filter out the very first result from the search
-                    search_results = bible_db.search(query=bible_query_result[0]['text'], limit=limit)
-                    if search_results:
-                        bible_results.extend(search_results[1:])
+                    bible_results.extend(bible_db.search(query=bible_query_result[0]['text'], limit=limit))
+
 
             except Exception as e:
                 print(f"Failed to search in .bible database for id {bible_id}: {str(e)}")
@@ -372,6 +370,11 @@ def get_text_frm():
     active_db = get_database(db_name)
     return active_db.get_text_from(book, chapter, verse)
 
+@app.route("/add_debug")
+def add_debug():
+    text = request.args.get("text", "")
+    print(text)
+    return jsonify("success"), 200
 
 @app.route('/heartbeat', methods=['GET'])
 def heartbeat():
