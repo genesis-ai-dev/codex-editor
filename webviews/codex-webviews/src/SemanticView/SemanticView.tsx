@@ -9,6 +9,14 @@ interface SimilarWord {
     value: number;
 }
 
+const normalizeScores = (words: SimilarWord[]) => {
+    const maxScore = Math.max(...words.map((word) => word.value));
+    return words.map((word) => ({
+        ...word,
+        value: word.value / maxScore,
+    }));
+};
+
 function App() {
     const [similarWords, setSimilarWords] = useState<SimilarWord[]>([]);
     const [query, setQuery] = useState("");
@@ -24,7 +32,8 @@ function App() {
                             text: word.word,
                             value: word.score,
                         }));
-                        setSimilarWords(words);
+                        const normalizedWords = normalizeScores(words);
+                        setSimilarWords(normalizedWords);
                     }
                     break;
                 case "loadingComplete":
@@ -64,7 +73,8 @@ function App() {
         rotationAngles: [0],
         fontSizes: [10, 60] as [number, number],
         enableOptimizations: true,
-        color: () => "white", // Add this line to set the color to white
+        padding: 5,
+        colors: ["white"],
     };
 
     return (
@@ -107,8 +117,11 @@ function App() {
             {similarWords.length > 0 && (
                 <div style={{ width: "100%", height: "400px" }}>
                     <WordCloud
-                        words={[{ text: query, value: 1 }, ...similarWords]}
-                        options={wordCloudOptions}
+                        words={[{ text: query, value: 1 }, ...normalizeScores(similarWords)]}
+                        options={{
+                            ...wordCloudOptions,
+                            rotationAngles: [0, 0] // Adjusted to match the expected type [number, number]
+                        }}
                         callbacks={{
                             onWordClick: handleWordClick,
                         }}
