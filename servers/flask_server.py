@@ -25,6 +25,13 @@ initializers = {
 DATABASES: Dict[str, Any] = {}
 WORKSPACE_PATH: str = ""
 
+def require_workspace(func):
+    def wrapper(*args, **kwargs):
+        if WORKSPACE_PATH == "" or WORKSPACE_PATH == None:
+            return jsonify({"error": "Workspace path not defined. Please initialize the databases first."}), 400
+        return func(*args, **kwargs)
+    return wrapper
+
 class DebugHandler(logging.Handler):
     """Custom logging handler to store log records."""
     def __init__(self, level=logging.NOTSET):
@@ -63,7 +70,7 @@ sys.stderr = cast(TextIO, StdoutStderrWrapper(sys.stderr, debug_handler))
 @app.route('/debug')
 def debug():
     """Return all debug information as HTML."""
-    return '<br>'.join(debug_handler.records)
+    return str(sys.executable) + "<br>"+'<br>'.join(debug_handler.records)
 
 @app.route('/start', methods=['GET'])
 def initialize_databases():
@@ -80,16 +87,19 @@ def initialize_databases():
 
 def get_database(db_name: str) -> Database:
     """Retrieve or create a database instance by name."""
+    if WORKSPACE_PATH == "":
+        raise NameError
     if db_name not in DATABASES:
         use_tokenizer, use_fasttext = initializers[db_name]
-        db_path = f"{WORKSPACE_PATH}/.project/nlp/embeddings"
-        unified_db_path = f"{db_path}/unified_database"
+        db_path = f"{WORKSPACE_PATH}/.project/nlp"
+        unified_db_path = f"{db_path}"
         if not os.path.exists(unified_db_path):
-            shutil.rmtree(f"{WORKSPACE_PATH}/.project/nlp/", ignore_errors=True)
+            shutil.rmtree(unified_db_path, ignore_errors=True)
         DATABASES[db_name] = Database(db_path=db_path, database_name=db_name, has_tokenizer=use_tokenizer, use_fasttext=use_fasttext)
     return DATABASES[db_name]
 
 
+@require_workspace
 @app.route('/upsert_codex_file', methods=['POST'])
 def upsert_codex_file():
     """Upsert a .codex file into the database."""
@@ -107,6 +117,7 @@ def upsert_codex_file():
         return jsonify({"error": str(e)}), 500
 
 
+@require_workspace
 @app.route("/train_gensim_model", methods=['GET'])
 def train_gensim_model():
     """Train a Gensim model on the specified database."""
@@ -116,6 +127,7 @@ def train_gensim_model():
     return jsonify("Ok"), 200
 
 
+@require_workspace
 @app.route('/upsert_bible_file', methods=['POST'])
 def upsert_bible_file():
     """Upsert a .bible file into the database."""
@@ -133,6 +145,7 @@ def upsert_bible_file():
         return jsonify({"error": str(e)}), 500
 
 
+@require_workspace
 @app.route('/upsert_all_codex_files', methods=['GET'])
 def upsert_all_codex_files():
     """Upsert all .codex files from the workspace path into the database."""
@@ -144,10 +157,11 @@ def upsert_all_codex_files():
         active_db.upsert_file(file_path)
     active_db.tokenizer.upsert_all()
     active_db.upsert_queue()
-    active_db.save()
+    active_db.save() 
     return jsonify({"message": f"Upserted {len(codex_files)} .codex files {codex_files} from {WORKSPACE_PATH}"}), 200
 
 
+@require_workspace
 @app.route('/upsert_all_resource_files', methods=['GET'])
 def upsert_all_resource_files():
     """Upsert all resource files from the workspace path into the database."""
@@ -166,6 +180,7 @@ def upsert_all_resource_files():
         return jsonify({"error": str(e)}), 500
 
 
+@require_workspace
 @app.route('/upsert_all_bible_files', methods=['GET'])
 def upsert_all_bible_files():
     """Upsert all .bible files from the workspace path into the database."""
@@ -182,6 +197,7 @@ def upsert_all_bible_files():
     return jsonify({"message": f"Upserted {len(bible_files)} .bible files {bible_files} from {WORKSPACE_PATH}"}), 200
 
 
+@require_workspace
 @app.route('/upsert_data', methods=['POST'])
 def upsert_data():
     """Upsert data into the specified database."""
@@ -205,6 +221,7 @@ def upsert_data():
         return jsonify({"error": str(e)}), 500
 
 
+@require_workspace
 @app.route("/upsert_all", methods=['GET'])
 def upsert_all():
     """Upsert all data into the specified database."""
@@ -218,6 +235,7 @@ def upsert_all():
         return jsonify("No Active Database"), 500
 
 
+@require_workspace
 @app.route('/search', methods=['GET'])
 def search():
     """Search the specified database for a query."""
@@ -239,6 +257,7 @@ def search():
         return jsonify({"error": str(e)}), 500
 
 
+@require_workspace
 @app.route('/searchboth', methods=["GET"])
 def search_both():
     """Search both .codex and .bible databases for a query."""
@@ -260,6 +279,7 @@ def search_both():
     return result, 200
 
 
+@require_workspace
 @app.route("/get_most_similar", methods=["GET"])
 def get_most_similar():
     """Get words most similar to the given word from the specified database."""
@@ -280,6 +300,7 @@ def get_most_similar():
         return jsonify({"error": str(e)}), 500
 
 
+@require_workspace
 @app.route('/save', methods=['POST'])
 def save():
     """Save the state of the specified database."""
@@ -295,6 +316,7 @@ def save():
         return jsonify({"error": str(e)}), 404
 
 
+@require_workspace
 @app.route("/get_tokens", methods=["GET"])
 def get_tokens():
     """Get the number of tokens for each database with a tokenizer."""
@@ -305,61 +327,9 @@ def get_tokens():
             all_tokens.append(len(active_db.tokenizer.tokenizer.tokens))
     return jsonify({"tokens": all_tokens}), 200
 
-@app.route('/detect_anomalies', methods=['GET'])
-def detect_anomalies():
-    """Detect anomalies between .codex and .bible databases."""
-    query = request.args.get('query', default='', type=str)
-    query_decoded = url_parse.unquote(query)
-    limit = request.args.get('limit', default=5, type=int)
-    detailed_anomalies = []
-
-    try:
-        codex_db = get_database('.codex')
-        codex_results = codex_db.search(query=query_decoded, limit=limit)
-        if len(codex_results) <= 1:
-            codex_results = []
-        else:
-            codex_results = codex_results[1:]
-            return jsonify({"error": "No results found in .codex database"}), 404
-
-        bible_db = get_database('.bible')
-        bible_results = []
-        for codex_result in codex_results:
-            try:
-                bible_id = f"{codex_result['id'].replace('.codex', '.bible')}"
-                bible_query_result = bible_db.get_text(bible_id)
-                if bible_query_result:
-                    bible_results.extend(bible_db.search(query=bible_query_result[0]['text'], limit=limit))
 
 
-            except Exception as e:
-                print(f"Failed to search in .bible database for id {bible_id}: {str(e)}")
-                continue
-
-        if codex_results and bible_results:
-            codex_set = set((item['book'], item['chapter'], item['verse']) for item in codex_results)
-            bible_set = set((item['book'], item['chapter'], item['verse']) for item in bible_results)
-
-            for verse in codex_set.difference(bible_set):
-                reference = f"{verse[0]} {verse[1]}:{verse[2]}".strip()
-                detailed_anomalies.append({"reference": reference, "reason": "Extra Verse"})
-
-            for verse in bible_set.difference(codex_set):
-                reference = f"{verse[0]} {verse[1]}:{verse[2]}".strip()
-                detailed_anomalies.append({"reference": reference, "reason": "Missing Verse"})
-
-        combined_results = {
-            'codex_results': codex_results,
-            'bible_results': bible_results,
-            'detailed_anomalies': detailed_anomalies
-        }
-
-        return jsonify(combined_results), 200
-
-    except Exception as e:
-        return jsonify({"error": f"Failed to search databases: {str(e)}"}), 500
-
-
+@require_workspace
 @app.route("/get_text")
 def get_text_frm():
     """Retrieve text from the specified database based on book, chapter, and verse."""
@@ -370,12 +340,58 @@ def get_text_frm():
     active_db = get_database(db_name)
     return active_db.get_text_from(book, chapter, verse)
 
+
+@require_workspace
+@app.route("/detect_anomalies")
+def detect_anomalies():
+    query = request.args.get("query", "")
+    limit = request.args.get("limit", "")
+    database = get_database(".codex")
+    source_database = get_database(".bible")
+    codex_results = database.search(query=query, limit=limit)
+    try:
+        id = codex_results[0]['id']
+        source_query = source_database.get_text(id.replace(".codex", ".bible"))[0]
+        source_results = source_database.search(source_query, limit=limit)
+
+        source_ids = [item['id'].replace(".bible", "") for item in source_results]
+        codex_ids = [item['id'].replace(".codex", "") for item in codex_results]
+
+        # Find codex IDs that are not in the source IDs
+        missing_in_source = [codex_id for codex_id in codex_ids if codex_id not in source_ids]
+        missing_in_codex = [source_id for source_id in source_ids if source_id not in codex_ids and database.exists([source_id])]
+        anomalies = []
+        for missing_id in missing_in_source:
+            anomalies.append({
+                "reference": missing_id,
+                "reason": "Missing in source"
+            })
+        for missing_id in missing_in_codex:
+            anomalies.append({
+                "reference": missing_id,
+                "reason": "Missing in codex"
+            })
+
+        return jsonify({
+            "bible_results": source_results,
+            "codex_results": codex_results,
+            "detailed_anomalies": anomalies
+        }), 200
+    except IndexError:
+        return jsonify({
+            "bible_results":  source_database.search(query=query, limit=limit),
+            "codex_results": database.search(query=query, limit=limit),
+            "anomalies": [{"reason": ".codex results returned none", "reference": "N/A"}]
+        })
+
+@require_workspace
 @app.route("/add_debug")
 def add_debug():
     text = request.args.get("text", "")
     print(text)
     return jsonify("success"), 200
 
+@require_workspace
 @app.route('/heartbeat', methods=['GET'])
 def heartbeat():
     """Check if the server is running, list available databases, and provide a sample query for each."""
@@ -393,7 +409,6 @@ def heartbeat():
         databases_info = []
 
     return jsonify({"message": "Server is running", "databases_info": databases_info}), 200
-
 
 # FIXME: increment port number if it's already in use
 app.run(port=5554, debug=True) 

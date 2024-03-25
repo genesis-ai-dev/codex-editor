@@ -6,6 +6,7 @@ from typing import Union, List, Any, Generator
 from gensim.models import FastText
 from gensim.utils import simple_preprocess
 from txtai import Embeddings
+import os
 import string
 try:
     from tools.codex_tools import extract_verses, extract_verses_bible
@@ -88,24 +89,22 @@ class Database:
         - use_fasttext (bool): Flag indicating if FastText is used.
         """
         global EMBEDDINGS
-        self.db_path = Path(db_path).as_posix() + "/unified_database/"
+        self.db_path = db_path
         self.logger = logging.getLogger(__name__)
-
         if EMBEDDINGS is None:
             EMBEDDINGS = Embeddings(path="sentence-transformers/nli-mpnet-base-v2", content=True, objects=True)
-            try:
-                EMBEDDINGS.load(self.db_path)
-            except Exception as e:
-                EMBEDDINGS.save(self.db_path)
-                self.logger.exception(f"Error loading embeddings: {e}")
-        self.embeddings = EMBEDDINGS
+            print("Loading: ", self.db_path)
+            EMBEDDINGS.load(self.db_path + "/embeddings")
+            print("Loaded: ", self.db_path)
+
+            self.save()
         self.database_name = database_name
         self.has_tokenizer: bool = has_tokenizer
         self.use_fasttext: bool = use_fasttext
         self.queue: List[Any] = []  # Replace 'Any' with the actual type when known
         self.open: bool = True
         self.tokenizer = None
-        self.model_name: str = f"{'/'.join(self.db_path.split('/')[:-2])}/fast_text.bin"
+        self.model_name: str = self.db_path +"/fast_text.bin"
         if self.has_tokenizer:
             try:
                 self.tokenizer = genetic_tokenizer.TokenDatabase(self.db_path + database_name)
@@ -120,7 +119,6 @@ class Database:
             try:
                 self.fasttext_model = FastText.load(self.model_name)
             except Exception as e:
-                self.logger.exception(f"Error loading FastText model: {e}")
                 self.fasttext_model = FastText()
         else:
             self.fasttext_model = None
@@ -142,24 +140,25 @@ class Database:
         sanitized_data = sanitize_data(text, reference, book, chapter, verse, metadata)
         data = create_data(sanitized_data, uri, self.database_name)
         unique_id = f"{reference}_{self.database_name}"
-        self.embeddings.upsert([(unique_id, data)])
+        Embeddings.upsert([(unique_id, data)])
         if save_now:
             self.save()
 
     def save_codex_to_file(self) -> None:
         """
         Save the contents of the database to a text file, removing newlines and punctuation.
-
-        Parameters:
-        - output_file (str): The path to the output text file.
+        Ensure the directory for the output file exists, create it if it doesn't.
         """
-        texts_codex_bible = self.embeddings.search("SELECT text FROM txtai WHERE database IN ('.codex', '.bible')", limit=1000000)
+        texts_codex_bible = EMBEDDINGS.search("SELECT text FROM txtai WHERE database IN ('.codex', '.bible')", limit=1000000)
         processed_text = ' '.join(remove_punctuation(text['text'].replace('\n', ' ')) for text in texts_codex_bible)
         processed_text = remove_punctuation(processed_text)
-
-        with open(self.db_path+"complete_draft.txt", 'w+', encoding='utf-8') as file:
+        
+        output_dir = os.path.dirname(self.db_path)
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        
+        with open(os.path.join(output_dir, "complete_draft.txt"), 'w+', encoding='utf-8') as file:
             file.write(processed_text)
-
     def queue_upsert(self, text: str, reference: str, book: str, chapter: str, verse: str, uri: str, metadata: str = '', save_now: bool = True) -> None:
         """
         Queue an upsert operation to be executed later.
@@ -179,7 +178,7 @@ class Database:
         unique_id = f"{reference}_{self.database_name}"
         self.queue.append((unique_id, data))
         if len(self.queue) % 1000 == 0:
-            self.embeddings.upsert(self.queue)
+            EMBEDDINGS.upsert(self.queue)
             self.save()
             self.queue = []
 
@@ -194,7 +193,7 @@ class Database:
         Returns:
         - list: A list of search results.
         """
-        return self.embeddings.search(f"select text, book, verse, chapter, createdAt, uri, metadata, id from txtai where similar('{remove_punctuation(query)}') and database='{self.database_name}'", limit=limit)
+        return EMBEDDINGS.search(f"select text, book, verse, chapter, createdAt, uri, metadata, id from txtai where similar('{remove_punctuation(query)}') and database='{self.database_name}'", limit=limit)
 
     def exists(self, ids: List[str]) -> List[str]:
         """
@@ -208,7 +207,7 @@ class Database:
         """
         existing_ids = []
         for id in ids:
-            result = self.embeddings.search(f"select book from txtai where id='{id}' and database='{self.database_name}'")
+            result = EMBEDDINGS.search(f"select book from txtai where id='{id}' and database='{self.database_name}'")
             if result:
                 existing_ids.append(id)
         return existing_ids
@@ -223,7 +222,7 @@ class Database:
         Returns:
         - str: The text content of the record.
         """
-        text = self.embeddings.search(f"select text from txtai where id='{id}' and database='{self.database_name}'")
+        text = EMBEDDINGS.search(f"select text from txtai where id='{id}' and database='{self.database_name}'")
         return text
 
     def get_text_from(self, book: str, chapter: str, verse: str) -> str:
@@ -239,7 +238,7 @@ class Database:
         - str: The text content of the specified location.
         """
         self.logger.debug(f"Getting text from book={book}, chapter={chapter}, verse={verse}, database={self.database_name}")
-        text = self.embeddings.search(f"select text from txtai where book='{book}' and chapter='{chapter}' and verse='{verse}' and database='{self.database_name}'")
+        text = EMBEDDINGS.search(f"select text from txtai where book='{book}' and chapter='{chapter}' and verse='{verse}' and database='{self.database_name}'")
         return text
 
     def upsert_queue(self) -> None:
@@ -248,7 +247,7 @@ class Database:
         """
         self.queue = [item for item in self.queue if item]
         if self.queue:
-            self.embeddings.upsert(self.queue)
+            EMBEDDINGS.upsert(self.queue)
             self.save()
         self.queue = []
 
@@ -334,7 +333,7 @@ class Database:
         Train the FastText model with data from the database.
         """
         if self.fasttext_model:
-            texts = self.embeddings.search("SELECT * FROM txtai", limit=10000)
+            texts = EMBEDDINGS.search("SELECT * FROM txtai", limit=10000)
             sentences = [remove_punctuation(text['text']).split(" ") for text in texts]
 
             try:
@@ -364,14 +363,14 @@ class Database:
         Save the embeddings to the database path.
         """
         self.save_codex_to_file() # TODO: See if this takes too long, shouldn't
-        self.embeddings.save(self.db_path)
+        EMBEDDINGS.save(self.db_path+"/embeddings")
         self.cleanup_db_path()
 
     def cleanup_db_path(self) -> None:
         """
         Clean up the database path by removing the 'config' file and directory if empty.
         """
-        db_path = Path(self.db_path)
+        db_path = Path(self.db_path+"/embeddings")
         if db_path.exists() and db_path.is_dir() and list(db_path.iterdir()) == [db_path / 'config']:
             (db_path / 'config').unlink()
             db_path.rmdir()
@@ -381,7 +380,7 @@ class Database:
         Close the database and release any resources.
         """
         self.open = False
-        self.embeddings.close()
+        EMBEDDINGS.close()
 
 
 def process_verses(results, file_path, db_instance):
@@ -404,3 +403,5 @@ def process_verses(results, file_path, db_instance):
 
 
 
+# db = Database("/Users/daniellosey/Desktop/temp_ws/.project/nlp", ".codex", True, True)
+# print(db.search("hello"))

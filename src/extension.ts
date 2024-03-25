@@ -1183,13 +1183,13 @@ async function getHighestPythonVersion(): Promise<string | undefined> {
     }
 
     // Define a range of Python versions to check (commonly used versions)
-    const versionsToCheck = ['3.12', '3.11','3.10', '3.9', '3.8', '3.7', '3.6'];
+    const versionsToCheck = ['3.11', '3.10','3.9', '3.8', '3.7', '3.6', '3.5'];
     for (const version of versionsToCheck) {
         const command = process.platform === 'win32' ? `python${version.replace('.', '')}` : `python${version}`;
         try {
             // Try to execute `pythonX.Y --version` or `pythonXY --version` on Windows
-            await exec(`${command} --version`);
-            return command; // Return the command if the version is found
+            await exec(`${command}`);
+            return command.toString(); // Return the command if the version is found
         } catch (err) {
             // Ignore errors and try the next version
         }

@@ -18,7 +18,8 @@ from io import TextIOWrapper
 try:
     from servers.tools.nlp import genetic_tokenizer
 except ImportError:
-    from tools.nlp import genetic_tokenizer
+    from tools.nlp import genetic_tokenizer as gt
+    genetic_tokenizer = gt
 
     translator = str.maketrans('', '', string.punctuation)
 

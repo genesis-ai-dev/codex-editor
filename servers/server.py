@@ -15,19 +15,9 @@ def install_dependencies() -> None:
         subprocess.check_call([sys.executable, "-m", "pip", "install", "--break-system-packages", "-q", "-r", requirements_file])
     except subprocess.CalledProcessError as e:
         print(f"Error while installing dependencies: {e}")
-        sys.exit(1)
 
 
 install_dependencies()
-
-from pygls.server import LanguageServer
-from servable.servable_embedding import ServableEmbedding
-from servable.servable_wb import wb_line_diagnostic
-from servable.spelling import ServableSpelling
-from servable.servable_forcasting import ServableForcasting
-from servable.verse_validator import ServableVrefs
-from tools.ls_tools import ServerFunctions
-
 
 def is_port_in_use(port: int) -> bool:
     """Check if the given port is already in use."""
@@ -62,6 +52,17 @@ def start_flask_server() -> None:
         subprocess.Popen([sys.executable, flask_server_path], stdout=devnull, stderr=devnull)
 
 
+
+
+from pygls.server import LanguageServer
+from servable.servable_embedding import ServableEmbedding
+from servable.servable_wb import wb_line_diagnostic
+from servable.spelling import ServableSpelling
+from servable.servable_forcasting import ServableForcasting
+from servable.verse_validator import ServableVrefs
+from tools.ls_tools import ServerFunctions
+
+
 def add_dictionary(args: List[str]) -> bool:
     """Add a dictionary to the spelling servable."""
     return spelling.add_dictionary(args)
@@ -72,35 +73,34 @@ def on_highlight(params: List[str]) -> None:
     server_functions.on_selected(str(params[0]))
 
 
-if __name__ == "__main__":
-    # Initialize the language server with metadata
-    server = LanguageServer("code-action-server", "v0.1")
+# Initialize the language server with metadata
+server = LanguageServer("code-action-server", "v0.1")
 
-    # Create server functions and servables
-    server_functions = ServerFunctions(server=server, data_path='/.project')
-    forcasting = ServableForcasting(sf=server_functions, chunk_size=50)
-    spelling = ServableSpelling(sf=server_functions, relative_checking=True)
-    vrefs = ServableVrefs(sf=server_functions)
+# Create server functions and servables
+server_functions = ServerFunctions(server=server, data_path='/.project')
+forcasting = ServableForcasting(sf=server_functions, chunk_size=200)
+spelling = ServableSpelling(sf=server_functions, relative_checking=True)
+vrefs = ServableVrefs(sf=server_functions)
 
-    # Register completions, diagnostics, and actions with the server
-    server_functions.add_completion(spelling.spell_completion)
-    server_functions.add_completion(forcasting.text_completion)
+# Register completions, diagnostics, and actions with the server
+server_functions.add_completion(spelling.spell_completion)
+server_functions.add_completion(forcasting.text_completion)
 
-    server_functions.add_diagnostic(spelling.spell_diagnostic)
-    server_functions.add_diagnostic(wb_line_diagnostic)
-    server_functions.add_diagnostic(vrefs.vref_diagnostics)
+server_functions.add_diagnostic(spelling.spell_diagnostic)
+server_functions.add_diagnostic(wb_line_diagnostic)
+server_functions.add_diagnostic(vrefs.vref_diagnostics)
 
-    server_functions.add_action(spelling.spell_action)
-    server_functions.add_action(vrefs.vref_code_actions)
+server_functions.add_action(spelling.spell_action)
+server_functions.add_action(vrefs.vref_code_actions)
 
-    # Register close function and commands with the server
-    embedding = ServableEmbedding(sf=server_functions)
-    server_functions.add_close_function(embedding.on_close)
-    server.command("pygls.server.add_dictionary")(add_dictionary)
-    server.command("pygls.server.textSelected")(on_highlight)
+# Register close function and commands with the server
+embedding = ServableEmbedding(sf=server_functions)
+server_functions.add_close_function(embedding.on_close)
+server.command("pygls.server.add_dictionary")(add_dictionary)
+server.command("pygls.server.textSelected")(on_highlight)
+# Start the Flask server and the language server
+print('Running server...')
+threading.Thread(target=start_flask_server, daemon=True).start()
 
-    # Start the Flask server and the language server
-    threading.Thread(target=start_flask_server, daemon=True).start()
-    print('Running server...')
-    server_functions.start()
-    server.start_io()
+server_functions.start()
+server.start_io()
