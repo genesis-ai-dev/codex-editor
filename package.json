@@ -486,8 +486,6 @@
     "extensionDependencies": [
         "project-accelerate.shared-state-store",
         "ms-python.python",
-        "project-accelerate.scripture-language-support",
-        "project-accelerate.codex-scripture-viewer",
-        "project-accelerate.codex-chat-and-comments"
+        "project-accelerate.scripture-language-support"
     ]
 }
