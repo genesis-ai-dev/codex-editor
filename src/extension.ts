@@ -1168,13 +1168,16 @@ async function getPythonCommand(
     return command;
 }
 async function getHighestPythonVersion(): Promise<string | undefined> {
+    // Specify the list of acceptable Python versions
+    const acceptableVersions = ['3.12', '3.11', '3.10'];
     if (process.platform === 'win32') {
         // On Windows, try to use the Python Launcher to find the highest version
         try {
             const { stdout } = await exec('py -0');
-            const versions = stdout.split('\n').filter(line => line.startsWith(' '));
-            if (versions.length > 0) {
-                const highestVersion = versions[0].trim().split(' ')[0];
+            const versions = stdout.split('\n').filter(line => line.startsWith(' ')).map(line => line.trim().split(' ')[0]);
+            // Find the highest version that is in the acceptableVersions list
+            const highestVersion = versions.find(version => acceptableVersions.includes(version));
+            if (highestVersion) {
                 return `py -${highestVersion}`;
             }
         } catch (err) {
@@ -1182,21 +1185,19 @@ async function getHighestPythonVersion(): Promise<string | undefined> {
         }
     }
 
-    // Define a range of Python versions to check (commonly used versions)
-    const versionsToCheck = ['3.11', '3.10','3.9', '3.8', '3.7', '3.6', '3.5'];
-    for (const version of versionsToCheck) {
+    // Check the system for each acceptable version
+    for (const version of acceptableVersions) {
         const command = process.platform === 'win32' ? `python${version.replace('.', '')}` : `python${version}`;
         try {
             // Try to execute `pythonX.Y --version` or `pythonXY --version` on Windows
-            await exec(`${command}`);
-            return command.toString(); // Return the command if the version is found
+            await exec(`${command} --version`);
+            return command; // Return the command if the version is found
         } catch (err) {
             // Ignore errors and try the next version
         }
     }
     return undefined; // Return undefined if no suitable version is found
 }
-
 /**
  * Return the python interpreter to use when starting the server.
  *
