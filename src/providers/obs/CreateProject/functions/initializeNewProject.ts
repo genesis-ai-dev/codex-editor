@@ -35,6 +35,7 @@ export const initializeNewProject = async (
                     await vscode.workspace.fs.readFile(projectFilePath);
                 const metadata = JSON.parse(fileData.toString());
                 const projectName = metadata.projectName;
+
                 const confirmDelete = await vscode.window.showInputBox({
                     prompt: `A project named ${projectName} already exists in this workspace. Type the project name to confirm deletion.`,
                     placeHolder: "Project name",
@@ -45,7 +46,29 @@ export const initializeNewProject = async (
                     );
                     return;
                 }
+                await vscode.workspace.fs.delete(projectFilePath);
+                // delete all files in the project folder including hidden . files
+                const projectFolder = vscode.Uri.joinPath(
+                    workspaceFolder.uri,
+                    projectName,
+                );
+
+                const files =
+                    await vscode.workspace.fs.readDirectory(projectFolder);
+
+                for (const [fileName] of files) {
+                    await vscode.workspace.fs.delete(
+                        vscode.Uri.joinPath(projectFolder, fileName),
+                        { recursive: true, useTrash: false },
+                    );
+                }
+
+                vscode.window.showInformationMessage(
+                    `Project ${projectName} deleted.`,
+                );
             }
+
+            vscode.window.showInformationMessage("Initializing new project...");
 
             const newProject = await initializeProjectMetadata(projectDetails);
             vscode.window.showInformationMessage(
@@ -62,27 +85,7 @@ export const initializeNewProject = async (
             }
             const books = Object.keys(projectScope);
 
-            const overwriteConfirmation =
-                await vscode.window.showWarningMessage(
-                    "Do you want to overwrite any existing project files?",
-                    { modal: true }, // This option ensures the dialog stays open until an explicit choice is made.
-                    "Yes",
-                    "No",
-                );
-            if (overwriteConfirmation === "Yes") {
-                vscode.window.showInformationMessage(
-                    "Creating Codex Project with overwrite.",
-                );
-                await createProjectNotebooks({
-                    shouldOverWrite: true,
-                    books,
-                });
-            } else if (overwriteConfirmation === "No") {
-                vscode.window.showInformationMessage(
-                    "Creating Codex Project without overwrite.",
-                );
-                await createProjectNotebooks({ books });
-            }
+            await createProjectNotebooks({ books, shouldOverWrite: true });
 
             // Refresh the scripture tree view
             await vscode.commands.executeCommand(
@@ -90,7 +93,6 @@ export const initializeNewProject = async (
             );
             // Trigger indexing of verse references in the source text
             indexVerseRefsInSourceText();
-
         } else {
             vscode.window.showInformationMessage(
                 "Project initialization cancelled.",

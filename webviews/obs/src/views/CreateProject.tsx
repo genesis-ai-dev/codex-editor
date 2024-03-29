@@ -1,5 +1,4 @@
-/* eslint-disable react-refresh/only-export-components */
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { renderToPage } from "../utilities/main-vscode";
 import {
     VSCodeButton,
@@ -29,8 +28,6 @@ const Sidebar = () => {
     const [targetLanguage, setTargetLanguage] = useState<LanguageMetadata>();
     const [sourceLanguage, setSourceLanguage] = useState<LanguageMetadata>();
     const [sourceLanguageQuery, setSourceLanguageQuery] = useState("");
-    const [sourceActive, setSourceActive] = useState(false);
-    const [targetActive, setTargetActive] = useState(false);
     const [targetLanguageQuery, setTargetLanguageQuery] = useState("");
     const [name, setName] = useState("");
 
@@ -98,82 +95,81 @@ const Sidebar = () => {
         }
     };
     return (
-        <div className="rounded-md border shadow-sm mt-4 ml-5 mr-5 mb-5">
-            <div className="space-y-2 m-10">
+        <div>
+            <div className="text-xl uppercase mb-5">
                 <span>Project Type : {projectType.label}</span>
             </div>
-            <div className="grid grid-cols-1 lg:grid-cols-3 m-10 gap-5">
-                <label htmlFor="project_type">Project Type</label>
-                <VSCodeDropdown>
-                    {projectTypes.map((projectType) => (
-                        <VSCodeOption
-                            value={projectType.value}
-                            key={projectType.value}
-                            onClick={() => {
-                                setProjectType(projectType);
-                            }}
-                        >
-                            {projectType.label}
-                        </VSCodeOption>
-                    ))}
-                </VSCodeDropdown>
-
-                <div className="lg:col-span-1">
-                    <VSCodeTextField
-                        type="text"
-                        name="name"
-                        id="name"
-                        value={name}
-                        onChange={(e) => {
-                            setName((e.target as HTMLInputElement).value);
-                        }}
-                        className={"w-48 lg:w-full rounded text-sm mb-6"}
-                    >
-                        Name of the User
-                    </VSCodeTextField>
-                    <VSCodeTextField
-                        type="text"
-                        name="email"
-                        id="email"
-                        value={email}
-                        onChange={(e) => {
-                            setEmail((e.target as HTMLInputElement).value);
-                        }}
-                        className={"w-48 lg:w-full rounded text-sm mb-6"}
-                    >
-                        Email of the User
-                    </VSCodeTextField>
-                    <VSCodeTextField
-                        type="text"
-                        name="project_name"
-                        id="project_name"
-                        value={projectName}
-                        onChange={(e) => {
-                            setProjectName(
-                                (e.target as HTMLInputElement).value,
-                            );
-                        }}
-                        className={"w-48 lg:w-full rounded text-sm mb-6"}
-                    >
-                        Project Name
-                    </VSCodeTextField>
-                    {projectType.value === "textTranslation" && (
-                        <div className="flex flex-col gap-2">
-                            <VSCodeTextField
-                                type="text"
-                                name="username"
-                                id="username"
-                                value={userName}
-                                placeholder="Enter your username"
-                                onChange={(e) => {
-                                    setUsername(
-                                        (e.target as HTMLInputElement).value,
-                                    );
+            <div className="flex gap-5 flex-col">
+                <div className="flex flex-col">
+                    <label htmlFor="project_type">Project Type</label>
+                    <VSCodeDropdown>
+                        {projectTypes.map((projectType) => (
+                            <VSCodeOption
+                                value={projectType.value}
+                                key={projectType.value}
+                                onClick={() => {
+                                    setProjectType(projectType);
                                 }}
-                                className={"w-48 rounded text-sm"}
                             >
-                                Username
-                            </VSCodeTextField>
+                                {projectType.label}
+                            </VSCodeOption>
+                        ))}
+                    </VSCodeDropdown>
+                </div>
+
+                <VSCodeTextField
+                    type="text"
+                    name="name"
+                    id="name"
+                    value={name}
+                    onChange={(e) => {
+                        setName((e.target as HTMLInputElement).value);
+                    }}
+                    className={"rounded text-sm"}
+                >
+                    Name of the User
+                </VSCodeTextField>
+                <VSCodeTextField
+                    type="text"
+                    name="email"
+                    id="email"
+                    value={email}
+                    onChange={(e) => {
+                        setEmail((e.target as HTMLInputElement).value);
+                    }}
+                    className={"rounded text-sm"}
+                >
+                    Email of the User
+                </VSCodeTextField>
+                <VSCodeTextField
+                    type="text"
+                    name="project_name"
+                    id="project_name"
+                    value={projectName}
+                    onChange={(e) => {
+                        setProjectName((e.target as HTMLInputElement).value);
+                    }}
+                    className={"rounded text-sm"}
+                >
+                    Project Name
+                </VSCodeTextField>
+                {projectType.value === "textTranslation" && (
+                    <Fragment>
+                        <VSCodeTextField
+                            type="text"
+                            name="username"
+                            id="username"
+                            value={userName}
+                            onChange={(e) => {
+                                setUsername(
+                                    (e.target as HTMLInputElement).value,
+                                );
+                            }}
+                            className={"rounded text-sm"}
+                        >
+                            Username
+                        </VSCodeTextField>
+                        <div className="flex flex-col">
                             <label htmlFor="project_category">Category</label>
                             <VSCodeDropdown
                                 value={projectCategory}
@@ -182,7 +178,7 @@ const Sidebar = () => {
                                         (e.target as HTMLSelectElement).value,
                                     );
                                 }}
-                                className="w-48 rounded text-sm"
+                                className="rounded text-sm"
                             >
                                 <VSCodeOption value={undefined} disabled>
                                     Select the project category
@@ -197,134 +193,98 @@ const Sidebar = () => {
                                 ))}
                             </VSCodeDropdown>
                         </div>
-                    )}
-                    {projectType.value === "openBibleStories" && (
-                        <VSCodeTextArea
-                            name="Description"
-                            id="project_description"
-                            value={description}
-                            onChange={(e) => {
-                                setDescription(
-                                    (e.target as HTMLTextAreaElement).value,
-                                );
-                            }}
-                            className="w-48 lg:w-full h-28 block rounded text-sm "
-                        >
-                            Description
-                        </VSCodeTextArea>
-                    )}
-                    {/* <span className="text-error">{error.description[0]?.message}</span> */}
-                </div>
-                <div className="lg:col-span-2">
-                    <div className="flex gap-5">
-                        <div>
-                            <VSCodeTextField
-                                type="text"
-                                name="version_abbreviated"
-                                id="version_abbreviated"
-                                value={abbreviation}
-                                onInput={(e) => {
-                                    setAbbreviation(
-                                        (e.target as HTMLInputElement).value,
+                    </Fragment>
+                )}
+                {projectType.value === "openBibleStories" && (
+                    <VSCodeTextArea
+                        name="Description"
+                        id="project_description"
+                        value={description}
+                        onChange={(e) => {
+                            setDescription(
+                                (e.target as HTMLTextAreaElement).value,
+                            );
+                        }}
+                        className="rounded text-sm "
+                    >
+                        Description
+                    </VSCodeTextArea>
+                )}
+                <VSCodeTextField
+                    type="text"
+                    name="version_abbreviated"
+                    id="version_abbreviated"
+                    value={abbreviation}
+                    onInput={(e) => {
+                        setAbbreviation((e.target as HTMLInputElement).value);
+                    }}
+                    className="block rounded text-sm "
+                >
+                    Abbreviation
+                </VSCodeTextField>
+                <LanguageSearch
+                    label="Source Language"
+                    value={sourceLanguageQuery}
+                    languages={filteredSourceLanguages}
+                    setQuery={setSourceLanguageQuery}
+                    setLanguage={setSourceLanguage}
+                    selectedLanguage={sourceLanguage ?? null}
+                />
+                {projectType.value === "textTranslation" && (
+                    <LanguageSearch
+                        label="Target Language"
+                        value={targetLanguageQuery}
+                        languages={filteredTargetLanguages}
+                        setQuery={setTargetLanguageQuery}
+                        setLanguage={setTargetLanguage}
+                        selectedLanguage={targetLanguage ?? null}
+                    />
+                )}
+                {projectType.value === "openBibleStories" && (
+                    <Fragment>
+                        <div className="flex flex-col">
+                            <label htmlFor="license">License</label>
+                            <VSCodeDropdown
+                                position="below"
+                                className=""
+                                value={
+                                    copyright
+                                        ? copyright.title
+                                        : "Select License"
+                                }
+                                onChange={(e) => {
+                                    setCopyright(
+                                        licenseList.find(
+                                            (license) =>
+                                                license.title ===
+                                                (e.target as HTMLInputElement)
+                                                    .value,
+                                        ),
                                     );
                                 }}
-                                className="w-24 block rounded text-sm "
+                                id="license"
                             >
-                                Abbreviation
-                            </VSCodeTextField>
+                                {licenseList.map((licence) => (
+                                    <VSCodeOption
+                                        value={licence.title}
+                                        key={licence.id}
+                                    >
+                                        {licence.title}
+                                    </VSCodeOption>
+                                ))}
+                            </VSCodeDropdown>
                         </div>
-                    </div>
-                    <div className="space-y-4">
-                        <LanguageSearch
-                            label="Source Language"
-                            value={
-                                sourceLanguage
-                                    ? (sourceLanguage.refName as string)
-                                    : sourceLanguageQuery
-                            }
-                            languages={filteredSourceLanguages}
-                            onFocus={() => setSourceActive(true)}
-                            // onBlur={() => setSourceActive(false)}
-                            setQuery={setSourceLanguageQuery}
-                            setLanguage={setSourceLanguage}
-                            isActive={sourceActive}
-                            setActive={setSourceActive}
-                        />
-                        {projectType.value === "textTranslation" && (
-                            <LanguageSearch
-                                label="Target Language"
-                                value={
-                                    targetLanguage
-                                        ? (targetLanguage.refName as string)
-                                        : targetLanguageQuery
-                                }
-                                languages={filteredTargetLanguages}
-                                onFocus={() => setTargetActive(true)}
-                                // onBlur={() => setTargetActive(false)}
-                                setQuery={setTargetLanguageQuery}
-                                setLanguage={setTargetLanguage}
-                                isActive={targetActive}
-                                setActive={setTargetActive}
-                            />
-                        )}
-                    </div>
-                    {projectType.value === "openBibleStories" && (
-                        <div className="flex gap-5 mt-5 items-center">
-                            <div>
-                                <div className="flex gap-4 items-center mb-2">
-                                    <h4>
-                                        Licence{" "}
-                                        <span className="text-error">*</span>
-                                    </h4>
-                                </div>
+                    </Fragment>
+                )}
 
-                                <VSCodeDropdown
-                                    position="below"
-                                    className="w-48 lg:w-full"
-                                    value={
-                                        copyright
-                                            ? copyright.title
-                                            : "Select License"
-                                    }
-                                    onChange={(e) => {
-                                        setCopyright(
-                                            licenseList.find(
-                                                (license) =>
-                                                    license.title ===
-                                                    (
-                                                        e.target as HTMLInputElement
-                                                    ).value,
-                                            ),
-                                        );
-                                    }}
-                                >
-                                    {licenseList.map((licence) => (
-                                        <VSCodeOption
-                                            value={licence.title}
-                                            key={licence.id}
-                                        >
-                                            {licence.title}
-                                        </VSCodeOption>
-                                    ))}
-                                </VSCodeDropdown>
-                            </div>
-                        </div>
-                    )}
-                </div>
-
-                <div>
-                    <div>
-                        <VSCodeButton
-                            type="button"
-                            aria-label="create"
-                            className="w-40 h-10 my-5 bg-success leading-loose rounded shadow text-xs font-bas tracking-wide font-light uppercase"
-                            onClick={handleSubmit}
-                        >
-                            {/* {t("btn-create-project")} */}
-                            Create Project
-                        </VSCodeButton>
-                    </div>
-                </div>
+                <VSCodeButton
+                    aria-label="create"
+                    className="rounded shadow text-xs tracking-wide uppercase"
+                    onClick={handleSubmit}
+                    appearance="primary"
+                >
+                    Create Project
+                </VSCodeButton>
             </div>
         </div>
     );
