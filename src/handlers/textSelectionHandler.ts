@@ -14,7 +14,7 @@ export async function checkServerHeartbeat(context: vscode.ExtensionContext) {
                 { method: "GET" },
             );
         }
-
+    
         if (!response.ok) {
             throw new Error("Server not responding");
         }

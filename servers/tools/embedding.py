@@ -1,19 +1,24 @@
 import datetime
 import logging
+import os
+import platform
+
+# Set OMP_NUM_THREADS environment variable to '1' on macOS to prevent segmentation faults
+if platform.system() == 'Darwin':
+    os.environ["OMP_NUM_THREADS"] = '1'
 from pathlib import Path
 from sqlite3 import IntegrityError
 from typing import Union, List, Any, Generator
 from gensim.models import FastText
 from gensim.utils import simple_preprocess
 from txtai import Embeddings
-import os
 import string
 try:
-    from tools.codex_tools import extract_verses, extract_verses_bible
-    from servers.tools.nlp import genetic_tokenizer
-except ImportError:
     from .codex_tools import extract_verses, extract_verses_bible
     from .nlp import genetic_tokenizer
+except ModuleNotFoundError:
+    from codex_tools import extract_verses, extract_verses_bible
+    from nlp import genetic_tokenizer
 
 translator = str.maketrans('', '', string.punctuation+"'"+'"')
 
@@ -403,5 +408,5 @@ def process_verses(results, file_path, db_instance):
 
 
 
-# db = Database("/Users/daniellosey/Desktop/temp_ws/.project/nlp", ".codex", True, True)
-# print(db.search("hello"))
+db = Database("/Users/daniellosey/Desktop/temp_ws/.project/nlp", ".codex", True, True)
+print(db.search("hello"))

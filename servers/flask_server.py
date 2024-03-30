@@ -1,6 +1,7 @@
 from typing import cast
 from flask import Flask, request, jsonify
 from tools.embedding import Database
+from tools.nlp.lad import LAD
 from typing import Dict, Any, AnyStr
 from flask_cors import CORS
 from urllib import parse as url_parse
@@ -24,6 +25,8 @@ initializers = {
 
 DATABASES: Dict[str, Any] = {}
 WORKSPACE_PATH: str = ""
+
+AnomalyDetector: LAD = None
 
 def require_workspace(func):
     def wrapper(*args, **kwargs):
@@ -75,18 +78,22 @@ def debug():
 @app.route('/start', methods=['GET'])
 def initialize_databases():
     """Initialize databases with the provided workspace path."""
-    global WORKSPACE_PATH
+    global WORKSPACE_PATH, AnomalyDetector
     work_path = request.args.get("data_path", default="")
+    print(work_path)
     if "codex-editor " in work_path:
         return jsonify("Ignoring request")
     if not work_path:
         return jsonify({"error": "Missing 'data_path' argument"}), 400
     WORKSPACE_PATH = work_path.replace('file://', '')
+    if not AnomalyDetector:
+        AnomalyDetector = LAD(codex=get_database(".codex"), bible=get_database(".bible"))
     return jsonify({"Databases initialized successfully": WORKSPACE_PATH}), 200
 
 
 def get_database(db_name: str) -> Database:
     """Retrieve or create a database instance by name."""
+    global DATABASES
     if WORKSPACE_PATH == "":
         raise NameError
     if db_name not in DATABASES:
@@ -98,6 +105,12 @@ def get_database(db_name: str) -> Database:
         DATABASES[db_name] = Database(db_path=db_path, database_name=db_name, has_tokenizer=use_tokenizer, use_fasttext=use_fasttext)
     return DATABASES[db_name]
 
+@require_workspace
+@app.route("/lad")
+def lad():
+    global AnomalyDetector
+    query = request.args.get("query")
+    return jsonify({"lad scors": AnomalyDetector.search_and_score(query)})
 
 @require_workspace
 @app.route('/upsert_codex_file', methods=['POST'])

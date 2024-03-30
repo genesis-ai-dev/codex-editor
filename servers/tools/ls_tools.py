@@ -16,7 +16,7 @@ class ServerFunctions:
         self.close_functions: List[Callable] = []
         self.open_functions: List[Callable] = []
         self.on_selected_functions: List[Callable] = []
-
+        self.raw_path = ""
 
         self.completion = None
         self.diagnostic = None
@@ -118,3 +118,4 @@ class ServerFunctions:
             f(text)
     def initialize(self, server, params, fs):        
         self.data_path = server.workspace.root_path + self.data_path
+        self.raw_path = server.workspace.root_path

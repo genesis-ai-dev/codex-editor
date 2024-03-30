@@ -21,7 +21,7 @@ class SPELLING_MESSAGE(Enum):
 
 
 class ServableSpelling:
-    def __init__(self, sf: ServerFunctions, relative_checking=False):
+    def __init__(self, sf: ServerFunctions):
         """
         Initialize the ServableSpelling class with server functions and a flag for relative checking.
 
@@ -31,7 +31,6 @@ class ServableSpelling:
         """
         self.dictionary: Dictionary = None
         self.spell_check: SpellCheck = None
-        self.relative_checking = relative_checking
         self.sf: ServerFunctions = sf
         self.sf.initialize_functions.append(self.initialize)
 
@@ -99,7 +98,7 @@ class ServableSpelling:
                     detokenized_word = self.spell_check.dictionary.tokenizer.tokenizer.detokenize(tokenized_word, join="--")
                     formatted_message = SPELLING_MESSAGE.TYPO.value.format(word=detokenized_word)
 
-                    diagnostics.append(Diagnostic(range=range, message=formatted_message, severity=DiagnosticSeverity.Information, source='Spell-Check'))
+                    diagnostics.append(Diagnostic(range=range, message=formatted_message, severity=DiagnosticSeverity.Information, source='Spell-Check', data={"color": "rgba(255, 0, 0, .5})"}))
                 # Add one if the next character is whitespace
                 if edit_window + len(word) < len(line) and line[edit_window + len(word)] == ' ':
                     edit_window += len(word) + 1
@@ -190,5 +189,5 @@ class ServableSpelling:
             server (LanguageServer): The instance of the language server.
             sf (ServerFunctions): The server functions object.
         """
-        self.dictionary = Dictionary(self.sf.data_path)
-        self.spell_check = SpellCheck(dictionary=self.dictionary, relative_checking=self.relative_checking)
+        self.dictionary = Dictionary(self.sf.raw_path + "/drafts/")
+        self.spell_check = SpellCheck(dictionary=self.dictionary)

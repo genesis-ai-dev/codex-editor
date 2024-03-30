@@ -67,7 +67,7 @@ class ServableForcasting:
             sf (ServerFunctions): The server functions object.
         """
         print("initializing")
-        path = self.sf.data_path + "/nlp/embeddings/complete_draft.txt"
+        path = self.sf.data_path + "/complete_draft.txt"
         print("path: ", path)
         try:
             print("opening")

@@ -1,5 +1,3 @@
-   
-
 """
 This module provides classes and functions for spell checking words against a custom dictionary.
 It includes functionality to determine if a word needs correction, suggest corrections, and
@@ -7,59 +5,90 @@ provide auto-completion suggestions for partially typed words.
 """
 import json
 import os
-from typing import List, Dict, AnyStr
+from typing import List, Dict, AnyStr, Union, Tuple
 import uuid
-import experiments.hash_check2 as hash_check
+import experiments.hash_check3 as hash_check
 import tools.edit_distance as edit_distance
 import re
 import string
 import sys
 from io import TextIOWrapper
+from enum import Enum
+
 try:
     from servers.tools.nlp import genetic_tokenizer
 except ImportError:
     from tools.nlp import genetic_tokenizer as gt
     genetic_tokenizer = gt
 
-    translator = str.maketrans('', '', string.punctuation)
+translator = str.maketrans('', '', string.punctuation)
 
-    USE_IMAGE_HASH = False
+class CheckMode(Enum):
+    EDIT_DISTANCE = 1
+    IMAGE_HASH = 2
+    COMBINE_BOTH = 3
 
-
-def criteria(dictionary_word: Dict, word: str, dictionary) -> float:
+def criteria(dictionary_word: Dict, word: str, dictionary, mode: CheckMode) -> Union[float, Tuple[float, float]]:
     """
     Calculates the criteria for spell checking by comparing a word against a dictionary entry.
 
-    If USE_IMAGE_HASH is True, it uses image hash values to calculate the difference between the word and the dictionary entry.
-    Otherwise, it uses edit distance to determine the similarity between the word and the dictionary headWord.
+    If mode is EDIT_DISTANCE, it uses edit distance to determine the similarity between the word and the dictionary headWord.
+    If mode is IMAGE_HASH, it uses image hash values to calculate the difference between the word and the dictionary entry.
+    If mode is COMBINE_BOTH, it returns a tuple containing the edit distance and hash difference.
 
     Parameters:
     dictionary_word (Dict): A dictionary entry with keys like 'hash' and 'headWord'.
     word (str): The word to compare against the dictionary entry.
+    dictionary (Dictionary): The dictionary object.
+    mode (CheckMode): The mode to use for spell checking.
 
     Returns:
-    float: The difference between the word and the dictionary entry as a float. A lower value indicates a closer match.
+    Union[float, Tuple[float, float]]: The difference between the word and the dictionary entry as a float or a tuple of floats.
     """
-    if USE_IMAGE_HASH:
-        # try:
-        hash1 = hash_check.Hash(dictionary_word['hash'])
-        # except:
-        #     h =  hash_check.spell_hash(dictionary_word['headWord'])
-        #     dictionary.dictionary['entries'][dictionary.dictionary['entries'].index(dictionary_word)]['hash'] = str(h)
-        #     dictionary.save_dictionary()
-        #     hash1 = h
-            
-        hash2 = hash_check.spell_hash(word)
-        return hash1 - hash2
-    else:
+    if mode == CheckMode.EDIT_DISTANCE:
         return edit_distance.distance(dictionary_word["headWord"], word)
-    
+    elif mode == CheckMode.IMAGE_HASH:
+        hash1 = hash_check.Hash(dictionary_word['hash'])
+        hash2 = hash_check.spell_hash(word)
+        try:
+            return hash1 - hash2
+        except Exception as e:
+            # If an error occurs during hash comparison, rehash the older word and update the dictionary
+            rehashed_entry = {
+                **dictionary_word,
+                'hash': str(hash_check.spell_hash(dictionary_word["headWord"]))
+            }
+            dictionary.dictionary['entries'] = [
+                rehashed_entry if entry['id'] == dictionary_word['id'] else entry
+                for entry in dictionary.dictionary['entries']
+            ]
+            dictionary.save_dictionary()
+            return hash_check.Hash(rehashed_entry['hash']) - hash2
+    elif mode == CheckMode.COMBINE_BOTH:
+        edit_dist = edit_distance.distance(dictionary_word["headWord"], word)
+        hash1 = hash_check.Hash(dictionary_word['hash'])
+        hash2 = hash_check.spell_hash(word)
+        try:
+            hash_diff = hash1 - hash2
+        except Exception as e:
+            # If an error occurs during hash comparison, rehash the older word and update the dictionary
+            rehashed_entry = {
+                **dictionary_word,
+                'hash': str(hash_check.spell_hash(dictionary_word["headWord"]))
+            }
+            dictionary.dictionary['entries'] = [
+                rehashed_entry if entry['id'] == dictionary_word['id'] else entry
+                for entry in dictionary.dictionary['entries']
+            ]
+            dictionary.save_dictionary()
+            hash_diff = hash_check.Hash(rehashed_entry['hash']) - hash2
+        return (edit_dist, hash_diff)
 
 def remove_punctuation(text: str) -> str:
     """
-    removes punctuation
+    Removes punctuation from the given text.
     """
-    return text.translate(translator).strip()
+    return text.translate(translator).strip().replace(".", "").replace('"', '')
 
 
 class Dictionary:
@@ -72,7 +101,7 @@ class Dictionary:
         """
         self.path = project_path + '/project.dictionary'  # TODO: #4 Use all .dictionary files in drafts directory
         self.dictionary = self.load_dictionary()  # Load the .dictionary (json file)
-        self.tokenizer = genetic_tokenizer.TokenDatabase(self.path, single_words=True)#,# defualt_tokens=[word['headword'] for word in self.dictionary['entries']])
+        self.tokenizer = genetic_tokenizer.TokenDatabase(self.path, single_words=True)
     
     def load_dictionary(self) -> Dict:
         """
@@ -114,7 +143,6 @@ class Dictionary:
             word (str): The word to add to the dictionary.
         """
         word = remove_punctuation(word)
-
         
         # Add a word if it does not already exist
         if not any(entry['headWord'] == word for entry in self.dictionary['entries']) and word != '' and word != ' ':
@@ -155,16 +183,16 @@ class Dictionary:
 
 
 class SpellCheck:
-    def __init__(self, dictionary: Dictionary, relative_checking: bool = False) -> None:
+    def __init__(self, dictionary: Dictionary, mode: CheckMode = CheckMode.COMBINE_BOTH) -> None:
         """
-        Initialize the SpellCheck class with a dictionary and a flag for relative checking.
+        Initialize the SpellCheck class with a dictionary and a mode for spell checking.
 
         Args:
             dictionary (Dictionary): The dictionary object to use for spell checking.
-            relative_checking (bool, optional): Flag to determine if relative checking is enabled. Defaults to False.
+            mode (CheckMode, optional): The mode to use for spell checking. Defaults to CheckMode.EDIT_DISTANCE.
         """
         self.dictionary = dictionary
-        self.relative_checking = relative_checking
+        self.mode = mode
     
     def is_correction_needed(self, word: str) -> bool:
         """
@@ -201,23 +229,33 @@ class SpellCheck:
             return [word]  # No correction needed, return the original word
 
         entries = self.dictionary.dictionary['entries']
-        possibilities = [
-            (entry['headWord'], criteria(entry, word, self.dictionary))
-            for entry in entries
-        ]
 
-        # Adjust the threshold based on word length
-        # possibilities = [
-        #     (word, edit_distance) for word, edit_distance in possibilities
-        #     if edit_distance <= threshold_multiplier * len(word)
-        # ]
+        if self.mode == CheckMode.COMBINE_BOTH:
+            # Find top n words using edit distance
+            top_n = 10
+            edit_distance_possibilities = [
+                (entry['headWord'], edit_distance.distance(entry['headWord'], word))
+                for entry in entries
+            ]
+            sorted_by_edit_distance = sorted(edit_distance_possibilities, key=lambda x: x[1])
+            top_words = sorted_by_edit_distance[:top_n]
 
-        if not possibilities:
-            return [sorted(entries, key=lambda x: x['headWord'])[0]['headWord']]  # Return the top result if no other suggestions
+            # Rerank top words using hashing
+            hash_possibilities = [
+                (word, criteria(next(entry for entry in entries if entry['headWord'] == word), word, self.dictionary, CheckMode.IMAGE_HASH))
+                for word, _ in top_words
+            ]
+            sorted_by_hash = sorted(hash_possibilities, key=lambda x: x[1])
+            suggestions = [word for word, _ in sorted_by_hash]
+        else:
+            possibilities = [
+                (entry['headWord'], criteria(entry, word, self.dictionary, self.mode))
+                for entry in entries
+            ]
+            sorted_possibilities = sorted(possibilities, key=lambda x: x[1])
+            suggestions = [word for word, _ in sorted_possibilities]
 
-        sorted_possibilities = sorted(possibilities, key=lambda x: x[1])
-        suggestions = [word for word, _ in sorted_possibilities]
-        suggestions =  suggestions[:5]
+        suggestions = suggestions[:5]
         return suggestions
     
     def complete(self, word: str) -> List[str]:
@@ -232,7 +270,6 @@ class SpellCheck:
         """
         word = remove_punctuation(word).lower()
 
-
         entries = self.dictionary.dictionary['entries']
         completions = [
             entry['headWord'][len(word):] for entry in entries if entry['headWord'].lower().startswith(word)
@@ -244,10 +281,7 @@ class SpellCheck:
 
 
 if __name__ == "__main__":
-
     path = 'C:\\Users\\danie\\example_workspace\\project_data'
     d = Dictionary(path)
-    s = SpellCheck(d, True)
+    s = SpellCheck(d, mode=CheckMode.COMBINE_BOTH)
     print(s.complete('is'))
-
-

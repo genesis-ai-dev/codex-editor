@@ -6,7 +6,6 @@ import threading
 import socket
 from typing import List, NoReturn
 
-
 def install_dependencies() -> None:
     """Install required dependencies from requirements.txt."""
     script_directory = os.path.dirname(os.path.abspath(__file__))
@@ -79,7 +78,7 @@ server = LanguageServer("code-action-server", "v0.1")
 # Create server functions and servables
 server_functions = ServerFunctions(server=server, data_path='/.project')
 forcasting = ServableForcasting(sf=server_functions, chunk_size=200)
-spelling = ServableSpelling(sf=server_functions, relative_checking=True)
+spelling = ServableSpelling(sf=server_functions)
 vrefs = ServableVrefs(sf=server_functions)
 
 # Register completions, diagnostics, and actions with the server
