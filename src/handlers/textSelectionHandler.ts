@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { extractVerseRefFromLine } from "../utils/verseRefUtils";
 import { initializeStateStore } from "../stateStore";
 
-export async function checkServerHeartbeat(context: vscode.ExtensionContext) {
+export async function checkServerHeartbeat() {
     try {
         const response = await fetch("http://localhost:5554/heartbeat");
         const dataPath = vscode.workspace.workspaceFolders?.[0]?.uri.toString();

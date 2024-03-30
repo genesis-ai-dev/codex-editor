@@ -1,75 +1,27 @@
 import * as vscode from "vscode";
-import { CodexKernel } from "./controller";
-import { CodexContentSerializer } from "./serializer";
 import {
-    checkServerHeartbeat,
-    registerTextSelectionHandler,
-} from "./handlers/textSelectionHandler";
-
-import {
-    NOTEBOOK_TYPE,
-    createCodexNotebook,
     createProjectCommentFiles,
     createProjectNotebooks,
-} from "./utils/codexNotebookUtils";
-import { CodexNotebookProvider } from "./providers/treeViews/scriptureTreeViewProvider";
+} from "../../utils/codexNotebookUtils";
 import {
-    getAllBookRefs,
     getProjectMetadata,
     getWorkSpaceFolder,
-    jumpToCellInNotebook,
-} from "./utils";
-import { registerReferencesCodeLens } from "./referencesCodeLensProvider";
-import { registerSourceCodeLens } from "./sourceCodeLensProvider";
-import { LanguageMetadata, LanguageProjectStatus, Project } from "codex-types";
-import { nonCanonicalBookRefs } from "./utils/verseRefUtils/verseData";
-import { LanguageCodes } from "./utils/languageUtils";
-import { ResourceProvider } from "./providers/treeViews/resourceTreeViewProvider";
+} from "../../utils";
+import { LanguageProjectStatus } from "codex-types";
 import {
     initializeProjectMetadata,
     promptForProjectDetails,
-} from "./utils/projectUtils";
+} from "../../utils/projectUtils";
 import {
-    searchVerseRefPositionIndex,
     indexVerseRefsInSourceText,
-} from "./commands/indexVrefsCommand";
-import {
-    triggerInlineCompletion,
-    provideInlineCompletionItems,
-} from "./providers/translationSuggestions/inlineCompletionsProvider";
-
+} from "../../commands/indexVrefsCommand";
 import * as path from "path";
-import {
-    LanguageClient,
-    LanguageClientOptions,
-    ServerOptions,
-    State,
-} from "vscode-languageclient/node";
-import { registerParallelViewWebviewProvider } from "./providers/parallelPassagesWebview/customParallelPassagesWebviewProvider";
-import { registerSemanticViewProvider } from "./providers/semanticView/customSemanticViewProvider";
-import { registerDictionaryTableProvider } from "./providers/dictionaryTable/dictionaryTableProvider";
-import { CreateProjectProvider } from "./providers/obs/CreateProject/CreateProjectProvider";
-import { registerDictionarySummaryProvider } from "./providers/dictionaryTable/dictionarySummaryProvider";
-import { ResourcesProvider } from "./providers/obs/resources/resourcesProvider";
-import { StoryOutlineProvider } from "./providers/obs/storyOutline/storyOutlineProvider";
-import { ObsEditorProvider } from "./providers/obs/editor/ObsEditorProvider";
-import {
-    addRemote,
-    checkConfigRemoteAndUpdateIt,
-    promptForLocalSync,
-    stageAndCommit,
-    sync,
-} from "./providers/scm/git";
-import { TranslationNotesProvider } from "./providers/translationNotes/TranslationNotesProvider";
-import { registerScmStatusBar } from "./providers/scm/statusBar";
-import { DownloadedResource } from "./providers/obs/resources/types";
-import { translationAcademy } from "./providers/translationAcademy/provider";
 import {
     EbibleCorpusMetadata,
     downloadEBibleText,
     ensureVrefList,
     getEBCorpusMetadataByLanguageCode,
-} from "./utils/ebibleCorpusUtils";
+} from "../../utils/ebibleCorpusUtils";
 
 const ROOT_PATH = getWorkSpaceFolder();
 
@@ -197,7 +149,7 @@ export async function downloadBible(){
     indexVerseRefsInSourceText();
 }
 
-export async function setTargetFont(context: vscode.ExtensionContext) {
+export async function setTargetFont() {
     const projectMetadata = await getProjectMetadata();
     const targetLanguageCode = projectMetadata?.languages?.find(
         (language) =>
@@ -255,7 +207,7 @@ export async function setTargetFont(context: vscode.ExtensionContext) {
     }
 }
 
-export async function initializeProject(context: vscode.ExtensionContext) {
+export async function initializeProject() {
         const workspaceFolder = vscode.workspace.workspaceFolders
             ? vscode.workspace.workspaceFolders[0]
             : undefined;

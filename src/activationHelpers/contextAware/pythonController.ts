@@ -3,7 +3,7 @@
 import * as vscode from "vscode";
 import {
     checkServerHeartbeat,
-} from "./handlers/textSelectionHandler";
+} from "../../handlers/textSelectionHandler";
 import {
     LanguageClient,
     LanguageClientOptions,
@@ -103,7 +103,7 @@ async function startLangServer(context: vscode.ExtensionContext) {
         }
     }
     setInterval(() => {
-        checkServerHeartbeat(context);
+        checkServerHeartbeat();
     }, 10000);
 }
 
