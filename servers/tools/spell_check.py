@@ -28,7 +28,7 @@ class CheckMode(Enum):
     IMAGE_HASH = 2
     COMBINE_BOTH = 3
 
-def criteria(dictionary_word: Dict, word: str, dictionary, mode: CheckMode) -> Union[float, Tuple[float, float]]:
+def criteria(dictionary_word: Dict, word: str, word_hash: hash_check.Hash, dictionary, mode: CheckMode) -> Union[float, Tuple[float, float]]:
     """
     Calculates the criteria for spell checking by comparing a word against a dictionary entry.
 
@@ -49,7 +49,7 @@ def criteria(dictionary_word: Dict, word: str, dictionary, mode: CheckMode) -> U
         return edit_distance.distance(dictionary_word["headWord"], word)
     elif mode == CheckMode.IMAGE_HASH:
         hash1 = hash_check.Hash(dictionary_word['hash'])
-        hash2 = hash_check.spell_hash(word)
+        hash2 = word_hash
         try:
             return hash1 - hash2
         except Exception as e:
@@ -67,7 +67,7 @@ def criteria(dictionary_word: Dict, word: str, dictionary, mode: CheckMode) -> U
     elif mode == CheckMode.COMBINE_BOTH:
         edit_dist = edit_distance.distance(dictionary_word["headWord"], word)
         hash1 = hash_check.Hash(dictionary_word['hash'])
-        hash2 = hash_check.spell_hash(word)
+        hash2 = word_hash
         try:
             hash_diff = hash1 - hash2
         except Exception as e:
@@ -183,7 +183,7 @@ class Dictionary:
 
 
 class SpellCheck:
-    def __init__(self, dictionary: Dictionary, mode: CheckMode = CheckMode.COMBINE_BOTH) -> None:
+    def __init__(self, dictionary: Dictionary, mode: CheckMode = CheckMode.EDIT_DISTANCE) -> None:
         """
         Initialize the SpellCheck class with a dictionary and a mode for spell checking.
 
@@ -229,6 +229,7 @@ class SpellCheck:
             return [word]  # No correction needed, return the original word
 
         entries = self.dictionary.dictionary['entries']
+        word_hash = hash_check.spell_hash(word)
 
         if self.mode == CheckMode.COMBINE_BOTH:
             # Find top n words using edit distance
@@ -242,14 +243,14 @@ class SpellCheck:
 
             # Rerank top words using hashing
             hash_possibilities = [
-                (word, criteria(next(entry for entry in entries if entry['headWord'] == word), word, self.dictionary, CheckMode.IMAGE_HASH))
+                (word, criteria(next(entry for entry in entries if entry['headWord'] == word), word, word_hash, self.dictionary, CheckMode.IMAGE_HASH))
                 for word, _ in top_words
             ]
             sorted_by_hash = sorted(hash_possibilities, key=lambda x: x[1])
             suggestions = [word for word, _ in sorted_by_hash]
         else:
             possibilities = [
-                (entry['headWord'], criteria(entry, word, self.dictionary, self.mode))
+                (entry['headWord'], criteria(entry, word, word_hash, self.dictionary, self.mode))
                 for entry in entries
             ]
             sorted_possibilities = sorted(possibilities, key=lambda x: x[1])
