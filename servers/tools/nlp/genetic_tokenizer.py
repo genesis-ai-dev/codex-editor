@@ -9,7 +9,7 @@ class TokenDatabase:
     """
     A class for managing database operations with genetic tokenizer.
     """
-    def __init__(self, db_path: str, single_words=False, default_tokens=[]) -> None:
+    def __init__(self, db_path: str, single_words=False, default_tokens=[" "]) -> None:
         """
         Initializes the TokenDatabase class with a specific database path.
 
@@ -64,15 +64,17 @@ class TokenDatabase:
             self.tokenizer.load(self.db_path)
             self.save()
 
-        except:
-            for i, token in enumerate(default_tokens):
-                self.tokenizer.trie.insert(token, i)
-                self.tokenizer.tokens.append(token)
+        except Exception:
+            pass
+        finally:
+            self.insert_manual(default_tokens)
     
-    def insert_manual(self, token):
-        last_index = len(self.tokenizer.tokens) 
-        self.tokenizer.trie.insert(token, last_index)
-        self.tokenizer.tokens.append(token)
+    def insert_manual(self, tokens: list):
+        for token in tokens:
+            last_index = len(self.tokenizer.tokens)
+            if token not in self.tokenizer.tokens:
+                self.tokenizer.trie.insert(token, last_index)
+                self.tokenizer.tokens.append(token)
         self.save()
 
     def upsert_text(self, text: str) -> None:

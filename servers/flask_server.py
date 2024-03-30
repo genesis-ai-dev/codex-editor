@@ -1,7 +1,7 @@
 from typing import cast
 from flask import Flask, request, jsonify
 from tools.embedding import Database
-from tools.nlp.lad import LAD
+from servers.experiments.lad import LAD
 from typing import Dict, Any, AnyStr
 from flask_cors import CORS
 from urllib import parse as url_parse
@@ -108,7 +108,6 @@ def get_database(db_name: str) -> Database:
 @require_workspace
 @app.route("/lad")
 def lad():
-    global AnomalyDetector
     query = request.args.get("query")
     return jsonify({"lad scors": AnomalyDetector.search_and_score(query)})
 
