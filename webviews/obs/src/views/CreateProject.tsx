@@ -122,7 +122,7 @@ const Sidebar = () => {
                     name="name"
                     id="name"
                     value={name}
-                    onChange={(e) => {
+                    onChange={(e: Event) => {
                         setName((e.target as HTMLInputElement).value);
                     }}
                     className={"rounded text-sm"}
@@ -134,7 +134,7 @@ const Sidebar = () => {
                     name="email"
                     id="email"
                     value={email}
-                    onChange={(e) => {
+                    onChange={(e: Event) => {
                         setEmail((e.target as HTMLInputElement).value);
                     }}
                     className={"rounded text-sm"}
@@ -146,7 +146,7 @@ const Sidebar = () => {
                     name="project_name"
                     id="project_name"
                     value={projectName}
-                    onChange={(e) => {
+                    onChange={(e: Event) => {
                         setProjectName((e.target as HTMLInputElement).value);
                     }}
                     className={"rounded text-sm"}
@@ -160,7 +160,7 @@ const Sidebar = () => {
                             name="username"
                             id="username"
                             value={userName}
-                            onChange={(e) => {
+                            onChange={(e: Event) => {
                                 setUsername(
                                     (e.target as HTMLInputElement).value,
                                 );
@@ -173,7 +173,7 @@ const Sidebar = () => {
                             <label htmlFor="project_category">Category</label>
                             <VSCodeDropdown
                                 value={projectCategory}
-                                onInput={(e) => {
+                                onInput={(e: Event) => {
                                     setCategory(
                                         (e.target as HTMLSelectElement).value,
                                     );
@@ -200,7 +200,7 @@ const Sidebar = () => {
                         name="Description"
                         id="project_description"
                         value={description}
-                        onChange={(e) => {
+                        onChange={(e: Event) => {
                             setDescription(
                                 (e.target as HTMLTextAreaElement).value,
                             );
@@ -215,7 +215,7 @@ const Sidebar = () => {
                     name="version_abbreviated"
                     id="version_abbreviated"
                     value={abbreviation}
-                    onInput={(e) => {
+                    onInput={(e: Event) => {
                         setAbbreviation((e.target as HTMLInputElement).value);
                     }}
                     className="block rounded text-sm "
@@ -252,7 +252,7 @@ const Sidebar = () => {
                                         ? copyright.title
                                         : "Select License"
                                 }
-                                onChange={(e) => {
+                                onChange={(e: Event) => {
                                     setCopyright(
                                         licenseList.find(
                                             (license) =>
