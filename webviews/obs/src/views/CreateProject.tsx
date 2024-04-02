@@ -1,5 +1,18 @@
-import { Fragment, useState } from "react";
-import { renderToPage } from "../utilities/main-vscode";
+import { useForm, useWatch } from "react-hook-form";
+import { z } from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
+
+import {
+    Form,
+    FormControl,
+    FormField,
+    FormItem,
+    FormLabel,
+    FormMessage,
+} from "@/components/Form";
+import { categoryOptions, projectTypes } from "@/utilities/projectUtils";
+
+import { vscode } from "../utilities/vscode";
 import {
     VSCodeButton,
     VSCodeTextArea,
@@ -7,31 +20,132 @@ import {
     VSCodeDropdown,
     VSCodeOption,
 } from "@vscode/webview-ui-toolkit/react";
-
-import { vscode } from "../utilities/vscode";
+import { Fragment, useState } from "react";
+import LanguageSearch from "../components/LanguageSearch";
 import { LanguageMetadata } from "codex-types";
+import { MessageType } from "../types";
+
 import { LanguageCodes } from "../../../../src/utils/languageUtils";
+
 import advancedSettings from "@/data/AdvanceSettings.json";
-import { Copyright, MessageType } from "../types";
-import { categoryOptions, projectTypes } from "@/utilities/projectUtils";
-import LanguageSearch from "@/components/LanguageSearch";
+import { renderToPage } from "../utilities/main-vscode";
 
-const Sidebar = () => {
-    const licenseList = advancedSettings.copyright;
-    const [projectType, setProjectType] = useState(projectTypes[0]);
-    const [projectName, setProjectName] = useState("");
-    const [userName, setUsername] = useState("");
-    const [description, setDescription] = useState("");
-    const [projectCategory, setCategory] = useState(categoryOptions[0]);
-    const [abbreviation, setAbbreviation] = useState("");
-    const [copyright, setCopyright] = useState<Copyright>();
-    const [targetLanguage, setTargetLanguage] = useState<LanguageMetadata>();
-    const [sourceLanguage, setSourceLanguage] = useState<LanguageMetadata>();
-    const [sourceLanguageQuery, setSourceLanguageQuery] = useState("");
+const licenseList = advancedSettings.copyright;
+
+const textTranslationSchema = z.object({
+    projectName: z
+        .string({
+            invalid_type_error: "Project Name is required",
+            required_error: "Project Name is required",
+        })
+        .min(1, "Project Name is required"),
+    projectCategory: z
+        .string({
+            invalid_type_error: "Project Category is required",
+            required_error: "Project Category is required",
+        })
+        .min(1, "Project Category is required"),
+    userName: z
+        .string({
+            invalid_type_error: "Username is required",
+            required_error: "Username is required",
+        })
+        .min(1, "Username is required"),
+    abbreviation: z.string(),
+    sourceLanguage: z.record(z.string(), z.any(), {
+        required_error: "Source Language is required",
+        invalid_type_error: "Source Language is required",
+    }),
+    targetLanguage: z.record(z.string(), z.any(), {
+        required_error: "Target Language is required",
+        invalid_type_error: "Target Language is required",
+    }),
+    name: z
+        .string({
+            invalid_type_error: "Name is required",
+            required_error: "Name is required",
+        })
+        .min(1, "Name is required"),
+    email: z
+        .string({
+            invalid_type_error: "Email is required",
+            required_error: "Email is required",
+        })
+        .min(1, "Email is required")
+        .email("Invalid Email"),
+    type: z.literal("textTranslation"),
+});
+
+const obsSchema = z.object({
+    projectName: z
+        .string({
+            invalid_type_error: "Project Name is required",
+            required_error: "Project Name is required",
+        })
+        .min(1, "Project Name is required"),
+    description: z
+        .string({
+            invalid_type_error: "Description is required",
+            required_error: "Description is required",
+        })
+        .min(1, "Description is required"),
+    abbreviation: z.string(),
+    sourceLanguage: z.record(z.string(), z.any(), {
+        required_error: "Source Language is required",
+        invalid_type_error: "Source Language is required",
+    }),
+    name: z
+        .string({
+            invalid_type_error: "Name is required",
+            required_error: "Name is required",
+        })
+        .min(1, "Name is required"),
+    email: z
+        .string({
+            invalid_type_error: "Email is required",
+            required_error: "Email is required",
+        })
+        .min(1, "Email is required")
+        .email("Invalid Email"),
+    type: z.literal("openBibleStories"),
+    copyright: z.object(
+        {
+            title: z.string(),
+            id: z.string(),
+            licence: z.string(),
+            locked: z.boolean(),
+        },
+        {
+            required_error: "License is required",
+            invalid_type_error: "License is required",
+        },
+    ),
+});
+
+const formSchema = z.discriminatedUnion("type", [
+    textTranslationSchema,
+    obsSchema,
+]);
+
+const CreateProject = () => {
     const [targetLanguageQuery, setTargetLanguageQuery] = useState("");
-    const [name, setName] = useState("");
+    const [sourceLanguageQuery, setSourceLanguageQuery] = useState("");
+    const form = useForm<z.infer<typeof formSchema>>({
+        resolver: zodResolver(formSchema),
+        defaultValues: {
+            projectName: "",
+            abbreviation: "",
+            name: "",
+            email: "",
+            type: "textTranslation",
+            userName: "",
+        },
+    });
 
-    const [email, setEmail] = useState("");
+    const projectTypeFormValue = useWatch<z.infer<typeof formSchema>>({
+        name: "type",
+        control: form.control,
+    });
 
     const filteredSourceLanguages =
         sourceLanguageQuery !== ""
@@ -51,20 +165,19 @@ const Sidebar = () => {
               )
             : LanguageCodes;
 
-    console.log(projectType.value);
-    const handleSubmit = () => {
-        switch (projectType.value) {
+    const handleSubmit = form.handleSubmit((data) => {
+        switch (data.type) {
             case "openBibleStories":
                 vscode.postMessage({
                     type: MessageType.createObsProject,
                     payload: {
-                        projectName,
-                        description,
-                        abbreviation,
-                        sourceLanguage,
-                        copyright,
-                        name,
-                        email,
+                        projectName: data.projectName,
+                        description: data.description,
+                        abbreviation: data.abbreviation,
+                        sourceLanguage: data.sourceLanguage,
+                        copyright: data.copyright,
+                        name: data.name,
+                        email: data.email,
                     },
                 });
                 break;
@@ -73,221 +186,308 @@ const Sidebar = () => {
                 vscode.postMessage({
                     type: MessageType.createProject,
                     payload: {
-                        projectName,
-                        projectCategory,
-                        userName,
-                        abbreviation,
+                        projectName: data.projectName,
+                        projectCategory: data.projectCategory,
+                        userName: data.userName,
+                        abbreviation: data.abbreviation,
                         sourceLanguage: {
-                            ...sourceLanguage,
+                            ...data.sourceLanguage,
                             projectStatus: "source",
                         },
                         targetLanguage: {
-                            ...targetLanguage,
+                            ...data.targetLanguage,
                             projectStatus: "target",
                         },
-                        name,
-                        email,
+                        name: data.name,
+                        email: data.email,
                     },
                 });
                 break;
             default:
                 break;
         }
-    };
+    });
+
     return (
-        <div>
-            <div className="text-xl uppercase mb-5">
-                <span>Project Type : {projectType.label}</span>
-            </div>
-            <div className="flex gap-5 flex-col">
-                <div className="flex flex-col">
-                    <label htmlFor="project_type">Project Type</label>
-                    <VSCodeDropdown>
-                        {projectTypes.map((projectType) => (
-                            <VSCodeOption
-                                value={projectType.value}
-                                key={projectType.value}
-                                onClick={() => {
-                                    setProjectType(projectType);
-                                }}
-                            >
-                                {projectType.label}
-                            </VSCodeOption>
-                        ))}
-                    </VSCodeDropdown>
+        <Form {...form}>
+            <form>
+                <div className="text-xl uppercase">
+                    <span>
+                        Project Type :{" "}
+                        {
+                            projectTypes.find(
+                                (projectType) =>
+                                    projectType.value === projectTypeFormValue,
+                            )?.label
+                        }
+                    </span>
                 </div>
 
-                <VSCodeTextField
-                    type="text"
-                    name="name"
-                    id="name"
-                    value={name}
-                    onChange={(e) => {
-                        setName((e.target as HTMLInputElement).value);
-                    }}
-                    className={"rounded text-sm"}
-                >
-                    Name of the User
-                </VSCodeTextField>
-                <VSCodeTextField
-                    type="text"
-                    name="email"
-                    id="email"
-                    value={email}
-                    onChange={(e) => {
-                        setEmail((e.target as HTMLInputElement).value);
-                    }}
-                    className={"rounded text-sm"}
-                >
-                    Email of the User
-                </VSCodeTextField>
-                <VSCodeTextField
-                    type="text"
-                    name="project_name"
-                    id="project_name"
-                    value={projectName}
-                    onChange={(e) => {
-                        setProjectName((e.target as HTMLInputElement).value);
-                    }}
-                    className={"rounded text-sm"}
-                >
-                    Project Name
-                </VSCodeTextField>
-                {projectType.value === "textTranslation" && (
-                    <Fragment>
-                        <VSCodeTextField
-                            type="text"
-                            name="username"
-                            id="username"
-                            value={userName}
-                            onChange={(e) => {
-                                setUsername(
-                                    (e.target as HTMLInputElement).value,
-                                );
-                            }}
-                            className={"rounded text-sm"}
-                        >
-                            Username
-                        </VSCodeTextField>
-                        <div className="flex flex-col">
-                            <label htmlFor="project_category">Category</label>
-                            <VSCodeDropdown
-                                value={projectCategory}
-                                onInput={(e) => {
-                                    setCategory(
-                                        (e.target as HTMLSelectElement).value,
-                                    );
-                                }}
-                                className="rounded text-sm"
-                            >
-                                <VSCodeOption value={undefined} disabled>
-                                    Select the project category
-                                </VSCodeOption>
-                                {categoryOptions.map((category) => (
-                                    <VSCodeOption
-                                        key={category}
-                                        value={category}
+                <div className="flex gap-5 flex-col">
+                    <FormField
+                        control={form.control}
+                        name="type"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Project Type</FormLabel>
+                                <FormControl>
+                                    <VSCodeDropdown
+                                        onBlur={field.onBlur}
+                                        className={"rounded text-sm"}
                                     >
-                                        {category}
-                                    </VSCodeOption>
-                                ))}
-                            </VSCodeDropdown>
-                        </div>
-                    </Fragment>
-                )}
-                {projectType.value === "openBibleStories" && (
-                    <VSCodeTextArea
-                        name="Description"
-                        id="project_description"
-                        value={description}
-                        onChange={(e) => {
-                            setDescription(
-                                (e.target as HTMLTextAreaElement).value,
-                            );
-                        }}
-                        className="rounded text-sm "
-                    >
-                        Description
-                    </VSCodeTextArea>
-                )}
-                <VSCodeTextField
-                    type="text"
-                    name="version_abbreviated"
-                    id="version_abbreviated"
-                    value={abbreviation}
-                    onInput={(e) => {
-                        setAbbreviation((e.target as HTMLInputElement).value);
-                    }}
-                    className="block rounded text-sm "
-                >
-                    Abbreviation
-                </VSCodeTextField>
-                <LanguageSearch
-                    label="Source Language"
-                    value={sourceLanguageQuery}
-                    languages={filteredSourceLanguages}
-                    setQuery={setSourceLanguageQuery}
-                    setLanguage={setSourceLanguage}
-                    selectedLanguage={sourceLanguage ?? null}
-                />
-                {projectType.value === "textTranslation" && (
-                    <LanguageSearch
-                        label="Target Language"
-                        value={targetLanguageQuery}
-                        languages={filteredTargetLanguages}
-                        setQuery={setTargetLanguageQuery}
-                        setLanguage={setTargetLanguage}
-                        selectedLanguage={targetLanguage ?? null}
+                                        {projectTypes.map((projectType) => (
+                                            <VSCodeOption
+                                                value={projectType.value}
+                                                key={projectType.value}
+                                                onClick={() =>
+                                                    field.onChange(
+                                                        projectType.value,
+                                                    )
+                                                }
+                                            >
+                                                {projectType.label}
+                                            </VSCodeOption>
+                                        ))}
+                                    </VSCodeDropdown>
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
                     />
-                )}
-                {projectType.value === "openBibleStories" && (
-                    <Fragment>
-                        <div className="flex flex-col">
-                            <label htmlFor="license">License</label>
-                            <VSCodeDropdown
-                                position="below"
-                                className=""
-                                value={
-                                    copyright
-                                        ? copyright.title
-                                        : "Select License"
-                                }
-                                onChange={(e) => {
-                                    setCopyright(
-                                        licenseList.find(
-                                            (license) =>
-                                                license.title ===
-                                                (e.target as HTMLInputElement)
-                                                    .value,
-                                        ),
-                                    );
-                                }}
-                                id="license"
-                            >
-                                {licenseList.map((licence) => (
-                                    <VSCodeOption
-                                        value={licence.title}
-                                        key={licence.id}
-                                    >
-                                        {licence.title}
-                                    </VSCodeOption>
-                                ))}
-                            </VSCodeDropdown>
-                        </div>
-                    </Fragment>
-                )}
+                    <FormField
+                        control={form.control}
+                        name="name"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Name of the User</FormLabel>
+                                <FormControl>
+                                    <VSCodeTextField
+                                        {...field}
+                                        type="text"
+                                        id="name"
+                                        className={"rounded text-sm"}
+                                    />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="email"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Email of the User</FormLabel>
+                                <FormControl>
+                                    <VSCodeTextField
+                                        {...field}
+                                        type="email"
+                                        id="email"
+                                        className={"rounded text-sm"}
+                                    />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="projectName"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Project Name</FormLabel>
+                                <FormControl>
+                                    <VSCodeTextField
+                                        {...field}
+                                        type="text"
+                                        id="projectName"
+                                        className={"rounded text-sm"}
+                                    />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    {projectTypeFormValue === "textTranslation" && (
+                        <Fragment>
+                            <FormField
+                                control={form.control}
+                                name="userName"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Username</FormLabel>
+                                        <FormControl>
+                                            <VSCodeTextField
+                                                {...field}
+                                                type="text"
+                                                id="username"
+                                                className={"rounded text-sm"}
+                                            />
+                                        </FormControl>
+                                        <FormMessage />{" "}
+                                    </FormItem>
+                                )}
+                            />
+                            <FormField
+                                control={form.control}
+                                name="projectCategory"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Category</FormLabel>
+                                        <FormControl>
+                                            <VSCodeDropdown
+                                                {...field}
+                                                className={"rounded text-sm"}
+                                            >
+                                                <VSCodeOption
+                                                    value={undefined}
+                                                    disabled
+                                                >
+                                                    Select the project category
+                                                </VSCodeOption>
+                                                {categoryOptions.map(
+                                                    (category) => (
+                                                        <VSCodeOption
+                                                            value={category}
+                                                            key={category}
+                                                        >
+                                                            {category}
+                                                        </VSCodeOption>
+                                                    ),
+                                                )}
+                                            </VSCodeDropdown>
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                        </Fragment>
+                    )}
+                    {projectTypeFormValue === "openBibleStories" && (
+                        <FormField
+                            control={form.control}
+                            name="description"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Description</FormLabel>
+                                    <FormControl>
+                                        <VSCodeTextArea
+                                            id="project_description"
+                                            className="rounded text-s"
+                                            {...field}
+                                            value={field.value ?? ""}
+                                        />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                    )}
+                    <FormField
+                        control={form.control}
+                        name="sourceLanguage"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormControl>
+                                    <LanguageSearch
+                                        label="Source Language"
+                                        value={sourceLanguageQuery}
+                                        languages={filteredSourceLanguages}
+                                        setQuery={setSourceLanguageQuery}
+                                        setLanguage={field.onChange}
+                                        selectedLanguage={
+                                            (field.value as LanguageMetadata) ??
+                                            null
+                                        }
+                                    />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    {projectTypeFormValue === "textTranslation" && (
+                        <FormField
+                            control={form.control}
+                            name="targetLanguage"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormControl>
+                                        <LanguageSearch
+                                            label="Target Language"
+                                            value={targetLanguageQuery}
+                                            languages={filteredTargetLanguages}
+                                            setQuery={setTargetLanguageQuery}
+                                            setLanguage={field.onChange}
+                                            selectedLanguage={
+                                                (field.value as LanguageMetadata) ??
+                                                null
+                                            }
+                                        />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                    )}
 
-                <VSCodeButton
-                    aria-label="create"
-                    className="rounded shadow text-xs tracking-wide uppercase"
-                    onClick={handleSubmit}
-                    appearance="primary"
-                >
-                    Create Project
-                </VSCodeButton>
-            </div>
-        </div>
+                    {projectTypeFormValue === "openBibleStories" && (
+                        <FormField
+                            control={form.control}
+                            name="copyright"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>License</FormLabel>
+                                    <FormControl>
+                                        <VSCodeDropdown
+                                            position="below"
+                                            className=""
+                                            value={
+                                                field.value
+                                                    ? field.value.title
+                                                    : "Select License"
+                                            }
+                                            onInput={(e) => {
+                                                field.onChange(
+                                                    licenseList.find(
+                                                        (license) =>
+                                                            license.title ===
+                                                            (
+                                                                e.target as HTMLInputElement
+                                                            ).value,
+                                                    ),
+                                                );
+                                            }}
+                                            id="license"
+                                        >
+                                            {licenseList.map((licence) => (
+                                                <VSCodeOption
+                                                    value={licence.title}
+                                                    key={licence.id}
+                                                >
+                                                    {licence.title}
+                                                </VSCodeOption>
+                                            ))}
+                                        </VSCodeDropdown>
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                    )}
+
+                    <VSCodeButton
+                        aria-label="create"
+                        className="rounded shadow text-xs tracking-wide uppercase"
+                        // type="submit"
+                        appearance="primary"
+                        onClick={handleSubmit}
+                    >
+                        Create Project
+                    </VSCodeButton>
+                </div>
+            </form>
+        </Form>
     );
 };
 
-renderToPage(<Sidebar />);
+renderToPage(<CreateProject />);
