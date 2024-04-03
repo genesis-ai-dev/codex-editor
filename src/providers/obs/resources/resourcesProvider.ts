@@ -8,6 +8,8 @@ import {
 import {
     openBible,
     openOBS,
+    openObsTn,
+    openObsTq,
     openTn,
     openTnAcademy,
     openTq,
@@ -18,9 +20,6 @@ import {
 import { getUri } from "../CreateProject/utilities/getUri";
 import { getNonce } from "../CreateProject/utilities/getNonce";
 import { DownloadedResource, OpenResource } from "./types";
-import { VIEW_TYPES } from "../utilities";
-import { extractBookChapterVerse } from "../../../utils/extractBookChapterVerse";
-import { VerseRefGlobalState } from "../../../../types";
 
 export class ResourcesProvider implements vscode.WebviewViewProvider {
     private _webviewView: vscode.WebviewView | undefined;
@@ -130,25 +129,18 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
                         break;
                     }
                     case MessageType.OPEN_RESOURCE:
-                        console.log("Opening resource: ", e.payload);
                         this._openResource((e.payload as any)?.resource as any);
                         break;
 
                     case MessageType.SYNC_DOWNLOADED_RESOURCES:
-                        await this.syncDownloadedResources().then(() => {
-                            console.log(
-                                "Downloaded resources synced! From the action!",
-                            );
-                        });
+                        await this.syncDownloadedResources();
                         break;
                     default:
                         break;
                 }
             },
         );
-        this.syncDownloadedResources().then(() => {
-            console.log("Downloaded resources synced!");
-        });
+        this.syncDownloadedResources();
 
         this._webviewView = webviewPanel;
     }
@@ -235,19 +227,9 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
             "openResources",
             [],
         ) ?? []) as OpenResource[];
-
-        // Enable this when we track the closing of tabs
-        // if (openResources.find((r) => r.id === resource.id)) {
-        //   vscode.window.showInformationMessage("Resource already opened!");
-        //   return;
-        // }
-
         // open resource
         let newViewCol: vscode.ViewColumn | undefined =
             vscode.ViewColumn.Beside;
-
-        const currentStoryId: string | undefined =
-            this._context?.workspaceState.get("currentStoryId");
 
         switch (resource.type) {
             case "obs":
@@ -259,13 +241,6 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
                     ?.viewColumn;
                 break;
             case "tn": {
-                const verseRef = (await this._context?.globalState.get(
-                    "verseRef",
-                )) as VerseRefGlobalState | undefined;
-
-                const { bookID } = extractBookChapterVerse(
-                    verseRef?.verseRef ?? "GEN 1:1",
-                );
                 newViewCol = (await openTn(this.context, resource))?.viewColumn;
                 break;
             }
@@ -283,6 +258,14 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
             }
             case "ta": {
                 await openTnAcademy(resource);
+                break;
+            }
+            case "obs-tn": {
+                await openObsTn(this._context!, resource);
+                break;
+            }
+            case "obs-tq": {
+                await openObsTq(this._context!, resource);
                 break;
             }
             default:
@@ -306,8 +289,6 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
             [],
         ) ?? []) as OpenResource[];
 
-        console.log("Updated resources: ", updatedResources);
-
         return {
             viewColumn: newViewCol,
         };
@@ -324,7 +305,7 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
         ) ?? []) as DownloadedResource[];
 
         if (!webviewPanel?.webview) {
-            console.log("Webview not found!");
+            return;
         }
 
         await ResourcesProvider.initProjectResources(context);
