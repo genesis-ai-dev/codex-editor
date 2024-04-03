@@ -20,6 +20,7 @@ export enum MessageType {
     SYNC_TA_CONTENT = "sync-ta-content",
     GET_USFM = "get-usfm",
     SCROLL_TO_CHAPTER = "scrollToChapter",
+    UPDATE_OBS_REF = "updateObsRef",
 }
 
 export type Language = {

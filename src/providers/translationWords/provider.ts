@@ -34,7 +34,7 @@ export class TranslationWordsProvider {
     ) {
         const panel = vscode.window.createWebviewPanel(
             "codex.translationWordsViewer",
-            "Translation Words -" + this.resource.name,
+            "Translation Words - " + this.resource.name,
             viewColumn,
             {
                 enableScripts: true,

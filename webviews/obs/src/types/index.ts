@@ -18,6 +18,7 @@ export enum MessageType {
     SYNC_TA_FOLDER_CONTENT = "sync-ta-folder-content",
     GET_TA_FOLDER_CONTENT = "get-ta-FolderContent",
     GET_TA_CONTENT = "get-ta-content",
+    UPDATE_OBS_REF = "updateObsRef",
 }
 
 export type Language = {

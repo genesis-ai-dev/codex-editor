@@ -1,29 +1,32 @@
 "use strict";
 import * as vscode from "vscode";
-import {
-    registerTextSelectionHandler,
-} from "./handlers/textSelectionHandler";
+import { registerTextSelectionHandler } from "./handlers/textSelectionHandler";
 import { registerReferencesCodeLens } from "./referencesCodeLensProvider";
 import { registerSourceCodeLens } from "./sourceCodeLensProvider";
-import {
-    indexVerseRefsInSourceText,
-} from "./commands/indexVrefsCommand";
+import { indexVerseRefsInSourceText } from "./commands/indexVrefsCommand";
 import { CreateProjectProvider } from "./providers/obs/CreateProject/CreateProjectProvider";
 import { ResourcesProvider } from "./providers/obs/resources/resourcesProvider";
 import { StoryOutlineProvider } from "./providers/obs/storyOutline/storyOutlineProvider";
 import { ObsEditorProvider } from "./providers/obs/editor/ObsEditorProvider";
 import { registerCommands } from "./activationHelpers/contextAware/commands";
-import {
-    promptForLocalSync,
-} from "./providers/scm/git";
+import { promptForLocalSync } from "./providers/scm/git";
 import { TranslationNotesProvider } from "./providers/translationNotes/TranslationNotesProvider";
 import { registerScmStatusBar } from "./providers/scm/statusBar";
 import { DownloadedResourcesProvider } from "./providers/downloadedResource/provider";
-import { checkForMissingFiles, handleConfig, onBoard, initializeProject} from "./activationHelpers/contextUnaware/projectInitializers";
-import {initializeServer, stopLangServer} from "./activationHelpers/contextAware/pythonController";
-import {initializeWebviews} from "./activationHelpers/contextAware/webviewInitializers";
-import { langugeServerTS  } from "./activationHelpers/contextAware/tsLanguageServer";
+import {
+    checkForMissingFiles,
+    handleConfig,
+    onBoard,
+    initializeProject,
+} from "./activationHelpers/contextUnaware/projectInitializers";
+import {
+    initializeServer,
+    stopLangServer,
+} from "./activationHelpers/contextAware/pythonController";
+import { initializeWebviews } from "./activationHelpers/contextAware/webviewInitializers";
+import { langugeServerTS } from "./activationHelpers/contextAware/tsLanguageServer";
 import { syncUtils } from "./activationHelpers/contextAware/syncUtils";
+import { initializeStateStore } from "./stateStore";
 
 // The following block ensures a smooth user experience by guiding the user through the initial setup process before the extension is fully activated. This is crucial for setting up the necessary project environment and avoiding any functionality issues that might arise from missing project configurations.
 
@@ -35,7 +38,6 @@ onBoard();
 let scmInterval: any; // Webpack & typescript for vscode are having issues
 
 export async function activate(context: vscode.ExtensionContext) {
-
     await indexVerseRefsInSourceText();
     await handleConfig();
     await checkForMissingFiles();
@@ -50,7 +52,8 @@ export async function activate(context: vscode.ExtensionContext) {
     syncUtils.registerSyncCommands(context, syncStatus);
 
     DownloadedResourcesProvider.register(context);
-    const { providerRegistration, commandRegistration } = TranslationNotesProvider.register(context);
+    const { providerRegistration, commandRegistration } =
+        TranslationNotesProvider.register(context);
 
     context.subscriptions.push(CreateProjectProvider.register(context));
     context.subscriptions.push(ResourcesProvider.register(context));
@@ -62,7 +65,6 @@ export async function activate(context: vscode.ExtensionContext) {
     await executeCommandsAfter();
     await startSyncLoop(context);
     await registerCommands(context);
-    
 }
 
 export function deactivate(): Thenable<void> {
@@ -70,7 +72,8 @@ export function deactivate(): Thenable<void> {
     return stopLangServer();
 }
 
-async function executeCommandsAfter(){ // wasn't sure if these had to be executed seperately but it's here to be on the safeside, otherwise later it should go in commands.ts
+async function executeCommandsAfter() {
+    // wasn't sure if these had to be executed seperately but it's here to be on the safeside, otherwise later it should go in commands.ts
 
     vscode.commands.executeCommand(
         "workbench.view.extension.scripture-explorer-activity-bar",
@@ -81,7 +84,7 @@ async function executeCommandsAfter(){ // wasn't sure if these had to be execute
     );
 }
 
-async function startSyncLoop(context: vscode.ExtensionContext){
+async function startSyncLoop(context: vscode.ExtensionContext) {
     scmInterval = setInterval(promptForLocalSync, 1000 * 60 * 15);
 
     const configChangeSubscription = vscode.workspace.onDidChangeConfiguration(

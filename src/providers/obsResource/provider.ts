@@ -2,11 +2,11 @@ import * as vscode from "vscode";
 import { DownloadedResource } from "../obs/resources/types";
 import { getNonce, getUri } from "../obs/utilities";
 import { MessageType } from "../obs/CreateProject/types";
-import { getVerseTranslationQuestions } from "./utils";
 import { initializeStateStore } from "../../stateStore";
+import { getStoryData } from "./utils";
 
-export class TranslationQuestionsProvider {
-    static instance: TranslationQuestionsProvider;
+export class ObsResourceProvider {
+    static instance: ObsResourceProvider;
     webview?: vscode.WebviewPanel;
     resource: DownloadedResource;
     context: vscode.ExtensionContext;
@@ -28,11 +28,12 @@ export class TranslationQuestionsProvider {
     ) {
         if (!this.stateStore) {
             this.stateStore = await initializeStateStore();
+            console.log("stateStore", this.stateStore);
         }
 
         const panel = vscode.window.createWebviewPanel(
-            "codex.translationQuestions",
-            "Translation Questions - " + this.resource.name,
+            "codex.obsResource",
+            "OBS - " + this.resource.name,
             viewColumn,
             {
                 enableScripts: true,
@@ -57,40 +58,36 @@ export class TranslationQuestionsProvider {
 
         const onDidChangeViewState = panel.onDidChangeViewState(async (e) => {
             if (e.webviewPanel.visible) {
-                const verseRefStore =
-                    await this.stateStore?.getStoreState("verseRef");
-                const translationQuestions = await getVerseTranslationQuestions(
-                    this.resource,
-                    verseRefStore?.verseRef ?? "GEN 1:1",
-                );
+                const obsRef = (await this.stateStore?.getStoreState(
+                    "obsRef",
+                )) ?? {
+                    storyId: "01",
+                    paragraph: "1",
+                };
+
+                const storyData = await getStoryData(this.resource, obsRef);
 
                 e.webviewPanel.webview.postMessage({
-                    type: "update-tq",
+                    type: "update",
                     payload: {
-                        translationQuestions: translationQuestions ?? [],
+                        doc: storyData,
+                        isReadonly: true, // if the document is in the resources folder, it's readonly
                     },
                 });
             }
         });
 
         const verseRefListenerDisposeFunction = this.stateStore?.storeListener(
-            "verseRef",
+            "obsRef",
             async (value) => {
-                console.log("state update: verseRef ---------> ", value);
                 if (value) {
-                    const translationQuestions =
-                        await getVerseTranslationQuestions(
-                            this.resource,
-                            value.verseRef,
-                        );
-                    console.log(
-                        "state update: translationQuestions",
-                        translationQuestions,
-                    );
-                    panel.webview.postMessage({
-                        type: "update-tq",
+                    const storyData = await getStoryData(this.resource, value);
+
+                    this.webview?.webview.postMessage({
+                        type: "update",
                         payload: {
-                            translationQuestions: translationQuestions ?? [],
+                            doc: storyData,
+                            isReadonly: true, // if the document is in the resources folder, it's readonly
                         },
                     });
                 }
@@ -125,14 +122,7 @@ export class TranslationQuestionsProvider {
             "build",
             "assets",
             "views",
-            "TranslationQuestions.js",
-        ]);
-
-        const codiconsUri = getUri(webview, extensionUri, [
-            "node_modules",
-            "@vscode/codicons",
-            "dist",
-            "codicon.css",
+            "Editor.js",
         ]);
 
         const nonce = getNonce();
@@ -146,8 +136,7 @@ export class TranslationQuestionsProvider {
           <meta name="viewport" content="width=device-width, initial-scale=1.0" />
           <!-- <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';"> -->
           <link rel="stylesheet" type="text/css" href="${stylesUri}">
-          <link href="${codiconsUri}" rel="stylesheet" />
-          <title>Translation Questions Webview</title>
+          <title>Hello World</title>
         </head>
         <body>
           <div id="root"></div>

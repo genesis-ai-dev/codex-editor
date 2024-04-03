@@ -1,9 +1,14 @@
 import * as vscode from "vscode";
-import { VerseRefGlobalState, SelectedTextDataWithContext } from "../types";
+import {
+    VerseRefGlobalState,
+    SelectedTextDataWithContext,
+    OBSRef,
+} from "../types";
 type StateStoreUpdate =
     | { key: "verseRef"; value: VerseRefGlobalState }
     | { key: "uri"; value: string | null }
-    | { key: "currentLineSelection"; value: SelectedTextDataWithContext };
+    | { key: "currentLineSelection"; value: SelectedTextDataWithContext }
+    | { key: "obsRef"; value: OBSRef };
 
 type StateStoreKey = StateStoreUpdate["key"];
 type StateStoreValue<K extends StateStoreKey> = Extract<
@@ -24,7 +29,7 @@ export async function initializeStateStore() {
     let getStoreState: <K extends StateStoreKey>(
         key: K,
     ) => Promise<StateStoreValue<K> | undefined> = () =>
-            Promise.resolve(undefined);
+        Promise.resolve(undefined);
 
     const extension = vscode.extensions.getExtension(extensionId);
     if (extension) {

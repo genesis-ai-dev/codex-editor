@@ -40,8 +40,8 @@ export class TnProvider {
         }
 
         const panel = window.createWebviewPanel(
-            "codex.translationQuestions",
-            "Translation Questions -" + this.resource.name,
+            "codex.translationNotes",
+            "Translation Notes - " + this.resource.name,
             viewColumn,
             {
                 enableScripts: true,

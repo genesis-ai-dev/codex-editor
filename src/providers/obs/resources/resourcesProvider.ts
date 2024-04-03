@@ -251,7 +251,7 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
 
         switch (resource.type) {
             case "obs":
-                newViewCol = (await openOBS(resource, currentStoryId))
+                newViewCol = (await openOBS(this.context, resource))
                     ?.viewColumn;
                 break;
             case "bible":
@@ -311,53 +311,6 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
         return {
             viewColumn: newViewCol,
         };
-    }
-
-    public static async syncOpenResourcesWithStory(
-        context: vscode.ExtensionContext,
-        storyId: string,
-    ) {
-        const openResources = (context?.workspaceState.get(
-            "openResources",
-            [],
-        ) ?? []) as OpenResource[];
-
-        // TODO: Add the filter when downloading all resources
-        // const obsResources = openResources.filter(
-        //   (resource) => resource.type === "obs"
-        // );
-
-        openResources.forEach(async (resource) => {
-            const workspaceRootUri = vscode.workspace.workspaceFolders?.[0].uri;
-
-            if (!workspaceRootUri) {
-                return;
-            }
-
-            const resourceRootUri = workspaceRootUri?.with({
-                path: vscode.Uri.joinPath(
-                    workspaceRootUri,
-                    ".project/resources",
-                    resource.name,
-                ).path,
-            });
-
-            const resourceStoryUri = vscode.Uri.joinPath(
-                resourceRootUri,
-                "content",
-                `${storyId}.md`,
-            );
-
-            await vscode.commands.executeCommand(
-                "vscode.openWith",
-                resourceStoryUri,
-                VIEW_TYPES.EDITOR, // use resource type to load the according view
-                {
-                    viewColumn: resource.viewColumn ?? vscode.ViewColumn.Beside,
-                    preview: true,
-                },
-            );
-        });
     }
 
     syncDownloadedResources = async (webviewPanel = this._webviewView) => {

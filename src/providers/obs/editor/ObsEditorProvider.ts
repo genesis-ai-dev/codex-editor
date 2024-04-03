@@ -2,10 +2,17 @@ import * as vscode from "vscode";
 import { OpenResource } from "../resources/types";
 import { MessageType } from "../CreateProject/types";
 import { VIEW_TYPES, getNonce, getUri } from "../utilities";
+import { initializeStateStore } from "../../../stateStore";
+import { OBSRef } from "../../../../types";
 
 export class ObsEditorProvider implements vscode.CustomTextEditorProvider {
     private _webview: vscode.Webview | undefined;
     private _context: vscode.ExtensionContext | undefined;
+
+    private globalState:
+        | Awaited<ReturnType<typeof initializeStateStore>>
+        | undefined;
+
     public static register(
         context: vscode.ExtensionContext,
     ): vscode.Disposable {
@@ -21,7 +28,10 @@ export class ObsEditorProvider implements vscode.CustomTextEditorProvider {
 
     constructor(private readonly context: vscode.ExtensionContext) {
         this._context = context;
-        this._registerCommands();
+
+        initializeStateStore().then((store) => {
+            this.globalState = store;
+        });
     }
 
     public async resolveCustomTextEditor(
@@ -40,17 +50,13 @@ export class ObsEditorProvider implements vscode.CustomTextEditorProvider {
         const context = this._context;
 
         function updateWebview() {
-            const allResources = (context?.workspaceState.get(
-                "openResources",
-                [],
-            ) ?? []) as OpenResource[];
             const docPath = document.uri.path;
 
             webviewPanel.webview.postMessage({
                 type: "update",
                 payload: {
                     doc: document.getText(),
-                    isReadonly: docPath.includes("resources"), // if the document is in the resources folder, it's readonly
+                    isReadonly: docPath.includes(".project/resources"), // if the document is in the resources folder, it's readonly
                 },
             });
         }
@@ -92,17 +98,36 @@ export class ObsEditorProvider implements vscode.CustomTextEditorProvider {
                         return;
                     }
 
-                    // case MessageType.openResource:
-                    //   const path = (e.payload as Record<string, unknown>)?.path;
-                    //   const allResources =
-                    //     this._context?.workspaceState.get("openResources", []) ?? [];
-                    //   const newResources = [...allResources, path];
-                    //   // save to workspace state
-                    //   await this._context?.workspaceState.update(
-                    //     "openResources",
-                    //     newResources
-                    //   );
-                    //   this._openFile(path as string);
+                    case MessageType.UPDATE_OBS_REF: {
+                        if (!this.globalState) {
+                            await initializeStateStore().then((store) => {
+                                this.globalState = store;
+                            });
+                        }
+
+                        const storyId = document.fileName
+                            .split("/")
+                            .pop()
+                            ?.split(".")[0];
+
+                        if (!storyId) {
+                            throw new Error(
+                                "Unable to get the story id from the document path",
+                            );
+                        }
+                        this.globalState?.updateStoreState({
+                            key: "obsRef",
+                            value: {
+                                paragraph: (
+                                    e.payload as {
+                                        paragraphId: number;
+                                    }
+                                ).paragraphId.toString(),
+                                storyId: storyId,
+                            },
+                        });
+                        return;
+                    }
                 }
             },
         );
@@ -110,37 +135,6 @@ export class ObsEditorProvider implements vscode.CustomTextEditorProvider {
         this._webview = webviewPanel.webview;
 
         updateWebview();
-    }
-
-    private async _registerCommands() {
-        const commands = [
-            {
-                command: "scribe-vsc.helloWorld",
-                title: "Hello World from vscodium scribe obs!",
-                handler: () => {
-                    vscode.window.showInformationMessage(
-                        "Hello World from vscodium scribe obs!",
-                    );
-                    this._webview?.postMessage({
-                        type: MessageType.showDialog,
-                        payload: "Hello World from vscodium scribe obs!",
-                    });
-                },
-            },
-        ];
-
-        const registeredCommands = await vscode.commands.getCommands();
-
-        commands.forEach((command) => {
-            if (!registeredCommands.includes(command.command)) {
-                this._context?.subscriptions.push(
-                    vscode.commands.registerCommand(
-                        command.command,
-                        command.handler,
-                    ),
-                );
-            }
-        });
     }
 
     private _getWebviewContent(
@@ -184,22 +178,5 @@ export class ObsEditorProvider implements vscode.CustomTextEditorProvider {
         </body>
       </html>
     `;
-    }
-
-    private _getExtensionFromPath(path: string) {
-        const split = path.split(".");
-        return split[split.length - 1];
-    }
-
-    private async _openFile(path: string) {
-        const uri = vscode.Uri.file(path);
-        await vscode.commands.executeCommand(
-            "vscode.openWith",
-            uri,
-            this._getExtensionFromPath(path) === "md"
-                ? VIEW_TYPES.EDITOR
-                : "default",
-            vscode.ViewColumn.Beside,
-        );
     }
 }

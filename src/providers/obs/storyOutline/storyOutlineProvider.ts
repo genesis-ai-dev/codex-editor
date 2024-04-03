@@ -1,12 +1,16 @@
 import * as vscode from "vscode";
 
 import { VIEW_TYPES, getNonce, getUri } from "../utilities";
-import { ResourcesProvider } from "../resources/resourcesProvider";
 import { MessageType } from "../CreateProject/types";
+import { initializeStateStore } from "../../../stateStore";
 
 export class StoryOutlineProvider implements vscode.WebviewViewProvider {
     private _webviewView: vscode.WebviewView | undefined;
     private _context: vscode.ExtensionContext | undefined;
+    private stateStore:
+        | Awaited<ReturnType<typeof initializeStateStore>>
+        | undefined;
+
     public static register(
         context: vscode.ExtensionContext,
     ): vscode.Disposable {
@@ -23,6 +27,9 @@ export class StoryOutlineProvider implements vscode.WebviewViewProvider {
     constructor(private readonly context: vscode.ExtensionContext) {
         this._context = context;
         this._registerCommands();
+        initializeStateStore().then((stateStore) => {
+            this.stateStore = stateStore;
+        });
     }
 
     public async resolveWebviewView(
@@ -55,7 +62,8 @@ export class StoryOutlineProvider implements vscode.WebviewViewProvider {
                         const storyURI = vscode.Uri.joinPath(
                             vscode.workspace?.workspaceFolders?.[0].uri,
                             "ingredients",
-                            `${(e.payload as Record<string, any>)?.storyNumber
+                            `${
+                                (e.payload as Record<string, any>)?.storyNumber
                             }.md`,
                         );
                         await vscode.commands.executeCommand(
@@ -73,15 +81,18 @@ export class StoryOutlineProvider implements vscode.WebviewViewProvider {
                             (e.payload as Record<string, any>)?.storyNumber,
                         );
 
-                        if (!this._context) {
-                            return;
+                        if (!this.stateStore) {
+                            this.stateStore = await initializeStateStore();
                         }
 
-                        await ResourcesProvider.syncOpenResourcesWithStory(
-                            this._context,
-                            (e.payload as Record<string, any>).storyNumber,
-                        );
-
+                        this.stateStore?.updateStoreState({
+                            key: "obsRef",
+                            value: {
+                                storyId: (e.payload as Record<string, any>)
+                                    ?.storyNumber,
+                                paragraph: "1",
+                            },
+                        });
                         break;
                     }
                     default:

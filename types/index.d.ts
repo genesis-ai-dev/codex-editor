@@ -112,3 +112,8 @@ type TranslationNotePostMessages =
 type ScripturePostMessages =
     | { command: "sendScriptureData"; data: ScriptureContent }
     | { command: "fetchScriptureData" };
+
+type OBSRef = {
+    storyId: string;
+    paragraph: string;
+};

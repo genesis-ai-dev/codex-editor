@@ -5,57 +5,22 @@ import { TranslationWordsListProvider } from "../../../translationWordsList/prov
 import { TranslationQuestionsProvider } from "../../../TranslationQuestions/provider";
 import { TnProvider } from "../../../translationNotes/provider";
 import { USFMViewerProvider } from "../../../usfm-viewer/provider";
+import { ObsResourceProvider } from "../../../obsResource/provider";
 
 enum ViewTypes {
-    OBS = "scribe.obs",
+    OBS = "codex.obs.editor",
     BIBLE = "default",
     TRANSLATION_HELPER = "resources.translationHelper",
     TN = "codex.translationNotesEditor",
 }
 
 export const openOBS = async (
+    context: vscode.ExtensionContext,
     resource: DownloadedResource,
-    storyId?: string,
 ) => {
-    const workspaceRootUri = vscode.workspace.workspaceFolders?.[0].uri;
-    if (!workspaceRootUri) {
-        return;
-    }
-    const resourceRootUri = vscode.Uri.joinPath(
-        workspaceRootUri,
-        resource.localPath,
-    );
+    const obsResource = new ObsResourceProvider(context, resource);
 
-    const resourceStoryUri = vscode.Uri.joinPath(
-        resourceRootUri,
-        "content",
-        `${storyId ?? "01"}.md`,
-    );
-
-    const existingViewCols = vscode.window.tabGroups.all.map(
-        (editor) => editor.viewColumn,
-    );
-
-    await vscode.commands.executeCommand(
-        "vscode.openWith",
-        resourceStoryUri,
-        ViewTypes.OBS, // use resource type to load the according view
-        { viewColumn: vscode.ViewColumn.Beside, preview: true },
-    );
-
-    // get the view cols and tab id of the opened resource
-
-    const newViewCols = vscode.window.tabGroups.all.map(
-        (tabGroup) => tabGroup.viewColumn,
-    );
-
-    const newViewCol = newViewCols.find(
-        (col) => !existingViewCols.includes(col),
-    );
-
-    return {
-        viewColumn: newViewCol,
-    };
+    return await obsResource.startWebview();
 };
 
 export const openBible = async (
