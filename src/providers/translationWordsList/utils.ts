@@ -56,69 +56,6 @@ export const getVerseTranslationWordsList = async (
     return wordsWithExistsOnDisk ?? [];
 };
 
-// export const getResourceTwl = async (resource: DownloadedResource) => {
-//     if (!vscode.workspace.workspaceFolders?.[0]) {
-//         vscode.window.showErrorMessage(
-//             "No workspace is open. Please open a workspace.",
-//         );
-//         return;
-//     }
-//     const resourceDirUri = vscode.Uri.joinPath(
-//         vscode.workspace.workspaceFolders?.[0].uri as vscode.Uri,
-//         resource.localPath,
-//     );
-
-//     const resourceDir = await vscode.workspace.fs.readDirectory(resourceDirUri);
-
-//     const tsvFiles = resourceDir.filter(
-//         (file) => file[1] === vscode.FileType.File && file[0].endsWith(".tsv"),
-//     );
-
-//     const twlFiles = tsvFiles.filter((file) => file[0].includes("twl"));
-
-//     const twlFilesUris = twlFiles
-//         .map((file) => ({
-//             name: file[0],
-//             uri: vscode.Uri.joinPath(resourceDirUri, file[0]),
-//         }))
-//         .slice(0, 2); // TODO: Remove the slice. This is just for testing
-
-//     const twlBooksWithChaptersAndVerses: TwlBooksWithChaptersAndVerses = {};
-
-//     const twlContentsPromises = twlFilesUris.map(async (file) => {
-//         const bookUri = twlFilesUris[0].uri;
-
-//         const bookContent = await vscode.workspace.fs.readFile(bookUri);
-
-//         const bookContentString = bookContent.toString();
-
-//         const tsvData = parseTwlTsv(bookContentString);
-//         console.log("tsvData to log: ", tsvData);
-
-//         const tsvDataWithTwUri = await Promise.all(
-//             tsvData.map(async (row) => ({
-//                 ...row,
-//                 twUriPath: (
-//                     await convertTwlRCUriToScribeResourceUri(
-//                         resource,
-//                         row.TWLink,
-//                     )
-//                 ).path,
-//             })),
-//         );
-
-//         const chapterVerseRef = twlTsvToChapterVerseRef(tsvDataWithTwUri);
-
-//         const bookId = file.name.split("_")[1].split(".")[0];
-
-//         twlBooksWithChaptersAndVerses[bookId] = chapterVerseRef;
-//     });
-
-//     await Promise.all(twlContentsPromises);
-
-//     return twlBooksWithChaptersAndVerses;
-// };
-
 export const convertTwlRCUriToScribeResourceUri = async (
     resource: DownloadedResource,
     uri: string = "",

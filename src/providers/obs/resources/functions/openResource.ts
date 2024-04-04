@@ -8,6 +8,7 @@ import { USFMViewerProvider } from "../../../usfm-viewer/provider";
 import { ObsResourceProvider } from "../../../obsResource/provider";
 import { ObsTranslationNotesProvider } from "../../../obsTranslationNotes/provider";
 import { ObsTranslationQuestions } from "../../../obsTranslationQuestions/provider";
+import { ObsTranslationWordsListProvider } from "../../../obsTranslationWordsList/provider";
 
 enum ViewTypes {
     OBS = "codex.obs.editor",
@@ -144,4 +145,16 @@ export const openObsTq = async (
     const obsTqProvider = new ObsTranslationQuestions(context, resource);
 
     return await obsTqProvider.startWebview();
+};
+
+export const openObsTwl = async (
+    context: vscode.ExtensionContext,
+    resource: DownloadedResource,
+) => {
+    const obsTwlProvider = new ObsTranslationWordsListProvider(
+        context,
+        resource,
+    );
+
+    return await obsTwlProvider.startWebview();
 };

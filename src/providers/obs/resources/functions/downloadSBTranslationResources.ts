@@ -2,6 +2,7 @@ import { Uri, workspace } from "vscode";
 import * as path from "path";
 import JSZip from "jszip";
 import moment from "moment";
+import { ResourceMetadata } from "../types";
 
 interface Params {
     projectResource: any; // Replace 'any' with the actual type
@@ -59,7 +60,7 @@ export const downloadSBTranslationResources = async ({
         }
 
         const metadataRes = await fetch(projectResource.metadata_json_url);
-        const data = (await metadataRes.json()) as Record<string, any>;
+        const data = (await metadataRes.json()) as ResourceMetadata;
         data.agOffline = true;
         data.meta = projectResource;
         data.lastUpdatedAg = moment().format();
@@ -70,6 +71,7 @@ export const downloadSBTranslationResources = async ({
         await workspace.fs.delete(zipUri);
         return {
             folder: downloadResourceFolder,
+            resourceMeta: data,
         };
     } catch (err) {
         console.error("Error downloading resource", err);

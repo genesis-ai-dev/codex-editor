@@ -10,6 +10,7 @@ import {
     openOBS,
     openObsTn,
     openObsTq,
+    openObsTwl,
     openTn,
     openTnAcademy,
     openTq,
@@ -79,52 +80,62 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
                             return;
                         }
 
-                        const downloadedResourceInfo = await downloadResource(
+                        const downloadResourceResult = await downloadResource(
                             (e.payload as any)?.resource as any,
                         );
-                        const localPath: string =
-                            downloadedResourceInfo?.folder.path.replace(
-                                vscode.workspace.workspaceFolders?.[0].uri
-                                    .path + "/",
-                                "",
-                            ) ?? "";
 
-                        if (!downloadedResourceInfo) {
-                            vscode.window.showErrorMessage(
-                                "Failed to download resource!",
+                        const downloadedResourcesInfo = Array.isArray(
+                            downloadResourceResult,
+                        )
+                            ? downloadResourceResult
+                            : [downloadResourceResult];
+
+                        for (const downloadedResourceInfo of downloadedResourcesInfo) {
+                            const localPath: string =
+                                downloadedResourceInfo?.folder.path.replace(
+                                    vscode.workspace.workspaceFolders?.[0].uri
+                                        .path + "/",
+                                    "",
+                                ) ?? "";
+
+                            if (!downloadedResourceInfo) {
+                                vscode.window.showErrorMessage(
+                                    "Failed to download resource!",
+                                );
+                                return;
+                            }
+                            const downloadedResource: DownloadedResource = {
+                                name:
+                                    downloadedResourceInfo?.resource.name ?? "",
+                                id: downloadedResourceInfo?.resource.id ?? "",
+                                localPath: localPath,
+                                type:
+                                    downloadedResourceInfo?.resourceType ?? "",
+                                remoteUrl:
+                                    downloadedResourceInfo?.resource.url ?? "",
+                                version:
+                                    downloadedResourceInfo?.resource.release
+                                        .tag_name,
+                            };
+
+                            await addDownloadedResourceToProjectConfig(
+                                downloadedResource,
                             );
-                            return;
-                        }
-                        const downloadedResource: DownloadedResource = {
-                            name: downloadedResourceInfo?.resource.name ?? "",
-                            id: downloadedResourceInfo?.resource.id ?? "",
-                            localPath: localPath,
-                            type: downloadedResourceInfo?.resourceType ?? "",
-                            remoteUrl:
-                                downloadedResourceInfo?.resource.url ?? "",
-                            version:
-                                downloadedResourceInfo?.resource.release
-                                    .tag_name,
-                        };
 
-                        await addDownloadedResourceToProjectConfig(
-                            downloadedResource,
-                        );
+                            const allDownloadedResources =
+                                (context?.workspaceState.get(
+                                    "downloadedResources",
+                                ) ?? []) as DownloadedResource[];
 
-                        const allDownloadedResources =
-                            (context?.workspaceState.get(
+                            const newDownloadedResources: DownloadedResource[] =
+                                [...allDownloadedResources, downloadedResource];
+
+                            await context.workspaceState.update(
                                 "downloadedResources",
-                            ) ?? []) as DownloadedResource[];
+                                newDownloadedResources,
+                            );
+                        }
 
-                        const newDownloadedResources: DownloadedResource[] = [
-                            ...allDownloadedResources,
-                            downloadedResource,
-                        ];
-
-                        await context.workspaceState.update(
-                            "downloadedResources",
-                            newDownloadedResources,
-                        );
                         await this.syncDownloadedResources();
                         break;
                     }
@@ -266,6 +277,10 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
             }
             case "obs-tq": {
                 await openObsTq(this._context!, resource);
+                break;
+            }
+            case "obs-twl": {
+                await openObsTwl(this._context!, resource);
                 break;
             }
             default:

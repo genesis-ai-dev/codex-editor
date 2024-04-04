@@ -17,13 +17,10 @@ import OBSLicense from "../../data/OBSLicense.md";
 import { generateAgSettings } from "./generateAgSettings";
 import { environment } from "../../data/environment";
 import { downloadSBTranslationResources } from "./downloadSBTranslationResources";
-import { getResourceType } from "../utilities";
+import { getLinkedTwResource, getResourceType } from "../utilities";
+import { Meta } from "../types";
 
-type Resource = {
-    id: string;
-    metadata_json_url: string;
-    [key: string]: any;
-};
+type Resource = Meta;
 
 export const downloadResource = async (resource: Resource) => {
     try {
@@ -56,6 +53,43 @@ export const downloadResource = async (resource: Resource) => {
                 projectResource: resource,
                 resourcesFolder,
             });
+
+            if (selectResource === "twl" || selectResource === "obs-twl") {
+                const linkedResource = await getLinkedTwResource(
+                    results?.resourceMeta,
+                );
+
+                if (!linkedResource) {
+                    await vscode.workspace.fs.delete(results.folder);
+
+                    await vscode.window.showErrorMessage(
+                        "No linked Translation Words resource found! unable to download the resource!",
+                    );
+                    throw new Error(
+                        "No linked Translation Words resource found! unable to download the resource!",
+                    );
+                }
+
+                const linkedResourceResults =
+                    await downloadSBTranslationResources({
+                        projectResource: linkedResource,
+                        resourcesFolder,
+                    });
+
+                return [
+                    {
+                        resource: linkedResourceResults?.resourceMeta?.meta,
+                        folder: linkedResourceResults?.folder,
+                        resourceType: "tw",
+                    },
+                    {
+                        resource: results?.resourceMeta?.meta,
+                        folder: results?.folder,
+                        resourceType: selectResource,
+                    },
+                ];
+            }
+
             return {
                 resource,
                 folder: results?.folder,
@@ -71,7 +105,7 @@ export const downloadResource = async (resource: Resource) => {
             resourceMetadata,
             resource: resource as AnyObject,
             username: "test",
-            resourceType: "obs",
+            resourceType: selectResource as "bible" | "obs",
         });
         resourceBurritoFile.resourceMeta = resource;
         resourceBurritoFile.resourceMeta.lastUpdatedAg = moment().format();
