@@ -1,17 +1,17 @@
 from typing import cast
-from flask import Flask, request, jsonify
-from tools.embedding import Database
-from servers.experiments.lad import LAD
-from typing import Dict, Any, AnyStr
-from flask_cors import CORS
-from urllib import parse as url_parse
-import logging
-from typing import TextIO
 import sys
 import glob
-from time import sleep
 import os 
 import shutil
+import logging
+from typing import TextIO
+from flask_cors import CORS
+from tools.embedding import Database
+from experiments.lad import LAD
+from time import sleep
+from urllib import parse as url_parse
+from flask import Flask, request, jsonify
+from typing import Dict, Any
 
 app = Flask(__name__)
 CORS(app, origins='*')  # Allow requests from any origin
@@ -106,10 +106,11 @@ def get_database(db_name: str) -> Database:
     return DATABASES[db_name]
 
 @require_workspace
-@app.route("/lad")
+@app.route("/line_lad")
 def lad():
     query = request.args.get("query")
-    return jsonify({"lad scors": AnomalyDetector.search_and_score(query)})
+    return jsonify({"score": AnomalyDetector.search_and_score(query)}), 200
+
 
 @require_workspace
 @app.route('/upsert_codex_file', methods=['POST'])
@@ -196,7 +197,8 @@ def upsert_all_resource_files():
 @app.route('/upsert_all_bible_files', methods=['GET'])
 def upsert_all_bible_files():
     """Upsert all .bible files from the workspace path into the database."""
-    bible_files = glob.glob(f'{WORKSPACE_PATH}/**/*.bible', recursive=True)
+    path = WORKSPACE_PATH.replace("/drafts/","")
+    bible_files = glob.glob(f'{path}/**/*.bible', recursive=True)
     
     active_db = get_database('.bible')
 

@@ -14,6 +14,20 @@ import string
 import sys
 from io import TextIOWrapper
 from enum import Enum
+import sys
+
+def block_print():
+    """
+    Redirects the sys.stdout to /dev/null to block print statements.
+    """
+    sys.stdout = open(os.devnull, 'w')
+
+def unblock_print():
+    """
+    Restores the sys.stdout to its default value to enable print statements.
+    """
+    sys.stdout = sys.__stdout__
+
 
 try:
     from servers.tools.nlp import genetic_tokenizer
@@ -52,7 +66,7 @@ def criteria(dictionary_word: Dict, word: str, word_hash: hash_check.Hash, dicti
         hash2 = word_hash
         try:
             return hash1 - hash2
-        except Exception as e:
+        except Exception:
             # If an error occurs during hash comparison, rehash the older word and update the dictionary
             rehashed_entry = {
                 **dictionary_word,
@@ -70,7 +84,7 @@ def criteria(dictionary_word: Dict, word: str, word_hash: hash_check.Hash, dicti
         hash2 = word_hash
         try:
             hash_diff = hash1 - hash2
-        except Exception as e:
+        except Exception:
             # If an error occurs during hash comparison, rehash the older word and update the dictionary
             rehashed_entry = {
                 **dictionary_word,
@@ -102,7 +116,9 @@ class Dictionary:
         self.path = project_path + '/project.dictionary'  # TODO: #4 Use all .dictionary files in drafts directory
         self.dictionary = self.load_dictionary()  # Load the .dictionary (json file)
         self.tokenizer = genetic_tokenizer.TokenDatabase(self.path, single_words=True, default_tokens=[entry for entry in self.dictionary['entries']])
-    
+        block_print()
+        self.tokenizer.tokenizer.evolve([" ".join([entry['headWord'] for entry in self.dictionary["entries"]])])
+        unblock_print()
     def load_dictionary(self) -> Dict:
         """
         Loads the dictionary from a JSON file.
@@ -132,6 +148,7 @@ class Dictionary:
         """
         Saves the current state of the dictionary to a JSON file.
         """
+        
         with open(self.path, 'w') as file:
             json.dump(self.dictionary, file, indent=2)
 
@@ -166,7 +183,6 @@ class Dictionary:
         for entry in self.dictionary["entries"]:
             text += entry['headWord']
         self.tokenizer.upsert_text(text)
-        
 
     def remove(self, word: str) -> None:
         """

@@ -11,9 +11,13 @@ def install_dependencies() -> None:
     script_directory = os.path.dirname(os.path.abspath(__file__))
     requirements_file = os.path.join(script_directory, "requirements.txt")
     try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "--break-system-packages", "-q", "-r", requirements_file])
-    except subprocess.CalledProcessError as e:
-        print(f"Error while installing dependencies: {e}")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "--break-system-packages", "-q", "-r", requirements_file])
+        except subprocess.CalledProcessError:
+            # If the previous command fails, try without the --break-system-packages option
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "-r", requirements_file])
+    except:
+        print("bummer")
 
 
 install_dependencies()
@@ -56,10 +60,12 @@ def start_flask_server() -> None:
 from pygls.server import LanguageServer
 from servable.servable_embedding import ServableEmbedding
 from servable.servable_wb import wb_line_diagnostic
+from servable.servable_lad import lad_diagnostic
 from servable.spelling import ServableSpelling
 from servable.servable_forcasting import ServableForcasting
 from servable.verse_validator import ServableVrefs
 from tools.ls_tools import ServerFunctions
+
 
 
 def add_dictionary(args: List[str]) -> bool:
@@ -77,7 +83,7 @@ server = LanguageServer("code-action-server", "v0.1")
 
 # Create server functions and servables
 server_functions = ServerFunctions(server=server, data_path='/.project')
-forcasting = ServableForcasting(sf=server_functions, chunk_size=200)
+forcasting = ServableForcasting(sf=server_functions, chunk_size=20)
 spelling = ServableSpelling(sf=server_functions)
 vrefs = ServableVrefs(sf=server_functions)
 
@@ -87,6 +93,7 @@ server_functions.add_completion(forcasting.text_completion)
 
 server_functions.add_diagnostic(spelling.spell_diagnostic)
 server_functions.add_diagnostic(wb_line_diagnostic)
+#server_functions.add_diagnostic(lad_diagnostic)
 server_functions.add_diagnostic(vrefs.vref_diagnostics)
 
 server_functions.add_action(spelling.spell_action)

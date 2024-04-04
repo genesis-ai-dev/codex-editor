@@ -13,6 +13,7 @@ from gensim.models import FastText
 from gensim.utils import simple_preprocess
 from txtai import Embeddings
 import string
+
 try:
     from .codex_tools import extract_verses, extract_verses_bible
     from .nlp import genetic_tokenizer

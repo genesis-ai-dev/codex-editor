@@ -6,9 +6,9 @@ from experiments.forcasting2 import TextGenerator
 from tools.ls_tools import ServerFunctions
 
 
-def print(*args, **kwargs):
-    text = " ".join(map(str, args))
-    requests.get(f"http://localhost:5554/add_debug?text={text}")
+# def print(*args, **kwargs):
+#     text = " ".join(map(str, args))
+#     requests.get(f"http://localhost:5554/add_debug?text={text}")
 
 class ServableForcasting:
     def __init__(self, sf: ServerFunctions, chunk_size: int = 100):
@@ -46,15 +46,15 @@ class ServableForcasting:
             seed_sentence = line.strip()
             print("sentence: ", seed_sentence)
             if self.text_generator is not None:
-                completions = self.text_generator.generate_unique_permutations(seed_sentence, 1, 3)
-                completions = [sentence.split(" ")[-1] for sentence in completions]                
+                completions = self.text_generator.generate_unique_permutations(seed_sentence, 1, 5)
+                completions = set([sentence.split(" ")[-1] for sentence in completions])                
                 return [CompletionItem(
                     label=completion,
                     text_edit=TextEdit(range=range, new_text=completion),
                 ) for completion in completions]
             else:
                 return []
-        except IndexError:
+        except Exception:
             return []
 
     def initialize(self):
@@ -77,3 +77,4 @@ class ServableForcasting:
             print("success")
         except Exception as e:
             print(str(e))
+
