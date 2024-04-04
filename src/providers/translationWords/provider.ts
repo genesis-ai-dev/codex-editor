@@ -22,7 +22,6 @@ export class TranslationWordsProvider {
                 this.allTranslationWords = words ?? [];
             })
             .catch((e) => {
-                console.error(e);
                 vscode.window.showErrorMessage(
                     "Failed to get translation words of Resource. Please try again.",
                 );
@@ -60,8 +59,8 @@ export class TranslationWordsProvider {
                         const query = (e.payload as Record<string, any>)
                             ?.query as string;
 
-                        if (!query) {
-                            return;
+                        if (!query || query.length === 0) {
+                            return this.allTranslationWords;
                         }
 
                         const words = this.allTranslationWords.filter((word) =>
@@ -81,8 +80,6 @@ export class TranslationWordsProvider {
                         const translationWord: {
                             path: string;
                         } = (e.payload as Record<string, any>)?.translationWord;
-
-                        console.log(translationWord, e.payload);
 
                         if (!translationWord) {
                             return;

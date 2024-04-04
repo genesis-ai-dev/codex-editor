@@ -11,7 +11,13 @@ const TranslationWordRenderer = ({
     const { content, loading } = useTranslationWordContent(translationWord);
 
     if (content === null && !loading) {
-        return null;
+        return (
+            <div className="prose-base">
+                <i>
+                    <h2>Select a translation word to view its content.</h2>
+                </i>
+            </div>
+        );
     }
 
     if (loading) {
@@ -47,6 +53,10 @@ const useTranslationWordContent = (
     }, []);
 
     useEffect(() => {
+        if (!translationWord) {
+            return;
+        }
+
         vscode.postMessage({
             type: MessageType.GET_TW_CONTENT,
             payload: { translationWord },

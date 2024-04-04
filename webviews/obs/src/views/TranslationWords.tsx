@@ -13,7 +13,10 @@ const TranslationWords = () => {
     }, []);
     return (
         <div className="flex flex-col">
-            <TranslationWordsDropdown setTranslationWord={setTranslationWord} />
+            <TranslationWordsDropdown
+                setTranslationWord={setTranslationWord}
+                selectedTranslationWord={translationWord}
+            />
             <TranslationWordRenderer translationWord={translationWord} />
         </div>
     );
