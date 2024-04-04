@@ -144,7 +144,6 @@ export async function createProjectNotebooks({
         const serializer = new CodexContentSerializer();
         const notebookData = new vscode.NotebookData(cells);
 
-        const project = await getProjectMetadata();
         const notebookCreationPromise = serializer
             .serializeNotebook(
                 notebookData,
