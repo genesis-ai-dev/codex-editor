@@ -1,7 +1,7 @@
 // import { Key } from "react";
 
 import { VSCodeTextArea } from "@vscode/webview-ui-toolkit/react";
-import { FormEventHandler } from "react";
+import { FormEventHandler, useEffect } from "react";
 import { vscode } from "../utilities/vscode";
 import { MessageType } from "../types";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -13,6 +13,22 @@ export type ObsStory = Record<string, any>;
 //   end: string | undefined;
 // };
 
+const autoResizeVscodeTextarea = (vscodeTextArea: HTMLElement) => {
+    // This is a little hacky... we have to reach in and get the text area
+    // element since we can't directly access the height with Vscode's text area
+    const textAreaElement =
+        vscodeTextArea.shadowRoot?.querySelector("textarea");
+    if (textAreaElement) {
+        textAreaElement.style.height = "auto";
+        textAreaElement.style.height = `${textAreaElement.scrollHeight}px`;
+
+        // This auto updates the height of the parent component.
+        // Unsure if this behavior is desired.
+        vscodeTextArea.style.height = "auto";
+        vscodeTextArea.style.height = `${textAreaElement.scrollHeight}px`;
+    }
+};
+
 const ObsEditorPanel = ({
     obsStory,
     setStory,
@@ -20,8 +36,19 @@ const ObsEditorPanel = ({
     obsStory: ObsStory[];
     setStory: (story: ObsStory[]) => void;
 }) => {
+    useEffect(() => {
+        // Adjust text area height on first render if necessary
+        const vscodeTextAreas = document.querySelectorAll("vscode-text-area");
+        vscodeTextAreas.forEach((element) => {
+            if (element instanceof HTMLElement) {
+                autoResizeVscodeTextarea(element);
+            }
+        });
+    }, [obsStory]);
+
     const handleChange: ((e: globalThis.Event) => unknown) &
         FormEventHandler = (e) => {
+        autoResizeVscodeTextarea(e.currentTarget as HTMLTextAreaElement);
         const index =
             Number((e.target as HTMLElement)?.getAttribute("data-id")) ?? 0;
         const value = (e.target as HTMLInputElement)?.value
@@ -104,7 +131,7 @@ const ObsEditorPanel = ({
                                 onInput={handleChange}
                                 value={story.text}
                                 data-id={story.id}
-                                className=" text-justify ml-2 text-sm w-full h-[180px]"
+                                className=" text-justify ml-2 text-sm w-full"
                                 onFocus={() => handleParagraphFocus(index)}
                             />
                         </div>
