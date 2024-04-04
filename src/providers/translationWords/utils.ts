@@ -35,16 +35,12 @@ export const getAllTranslationWordsOfResource = async (resourceId: string) => {
         `./${resourceId}/bible`,
     );
 
-    console.log("resourceBibleDirUri: ", resourceBibleDirUri.path);
-
     if (!(await directoryExists(resourceBibleDirUri))) {
         window.showErrorMessage(
             `The resource ${resourceId} does not exist or it's invalid directory.`,
         );
         return;
     }
-
-    const bibleDir = await workspace.fs.readDirectory(resourceBibleDirUri);
 
     const ktPath = Uri.joinPath(resourceBibleDirUri, `./kt`);
     const namesPath = Uri.joinPath(resourceBibleDirUri, `./names`);
@@ -55,7 +51,7 @@ export const getAllTranslationWordsOfResource = async (resourceId: string) => {
     const ktWords = ktWordDir.map(([fileName]) => ({
         name: fileName.split(".")[0],
         path: Uri.joinPath(ktPath, `./${fileName}`).path,
-        ref: "kt",
+        ref: "kt" as const,
     }));
 
     const namesWordsDir = await workspace.fs.readDirectory(namesPath);
@@ -63,7 +59,7 @@ export const getAllTranslationWordsOfResource = async (resourceId: string) => {
     const namesWords = namesWordsDir.map(([fileName]) => ({
         name: fileName.split(".")[0],
         path: Uri.joinPath(namesPath, `./${fileName}`).path,
-        ref: "names",
+        ref: "names" as const,
     }));
 
     const otherWordsDir = await workspace.fs.readDirectory(otherPath);
@@ -71,7 +67,7 @@ export const getAllTranslationWordsOfResource = async (resourceId: string) => {
     const otherWords = otherWordsDir.map(([fileName]) => ({
         name: fileName.split(".")[0],
         path: Uri.joinPath(otherPath, `./${fileName}`).path,
-        ref: "other",
+        ref: "other" as const,
     }));
 
     const allWords = [...ktWords, ...namesWords, ...otherWords];

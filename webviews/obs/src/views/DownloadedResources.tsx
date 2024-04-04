@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useEffect, useState } from "react";
 import { renderToPage } from "../utilities/main-vscode";
 import { useDownloadedResource } from "../hooks/useDownloadedResources";
@@ -56,7 +57,7 @@ const DownloadedResourceTableRow = ({
             const data = await res.json();
             setExtendedResource(data);
         });
-    });
+    }, [resource.remoteUrl]);
     return (
         <tr>
             <td>{resource.name}</td>

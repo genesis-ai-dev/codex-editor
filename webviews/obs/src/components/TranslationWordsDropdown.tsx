@@ -1,10 +1,15 @@
-import { VSCodeTextField } from "@vscode/webview-ui-toolkit/react";
+import {
+    VSCodeButton,
+    VSCodeTextField,
+} from "@vscode/webview-ui-toolkit/react";
 import { List } from "react-virtualized";
 import { MessageType, TranslationWord } from "../types";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { vscode } from "../utilities/vscode";
 import * as Popover from "@radix-ui/react-popover";
 import { ChevronDown } from "lucide-react";
+
+type TWCategory = "all" | "kt" | "names" | "other";
 
 const TranslationWordsDropdown = ({
     setTranslationWord,
@@ -14,6 +19,7 @@ const TranslationWordsDropdown = ({
     selectedTranslationWord: TranslationWord | null;
 }) => {
     const [searchOpen, setSearchOpen] = useState(false);
+    const [twCategory, setTwCategory] = useState<TWCategory>("all");
 
     const [query, setQuery] = useState("");
 
@@ -42,13 +48,15 @@ const TranslationWordsDropdown = ({
     };
 
     useEffect(() => {
-        searchTranslationWords(query);
-    }, [query, searchTranslationWords]);
+        searchTranslationWords(twCategory, query);
+    }, [query, searchTranslationWords, twCategory]);
 
     const handleCloseSearch = (open: boolean) => {
+        console.log("close search");
         setQuery("");
-        searchTranslationWords("");
+        searchTranslationWords(twCategory, "");
         setSearchOpen(open);
+        setTwCategory("all");
     };
 
     return (
@@ -79,6 +87,53 @@ const TranslationWordsDropdown = ({
             <Popover.Portal>
                 <Popover.Content asChild>
                     <div className="bg-[--dropdown-background]">
+                        <div>
+                            <div className="flex justify-between items-center px-2 py-1">
+                                <div>Categories: </div>
+                                <div>
+                                    <VSCodeButton
+                                        onClick={() => setTwCategory("all")}
+                                        appearance={
+                                            twCategory === "all"
+                                                ? "primary"
+                                                : "secondary"
+                                        }
+                                    >
+                                        All
+                                    </VSCodeButton>
+                                    <VSCodeButton
+                                        onClick={() => setTwCategory("kt")}
+                                        appearance={
+                                            twCategory === "kt"
+                                                ? "primary"
+                                                : "secondary"
+                                        }
+                                    >
+                                        KT
+                                    </VSCodeButton>
+                                    <VSCodeButton
+                                        onClick={() => setTwCategory("names")}
+                                        appearance={
+                                            twCategory === "names"
+                                                ? "primary"
+                                                : "secondary"
+                                        }
+                                    >
+                                        Names
+                                    </VSCodeButton>
+                                    <VSCodeButton
+                                        onClick={() => setTwCategory("other")}
+                                        appearance={
+                                            twCategory === "other"
+                                                ? "primary"
+                                                : "secondary"
+                                        }
+                                    >
+                                        Other
+                                    </VSCodeButton>
+                                </div>
+                            </div>
+                        </div>
                         <div className="w-full">
                             <VSCodeTextField
                                 placeholder={`Search translation word ...`}
@@ -140,12 +195,16 @@ export const useTranslationWords = () => {
         });
     }, []);
 
-    const searchTranslationWords = useCallback((query: string) => {
-        vscode.postMessage({
-            type: MessageType.SEARCH_TW,
-            payload: { query },
-        });
-    }, []);
+    const searchTranslationWords = useCallback(
+        (category: TWCategory, query: string) => {
+            console.log("QUERY LENGTH", query?.length);
+            vscode.postMessage({
+                type: MessageType.SEARCH_TW,
+                payload: { query, category },
+            });
+        },
+        [],
+    );
 
     return { translationWords, searchTranslationWords };
 };
