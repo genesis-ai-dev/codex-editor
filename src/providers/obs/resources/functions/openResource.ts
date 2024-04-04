@@ -6,6 +6,9 @@ import { TranslationQuestionsProvider } from "../../../TranslationQuestions/prov
 import { TnProvider } from "../../../translationNotes/provider";
 import { USFMViewerProvider } from "../../../usfm-viewer/provider";
 import { ObsResourceProvider } from "../../../obsResource/provider";
+import { ObsTranslationNotesProvider } from "../../../obsTranslationNotes/provider";
+import { ObsTranslationQuestions } from "../../../obsTranslationQuestions/provider";
+import { ObsTranslationWordsListProvider } from "../../../obsTranslationWordsList/provider";
 
 enum ViewTypes {
     OBS = "codex.obs.editor",
@@ -76,44 +79,6 @@ export const openTranslationHelper = async (resource: DownloadedResource) => {
         viewColumn: newViewCol,
     };
 };
-// TODO: delete this function once the new provider works
-// export const openTn = async (resource: DownloadedResource, bookID: string) => {
-//     const workspaceRootUri = vscode.workspace.workspaceFolders?.[0].uri;
-//     if (!workspaceRootUri) {
-//         return;
-//     }
-//     const resourceRootUri = vscode.Uri.joinPath(
-//         workspaceRootUri,
-//         resource.localPath,
-//     );
-
-//     const noteUri = vscode.Uri.joinPath(resourceRootUri, `tn_${bookID}.tsv`);
-
-//     const existingViewCols = vscode.window.tabGroups.all.map(
-//         (editor) => editor.viewColumn,
-//     );
-
-//     await vscode.commands.executeCommand(
-//         "vscode.openWith",
-//         noteUri,
-//         ViewTypes.TN, // use resource type to load the according view
-//         { viewColumn: vscode.ViewColumn.Beside, preview: true },
-//     );
-
-//     // get the view cols and tab id of the opened resource
-
-//     const newViewCols = vscode.window.tabGroups.all.map(
-//         (tabGroup) => tabGroup.viewColumn,
-//     );
-
-//     const newViewCol = newViewCols.find(
-//         (col) => !existingViewCols.includes(col),
-//     );
-
-//     return {
-//         viewColumn: newViewCol,
-//     };
-// };
 
 export const openTn = async (
     context: vscode.ExtensionContext,
@@ -162,4 +127,34 @@ export const openTnAcademy = async (resource: DownloadedResource) => {
         "codex-editor-extension.openTnAcademy",
         resource,
     );
+};
+
+export const openObsTn = async (
+    context: vscode.ExtensionContext,
+    resource: DownloadedResource,
+) => {
+    const obsTnProvider = new ObsTranslationNotesProvider(context, resource);
+
+    return await obsTnProvider.startWebview();
+};
+
+export const openObsTq = async (
+    context: vscode.ExtensionContext,
+    resource: DownloadedResource,
+) => {
+    const obsTqProvider = new ObsTranslationQuestions(context, resource);
+
+    return await obsTqProvider.startWebview();
+};
+
+export const openObsTwl = async (
+    context: vscode.ExtensionContext,
+    resource: DownloadedResource,
+) => {
+    const obsTwlProvider = new ObsTranslationWordsListProvider(
+        context,
+        resource,
+    );
+
+    return await obsTwlProvider.startWebview();
 };

@@ -2,11 +2,11 @@ import * as vscode from "vscode";
 import { DownloadedResource } from "../obs/resources/types";
 import { getNonce, getUri } from "../obs/utilities";
 import { MessageType } from "../obs/CreateProject/types";
-import { getVerseTranslationWordsList } from "./utils";
 import { initializeStateStore } from "../../stateStore";
+import { getTranslationWordsListByObsRef } from "./utils";
 
-export class TranslationWordsListProvider {
-    static instance: TranslationWordsListProvider;
+export class ObsTranslationWordsListProvider {
+    static instance: ObsTranslationWordsListProvider;
     webview?: vscode.WebviewPanel;
     resource: DownloadedResource;
     context: vscode.ExtensionContext;
@@ -31,7 +31,7 @@ export class TranslationWordsListProvider {
             console.log("stateStore", this.stateStore);
         }
         const panel = vscode.window.createWebviewPanel(
-            "codex.translationWordsViewer",
+            "codex.obs.translationWordsList",
             "Translation Words -" + this.resource.name,
             viewColumn,
             {
@@ -109,12 +109,12 @@ export class TranslationWordsListProvider {
 
         // TODO: Add global state to keep track of the current verseRef
         const verseRefListenerDisposeFunction = this.stateStore?.storeListener(
-            "verseRef",
+            "obsRef",
             async (value) => {
                 if (value) {
-                    const wordsList = await getVerseTranslationWordsList(
+                    const wordsList = await getTranslationWordsListByObsRef(
                         this.resource,
-                        value?.verseRef ?? "GEN 1:1",
+                        value,
                     );
 
                     console.log("wordsList", wordsList?.length);
@@ -131,11 +131,11 @@ export class TranslationWordsListProvider {
         const onDidChangeViewState = panel.onDidChangeViewState(async (e) => {
             if (e.webviewPanel.visible) {
                 try {
-                    const verseRefStore =
-                        await this.stateStore?.getStoreState("verseRef");
-                    const wordsList = await getVerseTranslationWordsList(
+                    const obsRef =
+                        await this.stateStore?.getStoreState("obsRef");
+                    const wordsList = await getTranslationWordsListByObsRef(
                         this.resource,
-                        verseRefStore?.verseRef ?? "GEN 1:1",
+                        obsRef ?? { storyId: "01", paragraph: "1" },
                     );
 
                     panel.webview.postMessage({

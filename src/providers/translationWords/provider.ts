@@ -4,6 +4,12 @@ import { getNonce, getUri } from "../obs/utilities";
 import { MessageType } from "../obs/CreateProject/types";
 import { TranslationWord, getAllTranslationWordsOfResource } from "./utils";
 
+type TWCategory = "all" | "kt" | "names" | "other";
+
+type TwSearchPayload = {
+    query: string;
+    category: TWCategory;
+};
 export class TranslationWordsProvider {
     static instance: TranslationWordsProvider;
     webview?: vscode.WebviewPanel;
@@ -22,7 +28,6 @@ export class TranslationWordsProvider {
                 this.allTranslationWords = words ?? [];
             })
             .catch((e) => {
-                console.error(e);
                 vscode.window.showErrorMessage(
                     "Failed to get translation words of Resource. Please try again.",
                 );
@@ -57,18 +62,36 @@ export class TranslationWordsProvider {
             async (e: { type: MessageType; payload: unknown }) => {
                 switch (e.type) {
                     case MessageType.SEARCH_TW: {
-                        const query = (e.payload as Record<string, any>)
+                        const query = (e.payload as TwSearchPayload)
                             ?.query as string;
 
-                        if (!query) {
+                        const category = (e.payload as TwSearchPayload)
+                            ?.category;
+
+                        if (!query || query.length === 0) {
+                            panel.webview.postMessage({
+                                type: "update-tw",
+                                payload: {
+                                    translationWords:
+                                        this.allTranslationWords.filter(
+                                            (word) =>
+                                                category === "all" ||
+                                                word.ref === category,
+                                        ),
+                                },
+                            });
                             return;
                         }
 
-                        const words = this.allTranslationWords.filter((word) =>
-                            word.name
-                                .toLowerCase()
-                                .includes(query.toLowerCase()),
+                        const words = this.allTranslationWords.filter(
+                            (word) =>
+                                word.name
+                                    .toLowerCase()
+                                    .includes(query.toLowerCase()) &&
+                                (category === "all" || word.ref === category),
                         );
+
+                        console.log(words.length);
 
                         panel.webview.postMessage({
                             type: "update-tw",
@@ -81,8 +104,6 @@ export class TranslationWordsProvider {
                         const translationWord: {
                             path: string;
                         } = (e.payload as Record<string, any>)?.translationWord;
-
-                        console.log(translationWord, e.payload);
 
                         if (!translationWord) {
                             return;
