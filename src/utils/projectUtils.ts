@@ -3,6 +3,10 @@ import { nonCanonicalBookRefs } from "./verseRefUtils/verseData";
 import { LanguageMetadata, LanguageProjectStatus, Project } from "codex-types";
 import { getAllBookRefs } from ".";
 import * as vscode from "vscode";
+import { v5 as uuidV5 } from "uuid";
+
+import ProjectTemplate from "../providers/obs/data/TextTemplate.json";
+import moment from "moment";
 
 export interface ProjectDetails {
     projectName: string;
@@ -114,50 +118,35 @@ export function generateProjectScope(
 
 export async function initializeProjectMetadata(details: ProjectDetails) {
     // Initialize a new project with the given details and return the project object
-    const newProject: Project = {
-        format: "scripture burrito",
-        projectName: details.projectName,
-        meta: {
-            version: "0.0.0",
-            category: details.projectCategory,
-            generator: {
-                softwareName: "Codex Editor",
-                softwareVersion: "0.0.1",
-                userName: details.userName,
+
+    const newProject = ProjectTemplate as Record<string, any>;
+
+    newProject.projectName = details.projectName;
+    newProject.meta.category = details.projectCategory;
+    newProject.meta.generator.userName = details.userName;
+    newProject.meta.dateCreated = moment().format();
+
+    const key = details.userName + details.projectName + moment().format();
+    const id = uuidV5(key, "1b671a64-40d5-491e-99b0-da01ff1f3341");
+
+    newProject.identification.primary = {
+        scribe: {
+            [id]: {
+                revision: "1",
+                timestamp: moment().format(),
             },
-            defaultLocale: "en",
-            dateCreated: new Date().toDateString(),
-            normalization: "NFC",
-            comments: [],
-        },
-        idAuthorities: {},
-        identification: {},
-        languages: [],
-        type: {
-            flavorType: {
-                name: "default",
-                flavor: {
-                    name: "default",
-                    usfmVersion: "3.0",
-                    translationType: "unknown",
-                    audience: "general",
-                    projectType: "unknown",
-                },
-                currentScope: generateProjectScope(),
-            },
-        },
-        confidential: false,
-        agencies: [],
-        targetAreas: [],
-        localizedNames: {},
-        ingredients: {},
-        copyright: {
-            shortStatements: [],
         },
     };
 
-    newProject.languages.push(details.sourceLanguage);
-    newProject.languages.push(details.targetLanguage);
+    newProject.languages[0].tag = details.targetLanguage.tag;
+    newProject.languages[0].scriptDirection =
+        details.targetLanguage.scriptDirection?.toLowerCase();
+    newProject.identification.name.en = details.projectName;
+    newProject.identification.abbreviation.en = details.abbreviation;
+    newProject.languages[0].name.en = details.targetLanguage.refName;
+    newProject.copyright.licenses[0].ingredient = "license.md";
+
+    newProject.type.flavorType.currentScope = generateProjectScope();
 
     const workspaceFolder = vscode.workspace.workspaceFolders
         ? vscode.workspace.workspaceFolders[0].uri.fsPath
@@ -194,5 +183,12 @@ export async function initializeProjectMetadata(details: ProjectDetails) {
                 `Project created at ${projectFilePath.fsPath}`,
             ),
         );
+    const languages = [];
+
+    languages.push(details.sourceLanguage);
+    languages.push(details.targetLanguage);
+
+    newProject.languages = languages;
+
     return newProject;
 }

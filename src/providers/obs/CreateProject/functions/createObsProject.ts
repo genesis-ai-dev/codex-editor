@@ -1,25 +1,36 @@
+import { LanguageMetadata } from "codex-types";
 import { initProject } from "../../../scm/git";
 import { saveObsProjectMeta } from "./saveObsProjectMeta";
 import * as vscode from "vscode";
 
-export const createObsProject = async (
-    projectFields: Record<string, string>,
-) => {
+export type ProjectFields = {
+    projectName: string;
+    description: string;
+    abbreviation: string;
+    targetLanguage: LanguageMetadata;
+    username: string;
+    email: string;
+    name: string;
+    copyright: object;
+};
+
+export const createObsProject = async (projectFields: ProjectFields) => {
     const newProjectData = {
         newProjectFields: {
             projectName: projectFields.projectName,
             description: projectFields.description,
             abbreviation: projectFields.abbreviation,
         },
-        language: projectFields.sourceLanguage,
+        language: projectFields.targetLanguage,
         copyright: projectFields.copyright,
         importedFiles: [],
         call: "new",
         update: false,
         projectType: "OBS",
+        username: projectFields.username,
     };
 
-    const res = await saveObsProjectMeta(newProjectData as any);
+    const res = await saveObsProjectMeta(newProjectData);
 
     if (!res) {
         vscode.window.showErrorMessage("Project creation failed");

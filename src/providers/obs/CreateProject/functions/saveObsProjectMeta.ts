@@ -26,6 +26,7 @@ export const saveObsProjectMeta = async (projectMetaObj: {
     importedFiles: { id: string; content: string }[];
     copyright: { title?: any; licence?: string | any[] };
     update: any;
+    username: string;
 }) => {
     const currentDirUri = vscode.workspace.workspaceFolders?.[0].uri;
 
@@ -35,7 +36,7 @@ export const saveObsProjectMeta = async (projectMetaObj: {
     }
 
     const status: AnyObject[] = [];
-    const currentUser = "brianineza01"; // TODO: IMPLEMENT AUTH FOR THIS
+    const currentUser = projectMetaObj.username;
     // handle spaces
     // trim the leading spaces
     projectMetaObj.newProjectFields.projectName =
@@ -76,8 +77,7 @@ export const saveObsProjectMeta = async (projectMetaObj: {
             projectMetaObj.newProjectFields,
             projectMetaObj.language.refName,
             projectMetaObj.language.tag,
-            projectMetaObj.language.scriptDirection,
-            projectMetaObj.copyright as any,
+            projectMetaObj.language.scriptDirection ?? "ltr",
             id,
         );
         burritoFile.ingredients = ingredient;
@@ -89,27 +89,6 @@ export const saveObsProjectMeta = async (projectMetaObj: {
             metadataFileUri,
             Buffer.from(JSON.stringify(burritoFile)),
         );
-        // init git for the Project
-        // const projectGitPath = path.join(
-        //   projectDir,
-        //   `${projectMetaObj.newProjectFields.projectName}_${id}`
-        // );
-        // await checkGitandCommitFiles(fs, projectGitPath, null, currentUser);
-        // .finally(() => {
-        //   logger.debug(
-        //     "saveProjectsMeta.js",
-        //     projectMetaObj.call === "new"
-        //       ? "New project created successfully."
-        //       : "Updated the Changes."
-        //   );
-        //   status.push({
-        //     type: "success",
-        //     value:
-        //       projectMetaObj.call === "new"
-        //         ? "New project created"
-        //         : "Updated the changes",
-        //   });
-        // });
 
         return newProjectUri;
     };

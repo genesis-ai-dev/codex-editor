@@ -90,7 +90,13 @@ const obsSchema = z.object({
         })
         .min(1, "Description is required"),
     abbreviation: z.string(),
-    sourceLanguage: z.record(z.string(), z.any(), {
+    userName: z
+        .string({
+            invalid_type_error: "Username is required",
+            required_error: "Username is required",
+        })
+        .min(1, "Username is required"),
+    targetLanguage: z.record(z.string(), z.any(), {
         required_error: "Source Language is required",
         invalid_type_error: "Source Language is required",
     }),
@@ -174,10 +180,11 @@ const CreateProject = () => {
                         projectName: data.projectName,
                         description: data.description,
                         abbreviation: data.abbreviation,
-                        sourceLanguage: data.sourceLanguage,
+                        targetLanguage: data.targetLanguage,
                         copyright: data.copyright,
                         name: data.name,
                         email: data.email,
+                        username: data.userName,
                     },
                 });
                 break;
@@ -308,61 +315,59 @@ const CreateProject = () => {
                             </FormItem>
                         )}
                     />
-                    {projectTypeFormValue === "textTranslation" && (
-                        <Fragment>
-                            <FormField
-                                control={form.control}
-                                name="userName"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel>Username</FormLabel>
-                                        <FormControl>
-                                            <VSCodeTextField
-                                                {...field}
-                                                type="text"
-                                                id="username"
-                                                className={"rounded text-sm"}
-                                            />
-                                        </FormControl>
-                                        <FormMessage />{" "}
-                                    </FormItem>
-                                )}
-                            />
-                            <FormField
-                                control={form.control}
-                                name="projectCategory"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel>Category</FormLabel>
-                                        <FormControl>
-                                            <VSCodeDropdown
-                                                {...field}
-                                                className={"rounded text-sm"}
+
+                    <Fragment>
+                        <FormField
+                            control={form.control}
+                            name="userName"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Username</FormLabel>
+                                    <FormControl>
+                                        <VSCodeTextField
+                                            {...field}
+                                            type="text"
+                                            id="username"
+                                            className={"rounded text-sm"}
+                                        />
+                                    </FormControl>
+                                    <FormMessage />{" "}
+                                </FormItem>
+                            )}
+                        />
+                        <FormField
+                            control={form.control}
+                            name="projectCategory"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Category</FormLabel>
+                                    <FormControl>
+                                        <VSCodeDropdown
+                                            {...field}
+                                            className={"rounded text-sm"}
+                                        >
+                                            <VSCodeOption
+                                                value={undefined}
+                                                disabled
                                             >
+                                                Select the project category
+                                            </VSCodeOption>
+                                            {categoryOptions.map((category) => (
                                                 <VSCodeOption
-                                                    value={undefined}
-                                                    disabled
+                                                    value={category}
+                                                    key={category}
                                                 >
-                                                    Select the project category
+                                                    {category}
                                                 </VSCodeOption>
-                                                {categoryOptions.map(
-                                                    (category) => (
-                                                        <VSCodeOption
-                                                            value={category}
-                                                            key={category}
-                                                        >
-                                                            {category}
-                                                        </VSCodeOption>
-                                                    ),
-                                                )}
-                                            </VSCodeDropdown>
-                                        </FormControl>
-                                        <FormMessage />
-                                    </FormItem>
-                                )}
-                            />
-                        </Fragment>
-                    )}
+                                            ))}
+                                        </VSCodeDropdown>
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                    </Fragment>
+
                     {projectTypeFormValue === "openBibleStories" && (
                         <FormField
                             control={form.control}
@@ -383,40 +388,18 @@ const CreateProject = () => {
                             )}
                         />
                     )}
-                    <FormField
-                        control={form.control}
-                        name="sourceLanguage"
-                        render={({ field }) => (
-                            <FormItem>
-                                <FormControl>
-                                    <LanguageSearch
-                                        label="Source Language"
-                                        value={sourceLanguageQuery}
-                                        languages={filteredSourceLanguages}
-                                        setQuery={setSourceLanguageQuery}
-                                        setLanguage={field.onChange}
-                                        selectedLanguage={
-                                            (field.value as LanguageMetadata) ??
-                                            null
-                                        }
-                                    />
-                                </FormControl>
-                                <FormMessage />
-                            </FormItem>
-                        )}
-                    />
                     {projectTypeFormValue === "textTranslation" && (
                         <FormField
                             control={form.control}
-                            name="targetLanguage"
+                            name="sourceLanguage"
                             render={({ field }) => (
                                 <FormItem>
                                     <FormControl>
                                         <LanguageSearch
-                                            label="Target Language"
-                                            value={targetLanguageQuery}
-                                            languages={filteredTargetLanguages}
-                                            setQuery={setTargetLanguageQuery}
+                                            label="Source Language"
+                                            value={sourceLanguageQuery}
+                                            languages={filteredSourceLanguages}
+                                            setQuery={setSourceLanguageQuery}
                                             setLanguage={field.onChange}
                                             selectedLanguage={
                                                 (field.value as LanguageMetadata) ??
@@ -430,6 +413,28 @@ const CreateProject = () => {
                         />
                     )}
 
+                    <FormField
+                        control={form.control}
+                        name="targetLanguage"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormControl>
+                                    <LanguageSearch
+                                        label="Target Language"
+                                        value={targetLanguageQuery}
+                                        languages={filteredTargetLanguages}
+                                        setQuery={setTargetLanguageQuery}
+                                        setLanguage={field.onChange}
+                                        selectedLanguage={
+                                            (field.value as LanguageMetadata) ??
+                                            null
+                                        }
+                                    />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
                     {projectTypeFormValue === "openBibleStories" && (
                         <FormField
                             control={form.control}
@@ -474,7 +479,6 @@ const CreateProject = () => {
                             )}
                         />
                     )}
-
                     <VSCodeButton
                         aria-label="create"
                         className="rounded shadow text-xs tracking-wide uppercase"

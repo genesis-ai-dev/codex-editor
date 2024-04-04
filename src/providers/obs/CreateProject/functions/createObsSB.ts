@@ -2,17 +2,15 @@ import moment from "moment";
 import burrito from "../../data/OBSTemplate.json";
 
 const createObsSB = (
-    username: any,
+    username: string,
     projectFields: { projectName: string; abbreviation: string },
     language: any,
     langCode: string,
-    direction: string | undefined,
-    copyright: { licence: string | any[] },
+    direction: string,
     id: any,
 ): Record<string, any> => {
     let json: Record<string, any> = {};
     json = burrito;
-
     json.meta.generator.userName = username;
     json.meta.generator.softwareVersion = "0.0.1"; //TODO: fix the versioning
     json.meta.dateCreated = moment().format();
