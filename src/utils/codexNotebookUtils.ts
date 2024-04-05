@@ -49,13 +49,13 @@ export const createCodexNotebook = async (
     const cellData =
         cells.length > 0
             ? cells.map(
-                  (cell) =>
-                      new vscode.NotebookCellData(
-                          cell.kind,
-                          cell.value,
-                          cell.languageId,
-                      ),
-              )
+                (cell) =>
+                    new vscode.NotebookCellData(
+                        cell.kind,
+                        cell.value,
+                        cell.languageId,
+                    ),
+            )
             : [];
     const data = new vscode.NotebookData(cellData);
     const doc = await vscode.workspace.openNotebookDocument(
@@ -126,7 +126,7 @@ export async function createProjectNotebooks({
             cells.push(
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
-                    vrefsString,
+                    vrefsString + ' ', // Add a space to the end of the vref
                     "scripture",
                 ),
             );
