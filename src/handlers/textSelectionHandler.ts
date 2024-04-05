@@ -4,17 +4,7 @@ import { initializeStateStore } from "../stateStore";
 
 export async function checkServerHeartbeat() {
     try {
-        const response = await fetch("http://localhost:5554/heartbeat");
-        const dataPath = vscode.workspace.workspaceFolders?.[0]?.uri.toString();
-        if (dataPath) {
-            await fetch(
-                `http://localhost:5554/start?data_path=${encodeURIComponent(
-                    dataPath,
-                )}`,
-                { method: "GET" },
-            );
-        }
-    
+        const response = await fetch("http://localhost:5554/heartbeat");    
         if (!response.ok) {
             throw new Error("Server not responding");
         }

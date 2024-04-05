@@ -2,6 +2,7 @@ from genetok import tokenizer
 from typing import List
 import sys, os, re
 
+
 def split(string, n):
     return [string[i:i+n] for i in range(0, len(string), n)]
 

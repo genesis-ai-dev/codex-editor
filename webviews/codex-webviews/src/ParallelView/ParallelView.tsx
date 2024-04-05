@@ -10,11 +10,8 @@ import {
 const vscode = acquireVsCodeApi();
 
 interface Item {
-    book: string;
-    chapter: string;
-    verse: string;
+    ref: string
     text: string;
-    createdAt: Date;
     uri: string;
 }
 interface DetailedAnomaly {
@@ -73,18 +70,8 @@ function App() {
                         codex_results: Item[];
                         detailed_anomalies: DetailedAnomaly[];
                     } = message.data;
-                    const parsedBibleResults = bible_results?.map(
-                        (item: Item) => ({
-                            ...item,
-                            createdAt: new Date(item.createdAt),
-                        }),
-                    );
-                    const parsedCodexResults = codex_results?.map(
-                        (item: Item) => ({
-                            ...item,
-                            createdAt: new Date(item.createdAt),
-                        }),
-                    );
+                    const parsedBibleResults = bible_results;
+                    const parsedCodexResults = codex_results;
                     setSearchResults({
                         bibleResults: parsedBibleResults,
                         codexResults: parsedCodexResults,
@@ -141,13 +128,13 @@ function App() {
         });
     };
 
-    const handleEmbedResources = () => {
-        console.log("Embedding all resource documents...");
-        setLoading(true);
-        vscode.postMessage({
-            command: "embedResource",
-        });
-    };
+    // const handleEmbedResources = () => {
+    //     console.log("Embedding all resource documents...");
+    //     setLoading(true);
+    //     vscode.postMessage({
+    //         command: "embedResource",
+    //     });
+    // };
 
     const searchBoth = (query: string) => {
         vscode.postMessage({
@@ -237,7 +224,7 @@ function App() {
                                     }}
                                 >
                                     <h3>
-                                        {item.book} {item.chapter}:{item.verse}
+                                        {item.ref}
                                     </h3>
                                     <p
                                         style={{
@@ -251,14 +238,12 @@ function App() {
                                         {item.text}
                                     </p>
                                     <p>
-                                        <strong>Last indexed:</strong>{" "}
-                                        {item.createdAt.toLocaleString()}
                                     </p>
                                     <button
                                         onClick={() =>
                                             handleUriClick(
                                                 item.uri,
-                                                `${item.chapter}:${item.verse}`,
+                                                `${item.ref}`,
                                             )
                                         }
                                         style={{
@@ -518,20 +503,12 @@ function App() {
                                     >
                                         Open
                                     </button>
-                                    <p style={{ marginTop: "5px" }}>
-                                        Created at:{" "}
-                                        {new Date(
-                                            resource.createdAt,
-                                        ).toLocaleDateString()}
-                                    </p>
+                                    
                                 </div>
                             ),
                         )}
                     </div>
                 ) : null}
-                <VSCodeButton onClick={handleEmbedResources}>
-                    Regenerate meaning database.
-                </VSCodeButton>
             </div>
         );
     };

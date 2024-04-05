@@ -5,6 +5,21 @@ from lsprotocol.types import (Range, Position, TextEdit, DiagnosticSeverity,
 
 import lsprotocol.types as lsp_types
 import time
+import os
+import sys
+
+def block_print():
+    """
+    Redirects the sys.stdout to /dev/null to block print statements.
+    """
+    sys.stdout = open(os.devnull, 'w')
+
+def unblock_print():
+    """
+    Restores the sys.stdout to its default value to enable print statements.
+    """
+    sys.stdout = sys.__stdout__
+
 
 class ServerFunctions:
     def __init__(self, server: LanguageServer, data_path: str):
@@ -81,19 +96,21 @@ class ServerFunctions:
 
         @self.server.feature(lsp_types.TEXT_DOCUMENT_COMPLETION, lsp_types.CompletionOptions(trigger_characters=["", " "]))
         def completions(ls, params: lsp_types.CompletionParams):
-            range = Range(start=params.position,
+            range_ = Range(start=params.position,
                           end=Position(line=params.position.line, character=params.position.character + 5))
             completions = []
             for completion_function in self.completion_functions:
-                completions.extend(completion_function(ls, params, range, self))
+                completions.extend(completion_function(ls, params, range_, self))
             return lsp_types.CompletionList(items = completions, is_incomplete=False)
         self.completion = completions
 
         @self.server.feature(lsp_types.INITIALIZED)
         def initialize(ls, params: lsp_types.InitializedParams):
+            block_print()
             self.initialize(ls, params, self)
             for function in self.initialize_functions:
                 function(ls, params, self)
+            unblock_print()
         
         @self.server.feature(TEXT_DOCUMENT_DID_CLOSE)
         def on_close(ls, params: DidCloseTextDocumentParams):

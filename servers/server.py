@@ -2,9 +2,20 @@ import os
 import subprocess
 import sys
 import threading
-
 import socket
-from typing import List, NoReturn
+from typing import List
+import logging
+
+def block_print():
+    """
+    Redirects the sys.stdout to /dev/null to block print statements.
+    """
+    sys.stdout = open(os.devnull, 'w')
+
+WORKSPACE_PATH = os.environ.get('WORKSPACE_PATH', '')
+
+
+
 
 def install_dependencies() -> None:
     """Install required dependencies from requirements.txt."""
@@ -28,7 +39,7 @@ def is_port_in_use(port: int) -> bool:
         return s.connect_ex(('localhost', port)) == 0
 
 
-def start_flask_server() -> None:
+def start_flask_server(sf) -> None:
     """Start the Flask server if the designated port is not in use."""
     FLASK_PORT = 5554
     if is_port_in_use(FLASK_PORT):
@@ -52,8 +63,7 @@ def start_flask_server() -> None:
 
     flask_server_path = os.path.join(os.path.dirname(__file__), "flask_server.py")
     with open(os.devnull, 'w') as devnull:
-        subprocess.Popen([sys.executable, flask_server_path], stdout=devnull, stderr=devnull)
-
+        subprocess.Popen([sys.executable, flask_server_path, '--workspace_path', sf.raw_path], stdout=devnull, stderr=devnull)
 
 
 
@@ -68,6 +78,7 @@ from tools.ls_tools import ServerFunctions
 
 
 
+
 def add_dictionary(args: List[str]) -> bool:
     """Add a dictionary to the spelling servable."""
     return spelling.add_dictionary(args)
@@ -77,6 +88,9 @@ def on_highlight(params: List[str]) -> None:
     """Handle text selection event."""
     server_functions.on_selected(str(params[0]))
 
+print('Running server...')
+def start_server(ls, params, sf):
+    threading.Thread(target=start_flask_server, daemon=True, args=[sf]).start()
 
 # Initialize the language server with metadata
 server = LanguageServer("code-action-server", "v0.1")
@@ -92,12 +106,14 @@ server_functions.add_completion(spelling.spell_completion)
 server_functions.add_completion(forcasting.text_completion)
 
 server_functions.add_diagnostic(spelling.spell_diagnostic)
+server_functions.add_diagnostic(lad_diagnostic)
 server_functions.add_diagnostic(wb_line_diagnostic)
-#server_functions.add_diagnostic(lad_diagnostic)
 server_functions.add_diagnostic(vrefs.vref_diagnostics)
 
 server_functions.add_action(spelling.spell_action)
 server_functions.add_action(vrefs.vref_code_actions)
+
+server_functions.initialize_functions.append(start_server)
 
 # Register close function and commands with the server
 embedding = ServableEmbedding(sf=server_functions)
@@ -105,8 +121,6 @@ server_functions.add_close_function(embedding.on_close)
 server.command("pygls.server.add_dictionary")(add_dictionary)
 server.command("pygls.server.textSelected")(on_highlight)
 # Start the Flask server and the language server
-print('Running server...')
-threading.Thread(target=start_flask_server, daemon=True).start()
 
 server_functions.start()
 server.start_io()

@@ -2,6 +2,7 @@ from typing import List
 import re
 from enum import Enum
 from tools.spell_check import Dictionary, SpellCheck
+from tools.spell_check import block_print, unblock_print
 from tools.ls_tools import ServerFunctions
 from lsprotocol.types import (DocumentDiagnosticParams, CompletionParams, 
     CodeActionParams, Range, CompletionItem, 
@@ -95,16 +96,16 @@ class ServableSpelling:
                                 end=Position(line=line_num, character=end_char))
                     
                     tokenized_word = self.spell_check.dictionary.tokenizer.tokenize(word)
-                    detokenized_word = self.spell_check.dictionary.tokenizer.tokenizer.detokenize(tokenized_word, join="--")
+                    detokenized_word = self.spell_check.dictionary.tokenizer.tokenizer.detokenize(tokenized_word, join="-")
                     formatted_message = SPELLING_MESSAGE.TYPO.value.format(word=detokenized_word)
 
-                    diagnostics.append(Diagnostic(range=range, message=formatted_message, severity=DiagnosticSeverity.Information, source='Spell-Check', data={"color": "rgba(255, 0, 0, .5})"}))
+                    diagnostics.append(Diagnostic(range=range, message=formatted_message, severity=DiagnosticSeverity.Information, source='Spell-Check'))
                 # Add one if the next character is whitespace
                 if edit_window + len(word) < len(line) and line[edit_window + len(word)] == ' ':
                     edit_window += len(word) + 1
                 else:
                     edit_window += len(word)
-        return diagnostics 
+        return diagnostics
     
     def spell_action(self, ls: LanguageServer, params: CodeActionParams, range: Range, sf: ServerFunctions) -> List[CodeAction]:
         """

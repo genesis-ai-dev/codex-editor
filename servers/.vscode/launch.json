@@ -4,10 +4,10 @@
             "name": "pygls: Debug Server",
             "type": "python",
             "request": "attach",
-            "connect": {
-                "host": "${config:pygls.server.debugHost}",
-                "port": "${config:pygls.server.debugPort}"
-            },
+            // "connect": {
+            //     "host": "${config:pygls.server.debugHost}",
+            //     "port": "${config:pygls.server.debugPort}"
+            // },
             "pathMappings": [
                 {
                     "localRoot": "${workspaceRoot}",

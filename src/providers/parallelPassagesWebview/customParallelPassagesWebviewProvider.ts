@@ -16,59 +16,6 @@ interface searchCommand {
     database: string,
 }
 
-async function upsertAllCodexFiles(webview: vscode.Webview): Promise<void> {
-    try {
-        const response = await fetch('http://localhost:5554/upsert_all_codex_files', {
-            method: 'GET'
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-    } catch (error) {
-        console.error('Failed to upsert all codex files:', error);
-    }
-    webview.postMessage({
-        command: "completed",
-    });
-}
-
-async function upsertAllSourceFiles(webview: vscode.Webview): Promise<void> {
-    try {
-        const response = await fetch('http://localhost:5554/upsert_all_bible_files', {
-            method: 'GET'
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-    } catch (error) {
-        console.error('Failed to upsert all bible files:', error);
-    }
-    webview.postMessage({
-        command: "completed",
-    });
-
-}
-
-async function upsertAllResourceFiles(webview: vscode.Webview): Promise<void> {
-    try {
-        const response = await fetch('http://localhost:5554/upsert_all_resource_files', {
-            method: 'GET'
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-    } catch (error) {
-        console.error('Failed to upsert all bible files:', error);
-    }
-    webview.postMessage({
-        command: "completed",
-    });
-
-}
-
 async function simpleOpen(uri: string) {
     try {
         const parsedUri = vscode.Uri.parse(uri);
@@ -195,18 +142,6 @@ const loadWebviewHtml = (
                 case "openFileAtLocation":
                     vscode.window.showInformationMessage(message.uri);
                     simpleOpen(message.uri);//message.word);
-                    break;
-                case "embedAllDocuments":
-                    upsertAllCodexFiles(webviewView.webview);
-                    vscode.window.showInformationMessage("Embedding in progress.");
-                    break;
-                case "embedSource":
-                    upsertAllSourceFiles(webviewView.webview);
-                    vscode.window.showInformationMessage("Embedding in progress.");
-                    break;
-                case "embedResource":
-                    upsertAllResourceFiles(webviewView.webview);
-                    vscode.window.showInformationMessage("Embedding in progress.");
                     break;
                 case "search":
                     if (message.database === 'resources') {

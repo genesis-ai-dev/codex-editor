@@ -82,8 +82,14 @@ async function startLangServer(context: vscode.ExtensionContext) {
     const serverOptions: ServerOptions = {
         command: pythonCommand[0],
         args: [...pythonCommand.slice(1), full_path.fsPath],
-        options: { cwd },
-    }; 
+        options: {
+            cwd,
+            env: {
+                ...process.env,
+                WORKSPACE_PATH: context.extensionPath,
+            },
+        },
+    };
 
     client = new LanguageClient("pygls", serverOptions, getClientOptions());
     const promises = [client.start()];
@@ -246,16 +252,16 @@ function startDebugging(): Promise<void> {
                 vscode?.workspace?.workspaceFolders &&
                 vscode?.workspace?.workspaceFolders[0];
             if (!workspaceFolder) {
-                pyglsLogger.error(
-                    "Unable to start debugging, there is no workspace.",
-                );
+                // pyglsLogger.error(
+                //     "Unable to start debugging, there is no workspace.",
+                // );
                 reject("Unable to start debugging, there is no workspace.");
             } else {
                 try {
-                    await vscode.debug.startDebugging(
-                        workspaceFolder,
-                        "pygls: Debug Server",
-                    );
+                    // await vscode.debug.startDebugging(
+                    //     workspaceFolder,
+                    //     "pygls: Debug Server",
+                    // );
                     resolve();
                 } catch (error) {
                     pyglsLogger.error(`Failed to start debugging: ${error}`);

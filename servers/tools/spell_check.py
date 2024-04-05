@@ -116,9 +116,7 @@ class Dictionary:
         self.path = project_path + '/project.dictionary'  # TODO: #4 Use all .dictionary files in drafts directory
         self.dictionary = self.load_dictionary()  # Load the .dictionary (json file)
         self.tokenizer = genetic_tokenizer.TokenDatabase(self.path, single_words=True, default_tokens=[entry for entry in self.dictionary['entries']])
-        block_print()
         self.tokenizer.tokenizer.evolve([" ".join([entry['headWord'] for entry in self.dictionary["entries"]])])
-        unblock_print()
     def load_dictionary(self) -> Dict:
         """
         Loads the dictionary from a JSON file.
