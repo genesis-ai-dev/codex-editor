@@ -1,7 +1,7 @@
 from typing import Callable, List
 from difflib import SequenceMatcher
 import numpy as np
-
+from sklearn.metrics.pairwise import cosine_similarity
 
 def default_search(query: str, n_samples, codex, bible):
     codex_results = codex.search(query_text=query, top_n=n_samples, text_type="target")
@@ -19,17 +19,42 @@ def default_search(query: str, n_samples, codex, bible):
     # return just the text
     return [result['text'] for result in codex_results], bible_results
 
+def ref_search(query: str, n_samples, codex, bible):
+    codex_results = codex.search(query_text=query, top_n=n_samples, text_type="target")
+    assert len(codex_results) > 0, f"No matching verses found in {codex.database_name}"
+    codex_results = [result['ref'] for result in codex_results]
+    bible_results = bible.search(query_text=bible.get_text(codex_results[0]), top_n = 300, text_type="source")
+    bible_results = [result['ref'] for result in bible_results if result['ref'] in codex.target_references]
+    source = "".join(bible_results[:n_samples])
+    target = "".join(codex_results[:n_samples])
+    # return just the text
+    return source, target
+
+def score_ref(source, target):
+    score = SequenceMatcher(None, source, target).ratio() * 100
+    return score
 
 def find_differences_v3(text, language_data):
     data = []
     for sentence in language_data:
-        data.append( (len(set(text.split(" ") + sentence.split(' ')))/len(text.split(' ') + sentence.split(' '))))
-    return np.array(data)/max(data)
+        similarity_score = (SequenceMatcher(None, text, sentence).ratio() ** 2) * 100
+        data.append(similarity_score / len(sentence) if len(sentence) > 0 else 0)
+    if not data:
+        return 0
+    max_data_value = max(data)
+    if max_data_value == 0:
+        return 0
+    return np.array(data)
+
+def find_differences_v4(text, language_data):
+    score = [SequenceMatcher(None, text, " ".join(language_data)).ratio()]
+    
+    return score
 
 class LAD: 
     def __init__(self, codex, bible, 
-                 score_function: Callable = find_differences_v3,
-                 search_function: Callable = default_search,
+                 score_function: Callable = score_ref,
+                 search_function: Callable = ref_search,
                  n_samples: int = 30) -> None:
         
         self.search_function = search_function
@@ -42,11 +67,12 @@ class LAD:
     def search_and_score(self, query: str):
         codex_results, bible_results = self.search_function(query, self.n_samples,
                                                              self.codex, self.bible)
-        codex_score = self.score_function(query, codex_results)
-        bible_score = self.score_function(query, bible_results)
+        # codex_score = self.score_function(query, codex_results)
+        # bible_score = self.score_function(query, bible_results)
 
-        score = abs(sum(codex_score)-sum(bible_score))
-        return score
+        # similarity = np.mean(codex_score - bible_score) ** 2
+        similarity = self.score_function(codex_results, bible_results)
+        return similarity
     
     def search_and_score_queries(self, queries: List[str]):
         total_scores = []

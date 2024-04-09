@@ -165,15 +165,39 @@ def tokenize(word: str) -> str:
     return word
 
 
-if __name__ == "__main__":
-    input_data = input("Enter the text or file path: ")
-    generator = TextGenerator(input_data, chunk_size=100)
-    prompt = input("Provide a prompt (each word must exist in the text): ")
-    ret = generator.generate_unique_permutations(prompt, 1, 3)
-    print(ret)
+# if __name__ == "__main__":
+#     input_data = input("Enter the text or file path: ")
+#     generator = TextGenerator(input_data, chunk_size=100)
+#     prompt = input("Provide a prompt (each word must exist in the text): ")
+#     ret = generator.generate_unique_permutations(prompt, 1, 3)
+#     print(ret)
+
+
+
+pairs = """Hello - Hallo
+Goodbye - Auf Wiedersehen
+Thank you - Danke
+Please - Bitte
+Yes - Ja
+No - Nein
+Excuse me - Entschuldigung
+I'm sorry - Es tut mir leid
+How are you? - Wie geht es dir?
+What's your name? - Wie heißt du?
+My name is... - Mein Name ist...
+Where is the bathroom? - Wo ist die Toilette?
+I don't understand - Ich verstehe nicht
+Can you help me? - Können Sie mir helfen?
+I love you - Ich liebe dich
+Good morning - Guten Morgen
+Good evening - Guten Abend
+How much does it cost? - Wie viel kostet das?
+I'm hungry - Ich habe Hunger
+I'm thirsty - Ich habe Durst""".lower()
+
 
 if __name__ == "__main__":
     while 1:
-        prompt = input("Provide a prompt (each word must exist in the text): ")
-        ret = generator.generate_unique_permutations(prompt, 1, 4)
+        generator = TextGenerator(pairs, chunk_size=10000)
+        ret = generator.generate_unique_permutations(input("") + " - ", 1, 4)
         print(ret)

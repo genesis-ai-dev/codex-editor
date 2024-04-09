@@ -18,8 +18,9 @@ class JsonDatabase:
         self.target_references = []
         self.source_uris = []
         self.target_uris = []
+        self.complete_text = ""
     
-    def create_database(self, bible_dir, codex_dir):
+    def create_database(self, bible_dir, codex_dir, save_all_path):
         """
         Generates database dictionary
         """
@@ -37,6 +38,7 @@ class JsonDatabase:
             self.source_texts.append(text)
             self.source_references.append(ref)
             self.source_uris.append(uri)
+            self.complete_text += " " + text
         
         for verse in target_files:
             ref = verse["ref"]
@@ -49,7 +51,10 @@ class JsonDatabase:
             self.target_texts.append(text)
             self.target_references.append(ref)
             self.target_uris.append(uri)
-        
+            self.complete_text += " " + text
+
+        with open(save_all_path+"/complete_draft.txt", "w+") as f:
+            f.write(self.complete_text)
         self.tfidf_matrix_source = self.tfidf_vectorizer_source.fit_transform(self.source_texts)
         self.tfidf_matrix_target = self.tfidf_vectorizer_target.fit_transform(self.target_texts)
     

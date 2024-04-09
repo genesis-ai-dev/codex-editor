@@ -19,8 +19,9 @@ args = parser.parse_args()
 
 WORKSPACE_PATH: str = args.workspace_path
 DATABASE: JsonDatabase = JsonDatabase()
-DATABASE.create_database(bible_dir=WORKSPACE_PATH, codex_dir=WORKSPACE_PATH)
-AnomalyDetector: LAD = LAD(codex=DATABASE, bible=DATABASE, n_samples=500)
+
+DATABASE.create_database(bible_dir=WORKSPACE_PATH, codex_dir=WORKSPACE_PATH, save_all_path=WORKSPACE_PATH+"/.project/")
+AnomalyDetector: LAD = LAD(codex=DATABASE, bible=DATABASE, n_samples=10)
 
 
 app = Flask(__name__)
