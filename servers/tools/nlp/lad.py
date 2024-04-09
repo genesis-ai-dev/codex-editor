@@ -1,7 +1,7 @@
 from typing import Callable, List
 from difflib import SequenceMatcher
 import numpy as np
-from servers.experiments import hash_check3
+from experiments import hash_check3
 def similarity_ratio(text1: str, text2: str) -> float:
     #return 1 - SequenceMatcher(None, text1, text2).ratio()
     return abs(hash_check3.spell_hash(text1) - hash_check3.spell_hash(text2))
