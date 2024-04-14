@@ -27,6 +27,7 @@ def ref_search(query: str, n_samples, codex, bible):
     bible_results = [result['ref'] for result in bible_results if result['ref'] in codex.target_references]
     source = "".join(bible_results[:n_samples])
     target = "".join(codex_results[:n_samples])
+
     # return just the text
     return source, target
 

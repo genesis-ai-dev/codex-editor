@@ -106,6 +106,12 @@ def get_most_similar():
     """Get words most similar to the given word from the specified database."""
     return jsonify([])
 
+@app.route("/get_rarity")
+def get_rarity():
+    db_name = request.args.get("db_name")
+    text = request.args.get("text")
+    result = DATABASE.word_rarity(text=text, text_type=db_name)
+    return jsonify(result)
 
 @app.route("/get_text")
 def get_text_frm():

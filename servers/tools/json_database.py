@@ -74,6 +74,40 @@ class JsonDatabase:
             return [{'ref': self.target_references[i], 'text': self.target_texts[i], 'uri': self.target_uris[i]} for i in top_indices]
         else:
             raise ValueError("Invalid text_type. Choose either 'source' or 'target'.")
+        
+    def word_rarity(self, text, text_type="source"):
+        """
+        Returns a dictionary of each word in the given string and its rarity using the TF-IDF.
+
+        Args:
+            text (str): The text to analyze for word rarity.
+            text_type (str, optional): The type of text to analyze ("source" or "target"). Defaults to "source".
+
+        Returns:
+            dict: A dictionary with words as keys and their rarity scores as values.
+        """
+        # Choose the correct TF-IDF vectorizer and matrix based on the text type
+        if text_type == "source":
+            tfidf_vectorizer = self.tfidf_vectorizer_source
+        elif text_type == "target":
+            tfidf_vectorizer = self.tfidf_vectorizer_target
+        else:
+            raise ValueError("Invalid text_type. Choose either 'source' or 'target'.")
+
+        # Transform the input text to a TF-IDF vector
+        query_vector = tfidf_vectorizer.transform([text])
+        
+        # Get feature names to map the feature index to the actual word
+        feature_names = tfidf_vectorizer.get_feature_names_out()
+        
+        # Get the scores for each word in the input text
+        scores = query_vector.toarray().flatten()
+        
+        # Create a dictionary of words and their corresponding scores
+        word_rarity_dict = {feature_names[i]: scores[i] for i in range(len(scores)) if scores[i] > 0}
+        
+        return word_rarity_dict
+
     
     def get_text(self, ref: str, text_type="source"):
         return self.dictionary[ref][text_type]

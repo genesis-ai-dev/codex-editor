@@ -8,7 +8,6 @@ from lsprotocol.types import (DocumentDiagnosticParams, CompletionParams,
     CodeActionParams, Range, CompletionItem, 
     TextEdit, Position, Diagnostic, CodeAction, WorkspaceEdit, CodeActionKind, Command, DiagnosticSeverity)
 from pygls.server import LanguageServer
-
 from tools.loadvrefs import get_verse_references_from_file, filter
 
 

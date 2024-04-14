@@ -2,12 +2,13 @@ import requests
 from typing import List
 from lsprotocol.types import CompletionParams, Range, CompletionItem, TextEdit, Position
 from pygls.server import LanguageServer
-from servers.experiments.forecasting2 import TextGenerator
+from experiments.forecasting2 import TextGenerator
 from tools.ls_tools import ServerFunctions
 
 
 # def print(*args, **kwargs):
 #     text = " ".join(map(str, args))
+
 #     requests.get(f"http://localhost:5554/add_debug?text={text}")
 
 class ServableForcasting:
