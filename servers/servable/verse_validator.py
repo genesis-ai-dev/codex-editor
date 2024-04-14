@@ -10,7 +10,7 @@ class VrefMessages(Enum):
     VERSE_MISSING = "The verse {missing_verse} is missing after {after}"
     INCORRECT_BOOK = "The reference {reference} is not correct for book {book}"
     VERSE_DOES_NOT_EXIST = "The verse {verse} does not exist"
-    FIRST_VERSE_MISSING = "The first verse is missing"
+    FIRST_VERSE_MISSING = "There is no verse one."
     DUPLICATE_VERSE = "The verse {verse} is duplicated"
 
 
@@ -27,7 +27,10 @@ class ServableVrefs:
             matches = re.finditer(r'(\d*[A-Z]+) (\d+):(\d+)', line)
             for match in matches:
                 book, chapter, verse = match.groups()
+                if verse != "1" and last_verse is None:
+                    diagnostics.append(self.create_diagnostic(i, line, match, VrefMessages.FIRST_VERSE_MISSING.value))
                 verse_ref = f"{book} {chapter}:{verse}"
+                    
                 if verse_ref in seen_verses:
                     diagnostics.append(self.create_diagnostic(i, line, match, VrefMessages.DUPLICATE_VERSE.value.format(verse=verse_ref)))
                     continue
@@ -51,6 +54,7 @@ class ServableVrefs:
                             diagnostics.append(self.create_diagnostic(i, line, match, VrefMessages.VERSE_MISSING.value.format(missing_verse=missing_verse, after=last_verse)))
 
                 last_verse = f"{chapter}:{verse}"
+        
         return diagnostics
 
     def create_diagnostic(self, line_num: int, line: str, match, message: str) -> Diagnostic:
@@ -125,5 +129,5 @@ class ServableVrefs:
                     })
                 )
                 actions.append(action)
-
+        
         return actions

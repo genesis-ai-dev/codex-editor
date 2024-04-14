@@ -68,7 +68,6 @@ def start_flask_server(sf) -> None:
 
 
 from pygls.server import LanguageServer
-from servable.servable_embedding import ServableEmbedding
 from servable.servable_wb import wb_line_diagnostic
 from servable.servable_lad import lad_diagnostic
 from servable.spelling import ServableSpelling
@@ -116,8 +115,6 @@ server_functions.add_action(vrefs.vref_code_actions)
 server_functions.initialize_functions.append(start_server)
 
 # Register close function and commands with the server
-embedding = ServableEmbedding(sf=server_functions)
-server_functions.add_close_function(embedding.on_close)
 server.command("pygls.server.add_dictionary")(add_dictionary)
 server.command("pygls.server.textSelected")(on_highlight)
 # Start the Flask server and the language server

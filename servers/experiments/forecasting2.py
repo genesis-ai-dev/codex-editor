@@ -59,7 +59,6 @@ class TextGenerator:
           word: score * (word_counts[word] / max_count)
           for word, score in combined_scores.items()
       }
-
       # Normalize the adjusted scores to a sum of 1
       total_score = sum(adjusted_scores.values())
       normalized_scores = {

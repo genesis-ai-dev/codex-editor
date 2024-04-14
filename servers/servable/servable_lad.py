@@ -15,9 +15,9 @@ def get_lad_score(line):
             score = response.json()['score']
             return float(score)
         else:
-            return 0
+            return None
     except requests.exceptions.RequestException:
-        return 0
+        return None
 
 def lad_diagnostic(ls, params: DocumentDiagnosticParams, sf):
     """
@@ -32,9 +32,11 @@ def lad_diagnostic(ls, params: DocumentDiagnosticParams, sf):
     lines = document.lines
     for line_num, line in enumerate(lines):
         if len(line) > 12:
-            score = round(get_lad_score(line), 2)
-            if score < 39:
-                range_ = Range(start=Position(line=line_num, character=0),
-                            end=Position(line=line_num, character=len(line)))
-                diagnostics.append(Diagnostic(range=range_, message=f"Source and target have low overlap: {score}", severity=DiagnosticSeverity.Information, source='Anomaly Detection'))
+            data = get_lad_score(line)
+            if data:
+                score = round(data, 2)
+                if score and score < 39:
+                    range_ = Range(start=Position(line=line_num, character=0),
+                                end=Position(line=line_num, character=len(line)))
+                    diagnostics.append(Diagnostic(range=range_, message=f"Source and target have low overlap: {score}", severity=DiagnosticSeverity.Warning, source='Anomaly Detection'))
     return diagnostics
