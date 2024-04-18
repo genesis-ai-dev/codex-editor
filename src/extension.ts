@@ -33,7 +33,7 @@ import { initializeStateStore } from "./stateStore";
 // NOTE: the following two blocks are deactivated for now while we work on the project management extension. We might not need them.
 // First, check if a project root path is set, indicating whether the user has an existing project open.
 // I moved all that to this onboard function
-onBoard();
+// onBoard(); // NOTE: deactivated while we add the project management extension
 
 let scmInterval: any; // Webpack & typescript for vscode are having issues
 
