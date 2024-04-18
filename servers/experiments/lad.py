@@ -19,7 +19,7 @@ def default_search(query: str, n_samples, codex, bible):
     # return just the text
     return [result['text'] for result in codex_results], bible_results
 
-def ref_search(query: str, n_samples, codex, bible):
+def ref_search(query: str, n_samples, codex, bible, vref: str):
     codex_results = codex.search(query_text=query, top_n=n_samples, text_type="target")
     assert len(codex_results) > 0, f"No matching verses found in {codex.database_name}"
     codex_results = [result['ref'] for result in codex_results]
@@ -65,9 +65,9 @@ class LAD:
         self.codex = codex
         
 
-    def search_and_score(self, query: str):
+    def search_and_score(self, query: str, vref: str):
         codex_results, bible_results = self.search_function(query, self.n_samples,
-                                                             self.codex, self.bible)
+                                                             self.codex, self.bible, vref=vref)
         # codex_score = self.score_function(query, codex_results)
         # bible_score = self.score_function(query, bible_results)
 
