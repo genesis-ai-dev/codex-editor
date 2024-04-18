@@ -491,7 +491,6 @@
     },
     "extensionDependencies": [
         "project-accelerate.shared-state-store",
-        "ms-python.python",
         "project-accelerate.scripture-language-support",
         "project-accelerate.pythoninstaller"
     ]
