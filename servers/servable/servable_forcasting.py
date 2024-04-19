@@ -2,7 +2,7 @@ import requests
 from typing import List
 from lsprotocol.types import CompletionParams, Range, CompletionItem, TextEdit, Position
 from pygls.server import LanguageServer
-from experiments.forecasting2 import TextGenerator
+from experiments.bia import BidirectionalInverseAttention
 from tools.ls_tools import ServerFunctions
 
 
@@ -20,7 +20,7 @@ class ServableForcasting:
             sf (ServerFunctions): The server functions object that provides access to server-related utilities.
             chunk_size (int, optional): The size of the chunks for text generation. Defaults to 100.
         """
-        self.text_generator = None
+        self.bai = None
         self.chunk_size = chunk_size
         self.sf: ServerFunctions = sf
 
@@ -37,7 +37,7 @@ class ServableForcasting:
         Returns:
             List: A list of CompletionItem objects representing text completion suggestions.
         """
-        if not self.text_generator:
+        if not self.bai:
             self.initialize()
         try:
             document_uri = params.text_document.uri
@@ -46,9 +46,8 @@ class ServableForcasting:
 
             seed_sentence = line.strip()
             print("sentence: ", seed_sentence)
-            if self.text_generator is not None:
-                completions = self.text_generator.generate_unique_permutations(seed_sentence, 1, 5)
-                completions = set([sentence.split(" ")[-1] for sentence in completions])                
+            if self.bai is not None:
+                completions = self.bai.get_possible_next(seed_sentence, options=4)
                 return [CompletionItem(
                     label=completion,
                     text_edit=TextEdit(range=range, new_text=completion),
@@ -72,9 +71,7 @@ class ServableForcasting:
         print("path: ", path)
         try:
             print("opening")
-            with open(path, 'r') as file:
-                draft_text = file.read()
-            self.text_generator = TextGenerator(input_data=draft_text, chunk_size=self.chunk_size)
+            self.bai = BidirectionalInverseAttention(path=path)
             print("success")
         except Exception as e:
             print(str(e))

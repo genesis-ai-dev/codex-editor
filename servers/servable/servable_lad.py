@@ -4,6 +4,8 @@ from lsprotocol.types import Diagnostic, DocumentDiagnosticParams, Position, Ran
 import requests
 
 def get_lad_score(verse, vref):
+    if len(verse) < 13:
+        return None
     try:
         response = requests.get(f"http://localhost:5554/line_lad?query={verse}&ref={vref}", timeout=1)
         if response.status_code == 200:

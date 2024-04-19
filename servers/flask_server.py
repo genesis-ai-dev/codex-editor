@@ -72,7 +72,8 @@ def debug():
 @app.route("/line_lad")
 def lad():
     query = request.args.get("query")
-    return jsonify({"score": AnomalyDetector.search_and_score(query)}), 200
+    vref = request.args.get('vref')
+    return jsonify({"score": AnomalyDetector.search_and_score(query, vref=vref)}), 200
 
 
 
