@@ -5,7 +5,7 @@ import { Dictionary } from "codex-types";
 import { DictionaryPostMessages } from "../../../types";
 
 // Dictionary path constant
-const dictionaryPath = "drafts/project.dictionary";
+const dictionaryPath = ".project/project.dictionary";
 
 export class DictionarySidePanel implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;

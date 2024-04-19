@@ -61,7 +61,7 @@ class BidirectionalInverseAttention:
         return counts.most_common()
     def predict(self, query, top_n: int = 15, bound=''):
         _text = query.split()
-        target = [text.index(i) for i in _text if '[MASK]' in i][0]
+        target = [_text.index(i) for i in _text if '[MASK]' in i][0]
 
         # Get the top N rare words from the text based on their IDF values
         rare_words = [w for w in _text if w in self.vocab]

@@ -18,7 +18,7 @@ class ServableForecasting:
         self.chunk_size = chunk_size
         self.lspw: LSPWrapper = lspw
 
-    def text_completion(self, server: LanguageServer, params: CompletionParams, _range: Range) -> List:
+    def text_completion(self, lspw, params: CompletionParams, _range: Range) -> List:
         """
         Provide completion items for text generation in a document.
 
@@ -35,7 +35,7 @@ class ServableForecasting:
             self.initialize()
         try:
             document_uri = params.text_document.uri
-            document = server.workspace.get_document(document_uri)
+            document = lspw.server.workspace.get_document(document_uri)
             line = document.lines[params.position.line]
 
             seed_sentence = line.strip()
@@ -48,7 +48,7 @@ class ServableForecasting:
                 ) for completion in completions]
             else:
                 return []
-        except Exception:
+        except IndexError:
             return []
 
     def initialize(self):
@@ -67,6 +67,6 @@ class ServableForecasting:
             print("opening")
             self.bia = bia.BidirectionalInverseAttention(path=path)
             print("success")
-        except Exception as e:
+        except IndexError as e:
             print(str(e))
 

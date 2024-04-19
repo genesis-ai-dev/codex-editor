@@ -27,7 +27,7 @@ class SocketRouter:
         self.workspace_path = workspace_path
         self.database: json_database.JsonDatabase = json_database.JsonDatabase()
         self.database.create_database(bible_dir=self.workspace_path, codex_dir=self.workspace_path, save_all_path=self.workspace_path+"/.project/")
-        self.anomaly_detector: lad.LAD = lad.LAD(codex=self.database, bible=self.database, n_samples=10)
+        self.anomaly_detector: lad.LAD = lad.LAD(codex=self.database, bible=self.database, n_samples=3)
         self.ready = True
     def route_to(self, json_input):
         """

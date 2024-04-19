@@ -175,38 +175,35 @@ def criteria(dictionary_word: Dict, word: str, word_hash: Hash,
     elif mode == CheckMode.IMAGE_HASH:
         hash1 = Hash(dictionary_word['hash'])
         hash2 = word_hash
-        try:
-            return hash1 - hash2
-        except Exception:
-            # If an error occurs during hash comparison, rehash the older word and update the dictionary
-            rehashed_entry = {
-                **dictionary_word,
-                'hash': str(spell_hash(dictionary_word["headWord"]))
-            }
-            dictionary.dictionary['entries'] = [
-                rehashed_entry if entry['id'] == dictionary_word['id'] else entry
-                for entry in dictionary.dictionary['entries']
-            ]
-            dictionary.save_dictionary()
-            return Hash(rehashed_entry['hash']) - hash2
+
+        # If an error occurs during hash comparison, rehash the older word and update the dictionary
+        rehashed_entry = {
+            **dictionary_word,
+            'hash': str(spell_hash(dictionary_word["headWord"]))
+        }
+        dictionary.dictionary['entries'] = [
+            rehashed_entry if entry['id'] == dictionary_word['id'] else entry
+            for entry in dictionary.dictionary['entries']
+        ]
+        dictionary.save_dictionary()
+        return Hash(rehashed_entry['hash']) - hash2
     elif mode == CheckMode.COMBINE_BOTH:
         edit_dist = distance(dictionary_word["headWord"], word)
         hash1 = Hash(dictionary_word['hash'])
         hash2 = word_hash
-        try:
-            hash_diff = hash1 - hash2
-        except Exception:
-            # If an error occurs during hash comparison, rehash the older word and update the dictionary
-            rehashed_entry = {
-                **dictionary_word,
-                'hash': str(spell_hash(dictionary_word["headWord"]))
-            }
-            dictionary.dictionary['entries'] = [
-                rehashed_entry if entry['id'] == dictionary_word['id'] else entry
-                for entry in dictionary.dictionary['entries']
-            ]
-            dictionary.save_dictionary()
-            hash_diff = Hash(rehashed_entry['hash']) - hash2
+        hash_diff = hash1 - hash2
+        # except Exception:
+        #     # If an error occurs during hash comparison, rehash the older word and update the dictionary
+        #     rehashed_entry = {
+        #         **dictionary_word,
+        #         'hash': str(spell_hash(dictionary_word["headWord"]))
+        #     }
+        #     dictionary.dictionary['entries'] = [
+        #         rehashed_entry if entry['id'] == dictionary_word['id'] else entry
+        #         for entry in dictionary.dictionary['entries']
+        #     ]
+        #     dictionary.save_dictionary()
+        #     hash_diff = Hash(rehashed_entry['hash']) - hash2
         return (edit_dist, hash_diff)
 
 def remove_punctuation(text: str) -> str:
@@ -227,7 +224,11 @@ class Dictionary:
         self.path = project_path + '/project.dictionary'  # TODO: #4 Use all .dictionary files in drafts directory
         self.dictionary = self.load_dictionary()  # Load the .dictionary (json file)
         self.tokenizer = genetic_tokenizer.TokenDatabase(self.path, single_words=True, default_tokens=[entry for entry in self.dictionary['entries']])
-        self.tokenizer.tokenizer.evolve([" ".join([entry['headWord'] for entry in self.dictionary["entries"]])])
+        try:
+            self.tokenizer.tokenizer.evolve([" ".join([entry['headWord'] for entry in self.dictionary["entries"]])])
+        except ValueError:
+            pass
+            
     def load_dictionary(self) -> Dict:
         """
         Loads the dictionary from a JSON file.
@@ -590,10 +591,10 @@ class ServableSpelling:
                 start_character = diagnostic.range.start.character
                 end_character = diagnostic.range.end.character
                 word = document.lines[start_line][start_character:end_character]
-                try:
-                    corrections = self.spell_check.check(word)
-                except IndexError:
-                    corrections = []
+                # try:
+                corrections = self.spell_check.check(word)
+                # except IndexError:
+                #     corrections = []
                 for correction in corrections:
                     edit = TextEdit(range=diagnostic.range, new_text=correction)
      
@@ -644,6 +645,6 @@ class ServableSpelling:
             server (LanguageServer): The instance of the language server.
             lspw (LSPWrapper): The server functions object.
         """
-        self.dictionary = Dictionary(self.lspw.paths.raw_path + "/drafts/")
+        self.dictionary = Dictionary(self.lspw.paths.raw_path + "/.project/")
         self.spell_check = SpellCheck(dictionary=self.dictionary)
         return params, None, lspw # get rid of pylint stuff

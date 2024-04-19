@@ -26,7 +26,7 @@ class TokenDatabase:
         else:
             left = True
             right = False
-
+    
         self.tokenizer = tokenizer.GeneticTokenizer(min_range=1, max_range=8, max_population=70, start_population=70, families=4, step_epochs=20, 
                                                     right_freezable=right, left_freezable=left, mutate_amount=30)
         # Load existing tokens from the database if available
