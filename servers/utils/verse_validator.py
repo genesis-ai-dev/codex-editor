@@ -15,8 +15,8 @@ class VrefMessages(Enum):
 
 
 class ServableVrefs:
-    def __init__(self, sf):
-        self.ls = sf
+    def __init__(self, lspw):
+        self.lspw = lspw
 
     def validate_verses(self, lines) -> List[Diagnostic]:
         diagnostics = []
@@ -64,13 +64,13 @@ class ServableVrefs:
                                  end=Position(line=line_num, character=end_char))
         return Diagnostic(range=diagnostic_range, message=message, severity=DiagnosticSeverity.Warning, source='Vrefs')
 
-    def vref_diagnostics(self, ls: LanguageServer, params: DocumentDiagnosticParams, sf) -> List[Diagnostic]:
+    def vref_diagnostics(self, ls: LanguageServer, params: DocumentDiagnosticParams) -> List[Diagnostic]:
         document_uri = params.text_document.uri
-        document = self.ls.server.workspace.get_document(document_uri)
+        document = self.lspw.server.workspace.get_document(document_uri)
         lines = document.lines
         return self.validate_verses(lines)
     
-    def vref_code_actions(self, ls: LanguageServer, params: CodeActionParams, range: Range, sf) -> List[CodeAction]:
+    def vref_code_actions(self, lspw, params: CodeActionParams, _range: Range) -> List[CodeAction]:
         """
         Generate code actions for verse validation corrections in a document.
 
@@ -81,6 +81,7 @@ class ServableVrefs:
         Returns:
             List[CodeAction]: A list of CodeAction objects representing verse validation correction actions.
         """
+        assert lspw, _range # for pylance
         document_uri = params.text_document.uri
         diagnostics = params.context.diagnostics
 

@@ -1,20 +1,12 @@
 import * as vscode from "vscode";
 import { extractVerseRefFromLine } from "../utils/verseRefUtils";
 import { initializeStateStore } from "../stateStore";
+import { PythonMessenger } from "../utils/pyglsMessenger"; 
 
-export async function checkServerHeartbeat() {
-    try {
-        const response = await fetch("http://localhost:5554/heartbeat");    
-        if (!response.ok) {
-            throw new Error("Server not responding");
-        }
-        const data = await response.json();
-        console.log("Server heartbeat:", data);
-        // Check if the databases field is blank, indicating the server needs to be started
-    } catch (error) {
-        console.error("Error checking server heartbeat:", error);
-    }
-}
+
+const pyMessenger: PythonMessenger = new PythonMessenger();
+
+
 
 export function registerTextSelectionHandler(
     context: vscode.ExtensionContext,
@@ -86,19 +78,19 @@ export async function performSearch(
     callback: CallableFunction,
 ) {
     if (selectedText) {
+        vscode.window.showInformationMessage("here is selected: "+selectedText);
         vscode.commands.executeCommand(
             "pygls.server.textSelected",
             selectedText,
         );
         try {
-            const response = await fetch(
-                `http://localhost:5554/detect_anomalies?&query=${encodeURIComponent(
-                    selectedText,
-                )}`,
-            );
-            const data = await response.json();
-            callback(data);
+            vscode.window.showInformationMessage("Searching: "+ selectedText);
+            const result = await pyMessenger.detectAnomalies(selectedText, 10);
+
+            callback(result);
         } catch (error: unknown) {
+            vscode.window.showErrorMessage("error!!!!");
+
             console.error("Error performing search:", error);
             if (error instanceof Error) {
                 console.error(error.message);

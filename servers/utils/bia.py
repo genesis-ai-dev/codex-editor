@@ -53,25 +53,24 @@ class BidirectionalInverseAttention:
     def combine_counts(self, counts_list):
         counts = Counter()
         for count in counts_list:
-            for word, freq in count.items():
+            for word, _ in count.items():
                 if word not in self.vocab:
                     continue
-                weight = self.idf[self.vocab[word]]
                 counts[word] += 1
 
         return counts.most_common()
     def predict(self, query, top_n: int = 15, bound=''):
-        text = query.split()
-        target = [text.index(i) for i in text if '[MASK]' in i][0]
+        _text = query.split()
+        target = [text.index(i) for i in _text if '[MASK]' in i][0]
 
         # Get the top N rare words from the text based on their IDF values
-        rare_words = [w for w in text if w in self.vocab]
+        rare_words = [w for w in _text if w in self.vocab]
         rare_words = sorted(rare_words, key=lambda x: self.idf[self.vocab[x]], reverse=True)[:top_n]
 
         with concurrent.futures.ThreadPoolExecutor() as executor:
             futures = []
-            for word in text:
-                distance = text.index(word) - target
+            for word in _text:
+                distance = _text.index(word) - target
                 if word in rare_words or abs(distance) < 1:
                     futures.append(executor.submit(self.predict_from, word, distance, bound=bound))
 
@@ -83,30 +82,30 @@ class BidirectionalInverseAttention:
         results = self.search(query=word, bound=bound)
         word_counts = Counter()
         for result in results:
-            text = result.split()
-            if word not in text:
+            _text = result.split()
+            if word not in _text:
                 continue
-            word_index = text.index(word)
+            word_index = _text.index(word)
             cast_index = word_index - distance
 
-            if 0 <= cast_index < len(text):
-                prediction = text[cast_index]
+            if 0 <= cast_index < len(_text):
+                prediction = _text[cast_index]
                 word_counts[prediction] += 1
         return word_counts
 
-    def predict_next(self, text, num_words=5):
-        text = text + ' [MASK] '
+    def predict_next(self, _text, num_words=5):
+        _text = _text + ' [MASK] '
         for _ in range(num_words):
-            next_word = self.predict(text)[0][0]
-            text = text.replace('[MASK] ', next_word)
-            text = text + " [MASK] "
-        return text
-    def get_possible_next(self, text, options=4):
-        if text.endswith(" "):
-            text = text + '[MASK] '
+            next_word = self.predict(_text)[0][0]
+            _text = _text.replace('[MASK] ', next_word)
+            _text = _text + " [MASK] "
+        return _text
+    def get_possible_next(self, _text, options=4):
+        if _text.endswith(" "):
+            _text = _text + '[MASK] '
         else:
-            text = text + ' [MASK] '
-        next_words = [option[0] for option in self.predict(text)][:options]
+            _text = _text + ' [MASK] '
+        next_words = [option[0] for option in self.predict(_text)][:options]
 
         return next_words
 
@@ -130,7 +129,7 @@ class BidirectionalInverseAttention:
         combined_probabilities = defaultdict(float)
 
         for probabilities in probabilities_list:
-            for word, probability in probabilities:
+            for word, _ in probabilities:
                 tfidf = self.idf[self.vocab[word]]
                 combined_probabilities[word] += tfidf ** 2
 

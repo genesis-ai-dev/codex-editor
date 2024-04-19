@@ -2,9 +2,6 @@
 
 import * as vscode from "vscode";
 import {
-    checkServerHeartbeat,
-} from "../../handlers/textSelectionHandler";
-import {
     LanguageClient,
     LanguageClientOptions,
     ServerOptions,
@@ -108,9 +105,14 @@ async function startLangServer(context: vscode.ExtensionContext) {
             );
         }
     }
-    setInterval(() => {
-        checkServerHeartbeat();
-    }, 10000);
+    
+    const sendMessage = vscode.commands.registerCommand('pygls.sendMessage', async (message?: string) => {    
+        if (message) {
+          client?.sendNotification('request/query', { message });
+        }
+      });
+    
+      context.subscriptions.push(sendMessage);
 }
 
 export async function stopLangServer(): Promise<void> {

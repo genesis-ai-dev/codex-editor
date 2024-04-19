@@ -1,9 +1,14 @@
+"""
+linguistic anomaly detection
+"""
 from typing import Callable, List
 from difflib import SequenceMatcher
 import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
 
 def default_search(query: str, n_samples, codex, bible):
+    """
+    default search
+    """
     codex_results = codex.search(query_text=query, top_n=n_samples, text_type="target")
     assert len(codex_results) > 0, f"No matching verses found in {codex.database_name}"
     bible_results = []
@@ -20,6 +25,7 @@ def default_search(query: str, n_samples, codex, bible):
     return [result['text'] for result in codex_results], bible_results
 
 def ref_search(query: str, n_samples, codex, bible, vref: str):
+    codex_results = vref # immidiatly gets reassigned, this is to ignore pylint
     codex_results = codex.search(query_text=query, top_n=n_samples, text_type="target")
     assert len(codex_results) > 0, f"No matching verses found in {codex.database_name}"
     codex_results = [result['ref'] for result in codex_results]
@@ -32,10 +38,16 @@ def ref_search(query: str, n_samples, codex, bible, vref: str):
     return source, target
 
 def score_ref(source, target):
+    """
+    score refrence
+    """
     score = SequenceMatcher(None, source, target).ratio() * 100
     return score
 
 def find_differences_v3(text, language_data):
+    """
+    find diff
+    """
     data = []
     for sentence in language_data:
         similarity_score = (SequenceMatcher(None, text, sentence).ratio() ** 2) * 100
@@ -48,11 +60,17 @@ def find_differences_v3(text, language_data):
     return np.array(data)
 
 def find_differences_v4(text, language_data):
+    """
+    find diff 4
+    """
     score = [SequenceMatcher(None, text, " ".join(language_data)).ratio()]
     
     return score
 
 class LAD: 
+    """
+    Linguistic anomaly detection
+    """
     def __init__(self, codex, bible, 
                  score_function: Callable = score_ref,
                  search_function: Callable = ref_search,
@@ -66,6 +84,9 @@ class LAD:
         
 
     def search_and_score(self, query: str, vref: str):
+        """
+        search and score
+        """
         codex_results, bible_results = self.search_function(query, self.n_samples,
                                                              self.codex, self.bible, vref=vref)
         # codex_score = self.score_function(query, codex_results)
@@ -76,9 +97,12 @@ class LAD:
         return similarity
     
     def search_and_score_queries(self, queries: List[str]):
+        """
+        seach and score...
+        """
         total_scores = []
         for query in queries:
-            total_scores.append(self.search_and_score(query=query))
+            total_scores.append(self.search_and_score(query=query, vref=None))
     
         return total_scores
 
@@ -86,5 +110,5 @@ class LAD:
 
 if __name__ == "__main__":
     lad = LAD(None, None, find_differences_v3, default_search, 5)
-    results = lad.search_and_score('The quick brown fox jamp')
+    results = lad.search_and_score('The quick brown fox jamp', vref=None)
     print("result:\n\n ", results, "\n\n")

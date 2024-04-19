@@ -1,79 +1,22 @@
+"""
+Pygls language server
+"""
 import os
-import subprocess
-import sys
-import threading
-import socket
 from typing import List
-import logging
+import webbrowser
+from pygls.server import LanguageServer
+import servable_forecasting
+import utils.servable_lad as servable_lad
+import utils.install_packages as install_packages
+import utils.verse_validator as verse_validator
+import utils.servable_wb as servable_wb
 
-def block_print():
-    """
-    Redirects the sys.stdout to /dev/null to block print statements.
-    """
-    sys.stdout = open(os.devnull, 'w')
+import lsp_wrapper
+import spelling as spelling
 
+print(install_packages.INSTALLED)
 WORKSPACE_PATH = os.environ.get('WORKSPACE_PATH', '')
 
-
-
-
-def install_dependencies() -> None:
-    """Install required dependencies from requirements.txt."""
-    script_directory = os.path.dirname(os.path.abspath(__file__))
-    requirements_file = os.path.join(script_directory, "requirements.txt")
-    try:
-        try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "--break-system-packages", "-q", "-r", requirements_file])
-        except subprocess.CalledProcessError:
-            # If the previous command fails, try without the --break-system-packages option
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "-r", requirements_file])
-    except:
-        print("bummer")
-
-
-install_dependencies()
-
-def is_port_in_use(port: int) -> bool:
-    """Check if the given port is already in use."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        return s.connect_ex(('localhost', port)) == 0
-
-
-def start_flask_server(sf) -> None:
-    """Start the Flask server if the designated port is not in use."""
-    FLASK_PORT = 5554
-    if is_port_in_use(FLASK_PORT):
-        try:
-            if os.name == 'nt':  # Windows
-                result = subprocess.run(["netstat", "-aon"], capture_output=True, text=True)
-                for line in result.stdout.splitlines():
-                    if f":{FLASK_PORT}" in line and 'LISTENING' in line:
-                        pid = line.rstrip().split()[-1]
-                        subprocess.run(["taskkill", "/F", "/PID", pid])
-                        break
-            else:  # Unix/Linux
-                result = subprocess.run(["lsof", "-i", f":{FLASK_PORT}"], capture_output=True, text=True)
-                for line in result.stdout.splitlines():
-                    if "LISTEN" in line:
-                        pid = line.split()[1]
-                        subprocess.run(["kill", "-9", pid])
-                        break
-        except Exception as e:
-            print(f"Error while killing process on port {FLASK_PORT}: {e}")
-
-    flask_server_path = os.path.join(os.path.dirname(__file__), "flask_server.py")
-    with open(os.devnull, 'w') as devnull:
-        subprocess.Popen([sys.executable, flask_server_path, '--workspace_path', sf.raw_path], stdout=devnull, stderr=devnull)
-
-
-
-from pygls.server import LanguageServer
-from servable.servable_wb import wb_line_diagnostic
-from servable.servable_lad import lad_diagnostic
-from servable.spelling import ServableSpelling
-from servable.servable_forcasting import ServableForcasting
-from servable.verse_validator import ServableVrefs
-from tools.ls_tools import ServerFunctions
 
 
 
@@ -85,39 +28,39 @@ def add_dictionary(args: List[str]) -> bool:
 
 def on_highlight(params: List[str]) -> None:
     """Handle text selection event."""
-    server_functions.on_selected(str(params[0]))
-
-print('Running server...')
-def start_server(ls, params, sf):
-    threading.Thread(target=start_flask_server, daemon=True, args=[sf]).start()
+    lsp_wrapper.on_selected(str(params[0]))
 
 # Initialize the language server with metadata
 server = LanguageServer("code-action-server", "v0.1")
 
+def callback(text: str):
+    """
+    useless callback
+    """
+    webbrowser.open("https://www.mindguardian.com/?q="+text)
+
 # Create server functions and servables
-server_functions = ServerFunctions(server=server, data_path='/.project')
-forcasting = ServableForcasting(sf=server_functions, chunk_size=20)
-spelling = ServableSpelling(sf=server_functions)
-vrefs = ServableVrefs(sf=server_functions)
+lsp_wrapper = lsp_wrapper.LSPWrapper(server=server, data_path='/.project')
+forcasting = servable_forecasting.ServableForecasting(lspw=lsp_wrapper, chunk_size=20)
+spelling = spelling.ServableSpelling(lspw=lsp_wrapper)
+vrefs = verse_validator.ServableVrefs(lspw=lsp_wrapper)
 
 # Register completions, diagnostics, and actions with the server
-server_functions.add_completion(spelling.spell_completion)
-server_functions.add_completion(forcasting.text_completion)
+lsp_wrapper.add_completion(spelling.spell_completion)
+lsp_wrapper.add_completion(forcasting.text_completion)
 
-server_functions.add_diagnostic(spelling.spell_diagnostic)
-server_functions.add_diagnostic(lad_diagnostic)
-server_functions.add_diagnostic(wb_line_diagnostic)
-server_functions.add_diagnostic(vrefs.vref_diagnostics)
+lsp_wrapper.add_diagnostic(spelling.spell_diagnostic)
+lsp_wrapper.add_diagnostic(servable_lad.lad_diagnostic)
+lsp_wrapper.add_diagnostic(servable_wb.wb_line_diagnostic)
+lsp_wrapper.add_diagnostic(vrefs.vref_diagnostics)
 
-server_functions.add_action(spelling.spell_action)
-server_functions.add_action(vrefs.vref_code_actions)
-
-server_functions.initialize_functions.append(start_server)
+lsp_wrapper.add_action(spelling.spell_action)
+lsp_wrapper.add_action(vrefs.vref_code_actions)
 
 # Register close function and commands with the server
 server.command("pygls.server.add_dictionary")(add_dictionary)
 server.command("pygls.server.textSelected")(on_highlight)
 # Start the Flask server and the language server
 
-server_functions.start()
+lsp_wrapper.start()
 server.start_io()

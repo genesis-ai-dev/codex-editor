@@ -187,7 +187,7 @@ function App() {
                         }
                     />
                     <VSCodeButton onClick={() => searchBoth(query)}>
-                        Search
+                        Search (test change)
                     </VSCodeButton>
                 </div>
 
@@ -268,9 +268,6 @@ function App() {
                             gap: "10px",
                         }}
                     >
-                        <VSCodeButton onClick={callback}>
-                            Regenerate meaning database.
-                        </VSCodeButton>
                     </div>
                 )}
             </div>

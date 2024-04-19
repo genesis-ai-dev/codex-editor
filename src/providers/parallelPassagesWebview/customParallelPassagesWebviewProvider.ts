@@ -1,7 +1,9 @@
 import * as vscode from "vscode";
 import { jumpToCellInNotebook } from "../../utils";
 import { registerTextSelectionHandler, performSearch } from "../../handlers/textSelectionHandler";
+import { PythonMessenger } from "../../utils/pyglsMessenger";
 
+const pyMessenger: PythonMessenger = new PythonMessenger();
 const abortController: AbortController | null = null;
 
 interface OpenFileMessage {
@@ -147,13 +149,8 @@ const loadWebviewHtml = (
                     if (message.database === 'resources') {
                         const query = message.query;
                         try {
-                            const response = await fetch(`http://localhost:5554/search?query=${encodeURIComponent(query)}&db_name=resources&limit=10`, {
-                                method: 'GET',
-                            });
-                            if (!response.ok) {
-                                throw new Error(`HTTP error! status: ${response.status}`);
-                            }
-                            const data = await response.json();
+                            const data = await pyMessenger.search("resources", query, 10);
+
                             webviewView.webview.postMessage({
                                 command: "resourceResults",
                                 data: data,

@@ -1,7 +1,9 @@
 import * as vscode from "vscode";
 import { jumpToCellInNotebook } from "../../utils";
+import { PythonMessenger } from "../../utils/pyglsMessenger";
 
 const abortController: AbortController | null = null;
+const pyMessenger: PythonMessenger = new PythonMessenger();
 
 interface OpenFileMessage {
     command: "openFileAtLocation";
@@ -106,38 +108,16 @@ const loadWebviewHtml = (
                 case "getSimilar":
                     try {
                         const word = message.word;
-                        const response = await fetch(`http://localhost:5554/get_most_similar?word=${encodeURIComponent(word)}`, {
-                            method: 'GET',
-                        });
-                        if (!response.ok) {
-                            throw new Error(`HTTP error! status: ${response.status}`);
-                        }
-                        const data = await response.json();
+                        const response = await pyMessenger.getMostSimilar("target", word);
+                        
                         webviewView.webview.postMessage({
                             command: "similarWords",
-                            data: data,
+                            data: response,
                         });
                     } catch (error) {
                         console.error('Failed to get similar words:', error);
                     }
-                    break;
-                case "train":
-                    try {
-                        const response = await fetch('http://localhost:5554/train_gensim_model?db_name=.bible', {
-                            method: 'GET',
-                        });
-                        if (!response.ok) {
-                            throw new Error(`HTTP error! status: ${response.status}`);
-                        }
-                        const result = await response.json();
-                        webviewView.webview.postMessage({
-                            command: "loadingComplete",
-                        });
-                        vscode.window.showInformationMessage('Bible model training initiated.');
-                    } catch (error) {
-                        console.error('Failed to initiate training of the Bible model:', error);
-                    }
-                        break;
+                    break;                
                 default:
                     console.error(`Unknown command: ${message.command}`);
             }
