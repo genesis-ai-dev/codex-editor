@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { VSCodeButton, VSCodeTextField, VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
 import WordCloud from "react-wordcloud";
 
+
 const vscode = acquireVsCodeApi();
 
 interface SimilarWord {
@@ -28,9 +29,9 @@ function App() {
             switch (message.command) {
                 case "similarWords":
                     {
-                        const words = message.data.map((word: { word: string; score: number }) => ({
-                            text: word.word,
-                            value: word.score,
+                        const words = message.data.map((word: { text: string; value: number }) => ({
+                            text: word.text,
+                            value: word.value,
                         }));
                         const normalizedWords = normalizeScores(words);
                         setSimilarWords(normalizedWords);

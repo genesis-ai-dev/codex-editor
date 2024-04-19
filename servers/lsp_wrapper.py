@@ -17,6 +17,7 @@ from lsprotocol.types import (Range, Position, DiagnosticSeverity,
                             TEXT_DOCUMENT_DID_OPEN)
 import lsprotocol.types as lsp_types
 import socket_functions
+from utils import bia
 
 router = socket_functions.universal_socket_router
 
@@ -235,8 +236,17 @@ class LSPWrapper:
     def initialize(self, lspw, params):
         """
         Initialize things once the workspace is all set
-        """     
+        """
         assert params # just to get rid of the anoying pylint stuff
         self.paths.data_path = lspw.server.workspace.root_path + self.paths.data_path
         self.paths.raw_path = lspw.server.workspace.root_path
+        print("initializing BIA")
+        path = self.paths.data_path + "/complete_draft.txt"
+        print("path: ", path)
+        try:
+            print("opening")
+            self.socket_router.bia = bia.BidirectionalInverseAttention(path=path)
+            print("success")
+        except IndexError as e:
+            print(str(e))
         self.socket_router.prepare(self.paths.raw_path)

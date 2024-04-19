@@ -14,7 +14,6 @@ class ServableForecasting:
             sf (LSPWrapper): The server functions object that provides access to server-related utilities.
             chunk_size (int, optional): The size of the chunks for text generation. Defaults to 100.
         """
-        self.bia = None
         self.chunk_size = chunk_size
         self.lspw: LSPWrapper = lspw
 
@@ -31,8 +30,7 @@ class ServableForecasting:
         Returns:
             List: A list of CompletionItem objects representing text completion suggestions.
         """
-        if not self.bia:
-            self.initialize()
+
         try:
             document_uri = params.text_document.uri
             document = lspw.server.workspace.get_document(document_uri)
@@ -40,33 +38,13 @@ class ServableForecasting:
 
             seed_sentence = line.strip()
             print("sentence: ", seed_sentence)
-            if self.bia is not None:
-                completions = self.bia.get_possible_next(seed_sentence, options=4)
-                return [CompletionItem(
-                    label=completion,
-                    text_edit=TextEdit(range=_range, new_text=completion),
-                ) for completion in completions]
-            else:
-                return []
+            completions = lspw.socket_router.bia.get_possible_next(seed_sentence, options=4)
+            return [CompletionItem(
+                label=completion,
+                text_edit=TextEdit(range=_range, new_text=completion),
+            ) for completion in completions]
+
         except IndexError:
             return []
 
-    def initialize(self):
-        """
-        Initialize the text generation functionality by setting up the text generator.
-
-        Args:
-            params: The initialization parameters.
-            server (LanguageServer): The instance of the language server.
-            sf (LSPWrapper): The server functions object.
-        """
-        print("initializing")
-        path = self.lspw.paths.data_path + "/complete_draft.txt"
-        print("path: ", path)
-        try:
-            print("opening")
-            self.bia = bia.BidirectionalInverseAttention(path=path)
-            print("success")
-        except IndexError as e:
-            print(str(e))
 

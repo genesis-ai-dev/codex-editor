@@ -4,7 +4,7 @@ Socket function router, functions, and logic
 import json
 from utils import json_database
 from utils import lad
-
+from utils import bia
 
 class SocketRouter:
     """
@@ -21,6 +21,7 @@ class SocketRouter:
         self.database: json_database.JsonDatabase = None
         self.anomaly_detector: lad.LAD = None
         self.ready = False
+        self.bia: bia.BidirectionalInverseAttention = None
 
     def prepare(self, workspace_path):
         """prepares the socket stuff"""
@@ -29,6 +30,9 @@ class SocketRouter:
         self.database.create_database(bible_dir=self.workspace_path, codex_dir=self.workspace_path, save_all_path=self.workspace_path+"/.project/")
         self.anomaly_detector: lad.LAD = lad.LAD(codex=self.database, bible=self.database, n_samples=3)
         self.ready = True
+
+        
+
     def route_to(self, json_input):
         """
         Routes a json query to the needed function
@@ -42,10 +46,10 @@ class SocketRouter:
             return json.dumps({"score": result})
         elif function_name == 'search':
             results = self.search(args['text_type'], args['query'], args.get('limit', 10))
-            return json.dumps({"results": results})
+            return json.dumps(results)
         elif function_name == 'get_most_similar':
-            results = self.get_most_similar()
-            return json.dumps({"most_similar": results})
+            results = self.get_most_similar(args['text_type'], args['text'])
+            return json.dumps([{'text': p[0], 'value': p[1]} for p in results])
         elif function_name == 'get_rarity':
             result = self.get_rarity(args['text_type'], args['text'])
             return json.dumps({"rarity": result})
@@ -68,9 +72,9 @@ class SocketRouter:
         """Search the specified database for a query."""
         return self.database.search(query, text_type=text_type, top_n=int(limit))
 
-    def get_most_similar(self):
+    def get_most_similar(self, text_type, text):
         """Get words most similar to the given word from the specified database."""
-        return []
+        return self.bia.synonimize(text, 100)[:10]
 
     def get_rarity(self, text_type, text):
         """

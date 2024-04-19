@@ -112,6 +112,8 @@ class BidirectionalInverseAttention:
     def synonimize(self, word, top_n: int = 77):
         samples = self.search(word, bound=word)
         step = len(samples) // top_n
+        if step == 0:
+            step = 1
         samples = [samples[i] for i in range(0, len(samples), step)]
 
         with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -123,7 +125,7 @@ class BidirectionalInverseAttention:
             probabilities = [future.result() for future in concurrent.futures.as_completed(futures)]
 
         combined_probabilities = self.combine_votes(probabilities)
-        return [p[0] for p in combined_probabilities]
+        return [p for p in combined_probabilities if p[0] != word]
 
     def combine_votes(self, probabilities_list):
         combined_probabilities = defaultdict(float)
@@ -151,8 +153,8 @@ class BidirectionalInverseAttention:
         return list(zip(sorted_words, sorted_scores))
 
 if __name__ == "__main__":
-    BDTF = BidirectionalInverseAttention("bible.txt")
+    BDTF = BidirectionalInverseAttention("/Users/daniellosey/project1/.project/sourceTextBibles/eng-eng-rv.bible")
 
     while 1:
         text = input(":")
-        print(BDTF.get_possible_next(text))
+        print(BDTF.synonimize(text, 77)[:10])
