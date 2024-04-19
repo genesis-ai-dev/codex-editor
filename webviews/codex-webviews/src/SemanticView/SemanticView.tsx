@@ -102,18 +102,6 @@ function App() {
                 />
                 <VSCodeButton appearance="primary" onClick={() => searchSimilarWords(query)}>Search</VSCodeButton>
             </div>
-            <div style={{ marginBottom: "1em" }}>
-                <VSCodeButton appearance="secondary" onClick={trainModel} disabled={isTraining}>
-                    {isTraining ? (
-                        <>
-                            <VSCodeProgressRing />
-                            <span style={{ marginLeft: "0.5em", whiteSpace: "nowrap" }}>Training Model, reload app once complete</span>
-                        </>
-                    ) : (
-                        "Train Model"
-                    )}
-                </VSCodeButton>
-            </div>
 
             {similarWords.length > 0 && (
                 <div style={{ width: "100%", height: "400px" }}>
