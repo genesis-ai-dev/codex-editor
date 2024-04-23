@@ -250,5 +250,5 @@ export function triggerInlineCompletion() {
 }
 
 export function disableInlineCompletion() {
-    shouldProvideCompletion = true;
+    shouldProvideCompletion = false;
 }
