@@ -248,3 +248,7 @@ export function triggerInlineCompletion() {
     shouldProvideCompletion = true;
     vscode.commands.executeCommand("editor.action.inlineSuggest.trigger");
 }
+
+export function disableInlineCompletion() {
+    shouldProvideCompletion = true;
+}
