@@ -44,7 +44,9 @@ class PythonMessenger {
   async search(textType: string, query: string, limit: number = 10): Promise<any> {
     return this.sendRequest('search', { text_type: textType, query, limit });
   }
-
+  async searchResources(query: string, limit: number = 10): Promise<any> {
+    return this.sendRequest('search_resources', { query, limit });
+  }
   async getMostSimilar(textType: string, text: string): Promise<any> {
     return this.sendRequest('get_most_similar', { text_type: textType, text });
   }
@@ -60,6 +62,7 @@ class PythonMessenger {
   async detectAnomalies(query: string, limit: number = 10): Promise<any> {
     return this.sendRequest('detect_anomalies', { query, limit });
   }
+
 }
 
 export { PythonMessenger };

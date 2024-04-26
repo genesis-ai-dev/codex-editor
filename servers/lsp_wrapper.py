@@ -241,7 +241,9 @@ class LSPWrapper:
         self.paths.data_path = lspw.server.workspace.root_path + self.paths.data_path
         self.paths.raw_path = lspw.server.workspace.root_path
         print("initializing BIA")
-        path = self.paths.data_path + "/complete_draft.txt"
+        self.socket_router.prepare(self.paths.raw_path)
+
+        path = self.paths.data_path + "/complete_draft.context"
         print("path: ", path)
         try:
             print("opening")
@@ -249,4 +251,3 @@ class LSPWrapper:
             print("success")
         except IndexError as e:
             print(str(e))
-        self.socket_router.prepare(self.paths.raw_path)

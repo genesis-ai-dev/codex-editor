@@ -16,7 +16,6 @@ class BidirectionalInverseAttention:
             print(corpus[0:100])
             sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s', corpus)
             sentences = [re.sub(r'[^\w\s]', '', sentence) for sentence in sentences]
-
         self.corpus = corpus
         self.sentences = sentences
 
@@ -113,6 +112,7 @@ class BidirectionalInverseAttention:
         samples = self.search(word, bound=word)
         step = len(samples) // top_n
         if step == 0:
+            
             step = 1
         samples = [samples[i] for i in range(0, len(samples), step)]
 

@@ -27,7 +27,7 @@ class SocketRouter:
         """prepares the socket stuff"""
         self.workspace_path = workspace_path
         self.database: json_database.JsonDatabase = json_database.JsonDatabase()
-        self.database.create_database(bible_dir=self.workspace_path, codex_dir=self.workspace_path, save_all_path=self.workspace_path+"/.project/")
+        self.database.create_database(bible_dir=self.workspace_path, codex_dir=self.workspace_path, resources_dir=self.workspace_path+'/.project/', save_all_path=self.workspace_path+"/.project/")
         self.anomaly_detector: lad.LAD = lad.LAD(codex=self.database, bible=self.database, n_samples=3)
         self.ready = True
 
@@ -37,6 +37,7 @@ class SocketRouter:
         """
         Routes a json query to the needed function
         """
+        print(json_input)
         data = json.loads(json_input)
         function_name = data['function_name']
         args = data['args']
@@ -47,6 +48,8 @@ class SocketRouter:
         elif function_name == 'search':
             results = self.search(args['text_type'], args['query'], args.get('limit', 10))
             return json.dumps(results)
+        elif function_name == 'search_resources':
+            results = self.search_resources(args['query'], args.get('limit', 10))
         elif function_name == 'get_most_similar':
             results = self.get_most_similar(args['text_type'], args['text'])
             return json.dumps([{'text': p[0], 'value': p[1]} for p in results])
@@ -72,9 +75,13 @@ class SocketRouter:
         """Search the specified database for a query."""
         return self.database.search(query, text_type=text_type, top_n=int(limit))
 
+    def search_resources(self, query, limit=10):
+        """searches resources"""
+        return self.database.search_resources(query, limit)
+
     def get_most_similar(self, text_type, text):
         """Get words most similar to the given word from the specified database."""
-        return self.bia.synonimize(text, 100)[:10]
+        return self.bia.synonimize(text, 100)[:15]
 
     def get_rarity(self, text_type, text):
         """

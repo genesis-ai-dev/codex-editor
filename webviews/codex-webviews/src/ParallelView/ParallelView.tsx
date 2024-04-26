@@ -187,7 +187,7 @@ function App() {
                         }
                     />
                     <VSCodeButton onClick={() => searchBoth(query)}>
-                        Search (test change)
+                        Search
                     </VSCodeButton>
                 </div>
 

@@ -1,6 +1,3 @@
-"""
-json tfidf database
-"""
 import os
 import re
 import json
@@ -9,23 +6,27 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 class JsonDatabase:
     """
-    JSON database for the bible files
+    JSON database for the bible files and resource files
     """
     def __init__(self):
         self.dictionary = {}
         self.tfidf_vectorizer_source = TfidfVectorizer()
         self.tfidf_vectorizer_target = TfidfVectorizer()
+        self.tfidf_vectorizer_resources = TfidfVectorizer()
         self.tfidf_matrix_source = None
         self.tfidf_matrix_target = None
+        self.tfidf_matrix_resources = None
         self.source_texts = []
         self.target_texts = []
+        self.resource_texts = []
         self.source_references = []
         self.target_references = []
         self.source_uris = []
         self.target_uris = []
+        self.resource_uris = []
         self.complete_text = ""
     
-    def create_database(self, bible_dir, codex_dir, save_all_path):
+    def create_database(self, bible_dir, codex_dir, resources_dir, save_all_path):
         """
         Generates database dictionary
         """
@@ -58,10 +59,12 @@ class JsonDatabase:
             self.target_uris.append(uri)
             self.complete_text += " " + text
 
-        with open(save_all_path+"/complete_draft.txt", "w+", encoding='utf-8') as f:
+        with open(save_all_path+"/complete_draft.context", "w+", encoding='utf-8') as f:
             f.write(self.complete_text)
         self.tfidf_matrix_source = self.tfidf_vectorizer_source.fit_transform(self.source_texts)
         self.tfidf_matrix_target = self.tfidf_vectorizer_target.fit_transform(self.target_texts)
+
+        self.load_resources(resources_dir)
     
     def search(self, query_text, text_type="source", top_n=5):
         """
@@ -113,12 +116,51 @@ class JsonDatabase:
         
         return word_rarity_dict
 
+    def load_resources(self, resources_dir):
+        """
+        Loads resource files from the specified directory and its subdirectories
+        """
+        resource_files = self.find_resource_files(resources_dir)
+        self.resource_texts = []
+        self.resource_uris = []
+
+        for file_path in resource_files:
+            with open(file_path, "r", encoding="utf-8") as file:
+                content = file.read()
+                self.resource_texts.append(content)
+                self.resource_uris.append(file_path)
+
+        self.tfidf_vectorizer_resources = TfidfVectorizer()
+        self.tfidf_matrix_resources = self.tfidf_vectorizer_resources.fit_transform(self.resource_texts)
+
+    def find_resource_files(self, path):
+        """
+        Finds resource files in the specified directory and its subdirectories
+        """
+        resource_extensions = ['.txt', '.rtf', '.tsv']
+        resource_files = []
+
+        for root, _, files in os.walk(path):
+            for file in files:
+                if any(file.endswith(ext) for ext in resource_extensions):
+                    resource_files.append(os.path.join(root, file))
+
+        return resource_files
+
+    def search_resources(self, query_text, top_n=5):
+        """
+        Searches for relevant resource files based on the query text using TF-IDF
+        """
+        query_vector = self.tfidf_vectorizer_resources.transform([query_text])
+        similarities = cosine_similarity(query_vector, self.tfidf_matrix_resources)
+        top_indices = similarities.argsort()[0][-top_n:][::-1]
+        return [{'uri': self.resource_uris[i], 'text': self.resource_texts[i]} for i in top_indices]
     
     def get_text(self, ref: str, text_type="source"):
+        """
+        Retrieves the text for a given reference and text type
+        """
         return self.dictionary[ref][text_type]
-    
-
-
 
 def find_all(path: str, types: str = ".codex"):
     """
@@ -215,4 +257,3 @@ def extract_from_bible_file(path):
             verses.append(verse)
 
     return verses
-

@@ -149,7 +149,7 @@ const loadWebviewHtml = (
                     if (message.database === 'resources') {
                         const query = message.query;
                         try {
-                            const data = await pyMessenger.search("resources", query, 10);
+                            const data = await pyMessenger.searchResources(query, 10);
 
                             webviewView.webview.postMessage({
                                 command: "resourceResults",
