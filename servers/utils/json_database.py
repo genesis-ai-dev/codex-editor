@@ -24,7 +24,7 @@ class JsonDatabase:
         self.source_uris = []
         self.target_uris = []
         self.resource_uris = []
-        self.complete_text = ""
+        self.complete_draft = ""
     
     def create_database(self, bible_dir, codex_dir, resources_dir, save_all_path):
         """
@@ -32,7 +32,7 @@ class JsonDatabase:
         """
         try:
             source_files = extract_from_bible_file(path=find_all(bible_dir, ".bible")[0])
-        except FileNotFoundError:
+        except IndexError:
             source_files = []
         target_files = extract_codex_chunks(path=codex_dir)
 
@@ -44,7 +44,6 @@ class JsonDatabase:
             self.source_texts.append(text)
             self.source_references.append(ref)
             self.source_uris.append(uri)
-            self.complete_text += " " + text
         
         for verse in target_files:
             ref = verse["ref"]
@@ -57,25 +56,39 @@ class JsonDatabase:
             self.target_texts.append(text)
             self.target_references.append(ref)
             self.target_uris.append(uri)
-            self.complete_text += " " + text
+            self.complete_draft += " " + text
 
         with open(save_all_path+"/complete_draft.context", "w+", encoding='utf-8') as f:
-            f.write(self.complete_text)
-        self.tfidf_matrix_source = self.tfidf_vectorizer_source.fit_transform(self.source_texts)
-        self.tfidf_matrix_target = self.tfidf_vectorizer_target.fit_transform(self.target_texts)
+            f.write(self.complete_draft)
+        
+        try:
+            self.tfidf_matrix_source = self.tfidf_vectorizer_source.fit_transform(self.source_texts)
+        except ValueError:
+            self.tfidf_matrix_source = None
 
-        self.load_resources(resources_dir)
+        try:
+            self.tfidf_matrix_target = self.tfidf_vectorizer_target.fit_transform(self.target_texts)
+        except ValueError:
+            self.tfidf_matrix_target = None
+        try:
+            self.load_resources(resources_dir)
+        except ValueError:
+            pass
     
     def search(self, query_text, text_type="source", top_n=5):
         """
         Searches for references based on the query text using TF-IDF
         """
         if text_type == "source":
+            if self.tfidf_matrix_source is None:
+                return [{'ref': ref, 'text': '', 'uri': uri} for ref, uri in zip(self.source_references, self.source_uris)][:top_n]
             query_vector = self.tfidf_vectorizer_source.transform([query_text])
             similarities = cosine_similarity(query_vector, self.tfidf_matrix_source)
             top_indices = similarities.argsort()[0][-top_n:][::-1]
             return [{'ref': self.source_references[i], 'text': self.source_texts[i], 'uri': self.source_uris[i]} for i in top_indices]
         elif text_type == "target":
+            if self.tfidf_matrix_target is None:
+                return [{'ref': ref, 'text': '', 'uri': uri} for ref, uri in zip(self.target_references, self.target_uris)][:top_n]
             query_vector = self.tfidf_vectorizer_target.transform([query_text])
             similarities = cosine_similarity(query_vector, self.tfidf_matrix_target)
             top_indices = similarities.argsort()[0][-top_n:][::-1]
@@ -102,17 +115,20 @@ class JsonDatabase:
         else:
             raise ValueError("Invalid text_type. Choose either 'source' or 'target'.")
 
-        # Transform the input text to a TF-IDF vector
-        query_vector = tfidf_vectorizer.transform([text])
-        
-        # Get feature names to map the feature index to the actual word
-        feature_names = tfidf_vectorizer.get_feature_names_out()
-        
-        # Get the scores for each word in the input text
-        scores = query_vector.toarray().flatten()
-        
-        # Create a dictionary of words and their corresponding scores
-        word_rarity_dict = {feature_names[i]: scores[i] for i in range(len(scores)) if scores[i] > 0}
+        try:
+            # Transform the input text to a TF-IDF vector
+            query_vector = tfidf_vectorizer.transform([text])
+            
+            # Get feature names to map the feature index to the actual word
+            feature_names = tfidf_vectorizer.get_feature_names_out()
+            
+            # Get the scores for each word in the input text
+            scores = query_vector.toarray().flatten()
+            
+            # Create a dictionary of words and their corresponding scores
+            word_rarity_dict = {feature_names[i]: scores[i] for i in range(len(scores)) if scores[i] > 0}
+        except:
+            word_rarity_dict = {}
         
         return word_rarity_dict
 
@@ -130,8 +146,10 @@ class JsonDatabase:
                 self.resource_texts.append(content)
                 self.resource_uris.append(file_path)
 
-        self.tfidf_vectorizer_resources = TfidfVectorizer()
-        self.tfidf_matrix_resources = self.tfidf_vectorizer_resources.fit_transform(self.resource_texts)
+        if self.resource_texts:
+            self.tfidf_matrix_resources = self.tfidf_vectorizer_resources.fit_transform(self.resource_texts)
+        else:
+            self.tfidf_matrix_resources = None
 
     def find_resource_files(self, path):
         """
@@ -151,6 +169,8 @@ class JsonDatabase:
         """
         Searches for relevant resource files based on the query text using TF-IDF
         """
+        if self.tfidf_matrix_resources is None:
+            return [{'uri': uri, 'text': ''} for uri in self.resource_uris][:top_n]
         query_vector = self.tfidf_vectorizer_resources.transform([query_text])
         similarities = cosine_similarity(query_vector, self.tfidf_matrix_resources)
         top_indices = similarities.argsort()[0][-top_n:][::-1]
