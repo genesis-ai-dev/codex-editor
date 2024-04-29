@@ -1,12 +1,23 @@
 """
 Socket function router, functions, and logic
 """
+import re
 import json
 import threading
 from utils import json_database
 from utils import lad
 from utils import bia
-import webbrowser
+from utils import editor
+
+
+def replace_pairs(text):
+    # Define a regular expression pattern to match pairs of *some text*
+    pattern = r'\*(.*?)\*'
+    
+    # Use re.sub to replace matches with <b>some text</b>
+    replaced_text = re.sub(pattern, r'<b>\1</b>', text)
+    
+    return replaced_text
 
 class SocketRouter:
     """
@@ -146,6 +157,7 @@ class SocketRouter:
                 "detailed_anomalies": [{"reason": ".codex results returned none", "reference": "N/A"}]
             }
     def change_file(self, uri, before, after):
+        after = after.replace("*", "")
         with open(uri, 'r+', encoding='utf-8') as f:
             text = f.read()
             text = text.replace(before, after)
@@ -155,11 +167,13 @@ class SocketRouter:
             
     def apply_edit(self,item, before, after):
         # soemthing that takes a while
+        result = editor.get_edit(before, after, item['text'])
+        jsn = json.loads(result)
         result = {
             "reference": item['ref'],
             "uri": item['uri'],
-            "before": before,
-            "after": after
+            "before": item['text'],
+            "after": jsn['edit']
         }
         return result
     

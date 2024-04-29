@@ -16,3 +16,4 @@ tabulate
 gensim
 scikit-image
 scikit-learn
+openai

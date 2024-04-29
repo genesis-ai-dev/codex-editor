@@ -266,7 +266,7 @@ class LSPWrapper:
         #     for function in self.functions.open_functions:
         #         function(self, params)
         
-        # self.start_socket_server(socket_host, socket_port)
+        self.start_socket_server(socket_host, socket_port)
     
 
     def on_selected(self, text):

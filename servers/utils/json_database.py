@@ -61,19 +61,17 @@ class JsonDatabase:
         with open(save_all_path+"/complete_draft.context", "w+", encoding='utf-8') as f:
             f.write(self.complete_draft)
         
-        try:
+        if self.source_texts:
             self.tfidf_matrix_source = self.tfidf_vectorizer_source.fit_transform(self.source_texts)
-        except ValueError:
+        else:
             self.tfidf_matrix_source = None
 
-        try:
+        if self.target_texts:
             self.tfidf_matrix_target = self.tfidf_vectorizer_target.fit_transform(self.target_texts)
-        except ValueError:
+        else:
             self.tfidf_matrix_target = None
-        try:
-            self.load_resources(resources_dir)
-        except ValueError:
-            pass
+
+        self.load_resources(resources_dir)
     
     def search(self, query_text, text_type="source", top_n=5):
         """
