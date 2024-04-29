@@ -31,6 +31,7 @@
         "src/ScriptureViewer/index.tsx",
         "src/CommentsView/CommentsView.tsx",
         "src/ParallelView/ParallelView.tsx",
+        "src/SmartView/SmartView.tsx",
         "src/ParallelView/index.tsx",
         "src/SemanticView/SemanticView.tsx",
         "src/SemanticView/index.tsx"

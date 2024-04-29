@@ -2,9 +2,11 @@
 Socket function router, functions, and logic
 """
 import json
+import threading
 from utils import json_database
 from utils import lad
 from utils import bia
+import webbrowser
 
 class SocketRouter:
     """
@@ -20,6 +22,7 @@ class SocketRouter:
         self.workspace_path = ""
         self.database: json_database.JsonDatabase = None
         self.anomaly_detector: lad.LAD = None
+        self.edit_results = []
         self.ready = False
         self.bia: bia.BidirectionalInverseAttention = None
 
@@ -50,6 +53,7 @@ class SocketRouter:
             return json.dumps(results)
         elif function_name == 'search_resources':
             results = self.search_resources(args['query'], args.get('limit', 10))
+            return json.dumps(results)
         elif function_name == 'get_most_similar':
             results = self.get_most_similar(args['text_type'], args['text'])
             return json.dumps([{'text': p[0], 'value': p[1]} for p in results])
@@ -61,6 +65,15 @@ class SocketRouter:
             return json.dumps({"text": results})
         elif function_name == 'detect_anomalies':
             results = self.detect_anomalies(args['query'], args.get('limit', 10))
+            return json.dumps(results)
+        elif function_name == 'search_for_edits':
+            results = self.search_for_edits(args['before'], args['after'])
+            return json.dumps(results)
+        elif function_name == 'apply_edit':
+            self.change_file(args['uri'], args['before'], args['after'])
+            return json.dumps({'status': 'ok'})
+        elif function_name == 'get_edit_results':
+            results = self.get_edit_results()
             return json.dumps(results)
         else:
             raise ValueError(f"Unknown function: {function_name}")
@@ -132,5 +145,58 @@ class SocketRouter:
                 "codex_results": self.database.search(query_text=query, text_type="target", top_n=limit),
                 "detailed_anomalies": [{"reason": ".codex results returned none", "reference": "N/A"}]
             }
+    def change_file(self, uri, before, after):
+        with open(uri, 'r+', encoding='utf-8') as f:
+            text = f.read()
+            text = text.replace(before, after)
+            f.seek(0)
+            f.write(text)
+            f.truncate()
+            
+    def apply_edit(self,item, before, after):
+        # soemthing that takes a while
+        result = {
+            "reference": item['ref'],
+            "uri": item['uri'],
+            "before": before,
+            "after": after
+        }
+        return result
+    
+    def search_for_edits(self, before, after):
+        items = self.database.search(before, text_type="target")
+        lock = threading.Lock()  # Create a lock for thread safety
+
+        def apply_edit_to_item(item_index):
+            if item_index < len(items):
+                item = items[item_index]
+                result = self.apply_edit(item, before, after)
+                with lock:  # Acquire the lock before appending to edit_results
+                    self.edit_results.append(result)
+                # Spawn a new thread for the next item
+                threading.Thread(target=apply_edit_to_item, args=(item_index + 1,)).start()
+
+        # Start processing the first item
+        apply_edit_to_item(0)
+        return items
+
+    # def get_edit_results(self):
+    #     edit_results = []
+    #     # Retrieve items from the edit queue and generate edits using an LLM (boilerplate for now)
+    #     # Append the generated edits to edit_results
+    def get_edit_results(self):
         
+        ret = self.edit_results.copy()
+        self.edit_results = []
+        return ret   
 universal_socket_router = SocketRouter()
+     # edit_queue = []
+        # for result in search_results:
+        #     edit_queue.append({
+        #         "reference": result['ref'],
+        #         "uri": result['uri'],
+        #         "before": before,
+        #         "after": after
+        #     })
+        # print("results")
+        # print(edit_queue)

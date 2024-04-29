@@ -25,11 +25,15 @@ def add_dictionary(args: List[str]) -> bool:
     """Add a dictionary to the spelling servable."""
     return spelling.add_dictionary(args)
 
+def add_line_dictionary(args): # its counter intuitive but this is the best way
+    return spelling.add_dictionary([], mode='many')
 
 def on_highlight(params: List[str]) -> None:
     """Handle text selection event."""
     lsp_wrapper.on_selected(str(params[0]))
 
+# def on_hover(lspw, params, word):
+#     webbrowser.open("https://www.google.com/?q="+word)
 # Initialize the language server with metadata
 server = LanguageServer("code-action-server", "v0.1")
 
@@ -57,8 +61,10 @@ lsp_wrapper.add_diagnostic(vrefs.vref_diagnostics)
 lsp_wrapper.add_action(spelling.spell_action)
 lsp_wrapper.add_action(vrefs.vref_code_actions)
 
+#lsp_wrapper.add_hover(on_hover)
 # Register close function and commands with the server
 server.command("pygls.server.add_dictionary")(add_dictionary)
+server.command("pygls.server.add_line_dictionary")(add_line_dictionary)
 server.command("pygls.server.textSelected")(on_highlight)
 # Start the Flask server and the language server
 

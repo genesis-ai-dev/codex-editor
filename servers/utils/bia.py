@@ -9,6 +9,39 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 import numpy as np
 from scipy.sparse import csr_matrix
 
+
+class MarkovChain:
+    def __init__(self, corpus: str):
+        self.corpus = corpus
+        self.words = corpus.split()
+        self.mapping = {}
+        self.reverse_mapping = {}
+        for index, word in enumerate(self.words):
+            if index == len(self.words)-1:
+                break
+            if word not in self.mapping:
+                self.mapping[word] = [self.words[index + 1]]
+            else:
+                self.mapping[word].append(self.words[index + 1])
+            if index > 0:
+                if word not in self.reverse_mapping:
+                    self.reverse_mapping[word] = [self.words[index - 1]]
+                else:
+                    self.reverse_mapping[word].append(self.words[index - 1])
+
+    def can_be_next(self, last, next_):
+        if last not in self.mapping:
+            return True  # cause why not
+        else:
+            return next_ in self.mapping[last]
+
+    def can_preclude(self, word, next_):
+        if next_ not in self.reverse_mapping:
+            return True
+        else:
+            return word in self.reverse_mapping[next_]
+
+
 class BidirectionalInverseAttention:
     def __init__(self, path):
         with open(path, 'r', encoding='utf-8') as f:
@@ -17,6 +50,7 @@ class BidirectionalInverseAttention:
             sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s', corpus)
             sentences = [re.sub(r'[^\w\s]', '', sentence) for sentence in sentences]
         self.corpus = corpus
+        self.chain = MarkovChain(corpus)
         self.sentences = sentences
 
         # Create TfidfVectorizer and fit it to the sentences
@@ -58,6 +92,7 @@ class BidirectionalInverseAttention:
                 counts[word] += 1
 
         return counts.most_common()
+
     def predict(self, query, top_n: int = 15, bound=''):
         _text = query.split()
         target = [_text.index(i) for i in _text if '[MASK]' in i][0]
@@ -99,20 +134,21 @@ class BidirectionalInverseAttention:
             _text = _text.replace('[MASK] ', next_word)
             _text = _text + " [MASK] "
         return _text
+
     def get_possible_next(self, _text, options=4):
+        last = _text.split()[-1]
         if _text.endswith(" "):
             _text = _text + '[MASK] '
         else:
             _text = _text + ' [MASK] '
-        next_words = [option[0] for option in self.predict(_text)][:options]
+        next_words = [option[0] for option in self.predict(_text)][:options*4]
 
-        return next_words
+        return [option for option in next_words if self.chain.can_be_next(last, option)]
 
     def synonimize(self, word, top_n: int = 77):
         samples = self.search(word, bound=word)
         step = len(samples) // top_n
         if step == 0:
-            
             step = 1
         samples = [samples[i] for i in range(0, len(samples), step)]
 
@@ -151,6 +187,7 @@ class BidirectionalInverseAttention:
         sorted_scores = normalized_scores[sorted_indices]
 
         return list(zip(sorted_words, sorted_scores))
+
 
 if __name__ == "__main__":
     BDTF = BidirectionalInverseAttention("/Users/daniellosey/project1/.project/sourceTextBibles/eng-eng-rv.bible")

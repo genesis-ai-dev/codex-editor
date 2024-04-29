@@ -23,6 +23,20 @@
     ],
     "main": "./out/extension.js",
     "contributes": {
+        "keybindings": [
+            {
+              "command": "pygls.server.add_dictionary",
+              "key": "ctrl+shift+a",
+              "mac": "cmd+shift+a",
+              "when": "editorTextFocus"
+            },
+            {
+                "command": "pygls.server.add_line_dictionary",
+                "key": "ctrl+shift+b",
+                "mac": "cmd+shift+b",
+                "when": "editorTextFocus"
+              }
+        ],
         "viewsWelcome": [
             {
                 "view": "scripture-explorer-activity-bar",
@@ -49,6 +63,15 @@
                     "name": "Parallel Passages",
                     "icon": "$(eye)",
                     "contextualTitle": "Parallel Passages"
+                }
+            ],
+            "smart-edit-view": [
+                {
+                    "type": "webview",
+                    "id": "smart-edit-sidebar",
+                    "name": "Smart Edit",
+                    "icon": "$(keybindings-sort)",
+                    "contextualTitle": "Smart Edit"
                 }
             ],
             "scripture-explorer-activity-bar": [
@@ -123,6 +146,11 @@
                     "id": "parallel-passages-view",
                     "title": "Parallel Passages",
                     "icon": "$(eye)"
+                },
+                {
+                    "id": "smart-edit-view",
+                    "title": "Smart View",
+                    "icon": "$(keybindings-sort)"
                 },
                 {
                     "id": "semantic-view",

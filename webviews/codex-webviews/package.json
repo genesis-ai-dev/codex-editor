@@ -6,9 +6,10 @@
     "scripts": {
         "dev": "vite",
         "build:ParallelView": "APP_NAME=ParallelView vite build",
+        "build:SmartView": "APP_NAME=SmartView vite build",
         "build:SemanticView": "APP_NAME=SemanticView vite build",
         "build:TranslationNotesView": "APP_NAME=TranslationNotesView vite build",
-        "build:all": "npm run build:ParallelView && npm run build:TranslationNotesView && npm run build:SemanticView",
+        "build:all": "npm run build:ParallelView && npm run build:TranslationNotesView && npm run build:SemanticView && npm run build:SmartView",
         "watch": "nodemon --watch src --ext ts,tsx --exec npm run build:all",
         "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
         "preview": "vite preview"

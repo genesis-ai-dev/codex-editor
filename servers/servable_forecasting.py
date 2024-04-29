@@ -32,17 +32,20 @@ class ServableForecasting:
         """
 
         try:
-            document_uri = params.text_document.uri
-            document = lspw.server.workspace.get_document(document_uri)
-            line = document.lines[params.position.line]
+            if lspw.socket_router.bia:
+                document_uri = params.text_document.uri
+                document = lspw.server.workspace.get_document(document_uri)
+                line = document.lines[params.position.line]
 
-            seed_sentence = line.strip()
-            print("sentence: ", seed_sentence)
-            completions = lspw.socket_router.bia.get_possible_next(seed_sentence, options=4)
-            return [CompletionItem(
-                label=completion,
-                text_edit=TextEdit(range=_range, new_text=completion),
-            ) for completion in completions]
+                seed_sentence = line.strip()
+                print("sentence: ", seed_sentence)
+                completions = lspw.socket_router.bia.get_possible_next(seed_sentence, options=4)
+                return [CompletionItem(
+                    label=completion,
+                    text_edit=TextEdit(range=_range, new_text=completion),
+                ) for completion in completions]
+            else:
+                return []
 
         except IndexError:
             return []

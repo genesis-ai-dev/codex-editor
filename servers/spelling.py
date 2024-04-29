@@ -624,18 +624,32 @@ class ServableSpelling:
             
         return actions
     
-    def add_dictionary(self, args):
+    def add_dictionary(self, args, mode='single'):
         """
         Add words to the dictionary.
 
         Args:
             args (List[str]): A list of words to be added to the dictionary.
         """
-        args = args[0]
-        for word in args:
-            self.dictionary.define(word)
-        self.lspw.server.show_message("Dictionary updated.")
+        try:
+            args = args[0]
+            for word in args:
+                self.dictionary.define(word)
+                self.lspw.server.show_message("Dictionary updated.")
 
+        except IndexError:
+            if mode == "single":
+                word = self.lspw.most_recent_hovered_word
+                if word:
+                    self.dictionary.define(word)
+                    self.lspw.server.show_message("Dictionary updated.")
+                else:
+                    self.lspw.server.show_message("No word to add.")
+            else:
+                words_to_add = self.lspw.most_recent_hovered_line.split(" ")
+                for word in words_to_add:
+                    self.dictionary.define(word)
+                self.lspw.server.show_message("Dictionary updated.")
     def initialize(self, params, lspw):
         """
         Initialize the spell checking functionality by setting up the dictionary and spell checker.

@@ -10,11 +10,20 @@ import dataclasses
 import json
 from typing import Callable, List, Any, Union
 from pygls.server import LanguageServer
-from lsprotocol.types import (Range, Position, DiagnosticSeverity, 
-                            TEXT_DOCUMENT_DID_CLOSE,
-                            DidCloseTextDocumentParams,
-                            DidOpenTextDocumentParams, 
-                            TEXT_DOCUMENT_DID_OPEN)
+from lsprotocol.types import (
+    Range,
+    Position,
+    DiagnosticSeverity,
+    TEXT_DOCUMENT_DID_CLOSE,
+    DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams,
+    TEXT_DOCUMENT_DID_OPEN,
+    Hover,
+    HoverParams,
+    MarkupContent,
+    MarkupKind,
+    TEXT_DOCUMENT_HOVER
+)
 import lsprotocol.types as lsp_types
 import socket_functions
 from utils import bia
@@ -46,6 +55,7 @@ class ListableFunctions:
     close_functions: List[Callable]
     open_functions: List[Callable]
     on_selected_functions: List[Callable]
+    hover_functions: List[Callable]
 
 @dataclasses.dataclass
 class Paths:
@@ -63,6 +73,8 @@ class HighLevelFunctions:
     action_function: Union[None, Callable]
     diagnostic_function: Union[None, Callable]
     completion_function: Union[None, Callable]
+    hover_function: Union[None, Callable]
+
 class LSPWrapper:
     """
     Functions for the language server
@@ -76,16 +88,19 @@ class LSPWrapper:
             initialize_functions=[],
             close_functions=[],
             open_functions=[],
-            on_selected_functions=[]
+            on_selected_functions=[],
+            hover_functions=[]
         )
         self.high_level_functions = HighLevelFunctions(
-            completion_function = None,
-            diagnostic_function = None,
-            action_function = None
+            completion_function=None,
+            diagnostic_function=None,
+            action_function=None,
+            hover_function=None
         )
         self.socket_router = router
         self.paths = Paths("", data_path=data_path)
-      
+        self.most_recent_hovered_word = ""
+        self.most_recent_hovered_line = ""
         self.last_closed = time.time()
     
     def add_diagnostic(self, function: Callable):
@@ -106,45 +121,41 @@ class LSPWrapper:
         """
         self.functions.action_functions.append(function)
     
-    # def add_close_function(self, function: Callable):
-    #     """
-    #     Adds a function to the close functions list.
-    #     """
-    #     self.functions.close_functions.append(function)
-    
-    # def add_open_function(self, function: Callable):
-    #     """
-    #     Adds a function to the open functions list.
-    #     """
-    #     self.functions.open_functions.append(function)
-    
     def add_selected_text_functions(self, function: Callable):
         """
         Adds a function to the on selected functions list.
         """
         self.functions.on_selected_functions.append(function)
 
+    def add_hover(self, function: Callable):
+        """
+        Adds a function to the hover functions list.
+        """
+        self.functions.hover_functions.append(function)
+
     def handle_connection(self, conn):
         with conn:
             data = conn.recv(1024).decode('utf-8')
             if self.socket_router:
                 response = self.socket_router.route_to(data)
-                conn.sendall(response.encode('utf-8'))
+                if response:
+                    conn.sendall(response.encode('utf-8'))
+                else:
+                    conn.sendall("")
 
     def start_socket_server(self, host, port):
         """
-        Starts socket
+        Starts socket server and kills any existing process on the given port.
         """
         def socket_server():
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 s.bind((host, port))
                 s.listen()
                 while True:
                     conn, _ = s.accept()
                     thread = threading.Thread(target=self.handle_connection, args=(conn,))
                     thread.start()
-
-        
 
         thread = threading.Thread(target=socket_server)
         thread.daemon = True
@@ -157,7 +168,7 @@ class LSPWrapper:
         @self.server.feature(
             lsp_types.TEXT_DOCUMENT_CODE_ACTION,
         )
-        def actions(params: Union [Any, lsp_types.CodeActionParams]):
+        def actions(params: Union[Any, lsp_types.CodeActionParams]):
             items = []
             document_uri = params.text_document.uri
             document = self.server.workspace.get_document(document_uri)
@@ -195,8 +206,42 @@ class LSPWrapper:
             completions = []
             for completion_function in self.functions.completion_functions:
                 completions.extend(completion_function(self, params, range_))
-            return lsp_types.CompletionList(items = completions, is_incomplete=False)
+            return lsp_types.CompletionList(items=completions, is_incomplete=False)
         self.high_level_functions.completion_function = completions
+
+        @self.server.feature(TEXT_DOCUMENT_HOVER)
+        def hover(params: HoverParams):
+            document_uri = params.text_document.uri
+            position = params.position
+            document = self.server.workspace.get_document(document_uri)
+            line = document.lines[position.line]
+            self.most_recent_hovered_line = line
+
+            word_start = line.rfind(" ", 0, position.character) + 1
+            word_end = line.find(" ", position.character)
+            if word_end == -1:
+                word_end = len(line)
+            word = line[word_start:word_end]
+            self.most_recent_hovered_word = word
+            hover_info = None
+            for hover_function in self.functions.hover_functions:
+                hover_info = hover_function(self, params, word)
+                if hover_info:
+                    break
+            
+            if hover_info:
+                contents = MarkupContent(
+                    kind=MarkupKind.PlainText,
+                    value=hover_info,
+                )
+                hover_range = Range(
+                    start=Position(line=position.line, character=word_start),
+                    end=Position(line=position.line, character=word_end),
+                )
+                return Hover(contents=contents, range=hover_range)
+            
+            return None
+        self.high_level_functions.hover_function = hover
 
         @self.server.feature(lsp_types.INITIALIZED)
         def initialize(params: lsp_types.InitializedParams):
@@ -215,21 +260,19 @@ class LSPWrapper:
         #         for function in self.functions.close_functions:
         #             function(self, params)
         
-    
         # @self.server.feature(TEXT_DOCUMENT_DID_OPEN)
         # def on_open(server, params: DidOpenTextDocumentParams):
         #     assert server # make pylint happy
         #     for function in self.functions.open_functions:
         #         function(self, params)
         
-        self.start_socket_server(socket_host, socket_port)
+        # self.start_socket_server(socket_host, socket_port)
     
 
     def on_selected(self, text):
         """
         On text selected
         """
-        # self.server.show_message("Text selected: "+text)
         for f in self.functions.on_selected_functions:
             f(text)
 
@@ -249,5 +292,5 @@ class LSPWrapper:
             print("opening")
             self.socket_router.bia = bia.BidirectionalInverseAttention(path=path)
             print("success")
-        except IndexError as e:
+        except ValueError as e:
             print(str(e))
