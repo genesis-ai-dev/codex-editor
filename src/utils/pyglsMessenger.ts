@@ -72,6 +72,14 @@ class PythonMessenger {
   async applyEdit(uri: string, before: string, after: string): Promise<any> {
     return this.sendRequest('apply_edit', { uri, before, after });
   }
+  async getHoveredWord(): Promise<any> {
+    const response = await this.sendRequest('hover_word', {});
+    return response['word'];
+  }
+  async getHoveredLine(): Promise<any> {
+    const response = await this.sendRequest('hover_line', {});
+    return response['line'];
+  }
 }
 
 export { PythonMessenger };

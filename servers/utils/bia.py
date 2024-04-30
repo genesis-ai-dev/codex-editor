@@ -46,7 +46,6 @@ class BidirectionalInverseAttention:
     def __init__(self, path):
         with open(path, 'r', encoding='utf-8') as f:
             corpus = f.read().lower()
-            print(corpus[0:100])
             sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s', corpus)
             sentences = [re.sub(r'[^\w\s]', '', sentence) for sentence in sentences]
         self.corpus = corpus

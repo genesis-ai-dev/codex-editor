@@ -148,7 +148,14 @@ export async function registerCommands(context: vscode.ExtensionContext) {
             },
         ),
     );
-
+    // context.subscriptions.push(
+    //     vscode.commands.registerCommand(
+    //         "codex-editor-extension.showSmartView",
+    //         async () => {
+    //             await vscode.workspace.open()
+    //         },
+    //     ),
+    // );
     context.subscriptions.push(
         vscode.commands.registerCommand(
             "codex-editor-extension.initializeNewProject",

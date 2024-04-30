@@ -149,6 +149,6 @@ export function registerSemanticViewProvider(
             new CustomWebviewProvider(context),
         ),
     );
-
+    
     item.show();
 }

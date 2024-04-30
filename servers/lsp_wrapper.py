@@ -284,7 +284,7 @@ class LSPWrapper:
         self.paths.data_path = lspw.server.workspace.root_path + self.paths.data_path
         self.paths.raw_path = lspw.server.workspace.root_path
         print("initializing BIA")
-        self.socket_router.prepare(self.paths.raw_path)
+        self.socket_router.prepare(self.paths.raw_path, self)
 
         path = self.paths.data_path + "/complete_draft.context"
         print("path: ", path)

@@ -36,14 +36,16 @@ class SocketRouter:
         self.edit_results = []
         self.ready = False
         self.bia: bia.BidirectionalInverseAttention = None
+        self.lspw = None
 
-    def prepare(self, workspace_path):
+    def prepare(self, workspace_path, lspw):
         """prepares the socket stuff"""
         self.workspace_path = workspace_path
         self.database: json_database.JsonDatabase = json_database.JsonDatabase()
         self.database.create_database(bible_dir=self.workspace_path, codex_dir=self.workspace_path, resources_dir=self.workspace_path+'/.project/', save_all_path=self.workspace_path+"/.project/")
         self.anomaly_detector: lad.LAD = lad.LAD(codex=self.database, bible=self.database, n_samples=3)
         self.ready = True
+        self.lspw = lspw
 
         
 
@@ -51,7 +53,6 @@ class SocketRouter:
         """
         Routes a json query to the needed function
         """
-        print(json_input)
         data = json.loads(json_input)
         function_name = data['function_name']
         args = data['args']
@@ -83,6 +84,12 @@ class SocketRouter:
         elif function_name == 'apply_edit':
             self.change_file(args['uri'], args['before'], args['after'])
             return json.dumps({'status': 'ok'})
+        elif function_name == 'hover_word':
+            word = self.lspw.most_recent_hovered_word
+            return json.dumps({'word': word})
+        elif function_name == "hover_line":
+            line = self.lspw.most_recent_hovered_line
+            return json.dumps({'line': line})
         elif function_name == 'get_edit_results':
             results = self.get_edit_results()
             return json.dumps(results)

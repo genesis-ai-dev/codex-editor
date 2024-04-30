@@ -1,4 +1,3 @@
-
 import * as vscode from "vscode";
 import { jumpToCellInNotebook } from "../../utils";
 import { registerTextSelectionHandler, performSearch } from "../../handlers/textSelectionHandler";
@@ -6,24 +5,26 @@ import { PythonMessenger } from "../../utils/pyglsMessenger";
 
 const pyMessenger: PythonMessenger = new PythonMessenger();
 const abortController: AbortController | null = null;
-let pollingInterval: NodeJS.Timeout;
 
-function startPollingEditResults(webviewView: vscode.WebviewView) {
-    pollingInterval = setInterval(async () => {
-        try {
-            const editResults = await pyMessenger.getEditResults();
+async function pollEditResults(webviewView: vscode.WebviewView) {
+    try {
+        const editResults = await pyMessenger.getEditResults();
+        webviewView.webview.postMessage({
+            command: "editResults",
+            data: editResults,
+        });
+        pyMessenger.getHoveredLine().then(line => {
             webviewView.webview.postMessage({
-                command: "editResults",
-                data: editResults,
+                command: 'lineresult',
+                line: line
             });
-        } catch (error) {
-            console.error('Failed to fetch edit results:', error);
-        }
-    }, 5000); // Poll every 5 seconds
-}
+        });
+    } catch (error) {
+        console.error('Failed to fetch edit results:', error);
+    }
 
-function stopPollingEditResults() {
-    clearInterval(pollingInterval);
+    // Schedule the next poll
+    setTimeout(() => pollEditResults(webviewView), 500);
 }
 
 async function simpleOpen(uri: string) {
@@ -40,7 +41,6 @@ async function simpleOpen(uri: string) {
     }
 }
 
-
 const loadWebviewHtml = (
     webviewView: vscode.WebviewView,
     extensionUri: vscode.Uri,
@@ -56,7 +56,6 @@ const loadWebviewHtml = (
     const styleVSCodeUri = webviewView.webview.asWebviewUri(
         vscode.Uri.joinPath(extensionUri, "src", "assets", "vscode.css"),
     );
-
     const scriptUri = webviewView.webview.asWebviewUri(
         vscode.Uri.joinPath(
             extensionUri,
@@ -115,12 +114,7 @@ const loadWebviewHtml = (
   </html>`;
 
     webviewView.webview.html = html;
-   
-    webviewView.onDidDispose(() => {
-        stopPollingEditResults();
-    });
 };
-
 
 export class CustomWebviewProvider {
     _context: vscode.ExtensionContext;
@@ -168,7 +162,6 @@ export class CustomWebviewProvider {
                     break;
                 case "edits":
                     await pyMessenger.searchForEdits(message.before, message.after);
-                    startPollingEditResults(webviewView);
                     break;
                 case "undo":
                     try {
@@ -181,6 +174,9 @@ export class CustomWebviewProvider {
                     console.error(`Unknown command!!!: ${message.command}`);
             }
         });
+
+        // Start polling for edit results
+        pollEditResults(webviewView);
     }
 }
 

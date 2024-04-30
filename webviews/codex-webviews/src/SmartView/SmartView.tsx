@@ -79,7 +79,7 @@ const CodexItem: React.FC<{
         </div>
         <div>
           <h4>Suggested Edit</h4>
-            <p>{item.after}</p>
+          <p>{item.after}</p>
         </div>
       </div>
       <div className="codex-item-actions">
@@ -114,7 +114,7 @@ function App() {
   const [formError, setFormError] = useState<string | null>(null);
   const [itemStates, setItemStates] = useState<Record<string, "applied" | "ignored" | null>>({});
   const [before, setBefore] = useState("");
-  const [after, setAfter] = useState("");
+  const [afterLine, setAfterLine] = useState("");
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -125,6 +125,9 @@ function App() {
           break;
         case "completed":
           setLoading(false);
+          break;
+        case "lineresult":
+          setBefore(message.line);
           break;
       }
     };
@@ -189,8 +192,8 @@ function App() {
           itemStates={itemStates}
           before={before}
           setBefore={setBefore}
-          after={after}
-          setAfter={setAfter}
+          afterLine={afterLine}
+          setAfterLine={setAfterLine}
           onApplyEdit={handleApplyEdit}
           onIgnore={handleIgnore}
           onUndo={handleUndo}
@@ -208,8 +211,8 @@ const DraftTab: React.FC<{
   itemStates: Record<string, "applied" | "ignored" | null>;
   before: string;
   setBefore: (value: string) => void;
-  after: string;
-  setAfter: (value: string) => void;
+  afterLine: string;
+  setAfterLine: (value: string) => void;
   onApplyEdit: (uri: string, reference: string, before: string, after: string) => void;
   onIgnore: (reference: string) => void;
   onUndo: (uri: string, reference: string, before: string, after: string) => void;
@@ -221,8 +224,8 @@ const DraftTab: React.FC<{
   itemStates,
   before,
   setBefore,
-  after,
-  setAfter,
+  afterLine,
+  setAfterLine,
   onApplyEdit,
   onIgnore,
   onUndo,
@@ -230,29 +233,29 @@ const DraftTab: React.FC<{
 }) => {
   return (
     <div className="draft-tab">
-          <h2>Before edit example:</h2>
-          <VSCodeTextArea
-            id="before"
-            placeholder="Enter original text."
-            value={before}
-            onChange={(e) => setBefore((e.target as HTMLInputElement).value)}
-            rows={10}
-          />
-          <h2>After edit example:</h2>
-          <VSCodeTextArea
-            id="after"
-            placeholder="Enter ideal text."
-            value={after}
-            onChange={(e) => setAfter((e.target as HTMLInputElement).value)}
-            rows={10}
-          />
-        {formError && <div className="form-error">{formError}</div>}
-        <VSCodeButton
-          appearance="primary"
-          onClick={() => onSearchForEdits(before, after)}
-        >
-          Find Smart Edits
-        </VSCodeButton>
+      <h2>Before edit example:</h2>
+      <VSCodeTextArea
+        id="before"
+        placeholder="Enter original text."
+        value={before}
+        onChange={(e) => setBefore((e.target as HTMLInputElement).value)}
+        rows={10}
+      />
+      <h2>After edit example:</h2>
+      <VSCodeTextArea
+        id="after"
+        placeholder="Enter ideal text."
+        // value={afterLine}
+        onChange={(e) => setAfterLine((e.target as HTMLInputElement).value)}
+        rows={10}
+      />
+      {formError && <div className="form-error">{formError}</div>}
+      <VSCodeButton
+        appearance="primary"
+        onClick={() => onSearchForEdits(before, afterLine)}
+      >
+        Find Smart Edits
+      </VSCodeButton>
 
       <div className="results-container">
         {loading && (

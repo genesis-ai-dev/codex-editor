@@ -53,8 +53,7 @@ class ScriptureReferenceCodeLensProvider {
                 lenses.push(
                     new vscode.CodeLens(range, {
                         title: "🪄 Smart Edit",
-                        command: `codex-editor-extension.showSmartView`,
-                        arguments: [verseRef, document.uri.toString()],
+                        command: `workbench.view.extension.smart-edit-view`,
                     }),
                 );
                 if (
@@ -90,6 +89,8 @@ class ScriptureReferenceCodeLensProvider {
 export const showReferencesCommandName = "showReferences";
 const registerReferences = (context: vscode.ExtensionContext) => {
     const provider = new ScriptureReferenceCodeLensProvider();
+
+    
     context.subscriptions.push(
         vscode.languages.registerCodeLensProvider({ language: "*" }, provider),
     );

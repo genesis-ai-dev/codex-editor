@@ -38,7 +38,6 @@ class ServableForecasting:
                 line = document.lines[params.position.line]
 
                 seed_sentence = line.strip()
-                print("sentence: ", seed_sentence)
                 completions = lspw.socket_router.bia.get_possible_next(seed_sentence, options=4)
                 return [CompletionItem(
                     label=completion,
