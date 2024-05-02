@@ -48,7 +48,7 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
                 // Read the chapters from the .codex file
                 const notebookPath = path.join(
                     this.workspaceRoot,
-                    "drafts",
+                    "files",
                     "target",
                     `${element.label}.codex`,
                 );
@@ -62,10 +62,10 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
             }
         } else {
 
-            // Read the .codex files from the drafts/{targetLanguage} directory
+            // Read the .codex files from the files/{targetLanguage} directory
             const notebooksPath = path.join(
                 this.workspaceRoot,
-                "drafts",
+                "files",
                 "target",
             );
             const notebooks = this.getNotebooksByTestamentInDirectory(notebooksPath);

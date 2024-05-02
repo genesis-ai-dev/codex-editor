@@ -105,7 +105,7 @@ if __name__ == "__main__":
     db_path = "third"
     token_db = TokenDatabase(db_path)
     # Example usage: tokenize a single text string
-    with open("/Users/daniellosey/Desktop/code/biblica/example_workspace/drafts/source/actual.bible", "r") as f:
+    with open("/Users/daniellosey/Desktop/code/biblica/example_workspace/files/source/actual.bible", "r") as f:
         text = f.read()
     
     # token_db.upsert_text(text)
