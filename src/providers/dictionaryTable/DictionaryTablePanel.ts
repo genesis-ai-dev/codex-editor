@@ -28,7 +28,7 @@ export class DictionaryTablePanel {
 
         const initAsync = async () => {
             const { data, uri } = await FileHandler.readFile(
-                "drafts/project.dictionary",
+                "files/project.dictionary",
             );
             // return if no data
             if (!data) {

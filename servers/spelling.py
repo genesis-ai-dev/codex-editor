@@ -221,7 +221,7 @@ class Dictionary:
         Args:
             project_path (str): The base path where the dictionary files are located.
         """
-        self.path = project_path + '/project.dictionary'  # TODO: #4 Use all .dictionary files in drafts directory
+        self.path = project_path + '/project.dictionary'  # TODO: #4 Use all .dictionary files in files directory
         self.dictionary = self.load_dictionary()  # Load the .dictionary (json file)
         self.tokenizer = genetic_tokenizer.TokenDatabase(self.path, single_words=True, default_tokens=[entry for entry in self.dictionary['entries']])
         try:

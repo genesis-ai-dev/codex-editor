@@ -49,13 +49,13 @@ export const createCodexNotebook = async (
     const cellData =
         cells.length > 0
             ? cells.map(
-                (cell) =>
-                    new vscode.NotebookCellData(
-                        cell.kind,
-                        cell.value,
-                        cell.languageId,
-                    ),
-            )
+                  (cell) =>
+                      new vscode.NotebookCellData(
+                          cell.kind,
+                          cell.value,
+                          cell.languageId,
+                      ),
+              )
             : [];
     const data = new vscode.NotebookData(cellData);
     const doc = await vscode.workspace.openNotebookDocument(
@@ -126,7 +126,7 @@ export async function createProjectNotebooks({
             cells.push(
                 new vscode.NotebookCellData(
                     vscode.NotebookCellKind.Code,
-                    vrefsString + ' ', // Add a space to the end of the vref
+                    vrefsString + " ", // Add a space to the end of the vref
                     "scripture",
                 ),
             );
@@ -151,7 +151,7 @@ export async function createProjectNotebooks({
             )
             .then((notebookFile) => {
                 // Save the notebook using generateFiles
-                const filePath = `drafts/target/${book}.codex`;
+                const filePath = `files/target/${book}.codex`;
                 return generateFile({
                     filepath: filePath,
                     fileContent: notebookFile,
@@ -169,7 +169,7 @@ export async function createProjectCommentFiles({
 } = {}) {
     // Save the notebook using generateFiles
     const commentsFilePath = `comments.json`;
-    const notebookCommentsFilePath = `notebook-comments.json`;
+    const notebookCommentsFilePath = `file-comments.json`;
     await generateFile({
         filepath: commentsFilePath,
         fileContent: new TextEncoder().encode("[]"),
