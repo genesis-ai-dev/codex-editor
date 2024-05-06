@@ -29,6 +29,7 @@ class SocketRouter:
         if cls._instance is None:
             cls._instance = super().__new__(cls, *args, **kwargs)
         return cls._instance
+    
     def __init__(self):
         self.workspace_path = ""
         self.database: json_database.JsonDatabase = None
@@ -41,10 +42,13 @@ class SocketRouter:
     def prepare(self, workspace_path, lspw):
         """prepares the socket stuff"""
         self.workspace_path = workspace_path
-        self.database: json_database.JsonDatabase = json_database.JsonDatabase()
-        self.database.create_database(bible_dir=self.workspace_path, codex_dir=self.workspace_path, resources_dir=self.workspace_path+'/.project/', save_all_path=self.workspace_path+"/.project/")
-        self.anomaly_detector: lad.LAD = lad.LAD(codex=self.database, bible=self.database, n_samples=3)
-        self.ready = True
+        try:
+            self.database: json_database.JsonDatabase = json_database.JsonDatabase()
+            self.database.create_database(bible_dir=self.workspace_path, codex_dir=self.workspace_path, resources_dir=self.workspace_path+'/.project/', save_all_path=self.workspace_path+"/.project/")
+            self.anomaly_detector: lad.LAD = lad.LAD(codex=self.database, bible=self.database, n_samples=3)
+            self.ready = True
+        except FileNotFoundError:
+            self.ready = False
         self.lspw = lspw
 
         
@@ -53,6 +57,7 @@ class SocketRouter:
         """
         Routes a json query to the needed function
         """
+
         data = json.loads(json_input)
         function_name = data['function_name']
         args = data['args']
@@ -165,6 +170,7 @@ class SocketRouter:
             }
     def change_file(self, uri, before, after):
         after = after.replace("*", "")
+        before = before.replace("*", "") # in case its an undo command
         with open(uri, 'r+', encoding='utf-8') as f:
             text = f.read()
             text = text.replace(before, after)

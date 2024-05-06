@@ -141,7 +141,7 @@ class LSPWrapper:
                 if response:
                     conn.sendall(response.encode('utf-8'))
                 else:
-                    conn.sendall("")
+                    conn.sendall("".encode('utf-8'))
 
     def start_socket_server(self, host, port):
         """
