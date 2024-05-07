@@ -25,17 +25,17 @@
     "contributes": {
         "keybindings": [
             {
-                "command": "pygls.server.add_dictionary",
-                "key": "ctrl+shift+a",
-                "mac": "cmd+shift+a",
-                "when": "editorTextFocus"
+              "command": "pygls.server.add_dictionary",
+              "key": "ctrl+shift+a",
+              "mac": "cmd+shift+a",
+              "when": "editorTextFocus"
             },
             {
                 "command": "pygls.server.add_line_dictionary",
                 "key": "ctrl+shift+b",
                 "mac": "cmd+shift+b",
                 "when": "editorTextFocus"
-            }
+              }
         ],
         "viewsWelcome": [
             {
@@ -509,7 +509,6 @@
     "extensionDependencies": [
         "project-accelerate.shared-state-store",
         "project-accelerate.scripture-language-support",
-        "project-accelerate.pythoninstaller",
-        "project-accelerate.codex-project-manager"
+        "project-accelerate.pythoninstaller"
     ]
 }
