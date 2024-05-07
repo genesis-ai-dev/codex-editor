@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.0.12",
+    "version": "0.0.13",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -25,17 +25,17 @@
     "contributes": {
         "keybindings": [
             {
-              "command": "pygls.server.add_dictionary",
-              "key": "ctrl+shift+a",
-              "mac": "cmd+shift+a",
-              "when": "editorTextFocus"
+                "command": "pygls.server.add_dictionary",
+                "key": "ctrl+shift+a",
+                "mac": "cmd+shift+a",
+                "when": "editorTextFocus"
             },
             {
                 "command": "pygls.server.add_line_dictionary",
                 "key": "ctrl+shift+b",
                 "mac": "cmd+shift+b",
                 "when": "editorTextFocus"
-              }
+            }
         ],
         "viewsWelcome": [
             {
@@ -509,6 +509,7 @@
     "extensionDependencies": [
         "project-accelerate.shared-state-store",
         "project-accelerate.scripture-language-support",
-        "project-accelerate.pythoninstaller"
+        "project-accelerate.pythoninstaller",
+        "project-accelerate.codex-project-manager"
     ]
 }
