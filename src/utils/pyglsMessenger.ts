@@ -80,6 +80,14 @@ class PythonMessenger {
     const response = await this.sendRequest('hover_line', {});
     return response['line'];
   }
+  async getStatus(key: string): Promise<any> {
+    const response = await this.sendRequest('get_status', {key});
+    return response['status'];
+  }
+  async setStatus(value: string, key: string): Promise<any> {
+    const response = await this.sendRequest('set_status', {value, key});
+    return response['status'];
+  }
 }
 
 export { PythonMessenger };

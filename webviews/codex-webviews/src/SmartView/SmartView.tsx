@@ -112,12 +112,8 @@ function App() {
   const [loading, setLoading] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [itemStates, setItemStates] = useState<Record<string, "applied" | "ignored" | null>>({});
-  const [before, setBefore] = useState("");
-  const [afterLine, setAfterLine] = useState("");
 
   useEffect(() => {
-    let firstLineResult = true;
-
     const handleMessage = (event: MessageEvent) => {
       const message = event.data;
       switch (message.command) {
@@ -126,12 +122,6 @@ function App() {
           break;
         case "completed":
           setLoading(false);
-          break;
-        case "lineresult":
-          if (firstLineResult) {
-            setBefore(message.line);
-            firstLineResult = false;
-          }
           break;
       }
     };
@@ -171,7 +161,12 @@ function App() {
     setItemStates((prevStates) => ({ ...prevStates, [reference]: null }));
   };
 
-  const searchForEdits = (before: string, after: string) => {
+  const searchForEdits = () => {
+    const beforeTextarea = document.getElementById("before") as HTMLTextAreaElement;
+    const afterTextarea = document.getElementById("after") as HTMLTextAreaElement;
+    const before = beforeTextarea.value;
+    const after = afterTextarea.value;
+
     if (!before || !after) {
       setFormError("Please fill in both 'before' and 'after' fields.");
       return;
@@ -194,10 +189,6 @@ function App() {
           loading={loading}
           formError={formError}
           itemStates={itemStates}
-          before={before}
-          setBefore={setBefore}
-          afterLine={afterLine}
-          setAfterLine={setAfterLine}
           onApplyEdit={handleApplyEdit}
           onIgnore={handleIgnore}
           onUndo={handleUndo}
@@ -213,23 +204,15 @@ const DraftTab: React.FC<{
   loading: boolean;
   formError: string | null;
   itemStates: Record<string, "applied" | "ignored" | null>;
-  before: string;
-  setBefore: (value: string) => void;
-  afterLine: string;
-  setAfterLine: (value: string) => void;
   onApplyEdit: (uri: string, reference: string, before: string, after: string) => void;
   onIgnore: (reference: string) => void;
   onUndo: (uri: string, reference: string, before: string, after: string) => void;
-  onSearchForEdits: (before: string, after: string) => void;
+  onSearchForEdits: () => void;
 }> = ({
   searchResults,
   loading,
   formError,
   itemStates,
-  before,
-  setBefore,
-  afterLine,
-  setAfterLine,
   onApplyEdit,
   onIgnore,
   onUndo,
@@ -238,24 +221,13 @@ const DraftTab: React.FC<{
   return (
     <div className="draft-tab">
       <h2>Before edit example:</h2>
-      <VSCodeTextArea
-        id="before"
-        placeholder="Enter original text."
-        value={before}
-        onChange={(e) => setBefore((e.target as HTMLInputElement).value)}
-        rows={10}
-      />
+      <VSCodeTextArea id="before" placeholder="Enter original text." rows={10} />
       <h2>After edit example:</h2>
-      <VSCodeTextArea
-        id="after"
-        placeholder="Enter ideal text."
-        onChange={(e) => setAfterLine((e.target as HTMLInputElement).value)}
-        rows={10}
-      />
+      <VSCodeTextArea id="after" placeholder="Enter ideal text." rows={10} />
       {formError && <div className="form-error">{formError}</div>}
       <VSCodeButton
         appearance="primary"
-        onClick={() => onSearchForEdits(before, afterLine)}
+        onClick={onSearchForEdits}
         disabled={loading}
       >
         {loading ? "Searching..." : "Find Smart Edits"}

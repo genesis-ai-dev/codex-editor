@@ -19,6 +19,10 @@ async function pollEditResults(webviewView: vscode.WebviewView) {
                 line: line
             });
         });
+        const status = await pyMessenger.getStatus('smartview');
+        webviewView.webview.postMessage({
+            command: status.status,
+        });
     } catch (error) {
         console.error('Failed to fetch edit results:', error);
     }

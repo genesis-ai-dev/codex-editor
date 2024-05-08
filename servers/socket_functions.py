@@ -38,6 +38,7 @@ class SocketRouter:
         self.ready = False
         self.bia: bia.BidirectionalInverseAttention = None
         self.lspw = None
+        self.statuses = {}
 
     def prepare(self, workspace_path, lspw):
         """prepares the socket stuff"""
@@ -65,36 +66,58 @@ class SocketRouter:
         if function_name == 'verse_lad':
             result = self.verse_lad(args['query'], args['vref'])
             return json.dumps({"score": result})
+
         elif function_name == 'search':
             results = self.search(args['text_type'], args['query'], args.get('limit', 10))
             return json.dumps(results)
+
         elif function_name == 'search_resources':
             results = self.search_resources(args['query'], args.get('limit', 10))
             return json.dumps(results)
+
         elif function_name == 'get_most_similar':
             results = self.get_most_similar(args['text_type'], args['text'])
             return json.dumps([{'text': p[0], 'value': p[1]} for p in results])
+
         elif function_name == 'get_rarity':
             result = self.get_rarity(args['text_type'], args['text'])
             return json.dumps({"rarity": result})
+        
         elif function_name == 'get_text':
             results = self.get_text(args['ref'], args['text_type'])
             return json.dumps({"text": results})
+        
         elif function_name == 'detect_anomalies':
             results = self.detect_anomalies(args['query'], args.get('limit', 10))
             return json.dumps(results)
+        
         elif function_name == 'search_for_edits':
+            self.set_status('smartview', 'loading')
             results = self.search_for_edits(args['before'], args['after'])
             return json.dumps(results)
+        
         elif function_name == 'apply_edit':
             self.change_file(args['uri'], args['before'], args['after'])
             return json.dumps({'status': 'ok'})
+        
         elif function_name == 'hover_word':
             word = self.lspw.most_recent_hovered_word
             return json.dumps({'word': word})
+        
         elif function_name == "hover_line":
             line = self.lspw.most_recent_hovered_line
             return json.dumps({'line': line})
+        
+        elif function_name == "get_status":
+            key = args['key']
+            return json.dumps({'status': self.get_status(key)})
+        
+        elif function_name == "set_status":
+            key = args['key']
+            value = args['value']
+            self.set_status(key=key, value=value)
+            return json.dumps({'status': value})
+
         elif function_name == 'get_edit_results':
             results = self.get_edit_results()
             return json.dumps(results)
@@ -118,6 +141,17 @@ class SocketRouter:
     def get_most_similar(self, text_type, text):
         """Get words most similar to the given word from the specified database."""
         return self.bia.synonimize(text, 100)[:15]
+
+    def get_status(self, key: str):
+        return self.statuses.get(key, 'none')
+    
+    def set_status(self, key: str, value: str):
+        current = self.statuses.get(key, None)
+        if current:
+            self.statuses[key] = value
+        else:
+            self.statuses.update({key: value})
+        
 
     def get_rarity(self, text_type, text):
         """
@@ -195,35 +229,27 @@ class SocketRouter:
         lock = threading.Lock()  # Create a lock for thread safety
 
         def apply_edit_to_item(item_index):
-            if item_index < len(items):
-                item = items[item_index]
-                result = self.apply_edit(item, before, after)
-                with lock:  # Acquire the lock before appending to edit_results
-                    self.edit_results.append(result)
-                # Spawn a new thread for the next item
-                threading.Thread(target=apply_edit_to_item, args=(item_index + 1,)).start()
+            try:
+                if item_index < len(items):
+                    item = items[item_index]
+                    result = self.apply_edit(item, before, after)
+                    with lock:  # Acquire the lock before appending to edit_results
+                        self.edit_results.append(result)
+                    # Spawn a new thread for the next item
+                    threading.Thread(target=apply_edit_to_item, args=(item_index + 1,)).start()
+                else:
+                    self.set_status('smartview', 'completed')
+            except:
+                self.set_status('smartview', 'completed')
 
         # Start processing the first item
         apply_edit_to_item(0)
         return items
 
-    # def get_edit_results(self):
-    #     edit_results = []
-    #     # Retrieve items from the edit queue and generate edits using an LLM (boilerplate for now)
-    #     # Append the generated edits to edit_results
     def get_edit_results(self):
         
         ret = self.edit_results.copy()
         self.edit_results = []
-        return ret   
+        return ret
+    
 universal_socket_router = SocketRouter()
-     # edit_queue = []
-        # for result in search_results:
-        #     edit_queue.append({
-        #         "reference": result['ref'],
-        #         "uri": result['uri'],
-        #         "before": before,
-        #         "after": after
-        #     })
-        # print("results")
-        # print(edit_queue)
