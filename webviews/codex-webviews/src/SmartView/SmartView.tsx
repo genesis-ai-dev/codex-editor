@@ -5,7 +5,6 @@ import {
   VSCodePanels,
   VSCodeButton,
   VSCodeTextArea,
-  VSCodeProgressRing,
 } from "@vscode/webview-ui-toolkit/react";
 import "./App.css";
 import { Uri } from "vscode";
@@ -74,7 +73,7 @@ const CodexItem: React.FC<{
       <h3>{item.reference}</h3>
       <div className="codex-item-content">
         <div>
-          <h4>Original Code Snippet</h4>
+          <h4>Original Text Snippet</h4>
           <p>{item.before}</p>
         </div>
         <div>
@@ -117,6 +116,8 @@ function App() {
   const [afterLine, setAfterLine] = useState("");
 
   useEffect(() => {
+    let firstLineResult = true;
+
     const handleMessage = (event: MessageEvent) => {
       const message = event.data;
       switch (message.command) {
@@ -127,7 +128,10 @@ function App() {
           setLoading(false);
           break;
         case "lineresult":
-          setBefore(message.line);
+          if (firstLineResult) {
+            setBefore(message.line);
+            firstLineResult = false;
+          }
           break;
       }
     };
@@ -245,7 +249,6 @@ const DraftTab: React.FC<{
       <VSCodeTextArea
         id="after"
         placeholder="Enter ideal text."
-        // value={afterLine}
         onChange={(e) => setAfterLine((e.target as HTMLInputElement).value)}
         rows={10}
       />
@@ -253,17 +256,12 @@ const DraftTab: React.FC<{
       <VSCodeButton
         appearance="primary"
         onClick={() => onSearchForEdits(before, afterLine)}
+        disabled={loading}
       >
-        Find Smart Edits
+        {loading ? "Searching..." : "Find Smart Edits"}
       </VSCodeButton>
 
       <div className="results-container">
-        {loading && (
-          <div className="loading-state">
-            <VSCodeProgressRing />
-            <span>Searching for edits...</span>
-          </div>
-        )}
         {!loading && searchResults.length === 0 && (
           <div className="empty-state">
             <span className="codicon codicon-search"></span>
