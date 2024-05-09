@@ -4,6 +4,10 @@ import re
 from enum import Enum
 from typing import List
 
+from utils import verses as vs 
+
+verses = vs.VERSES
+
 
 class VrefMessages(Enum):
     VERSE_SHOULD_COME_BEFORE = "The verse {verse} should come before {next}"
@@ -12,6 +16,7 @@ class VrefMessages(Enum):
     VERSE_DOES_NOT_EXIST = "The verse {verse} does not exist"
     FIRST_VERSE_MISSING = "There is no verse one."
     DUPLICATE_VERSE = "The verse {verse} is duplicated"
+    CHAPTER_ENDS_PREMATURELY = "The chapter ends prematurely. The last verse should be - {expected_last_verse}"
 
 
 class ServableVrefs:
@@ -23,6 +28,9 @@ class ServableVrefs:
         expected_book = None
         last_verse = None
         seen_verses = set()
+        last_verse_line = None
+        last_verse_match = None
+
         for i, line in enumerate(lines):
             matches = re.finditer(r'(\d*[A-Z]+) (\d+):(\d+)', line)
             for match in matches:
@@ -44,7 +52,7 @@ class ServableVrefs:
                     continue
 
                 if last_verse:
-                    last_chapter, last_verse_num = map(int, last_verse.split(':'))
+                    last_chapter, last_verse_num = map(int, last_verse.split(" ")[1].split(':'))
                     current_chapter, current_verse_num = int(chapter), int(verse)
                     if current_chapter < last_chapter or (current_chapter == last_chapter and current_verse_num < last_verse_num):
                         diagnostics.append(self.create_diagnostic(i, line, match, VrefMessages.VERSE_SHOULD_COME_BEFORE.value.format(verse=verse_ref, next=last_verse)))
@@ -53,7 +61,26 @@ class ServableVrefs:
                             missing_verse = f"{book} {last_chapter}:{missing_verse_num}"
                             diagnostics.append(self.create_diagnostic(i, line, match, VrefMessages.VERSE_MISSING.value.format(missing_verse=missing_verse, after=last_verse)))
 
-                last_verse = f"{chapter}:{verse}"
+                last_verse = f"{book} {chapter}:{verse}"
+                last_verse_line = i
+                last_verse_match = match
+
+        # Check if the last verse in the file is the actual last verse of the chapter
+        try:
+            if last_verse:
+                last_book, last_chapter, last_verse_num = last_verse.split(" ")[0], last_verse.split(" ")[1].split(":")[0], last_verse.split(":")[1]
+                expected_last_verse = None
+                for verse in verses[verses.index(last_verse)+1:]:
+                    if last_book in verse and last_chapter == verse.split(" ")[1].split(":")[0]:
+                        expected_last_verse = verse
+                        break
+
+                if expected_last_verse and expected_last_verse != last_verse:
+                    _, expected_last_verse_num = expected_last_verse.split(':')
+                    if int(last_verse_num) != int(expected_last_verse_num):
+                        diagnostics.append(self.create_diagnostic(last_verse_line, lines[last_verse_line], last_verse_match, VrefMessages.CHAPTER_ENDS_PREMATURELY.value.format(expected_last_verse=expected_last_verse)))
+        except (IndexError, ValueError):
+            pass
         
         return diagnostics
 
@@ -149,6 +176,31 @@ class ServableVrefs:
                     diagnostics=[diagnostic],
                     edit=WorkspaceEdit(changes={
                         document_uri: [TextEdit(range=diagnostic.range, new_text="")]
+                    })
+                )
+                actions.append(action)
+                
+            elif "chapter ends prematurely" in diagnostic.message:
+                # Extract the expected last verse from the diagnostic message
+                expected_last_verse = diagnostic.message.split(" - ")[-1]
+                
+                # Get the current last verse line
+                current_last_verse_line = diagnostic.range.start.line
+                document = self.lspw.server.workspace.get_document(document_uri)
+                current_last_verse_text = document.lines[current_last_verse_line]
+                
+                # Create a new range starting at the end of the current last verse line
+                insert_range = Range(
+                    start=Position(line=current_last_verse_line, character=len(current_last_verse_text)),
+                    end=Position(line=current_last_verse_line, character=len(current_last_verse_text))
+                )
+
+                action = CodeAction(
+                    title=f"Add verse {expected_last_verse}",
+                    kind=CodeActionKind.QuickFix,
+                    diagnostics=[diagnostic],
+                    edit=WorkspaceEdit(changes={
+                        document_uri: [TextEdit(range=insert_range, new_text="\n" + expected_last_verse)]
                     })
                 )
                 actions.append(action)
