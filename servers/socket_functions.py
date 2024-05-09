@@ -46,7 +46,7 @@ class SocketRouter:
         try:
             self.database: json_database.JsonDatabase = json_database.JsonDatabase()
             self.database.create_database(bible_dir=self.workspace_path, codex_dir=self.workspace_path, resources_dir=self.workspace_path+'/.project/', save_all_path=self.workspace_path+"/.project/")
-            self.anomaly_detector: lad.LAD = lad.LAD(codex=self.database, bible=self.database, n_samples=3)
+            self.anomaly_detector: lad.LAD = lad.LAD(codex=self.database, bible=self.database, n_samples=5)
             self.ready = True
         except FileNotFoundError:
             self.ready = False

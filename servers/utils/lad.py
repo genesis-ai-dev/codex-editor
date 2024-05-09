@@ -29,7 +29,7 @@ def ref_search(query: str, n_samples, codex, bible, vref: str):
     codex_results = codex.search(query_text=query, top_n=n_samples, text_type="target")
     assert len(codex_results) > 0, f"No matching verses found in {codex.database_name}"
     codex_results = [result['ref'] for result in codex_results]
-    bible_results = bible.search(query_text=bible.get_text(codex_results[0]), top_n = 300, text_type="source")
+    bible_results = bible.search(query_text=bible.get_text(codex_results[0]), top_n = 5, text_type="source")
     bible_results = [result['ref'] for result in bible_results if result['ref'] in codex.target_references]
     source = "".join(bible_results[:n_samples])
     target = "".join(codex_results[:n_samples])
@@ -39,7 +39,7 @@ def ref_search(query: str, n_samples, codex, bible, vref: str):
 
 def score_ref(source, target):
     """
-    score refrence
+    score reference
     """
     score = SequenceMatcher(None, source, target).ratio() * 100
     return score
@@ -74,7 +74,7 @@ class LAD:
     def __init__(self, codex, bible, 
                  score_function: Callable = score_ref,
                  search_function: Callable = ref_search,
-                 n_samples: int = 30) -> None:
+                 n_samples: int = 5) -> None:
         
         self.search_function = search_function
         self.score_function = score_function
@@ -87,10 +87,10 @@ class LAD:
         """
         search and score
         """
+        print(query)
+        print(vref)
         codex_results, bible_results = self.search_function(query, self.n_samples,
                                                              self.codex, self.bible, vref=vref)
-        # codex_score = self.score_function(query, codex_results)
-        # bible_score = self.score_function(query, bible_results)
 
         # similarity = np.mean(codex_score - bible_score) ** 2
         similarity = self.score_function(codex_results, bible_results)

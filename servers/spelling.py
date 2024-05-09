@@ -422,7 +422,7 @@ def vfilter(text, reference):
     return filtered_text
 def get_verse_references_from_file(path):
     """
-    get verse refrences
+    get verse references
     """
     path = 'servers/files/versedata.txt'
     with open(path, 'r', encoding='utf-8') as f:
@@ -462,7 +462,7 @@ def extract_book_names(file_path):
 
 
 
-refrences = get_verse_references_from_file('src/utils/verseRefUtils/verseData.ts')
+references = get_verse_references_from_file('src/utils/verseRefUtils/verseData.ts')
 
 class SPELLING_MESSAGE(Enum):
     """
@@ -539,7 +539,7 @@ class ServableSpelling:
         lines = document.lines
         for line_num, line in enumerate(lines):
             if len(line) % 5 == 0:
-                line = vfilter(line, refrences)
+                line = vfilter(line, references)
             words = line.split(" ")
             edit_window = 0
 

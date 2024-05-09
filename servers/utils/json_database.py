@@ -1,8 +1,14 @@
 import os
 import re
 import json
+from difflib import SequenceMatcher
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+
+
+def similarity(first, second):
+    score = SequenceMatcher(None, first, second).ratio() * 100
+    return int(score)
 
 class JsonDatabase:
     """
@@ -94,6 +100,25 @@ class JsonDatabase:
         else:
             raise ValueError("Invalid text_type. Choose either 'source' or 'target'.")
         
+    def get_lad(self, query: str, reference: str, n_samples=5):
+        target_results = self.search(query_text=query, text_type="target", top_n=100)
+        source_text = self.get_text(ref=reference, text_type="source")
+        source_results = self.search(query_text=source_text, text_type="source", top_n=100)
+
+        # Get the common references between target and source results
+        target_refs = [i['ref'] for i in target_results]
+        source_refs = [i['ref'] for i in source_results]
+        common_refs = list(set(target_refs) & set(source_refs))
+
+        # Filter the results to include only the common references
+        target_results = [i for i in target_results if i['ref'] in common_refs][:n_samples]
+        source_results = [i for i in source_results if i['ref'] in common_refs][:n_samples]
+
+        ref_string_target = ''.join([i['ref'] for i in target_results])
+        ref_string_source = ''.join([i['ref'] for i in source_results])
+
+        return similarity(ref_string_target, ref_string_source)
+
     def word_rarity(self, text, text_type="source"):
         """
         Returns a dictionary of each word in the given string and its rarity using the TF-IDF.
@@ -273,5 +298,4 @@ def extract_from_bible_file(path):
                 'uri': str(path)
             }
             verses.append(verse)
-
     return verses
