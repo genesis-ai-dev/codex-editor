@@ -7,14 +7,30 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 
 def similarity(first, second):
+    """
+    Calculate the similarity score between two strings using the SequenceMatcher algorithm.
+
+    Args:
+        first (str): The first string to compare.
+        second (str): The second string to compare.
+
+    Returns:
+        int: The similarity score as a percentage (0-100).
+    """
     score = SequenceMatcher(None, first, second).ratio() * 100
     return int(score)
 
 class JsonDatabase:
     """
-    JSON database for the bible files and resource files
+    A class to manage a JSON-based database for storing and retrieving text data,
+    including bible verses, codex chunks, and resources, with support for TF-IDF based search.
     """
+
     def __init__(self):
+        """
+        Initializes the JsonDatabase with empty structures for storing texts, references, URIs,
+        and TF-IDF matrices and vectorizers for source, target, and resource texts.
+        """
         self.dictionary = {}
         self.tfidf_vectorizer_source = TfidfVectorizer()
         self.tfidf_vectorizer_target = TfidfVectorizer()
@@ -34,7 +50,14 @@ class JsonDatabase:
     
     def create_database(self, bible_dir, codex_dir, resources_dir, save_all_path):
         """
-        Generates database dictionary
+        Populates the database with texts from bible files, codex chunks, and resources,
+        and generates TF-IDF matrices for source, target, and resource texts.
+
+        Args:
+            bible_dir (str): Directory containing bible files.
+            codex_dir (str): Directory containing codex files.
+            resources_dir (str): Directory containing resource files.
+            save_all_path (str): Path to save the complete draft of texts.
         """
         try:
             source_files = extract_from_bible_file(path=find_all(bible_dir, ".bible")[0])
@@ -81,7 +104,16 @@ class JsonDatabase:
     
     def search(self, query_text, text_type="source", top_n=5):
         """
-        Searches for references based on the query text using TF-IDF
+        Searches for texts that are most similar to the query text within the specified text type,
+        using TF-IDF vectorization and cosine similarity.
+
+        Args:
+            query_text (str): The text to search for.
+            text_type (str): The type of text to search within ("source" or "target").
+            top_n (int): The number of top results to return.
+
+        Returns:
+            list: A list of dictionaries containing the 'ref', 'text', and 'uri' of the top matches.
         """
         if text_type == "source":
             if self.tfidf_matrix_source is None:
@@ -101,6 +133,18 @@ class JsonDatabase:
             raise ValueError("Invalid text_type. Choose either 'source' or 'target'.")
         
     def get_lad(self, query: str, reference: str, n_samples=5):
+        """
+        Calculates the similarity between the target search results for a query and the source text
+        for a given reference, based on common references in the search results.
+
+        Args:
+            query (str): The query text to search within target texts.
+            reference (str): The reference to retrieve the source text for comparison.
+            n_samples (int): The number of samples to consider for calculating similarity.
+
+        Returns:
+            int: The similarity score between the concatenated references of target and source results.
+        """
         target_results = self.search(query_text=query, text_type="target", top_n=100)
         source_text = self.get_text(ref=reference, text_type="source")
         source_results = self.search(query_text=source_text, text_type="source", top_n=100)
@@ -121,14 +165,15 @@ class JsonDatabase:
 
     def word_rarity(self, text, text_type="source"):
         """
-        Returns a dictionary of each word in the given string and its rarity using the TF-IDF.
+        Analyzes the rarity of each word in the given text based on its TF-IDF score,
+        indicating how unique or rare the word is within the specified text type.
 
         Args:
-            text (str): The text to analyze for word rarity.
-            text_type (str, optional): The type of text to analyze ("source" or "target"). Defaults to "source".
+            text (str): The text to analyze.
+            text_type (str): The type of text ("source" or "target") to consider for analysis.
 
         Returns:
-            dict: A dictionary with words as keys and their rarity scores as values.
+            dict: A dictionary mapping each word to its rarity score.
         """
         # Choose the correct TF-IDF vectorizer and matrix based on the text type
         if text_type == "source":
@@ -157,7 +202,11 @@ class JsonDatabase:
 
     def load_resources(self, resources_dir):
         """
-        Loads resource files from the specified directory and its subdirectories
+        Loads and processes resource files from the specified directory, updating the TF-IDF matrix
+        for resources based on the content of these files.
+
+        Args:
+            resources_dir (str): The directory from which to load resource files.
         """
         resource_files = self.find_resource_files(resources_dir)
         self.resource_texts = []
@@ -176,7 +225,14 @@ class JsonDatabase:
 
     def find_resource_files(self, path):
         """
-        Finds resource files in the specified directory and its subdirectories
+        Recursively searches for and lists all resource files within the specified directory
+        and its subdirectories, based on a set of file extensions.
+
+        Args:
+            path (str): The root directory to search within.
+
+        Returns:
+            list: A list of paths to the found resource files.
         """
         resource_extensions = ['.txt', '.rtf', '.tsv']
         resource_files = []
@@ -190,7 +246,15 @@ class JsonDatabase:
 
     def search_resources(self, query_text, top_n=5):
         """
-        Searches for relevant resource files based on the query text using TF-IDF
+        Searches for and ranks resource files based on their relevance to the query text,
+        using TF-IDF vectorization and cosine similarity.
+
+        Args:
+            query_text (str): The text to search for.
+            top_n (int): The number of top results to return.
+
+        Returns:
+            list: A list of dictionaries containing the 'uri' and 'text' of the top matches.
         """
         if self.tfidf_matrix_resources is None:
             return [{'uri': uri, 'text': ''} for uri in self.resource_uris][:top_n]
@@ -201,13 +265,27 @@ class JsonDatabase:
     
     def get_text(self, ref: str, text_type="source"):
         """
-        Retrieves the text for a given reference and text type
+        Retrieves the text associated with a given reference and text type from the database.
+
+        Args:
+            ref (str): The reference identifier for the text.
+            text_type (str): The type of text to retrieve ("source" or "target").
+
+        Returns:
+            str: The text associated with the given reference and text type.
         """
         return self.dictionary[ref][text_type]
 
 def find_all(path: str, types: str = ".codex"):
     """
-    Finds all files of a specific type in all subdirectories.
+    Finds all files of a specified type within a directory and its subdirectories.
+
+    Args:
+        path (str): The root directory to search within.
+        types (str): The file extension to search for.
+
+    Returns:
+        list: A list of paths to the found files.
     """
     codex_files = []
     for root, _, files in os.walk(path):
@@ -218,7 +296,14 @@ def find_all(path: str, types: str = ".codex"):
 
 def get_data(data, path):
     """
-    gets data
+    Extracts and formats verse data from a structured data object.
+
+    Args:
+        data (dict): The structured data containing verses and their metadata.
+        path (str): The path to the data source, used for generating URIs.
+
+    Returns:
+        list: A list of dictionaries, each representing a verse with 'ref', 'text', and 'uri'.
     """
     verses = []
     # Iterate over the cells
@@ -262,7 +347,13 @@ def get_data(data, path):
 
 def extract_from_file(path):
     """
-    extract from file
+    Extracts data from a file at the given path and formats it into verse data.
+
+    Args:
+        path (str): The path to the file from which to extract data.
+
+    Returns:
+        list: A list of verse data extracted and formatted from the file.
     """
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -270,7 +361,13 @@ def extract_from_file(path):
 
 def extract_codex_chunks(path: str):
     """
-    excract codex chunks
+    Extracts codex chunks from files within a directory, specified by the path.
+
+    Args:
+        path (str): The directory path containing codex files to extract from.
+
+    Returns:
+        list: A list of codex chunk data extracted from the files.
     """
     data = []
     files = find_all(path, ".codex")
@@ -280,7 +377,13 @@ def extract_codex_chunks(path: str):
 
 def extract_from_bible_file(path):
     """
-    extract from bible file
+    Extracts verses from a bible file at the given path.
+
+    Args:
+        path (str): The path to the bible file from which to extract verses.
+
+    Returns:
+        list: A list of verse data extracted from the bible file.
     """
     verses = []
 

@@ -11,7 +11,22 @@ from scipy.sparse import csr_matrix
 
 
 class MarkovChain:
+    """
+    A class to represent a Markov Chain model for text.
+    
+    Attributes:
+        corpus (str): The text corpus.
+        words (list): List of words in the corpus.
+        mapping (dict): A dictionary mapping each word to the list of words that can follow it.
+        reverse_mapping (dict): A dictionary mapping each word to the list of words that can precede it.
+    """
     def __init__(self, corpus: str):
+        """
+        Initializes the MarkovChain with a text corpus.
+        
+        Args:
+            corpus (str): The text corpus to model.
+        """
         self.corpus = corpus
         self.words = corpus.split()
         self.mapping = {}
@@ -30,12 +45,32 @@ class MarkovChain:
                     self.reverse_mapping[word].append(self.words[index - 1])
 
     def can_be_next(self, last, next_):
+        """
+        Determines if a word can logically follow another word based on the corpus.
+        
+        Args:
+            last (str): The preceding word.
+            next_ (str): The word to check if it can follow.
+            
+        Returns:
+            bool: True if next_ can follow last, False otherwise.
+        """
         if last not in self.mapping:
             return True  # cause why not
         else:
             return next_ in self.mapping[last]
 
     def can_preclude(self, word, next_):
+        """
+        Determines if a word can logically precede another word based on the corpus.
+        
+        Args:
+            word (str): The word to check if it can precede.
+            next_ (str): The following word.
+            
+        Returns:
+            bool: True if word can precede next_, False otherwise.
+        """
         if next_ not in self.reverse_mapping:
             return True
         else:
@@ -43,7 +78,25 @@ class MarkovChain:
 
 
 class BidirectionalInverseAttention:
+    """
+    A class for implementing Bidirectional Inverse Attention on text data.
+    
+    Attributes:
+        corpus (str): The entire text corpus.
+        chain (MarkovChain): The Markov Chain model of the corpus.
+        sentences (list): List of sentences in the corpus.
+        vectorizer (TfidfVectorizer): TF-IDF vectorizer for the sentences.
+        tfidf_matrix (csr_matrix): Sparse TF-IDF matrix of the sentences.
+        vocab (dict): Vocabulary and indices from the TF-IDF vectorizer.
+        idf (array): Inverse Document Frequency values.
+    """
     def __init__(self, path):
+        """
+        Initializes the BidirectionalInverseAttention with a path to a text file.
+        
+        Args:
+            path (str): Path to the text file to analyze.
+        """
         with open(path, 'r', encoding='utf-8') as f:
             corpus = f.read().lower()
             sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s', corpus)
@@ -64,6 +117,16 @@ class BidirectionalInverseAttention:
         self.tfidf_matrix = csr_matrix(self.tfidf_matrix)
 
     def search(self, query, bound=''):
+        """
+        Searches the corpus for sentences relevant to a query within a specified boundary.
+        
+        Args:
+            query (str): The query string.
+            bound (str, optional): A boundary condition for the search. Defaults to ''.
+            
+        Returns:
+            list: A list of sentences relevant to the query.
+        """
         # Transform the query into a TF-IDF vector
         query_vector = self.vectorizer.transform([re.sub(r'\[MASK\]', '', query)])
 
@@ -83,6 +146,15 @@ class BidirectionalInverseAttention:
         return [self.sentences[i] for i in relevant_indices if start < i < end]
 
     def combine_counts(self, counts_list):
+        """
+        Combines word counts from multiple Counter objects, filtering by vocabulary.
+        
+        Args:
+            counts_list (list): A list of Counter objects.
+            
+        Returns:
+            list: A list of (word, count) tuples sorted by count in descending order.
+        """
         counts = Counter()
         for count in counts_list:
             for word, _ in count.items():
@@ -93,6 +165,17 @@ class BidirectionalInverseAttention:
         return counts.most_common()
 
     def predict(self, query, top_n: int = 15, bound=''):
+        """
+        Predicts words based on a query, considering the top N rare words and a boundary.
+        
+        Args:
+            query (str): The query string with '[MASK]' placeholders for prediction.
+            top_n (int, optional): Number of top rare words to consider. Defaults to 15.
+            bound (str, optional): A boundary condition for the prediction. Defaults to ''.
+            
+        Returns:
+            list: A list of (word, count) tuples for the predicted words.
+        """
         _text = query.split()
         target = [_text.index(i) for i in _text if '[MASK]' in i][0]
 
@@ -112,6 +195,17 @@ class BidirectionalInverseAttention:
         return self.combine_counts(probabilities)
 
     def predict_from(self, word, distance, bound=''):
+        """
+        Helper function for predict, to predict from a single word and distance.
+        
+        Args:
+            word (str): The word to predict from.
+            distance (int): The distance from the target word.
+            bound (str, optional): A boundary condition for the prediction. Defaults to ''.
+            
+        Returns:
+            Counter: A Counter object with word counts.
+        """
         results = self.search(query=word, bound=bound)
         word_counts = Counter()
         for result in results:
@@ -127,6 +221,16 @@ class BidirectionalInverseAttention:
         return word_counts
 
     def predict_next(self, _text, num_words=5):
+        """
+        Predicts the next N words for a given text.
+        
+        Args:
+            _text (str): The initial text.
+            num_words (int, optional): The number of words to predict. Defaults to 5.
+            
+        Returns:
+            str: The text with the predicted words appended.
+        """
         _text = _text + ' [MASK] '
         for _ in range(num_words):
             next_word = self.predict(_text)[0][0]
@@ -135,6 +239,16 @@ class BidirectionalInverseAttention:
         return _text
 
     def get_possible_next(self, _text, options=4):
+        """
+        Gets possible next words for a given text, limited by options.
+        
+        Args:
+            _text (str): The initial text.
+            options (int, optional): The number of options to return. Defaults to 4.
+            
+        Returns:
+            list: A list of possible next words.
+        """
         last = _text.split()[-1]
         if _text.endswith(" "):
             _text = _text + '[MASK] '
@@ -145,6 +259,16 @@ class BidirectionalInverseAttention:
         return [option for option in next_words if self.chain.can_be_next(last, option)]
 
     def synonimize(self, word, top_n: int = 77):
+        """
+        Finds synonyms for a given word based on the corpus and boundary conditions.
+        
+        Args:
+            word (str): The word to find synonyms for.
+            top_n (int, optional): The number of synonyms to return. Defaults to 77.
+            
+        Returns:
+            list: A list of synonyms for the given word.
+        """
         samples = self.search(word, bound=word)
         step = len(samples) // top_n
         if step == 0:
@@ -163,6 +287,15 @@ class BidirectionalInverseAttention:
         return [p for p in combined_probabilities if p[0] != word]
 
     def combine_votes(self, probabilities_list):
+        """
+        Combines probabilities from multiple sources, weighted by TF-IDF values.
+        
+        Args:
+            probabilities_list (list): A list of probabilities to combine.
+            
+        Returns:
+            list: A list of (word, combined probability) tuples.
+        """
         combined_probabilities = defaultdict(float)
 
         for probabilities in probabilities_list:

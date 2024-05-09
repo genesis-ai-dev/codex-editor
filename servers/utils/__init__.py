@@ -6,7 +6,6 @@ from . import genetic_tokenizer
 from . import install_packages
 from . import verse_validator
 from . import json_database
-from . import lad
 from . import servable_wb
 
 __all__ = ["bia", "genetic_tokenizer", "install_packages", "json_database", 

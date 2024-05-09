@@ -5,7 +5,6 @@ import re
 import json
 import threading
 from utils import json_database
-from utils import lad
 from utils import bia
 from utils import editor
 
@@ -33,7 +32,6 @@ class SocketRouter:
     def __init__(self):
         self.workspace_path = ""
         self.database: json_database.JsonDatabase = None
-        self.anomaly_detector: lad.LAD = None
         self.edit_results = []
         self.ready = False
         self.bia: bia.BidirectionalInverseAttention = None
@@ -46,7 +44,6 @@ class SocketRouter:
         try:
             self.database: json_database.JsonDatabase = json_database.JsonDatabase()
             self.database.create_database(bible_dir=self.workspace_path, codex_dir=self.workspace_path, resources_dir=self.workspace_path+'/.project/', save_all_path=self.workspace_path+"/.project/")
-            self.anomaly_detector: lad.LAD = lad.LAD(codex=self.database, bible=self.database, n_samples=5)
             self.ready = True
         except FileNotFoundError:
             self.ready = False
@@ -128,7 +125,7 @@ class SocketRouter:
         """
         performs LAD on a verse
         """
-        return self.anomaly_detector.search_and_score(query, vref=vref)
+        return self.database.get_lad(query, vref=vref)
 
     def search(self, text_type, query, limit=10):
         """Search the specified database for a query."""

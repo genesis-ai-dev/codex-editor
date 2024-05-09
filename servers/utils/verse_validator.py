@@ -58,6 +58,18 @@ class ServableVrefs:
         return diagnostics
 
     def create_diagnostic(self, line_num: int, line: str, match, message: str) -> Diagnostic:
+        """
+        Creates a diagnostic message for a given line and match.
+
+        Args:
+            line_num (int): The line number where the diagnostic is to be created.
+            line (str): The actual text of the line where the diagnostic is found.
+            match: The regex match object containing the matched text.
+            message (str): The diagnostic message to be displayed.
+
+        Returns:
+            Diagnostic: A diagnostic object containing the range, message, severity, and source of the diagnostic.
+        """
         start_char = line.find(match.group(0))
         end_char = start_char + len(match.group(0))
         diagnostic_range = Range(start=Position(line=line_num, character=start_char),
@@ -65,6 +77,16 @@ class ServableVrefs:
         return Diagnostic(range=diagnostic_range, message=message, severity=DiagnosticSeverity.Warning, source='Vrefs')
 
     def vref_diagnostics(self, ls: LanguageServer, params: DocumentDiagnosticParams) -> List[Diagnostic]:
+        """
+        Generates diagnostics for verse references in a document.
+
+        Args:
+            ls (LanguageServer): The language server instance.
+            params (DocumentDiagnosticParams): Parameters including the document URI for which diagnostics are requested.
+
+        Returns:
+            List[Diagnostic]: A list of diagnostics found in the document.
+        """
         document_uri = params.text_document.uri
         document = self.lspw.server.workspace.get_document(document_uri)
         lines = document.lines
