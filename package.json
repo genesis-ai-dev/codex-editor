@@ -509,7 +509,6 @@
     "extensionDependencies": [
         "project-accelerate.shared-state-store",
         "project-accelerate.scripture-language-support",
-        "project-accelerate.pythoninstaller",
-        "project-accelerate.codex-project-manager"
+        "project-accelerate.pythoninstaller"
     ]
 }
