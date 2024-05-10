@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.0.13",
+    "version": "0.0.14",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -510,6 +510,6 @@
         "project-accelerate.shared-state-store",
         "project-accelerate.scripture-language-support",
         "project-accelerate.pythoninstaller",
-        "project-accelerate.codex-project-manager"    
+        "project-accelerate.codex-project-manager"
     ]
 }
