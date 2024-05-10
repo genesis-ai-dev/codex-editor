@@ -223,7 +223,28 @@ export const addUser = async (name: string, email: string) => {
     await repository.setConfig("user.email", email);
 };
 
+const projectFileExists = async () => {
+    const workspaceFolder = vscode.workspace.workspaceFolders
+        ? vscode.workspace.workspaceFolders[0]
+        : undefined;
+    if (!workspaceFolder) {
+        return false;
+    }
+    const projectFilePath = vscode.Uri.joinPath(
+        workspaceFolder.uri,
+        "metadata.json",
+    );
+    const fileExists = await vscode.workspace.fs.stat(projectFilePath).then(
+        () => true,
+        () => false,
+    );
+    return fileExists;
+};
+
 export const promptForLocalSync = async () => {
+    if (!(await projectFileExists())) {
+        return;
+    }
     const gitApi: API = vscode.extensions
         .getExtension("vscode.git")
         ?.exports.getAPI(1);
@@ -247,6 +268,9 @@ export const promptForLocalSync = async () => {
 };
 
 export const checkConfigRemoteAndUpdateIt = async () => {
+    if (!(await projectFileExists())) {
+        return;
+    }
     const configuration = vscode.workspace.getConfiguration("codex-editor.scm");
     const remoteFromConfig = (await configuration.get("remoteUrl")) as string;
 
