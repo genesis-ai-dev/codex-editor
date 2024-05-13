@@ -38,10 +38,6 @@ import { projectFileExists } from "./utils/fileUtils";
 let scmInterval: any; // Webpack & typescript for vscode are having issues
 
 export async function activate(context: vscode.ExtensionContext) {
-    const isCodexProject = await projectFileExists();
-    if (!isCodexProject) {
-        return;
-    }
     await indexVerseRefsInSourceText();
     await handleConfig();
     await initializeServer(context);
