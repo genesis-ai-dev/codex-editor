@@ -159,3 +159,21 @@ export const getChatMessagesFromFile = async (
         throw new Error("Failed to parse notebook comments from file");
     }
 };
+
+export const projectFileExists = async () => {
+    const workspaceFolder = vscode.workspace.workspaceFolders
+        ? vscode.workspace.workspaceFolders[0]
+        : undefined;
+    if (!workspaceFolder) {
+        return false;
+    }
+    const projectFilePath = vscode.Uri.joinPath(
+        workspaceFolder.uri,
+        "metadata.json",
+    );
+    const fileExists = await vscode.workspace.fs.stat(projectFilePath).then(
+        () => true,
+        () => false,
+    );
+    return fileExists;
+};

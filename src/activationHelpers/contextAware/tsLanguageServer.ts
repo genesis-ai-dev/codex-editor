@@ -1,4 +1,3 @@
-
 "use strict";
 import * as vscode from "vscode";
 import {
@@ -7,7 +6,7 @@ import {
     provideInlineCompletionItems,
 } from "../../providers/translationSuggestions/inlineCompletionsProvider";
 
-export async function langugeServerTS (context: vscode.ExtensionContext){
+export async function languageServerTS(context: vscode.ExtensionContext) {
     const languages = ["scripture"];
     const disposables = languages.map((language) => {
         return vscode.languages.registerInlineCompletionItemProvider(language, {
@@ -26,18 +25,18 @@ export async function langugeServerTS (context: vscode.ExtensionContext){
     let debounceTimer = setTimeout(() => {}, 0);
 
     vscode.workspace.onDidChangeTextDocument((e) => {
-         // Clear previous debounce timer
-         clearTimeout(debounceTimer);
-         disableInlineCompletion();
- 
-         // Set new debounce timer
-         debounceTimer = setTimeout(() => {
-             // Handle the event that the user has stopped editing the document
-             const shouldTriggerInlineCompletion = e.contentChanges.length > 0;
-             if (shouldTriggerInlineCompletion) {
-                 triggerInlineCompletion();
-             }
-         }, 500);
+        // Clear previous debounce timer
+        clearTimeout(debounceTimer);
+        disableInlineCompletion();
+
+        // Set new debounce timer
+        debounceTimer = setTimeout(() => {
+            // Handle the event that the user has stopped editing the document
+            const shouldTriggerInlineCompletion = e.contentChanges.length > 0;
+            if (shouldTriggerInlineCompletion) {
+                triggerInlineCompletion();
+            }
+        }, 500);
     });
 
     context.subscriptions.push(commandDisposable);

@@ -1,4 +1,5 @@
 import { getFromConfig, updateConfig } from "../../utils/appConfig";
+import { projectFileExists } from "../../utils/fileUtils";
 import { fileExists } from "../obs/CreateProject/utilities/obs";
 import { API, Git, GitExtension } from "./git.d";
 import * as vscode from "vscode";
@@ -221,24 +222,6 @@ export const addUser = async (name: string, email: string) => {
     const repository = gitApi.repositories[0];
     await repository.setConfig("user.name", name);
     await repository.setConfig("user.email", email);
-};
-
-const projectFileExists = async () => {
-    const workspaceFolder = vscode.workspace.workspaceFolders
-        ? vscode.workspace.workspaceFolders[0]
-        : undefined;
-    if (!workspaceFolder) {
-        return false;
-    }
-    const projectFilePath = vscode.Uri.joinPath(
-        workspaceFolder.uri,
-        "metadata.json",
-    );
-    const fileExists = await vscode.workspace.fs.stat(projectFilePath).then(
-        () => true,
-        () => false,
-    );
-    return fileExists;
 };
 
 export const promptForLocalSync = async () => {

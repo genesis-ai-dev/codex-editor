@@ -14,7 +14,6 @@ import { TranslationNotesProvider } from "./providers/translationNotes/Translati
 import { registerScmStatusBar } from "./providers/scm/statusBar";
 import { DownloadedResourcesProvider } from "./providers/downloadedResource/provider";
 import {
-    checkForMissingFiles,
     handleConfig,
     onBoard,
     initializeProject,
@@ -24,9 +23,10 @@ import {
     stopLangServer,
 } from "./activationHelpers/contextAware/pythonController";
 import { initializeWebviews } from "./activationHelpers/contextAware/webviewInitializers";
-import { langugeServerTS } from "./activationHelpers/contextAware/tsLanguageServer";
+import { languageServerTS } from "./activationHelpers/contextAware/tsLanguageServer";
 import { syncUtils } from "./activationHelpers/contextAware/syncUtils";
 import { initializeStateStore } from "./stateStore";
+import { projectFileExists } from "./utils/fileUtils";
 
 // The following block ensures a smooth user experience by guiding the user through the initial setup process before the extension is fully activated. This is crucial for setting up the necessary project environment and avoiding any functionality issues that might arise from missing project configurations.
 
@@ -38,11 +38,14 @@ import { initializeStateStore } from "./stateStore";
 let scmInterval: any; // Webpack & typescript for vscode are having issues
 
 export async function activate(context: vscode.ExtensionContext) {
+    const isCodexProject = await projectFileExists();
+    if (!isCodexProject) {
+        return;
+    }
     await indexVerseRefsInSourceText();
     await handleConfig();
-    await checkForMissingFiles();
     await initializeServer(context);
-    await langugeServerTS(context);
+    await languageServerTS(context);
     await initializeWebviews(context);
     registerReferencesCodeLens(context);
     registerSourceCodeLens(context);
