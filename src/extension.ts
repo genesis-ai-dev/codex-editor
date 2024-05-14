@@ -23,7 +23,6 @@ import {
     stopLangServer,
 } from "./activationHelpers/contextAware/pythonController";
 import { initializeWebviews } from "./activationHelpers/contextAware/webviewInitializers";
-import { languageServerTS } from "./activationHelpers/contextAware/tsLanguageServer";
 import { syncUtils } from "./activationHelpers/contextAware/syncUtils";
 import { initializeStateStore } from "./stateStore";
 import { projectFileExists } from "./utils/fileUtils";
@@ -41,7 +40,6 @@ export async function activate(context: vscode.ExtensionContext) {
     await indexVerseRefsInSourceText();
     await handleConfig();
     await initializeServer(context);
-    await languageServerTS(context);
     await initializeWebviews(context);
     registerReferencesCodeLens(context);
     registerSourceCodeLens(context);

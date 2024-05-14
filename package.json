@@ -1,6 +1,6 @@
 {
     "name": "codex-editor-extension",
-    "displayName": "Codex Scripture Editor",
+    "displayName": "Codex Translation Editor",
     "description": "Support for `.codex` notebooks, `.bible` source files, and `.scripture` raw scripture files. Includes Translator's Copilot Language Server for scripture drafting and checking diagnostics and features.",
     "publisher": "project-accelerate",
     "homepage": "https://codex-editor.gitbook.io/",
@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.0.15",
+    "version": "0.0.16",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
