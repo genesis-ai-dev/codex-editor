@@ -4,7 +4,7 @@ import { registerTextSelectionHandler } from "./handlers/textSelectionHandler";
 import { registerReferencesCodeLens } from "./referencesCodeLensProvider";
 import { registerSourceCodeLens } from "./sourceCodeLensProvider";
 import { indexVerseRefsInSourceText } from "./commands/indexVrefsCommand";
-import { CreateProjectProvider } from "./providers/obs/CreateProject/CreateProjectProvider";
+
 import { ResourcesProvider } from "./providers/obs/resources/resourcesProvider";
 import { StoryOutlineProvider } from "./providers/obs/storyOutline/storyOutlineProvider";
 import { ObsEditorProvider } from "./providers/obs/editor/ObsEditorProvider";
@@ -54,7 +54,6 @@ export async function activate(context: vscode.ExtensionContext) {
     const { providerRegistration, commandRegistration } =
         TranslationNotesProvider.register(context);
 
-    context.subscriptions.push(CreateProjectProvider.register(context));
     context.subscriptions.push(ResourcesProvider.register(context));
     context.subscriptions.push(StoryOutlineProvider.register(context));
     context.subscriptions.push(ObsEditorProvider.register(context));
@@ -74,9 +73,6 @@ export function deactivate(): Thenable<void> {
 async function executeCommandsAfter() {
     // wasn't sure if these had to be executed seperately but it's here to be on the safeside, otherwise later it should go in commands.ts
 
-    vscode.commands.executeCommand(
-        "workbench.view.extension.scripture-explorer-activity-bar",
-    );
     vscode.commands.executeCommand("workbench.action.focusAuxiliaryBar");
     vscode.commands.executeCommand(
         "codex-editor.setEditorFontToTargetLanguage",

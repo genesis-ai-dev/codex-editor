@@ -56,6 +56,13 @@
             }
         ],
         "views": {
+            "explorer": [
+                {
+                    "id": "resource-explorer",
+                    "name": "Resource Explorer",
+                    "icon": "$(file-directory)"
+                }
+            ],
             "parallel-passages-view": [
                 {
                     "type": "webview",
@@ -81,15 +88,6 @@
                     "visibility": "visible",
                     "initialSize": 1,
                     "icon": "$(open-editors-view-icon)"
-                },
-                {
-                    "id": "scribe-vsc.obs-create-project",
-                    "name": "Project Creation",
-                    "icon": "$(file-media)",
-                    "visibility": "visible",
-                    "type": "webview",
-                    "contextualTitle": "Create a new project",
-                    "initialSize": 4
                 }
             ],
             "resource-explorer": [
@@ -103,7 +101,7 @@
                 {
                     "id": "scribe-vsc.obs-resources",
                     "name": "All Resources",
-                    "icon": "$(file-media)",
+                    "icon": "$(cloud-download)",
                     "visibility": "collapsed",
                     "type": "webview",
                     "contextualTitle": "Scribe Obs Story Resources"
@@ -160,7 +158,7 @@
                 {
                     "id": "resource-explorer",
                     "title": "Resource Explorer",
-                    "icon": "$(open-editors-view-icon)"
+                    "icon": "$(cloud-download)"
                 },
                 {
                     "id": "scribe-vsc-obs-sidebar",
@@ -177,11 +175,6 @@
         "menus": {
             "view/title": [
                 {
-                    "command": "resource-explorer.refreshEntry",
-                    "when": "view == resource-explorer",
-                    "group": "navigation"
-                },
-                {
                     "command": "scripture-explorer-activity-bar.refreshEntry",
                     "when": "view == scripture-explorer-activity-bar",
                     "group": "navigation"
@@ -189,6 +182,11 @@
                 {
                     "command": "dictionaryTable.showDictionaryTable",
                     "when": "view == dictionaryTable",
+                    "group": "navigation"
+                },
+                {
+                    "command": "resource-explorer.refreshEntry",
+                    "when": "view == resource-explorer",
                     "group": "navigation"
                 }
             ],
