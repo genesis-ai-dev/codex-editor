@@ -9,7 +9,6 @@ import servable_forecasting
 import utils.servable_lad as servable_lad
 import utils.install_packages as install_packages
 import utils.verse_validator as verse_validator
-import utils.servable_wb as servable_wb
 
 import lsp_wrapper
 import spelling as spelling
@@ -55,7 +54,6 @@ lsp_wrapper.add_completion(forcasting.text_completion)
 
 lsp_wrapper.add_diagnostic(spelling.spell_diagnostic)
 lsp_wrapper.add_diagnostic(servable_lad.lad_diagnostic)
-lsp_wrapper.add_diagnostic(servable_wb.wb_line_diagnostic)
 lsp_wrapper.add_diagnostic(vrefs.vref_diagnostics)
 
 lsp_wrapper.add_action(spelling.spell_action)
