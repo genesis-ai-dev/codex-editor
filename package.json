@@ -74,11 +74,11 @@
             ],
             "smart-edit-view": [
                 {
-                    "type": "webview",
+                    "type": "webview", 
                     "id": "smart-edit-sidebar",
-                    "name": "Smart Edit",
+                    "name": "Smart Edit (Preview)",
                     "icon": "$(keybindings-sort)",
-                    "contextualTitle": "Smart Edit"
+                    "contextualTitle": "Smart Edit (Preview)"
                 }
             ],
             "scripture-explorer-activity-bar": [
@@ -507,11 +507,6 @@
     "extensionDependencies": [
         "project-accelerate.shared-state-store",
         "project-accelerate.scripture-language-support",
-<<<<<<< HEAD
-        "project-accelerate.pythoninstaller",
-        "project-accelerate.codex-project-manager"
-=======
         "project-accelerate.pythoninstaller"
->>>>>>> c3288fd (package)
     ]
 }
