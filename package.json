@@ -507,7 +507,11 @@
     "extensionDependencies": [
         "project-accelerate.shared-state-store",
         "project-accelerate.scripture-language-support",
+<<<<<<< HEAD
         "project-accelerate.pythoninstaller",
         "project-accelerate.codex-project-manager"
+=======
+        "project-accelerate.pythoninstaller"
+>>>>>>> c3288fd (package)
     ]
 }
