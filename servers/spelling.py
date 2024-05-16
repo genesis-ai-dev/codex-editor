@@ -240,6 +240,8 @@ class Dictionary:
             with open(self.path, 'r', encoding="utf-8") as file:
                 try:
                     data = json.load(file)
+                    if data == '' or data == '[]' or len(data) < 5:
+                        data = {"entries": []}
                 except json.decoder.JSONDecodeError:
                     data = {"entries": []}
                 return data
