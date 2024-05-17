@@ -26,6 +26,7 @@ import { initializeWebviews } from "./activationHelpers/contextAware/webviewInit
 import { syncUtils } from "./activationHelpers/contextAware/syncUtils";
 import { initializeStateStore } from "./stateStore";
 import { projectFileExists } from "./utils/fileUtils";
+import { registerUsfmImporter } from "./importUsfm";
 
 // The following block ensures a smooth user experience by guiding the user through the initial setup process before the extension is fully activated. This is crucial for setting up the necessary project environment and avoiding any functionality issues that might arise from missing project configurations.
 
@@ -48,6 +49,7 @@ export async function activate(context: vscode.ExtensionContext) {
     registerReferencesCodeLens(context);
     registerSourceCodeLens(context);
     registerTextSelectionHandler(context, () => undefined);
+    registerUsfmImporter(context);
 
     const [, syncStatus] = registerScmStatusBar(context);
     syncUtils.registerSyncCommands(context, syncStatus);

@@ -194,6 +194,11 @@
                 "command": "codex-editor-extension.initializeNewProject"
             },
             {
+                "title": "Import USFM",
+                "shortTitle": "Import USFM",
+                "command": "codex-editor-extension.importUsfm"
+            },
+            {
                 "command": "codex-editor-extension.downloadSourceTextBibles",
                 "title": "Download Source Text Bible"
             },
