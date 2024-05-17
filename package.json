@@ -488,6 +488,13 @@
         "path": "^0.12.7",
         "pnpm": "^8.15.5",
         "react-wordcloud": "^1.2.7",
+
+        "proskomma-core": "^0.10.4",
+        "proskomma-json-tools": "^0.8.7",
+        "wordmap": "^0.6.0",
+        "wordmap-lexer": "^0.3.5",
+        "wordmapbooster": "^1.0.0",
+
         "semver": "^7.6.0",
         "sinon": "^17.0.1",
         "uuid": "^9.0.1",

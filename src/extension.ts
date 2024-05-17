@@ -26,7 +26,7 @@ import { initializeWebviews } from "./activationHelpers/contextAware/webviewInit
 import { syncUtils } from "./activationHelpers/contextAware/syncUtils";
 import { initializeStateStore } from "./stateStore";
 import { projectFileExists } from "./utils/fileUtils";
-import { registerUsfmImporter } from "./importUsfm";
+import { registerUsfmImporter } from "./usfmStuff/importUsfm";
 
 // The following block ensures a smooth user experience by guiding the user through the initial setup process before the extension is fully activated. This is crucial for setting up the necessary project environment and avoiding any functionality issues that might arise from missing project configurations.
 
