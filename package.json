@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.0.16",
+    "version": "0.0.17",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -74,7 +74,7 @@
             ],
             "smart-edit-view": [
                 {
-                    "type": "webview", 
+                    "type": "webview",
                     "id": "smart-edit-sidebar",
                     "name": "Smart Edit (Preview)",
                     "icon": "$(keybindings-sort)",
