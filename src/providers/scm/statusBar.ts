@@ -1,3 +1,4 @@
+// scm/statusbar.ts
 import * as vscode from "vscode";
 import { hasPendingChanges, hasRemote, isRemoteDiff } from "./git";
 

@@ -1,3 +1,4 @@
+//scm/git.ts
 import { getFromConfig, updateConfig } from "../../utils/appConfig";
 import { projectFileExists } from "../../utils/fileUtils";
 import { fileExists } from "../obs/CreateProject/utilities/obs";
@@ -15,6 +16,25 @@ export const initProject = async (
     email: string,
     projectUri?: vscode.Uri,
 ) => {
+
+    const gitExtension = vscode.extensions.getExtension('vscode.git');
+
+    if (!gitExtension) {
+        const installGitExtension = await vscode.window.showInformationMessage(
+            'Git extension not found. Would you like to install it now?',
+            'Yes',
+            'No'
+        );
+
+        if (installGitExtension === 'Yes') {
+            await vscode.commands.executeCommand('workbench.extensions.installExtension', 'vscode.git');
+            vscode.window.showInformationMessage('Git extension installed successfully. Please reload the window.');
+        } else {
+            vscode.window.showErrorMessage('Git extension is required for this feature. Please install it and try again.');
+            return;
+        }
+    }
+
     const gitApi = vscode.extensions
         .getExtension<GitExtension>("vscode.git")
         ?.exports.getAPI(1);
@@ -254,9 +274,8 @@ export const checkConfigRemoteAndUpdateIt = async () => {
     if (!(await projectFileExists())) {
         return;
     }
-    const configuration = vscode.workspace.getConfiguration("codex-editor.scm");
+    const configuration = vscode.workspace.getConfiguration("codex-editor.scm"); // FIXME: why is this empty
     const remoteFromConfig = (await configuration.get("remoteUrl")) as string;
-
     const gitApi: API = vscode.extensions
         .getExtension("vscode.git")
         ?.exports.getAPI(1);
@@ -269,8 +288,8 @@ export const checkConfigRemoteAndUpdateIt = async () => {
     const backupRemote = repository.state.remotes.find(
         (r) => r.name === "origin",
     )?.fetchUrl;
-
-    if (backupRemote === remoteFromConfig) {
+    if (backupRemote === remoteFromConfig) { // FIXME: both seem to be empty
+       
         return;
     }
 
