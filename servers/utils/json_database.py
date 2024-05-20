@@ -91,13 +91,18 @@ class JsonDatabase:
             f.write(self.complete_draft)
         
         if self.source_texts:
-            self.tfidf_matrix_source = self.tfidf_vectorizer_source.fit_transform(self.source_texts)
+            try:
+                self.tfidf_matrix_source = self.tfidf_vectorizer_source.fit_transform(self.source_texts)
+            except ValueError:
+                self.tfidf_matrix_source = None
         else:
             self.tfidf_matrix_source = None
 
         if self.target_texts:
-            self.tfidf_matrix_target = self.tfidf_vectorizer_target.fit_transform(self.target_texts)
-        else:
+            try:
+                self.tfidf_matrix_target = self.tfidf_vectorizer_target.fit_transform(self.target_texts)
+            except ValueError:
+                self.tfidf_matrix_target = None
             self.tfidf_matrix_target = None
 
         self.load_resources(resources_dir)

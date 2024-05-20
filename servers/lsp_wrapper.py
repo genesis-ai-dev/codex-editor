@@ -286,7 +286,9 @@ class LSPWrapper:
         print("initializing BIA")
         self.socket_router.prepare(self.paths.raw_path, self)
 
-        path = self.paths.data_path + "/complete_draft.context"
+        path = os.path.join(self.paths.data_path, "complete_draft.context")
+        if not os.path.exists(path):
+            open(path, 'w+', encoding="utf-8").close()
         print("path: ", path)
         try:
             print("opening")
