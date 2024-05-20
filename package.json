@@ -463,6 +463,7 @@
         "@typescript-eslint/eslint-plugin": "^6.7.0",
         "@typescript-eslint/parser": "^6.7.0",
         "@vscode/test-electron": "^2.3.8",
+        "@vscode/vsce-sign": "^2.0.3",
         "eslint": "^7.27.0",
         "mocha": "^10.2.0",
         "prettier": "^3.1.1",
@@ -507,6 +508,7 @@
     "extensionDependencies": [
         "project-accelerate.shared-state-store",
         "project-accelerate.scripture-language-support",
-        "project-accelerate.pythoninstaller"
+        "project-accelerate.pythoninstaller",
+        "vscode.git"
     ]
 }

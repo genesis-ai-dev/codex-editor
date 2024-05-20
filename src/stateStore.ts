@@ -8,6 +8,7 @@ type StateStoreUpdate =
     | { key: "verseRef"; value: VerseRefGlobalState }
     | { key: "uri"; value: string | null }
     | { key: "currentLineSelection"; value: SelectedTextDataWithContext }
+    | { key: "plainTextNotes"; value: string}
     | { key: "obsRef"; value: OBSRef };
 
 type StateStoreKey = StateStoreUpdate["key"];

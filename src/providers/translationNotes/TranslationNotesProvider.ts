@@ -91,10 +91,19 @@ export class TranslationNotesProvider implements CustomTextEditorProvider {
         };
 
         const updateWebview = () => {
+            const scriptureTSV = this.getDocumentAsScriptureTSV(document);
             webviewPanel.webview.postMessage({
                 command: "update",
-                data: this.getDocumentAsScriptureTSV(document),
+                data: scriptureTSV,
             } as TranslationNotePostMessages);
+
+            // Update the state store with the latest translation notes as plain text
+            initializeStateStore().then(({ updateStoreState }) => {
+                updateStoreState({
+                    key: "plainTextNotes",
+                    value: JSON.stringify(scriptureTSV),
+                });
+            });
         };
 
         const messageEventHandlers = (message: any) => {
@@ -104,7 +113,9 @@ export class TranslationNotesProvider implements CustomTextEditorProvider {
                 ["loaded"]: updateWebview,
             };
 
-            commandToFunctionMapping[command](text);
+            if (commandToFunctionMapping[command]) {
+                commandToFunctionMapping[command](text);
+            }
         };
 
         new TranslationNotesPanel(
@@ -112,14 +123,7 @@ export class TranslationNotesProvider implements CustomTextEditorProvider {
             this.context.extensionUri,
             messageEventHandlers,
         ).initializeWebviewContent();
-
-        // Hook up event handlers so that we can synchronize the webview with the text document.
-        //
-        // The text document acts as our model, so we have to sync change in the document to our
-        // editor and sync changes in the editor back to the document.
-        //
-        // Remember that a single text document can also be shared between multiple custom
-        // editors (this happens for example when you split a custom editor)
+        
         const changeDocumentSubscription = workspace.onDidChangeTextDocument(
             (e) => {
                 if (e.document.uri.toString() === document.uri.toString()) {
@@ -128,7 +132,6 @@ export class TranslationNotesProvider implements CustomTextEditorProvider {
             },
         );
 
-        // Make sure we get rid of the listener when our editor is closed.
         webviewPanel.onDidDispose(() => {
             changeDocumentSubscription.dispose();
         });
@@ -148,6 +151,7 @@ export class TranslationNotesProvider implements CustomTextEditorProvider {
     }
 
     /**
+     * 
      * Try to get a current document as a scripture TSV object
      *
      * @TODO Use this function to turn doc text into ScriptureTSV!
