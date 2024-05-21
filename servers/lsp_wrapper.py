@@ -148,14 +148,20 @@ class LSPWrapper:
         Starts socket server and kills any existing process on the given port.
         """
         def socket_server():
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                s.bind((host, port))
-                s.listen()
-                while True:
-                    conn, _ = s.accept()
-                    thread = threading.Thread(target=self.handle_connection, args=(conn,))
-                    thread.start()
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    s.bind((host, port))
+                    s.listen()
+                    while True:
+                        conn, _ = s.accept()
+                        thread = threading.Thread(target=self.handle_connection, args=(conn,))
+                        thread.start()
+            except OSError as e:
+                if e.errno == 98:  # Address already in use
+                    print(f"Error: Port {port} is already in use. Another instance might be running.")
+                else:
+                    print(f"Error: {e}")
 
         thread = threading.Thread(target=socket_server)
         thread.daemon = True
@@ -181,8 +187,8 @@ class LSPWrapper:
                         start=Position(line=start_line + idx, character=0),
                         end=Position(line=start_line + idx, character=len(line) - 1),
                     )
-                for action_function in self.functions.action_functions:
-                    items.extend(action_function(self, params, _range))
+                    for action_function in self.functions.action_functions:
+                        items.extend(action_function(self, params, _range))
             return items
         self.high_level_functions.action_function = actions
 
@@ -295,4 +301,5 @@ class LSPWrapper:
             self.socket_router.bia = bia.BidirectionalInverseAttention(path=path)
             print("success")
         except ValueError as e:
+            print(str(e))
             print(str(e))
