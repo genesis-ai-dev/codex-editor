@@ -32,9 +32,9 @@ export class ResourceProvider implements vscode.TreeDataProvider<Node> {
 
     getChildren(element?: Node): Thenable<Node[]> {
         if (!this.workspaceRoot) {
-            vscode.window.showInformationMessage(
-                "No resources in empty workspace",
-            );
+            // vscode.window.showInformationMessage(
+            //     "No resources in empty workspace",
+            // );
             return Promise.resolve([]);
         }
 

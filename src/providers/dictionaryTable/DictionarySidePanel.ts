@@ -119,7 +119,7 @@ export class DictionarySidePanel implements vscode.WebviewViewProvider {
                 switch (message.command) {
                     case "dataReceived":
                         // Code that should run in response to the hello message command
-                        vscode.window.showInformationMessage(data);
+                        // vscode.window.showInformationMessage(data);
                         return;
                     case "updateData": {
                         this.updateWebviewData();

@@ -33,9 +33,9 @@ export const generateFiles = async ({
                 vscode.workspace.fs.writeFile(newFilePath, fileContent).then(
                     () => {
                         fileSuccessfullyCreated = true;
-                        vscode.window.showInformationMessage(
-                            `${filepath} overwritten successfully!`,
-                        );
+                        // vscode.window.showInformationMessage(
+                        //     `${filepath} overwritten successfully!`,
+                        // );
                     },
                     (err) => {
                         console.error(`Error: ${err}`);
@@ -45,18 +45,18 @@ export const generateFiles = async ({
                     },
                 );
             } else {
-                vscode.window.showInformationMessage(
-                    `${filepath} file already exists!`,
-                );
+                // vscode.window.showInformationMessage(
+                //     `${filepath} file already exists!`,
+                // );
             }
         },
         (err) => {
             vscode.workspace.fs.writeFile(newFilePath, fileContent).then(
                 () => {
                     fileSuccessfullyCreated = true;
-                    vscode.window.showInformationMessage(
-                        `${filepath} file created successfully!`,
-                    );
+                    // vscode.window.showInformationMessage(
+                    //     `${filepath} file created successfully!`,
+                    // );
                 },
                 (err) => {
                     console.error(`Error: ${err}`);

@@ -59,9 +59,9 @@ async function jumpToFirstOccurrence(uri: string, word: string) {
         vscode.TextEditorRevealType.InCenter,
     );
 
-    vscode.window.showInformationMessage(
-        `Jumped to the first occurrence of "${word}"`,
-    );
+    // vscode.window.showInformationMessage(
+    //     `Jumped to the first occurrence of "${word}"`,
+    // );
 }
 
 const loadWebviewHtml = (
@@ -142,7 +142,7 @@ const loadWebviewHtml = (
         async (message: any) => { // Changed the type to any to handle multiple message types
             switch (message.command) {
                 case "openFileAtLocation":
-                    vscode.window.showInformationMessage(message.uri);
+                    // vscode.window.showInformationMessage(message.uri);
                     simpleOpen(message.uri);//message.word);
                     break;
                 case "search":

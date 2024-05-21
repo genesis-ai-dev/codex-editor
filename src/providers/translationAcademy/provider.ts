@@ -8,7 +8,7 @@ export async function translationAcademy(
     resource: DownloadedResource,
 ) {
     let panel: vscode.WebviewPanel | undefined = undefined;
-    vscode.window.showInformationMessage("Opening Translation Academy");
+    // vscode.window.showInformationMessage("Opening Translation Academy");
 
     panel = vscode.window.createWebviewPanel(
         "tnAcademy",

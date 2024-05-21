@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { extractVerseRefFromLine } from "../utils/verseRefUtils";
 import { initializeStateStore } from "../stateStore";
-import { PythonMessenger } from "../utils/pyglsMessenger"; 
+import { PythonMessenger } from "../utils/pyglsMessenger";
 
 
 const pyMessenger: PythonMessenger = new PythonMessenger();
@@ -78,18 +78,18 @@ export async function performSearch(
     callback: CallableFunction,
 ) {
     if (selectedText) {
-        vscode.window.showInformationMessage("here is selected: "+selectedText);
+        // vscode.window.showInformationMessage("here is selected: "+selectedText);
         vscode.commands.executeCommand(
             "pygls.server.textSelected",
             selectedText,
         );
         try {
-            vscode.window.showInformationMessage("Searching: "+ selectedText);
+            // vscode.window.showInformationMessage("Searching: "+ selectedText);
             const result = await pyMessenger.detectAnomalies(selectedText, 10);
 
             callback(result);
         } catch (error: unknown) {
-            vscode.window.showErrorMessage("error!!!!");
+            vscode.window.showErrorMessage("Error performing search for: " + selectedText + "\n" + error);
 
             console.error("Error performing search:", error);
             if (error instanceof Error) {

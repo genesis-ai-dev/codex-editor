@@ -38,9 +38,8 @@ export async function downloadBible() {
         getEBCorpusMetadataByLanguageCode(sourceLanguageCode || "");
     if (ebibleCorpusMetadata.length === 0) {
         vscode.window.showInformationMessage(
-            `No source text bibles found for ${
-                sourceLanguageCode ||
-                "(no source language specified in metadata.json)"
+            `No source text bibles found for ${sourceLanguageCode ||
+            "(no source language specified in metadata.json)"
             } in the eBible corpus.`,
         );
         ebibleCorpusMetadata = getEBCorpusMetadataByLanguageCode(""); // Get all bibles if no source language is specified
@@ -187,9 +186,9 @@ export async function setTargetFont() {
             `${defaultFontFamily} ${fallbackFont}`,
             vscode.ConfigurationTarget.Workspace,
         );
-        vscode.window.showInformationMessage(
-            `Font set to ${defaultFontFamily} with fallback to ${fallbackFont}`,
-        );
+        // vscode.window.showInformationMessage(
+        //     `Font set to ${defaultFontFamily} with fallback to ${fallbackFont}`,
+        // );
     }
 }
 
@@ -204,7 +203,7 @@ export async function initializeProject() {
         return;
     }
 
-    vscode.window.showInformationMessage("Initializing new project...");
+    // vscode.window.showInformationMessage("Initializing new project...");
     try {
         const projectDetails = await promptForProjectDetails();
         if (projectDetails) {
@@ -238,9 +237,9 @@ export async function initializeProject() {
             }
 
             const newProject = await initializeProjectMetadata(projectDetails);
-            vscode.window.showInformationMessage(
-                `New project initialized: ${newProject?.meta.generator.userName}'s ${newProject?.meta.category}`,
-            );
+            // vscode.window.showInformationMessage(
+            //     `New project initialized: ${newProject?.meta.generator.userName}'s ${newProject?.meta.category}`,
+            // );
 
             // Spawn notebooks based on project scope
             const projectScope = newProject?.type.flavorType.currentScope;
@@ -252,17 +251,25 @@ export async function initializeProject() {
             }
             const books = Object.keys(projectScope);
 
-            const overwriteConfirmation =
-                await vscode.window.showWarningMessage(
+            const existingCodexFiles = await vscode.workspace.findFiles(
+                new vscode.RelativePattern(workspaceFolder.uri.fsPath, "**/*.codex"),
+                "**/node_modules/**",
+                1
+            );
+
+            let overwriteConfirmation;
+            if (existingCodexFiles.length > 0) {
+                overwriteConfirmation = await vscode.window.showWarningMessage(
                     "Do you want to overwrite any existing project files?",
                     { modal: true }, // This option ensures the dialog stays open until an explicit choice is made.
                     "Yes",
-                    "No",
+                    "No"
                 );
+            }
             if (overwriteConfirmation === "Yes") {
-                vscode.window.showInformationMessage(
-                    "Creating Codex Project with overwrite.",
-                );
+                // vscode.window.showInformationMessage(
+                //     "Creating Codex Project with overwrite.",
+                // );
                 await createProjectNotebooks({
                     shouldOverWrite: true,
                     books,

@@ -129,9 +129,9 @@ const registerReferences = (context: vscode.ExtensionContext) => {
                 vscode.commands.executeCommand(
                     "workbench.view.extension.genesis-translator-sidebar-view",
                 );
-                vscode.window.showInformationMessage(
-                    `Discussing ${verseRef}...`,
-                );
+                // vscode.window.showInformationMessage(
+                //     `Discussing ${verseRef}...`,
+                // );
             },
         ),
     );

@@ -142,7 +142,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             "codex-editor-extension.createCodexNotebook",
             async () => {
-                vscode.window.showInformationMessage("Creating Codex Notebook");
+                // vscode.window.showInformationMessage("Creating Codex Notebook");
                 const doc = await createCodexNotebook();
                 await vscode.window.showNotebookDocument(doc);
             },
@@ -176,9 +176,9 @@ export async function registerCommands(context: vscode.ExtensionContext) {
 }
 
 async function ensureBibleDownload(){
-    vscode.window.showInformationMessage(
-        "Ensuring Source Bible is downloaded...",
-    );
+    // vscode.window.showInformationMessage(
+    //     "Ensuring Source Bible is downloaded...",
+    // );
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (workspaceFolders) {
         const workspaceRoot = workspaceFolders[0].uri.fsPath;
@@ -192,9 +192,9 @@ async function ensureBibleDownload(){
                 "codex-editor-extension.downloadSourceTextBibles",
             );
         } else {
-            vscode.window.showInformationMessage(
-                "Bible files already exist in the workspace.",
-            );
+            // vscode.window.showInformationMessage(
+            //     "Bible files already exist in the workspace.",
+            // );
         }
     }
 }

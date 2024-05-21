@@ -13,11 +13,11 @@ let pyglsLogger: vscode.LogOutputChannel;
 let clientStarting = false;
 let python: any;
 
-export async function initializeServer(context: vscode.ExtensionContext){
+export async function initializeServer(context: vscode.ExtensionContext) {
     python = await vscode.extensions.getExtension("project-accelerate.pythoninstaller");
     pyglsLogger = vscode.window.createOutputChannel("pygls", { log: true });
     pyglsLogger.info(`extension path ${context.extensionPath}`);
-    if (!python){
+    if (!python) {
         vscode.window.showInformationMessage("Python disabled. Please install the PythonInstaller extension.");
     }
     else {
@@ -26,7 +26,7 @@ export async function initializeServer(context: vscode.ExtensionContext){
         const start_command: string = 'pygls.server.restart';
 
         await vscode.commands.executeCommand('pythoninstaller.addCallback', start_command);
-        await vscode.commands.executeCommand('pythoninstaller.installPython');          
+        await vscode.commands.executeCommand('pythoninstaller.installPython');
     }
     // Restart language server command
     context.subscriptions.push(
@@ -46,7 +46,7 @@ export async function initializeServer(context: vscode.ExtensionContext){
         ),
     );
 
-    if (!python){
+    if (!python) {
         startLangServer(context);
     }
 }
@@ -68,7 +68,7 @@ async function startLangServer(context: vscode.ExtensionContext) {
     pyglsLogger.info(`full_server_path: '${full_path}'`);
 
     const pythonCommand = await getPythonCommand(full_path);
-    vscode.window.showInformationMessage("Python command: "+ pythonCommand);
+    // vscode.window.showInformationMessage("Python command: " + pythonCommand);
     if (!pythonCommand) {
         clientStarting = false;
         return;
@@ -105,14 +105,14 @@ async function startLangServer(context: vscode.ExtensionContext) {
             );
         }
     }
-    
-    const sendMessage = vscode.commands.registerCommand('pygls.sendMessage', async (message?: string) => {    
+
+    const sendMessage = vscode.commands.registerCommand('pygls.sendMessage', async (message?: string) => {
         if (message) {
-          client?.sendNotification('request/query', { message });
+            client?.sendNotification('request/query', { message });
         }
-      });
-    
-      context.subscriptions.push(sendMessage);
+    });
+
+    context.subscriptions.push(sendMessage);
 }
 
 export async function stopLangServer(): Promise<void> {
@@ -175,8 +175,12 @@ async function getPythonCommand(
         pythonPath = pythonExtension.extensionPath + '/.env/bin/python';
     }
     else {
-        pythonPath = "python311"; 
+        pythonPath = "python3";
         vscode.window.showWarningMessage("PythonInstaller extension not found. Falling back to 'python3.11'.");
+    }
+    else {
+        pythonPath = "python";
+        vscode.window.showWarningMessage("PythonInstaller extension not found. Falling back to system default 'python'.");
     }
     const config = vscode.workspace.getConfiguration("pygls.server", resource);
 
@@ -185,8 +189,8 @@ async function getPythonCommand(
         return;
     }
     const command = [pythonPath];
-    
-    vscode.window.showInformationMessage(`Using Python interpreter: ${pythonPath}`);
+
+    // vscode.window.showInformationMessage(`Using Python interpreter: ${pythonPath}`);
     const enableDebugger = config.get<boolean>("debug");
 
     if (!enableDebugger) {

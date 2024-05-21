@@ -21,14 +21,19 @@ export const initProject = async (
 
     if (!gitExtension) {
         const installGitExtension = await vscode.window.showInformationMessage(
-            'Git extension not found. Would you like to install it now?',
+            'Git extension not found. This is required for cloud syncing. Would you like to install it now?',
+            { modal: true },
             'Yes',
             'No'
         );
 
         if (installGitExtension === 'Yes') {
             await vscode.commands.executeCommand('workbench.extensions.installExtension', 'vscode.git');
-            vscode.window.showInformationMessage('Git extension installed successfully. Please reload the window.');
+            vscode.window.showInformationMessage('Git extension installed successfully. Please reload the window.', 'Reload Window').then((value) => {
+                if (value === 'Reload Window') {
+                    vscode.commands.executeCommand('workbench.action.reloadWindow');
+                }
+            });
         } else {
             vscode.window.showErrorMessage('Git extension is required for this feature. Please install it and try again.');
             return;
@@ -289,7 +294,7 @@ export const checkConfigRemoteAndUpdateIt = async () => {
         (r) => r.name === "origin",
     )?.fetchUrl;
     if (backupRemote === remoteFromConfig) { // FIXME: both seem to be empty
-       
+
         return;
     }
 

@@ -68,7 +68,7 @@ export const initializeNewProject = async (
                 );
             }
 
-            vscode.window.showInformationMessage("Initializing new project...");
+            // vscode.window.showInformationMessage("Initializing new project...");
 
             const newProject = await initializeProjectMetadata(projectDetails);
             vscode.window.showInformationMessage(

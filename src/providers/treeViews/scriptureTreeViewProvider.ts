@@ -37,9 +37,9 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
 
     async getChildren(element?: Node): Promise<Node[] | undefined> {
         if (!this.workspaceRoot) {
-            vscode.window.showInformationMessage(
-                "No notebooks in empty workspace",
-            );
+            // vscode.window.showInformationMessage(
+            //     "No notebooks in empty workspace",
+            // );
             return Promise.resolve([]);
         }
 
