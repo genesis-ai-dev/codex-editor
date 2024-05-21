@@ -175,12 +175,14 @@ async function getPythonCommand(
         pythonPath = pythonExtension.extensionPath + '/.env/bin/python';
     }
     else {
-        pythonPath = "python3";
-        vscode.window.showWarningMessage("PythonInstaller extension not found. Falling back to 'python3.11'.");
-    }
-    else {
-        pythonPath = "python";
-        vscode.window.showWarningMessage("PythonInstaller extension not found. Falling back to system default 'python'.");
+        try {
+
+            pythonPath = "python3";
+            vscode.window.showWarningMessage("PythonInstaller extension not found. Falling back to 'python3.11'.");
+        } catch {
+            pythonPath = "python";
+            vscode.window.showWarningMessage("PythonInstaller extension not found. Falling back to system default 'python'.");
+        }
     }
     const config = vscode.workspace.getConfiguration("pygls.server", resource);
 
