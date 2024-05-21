@@ -187,8 +187,8 @@ class LSPWrapper:
                         start=Position(line=start_line + idx, character=0),
                         end=Position(line=start_line + idx, character=len(line) - 1),
                     )
-                    for action_function in self.functions.action_functions:
-                        items.extend(action_function(self, params, _range))
+                for action_function in self.functions.action_functions:
+                    items.extend(action_function(self, params, _range))
             return items
         self.high_level_functions.action_function = actions
 
