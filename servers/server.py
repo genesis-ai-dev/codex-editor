@@ -4,10 +4,10 @@ Pygls language server
 import os
 from typing import List
 import webbrowser
+import utils.install_packages as install_packages
 from pygls.server import LanguageServer
 import servable_forecasting
 import utils.servable_lad as servable_lad
-import utils.install_packages as install_packages
 import utils.verse_validator as verse_validator
 
 import lsp_wrapper

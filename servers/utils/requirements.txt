@@ -1,6 +1,5 @@
 pygls==1.2.1
 wildebeest-nlp
-txtai
 codex_python_types
 imagehash
 pillow
