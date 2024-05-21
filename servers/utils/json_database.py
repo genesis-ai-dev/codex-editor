@@ -277,10 +277,12 @@ class JsonDatabase:
             text_type (str): The type of text to retrieve ("source" or "target").
 
         Returns:
-            str: The text associated with the given reference and text type.
+            str: The text associated with the given reference and text type, or an empty string if not found.
         """
-        return self.dictionary[ref][text_type]
-
+        if ref in self.dictionary and text_type in self.dictionary[ref]:
+            return self.dictionary[ref][text_type]
+        return ""
+    
 def find_all(path: str, types: str = ".codex"):
     """
     Finds all files of a specified type within a directory and its subdirectories.
