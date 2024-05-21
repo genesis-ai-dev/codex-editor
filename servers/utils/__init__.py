@@ -1,9 +1,9 @@
 """
 init
 """
+from . import install_packages
 from . import bia
 from . import genetic_tokenizer
-from . import install_packages
 from . import verse_validator
 from . import json_database
 from . import verses
