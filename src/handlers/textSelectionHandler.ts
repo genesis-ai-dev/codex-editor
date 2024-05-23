@@ -2,11 +2,9 @@ import * as vscode from "vscode";
 import { extractVerseRefFromLine } from "../utils/verseRefUtils";
 import { initializeStateStore } from "../stateStore";
 import { PythonMessenger } from "../utils/pyglsMessenger";
-
+import { searchVerseRefPositionIndex } from "../commands/indexVrefsCommand";
 
 const pyMessenger: PythonMessenger = new PythonMessenger();
-
-
 
 export function registerTextSelectionHandler(
     context: vscode.ExtensionContext,
@@ -56,6 +54,57 @@ export function registerTextSelectionHandler(
                             },
                         });
                     });
+                    if (
+                        currentLineVref &&
+                        searchVerseRefPositionIndex(currentLineVref)
+                    ) {
+                        const results =
+                            searchVerseRefPositionIndex(currentLineVref);
+
+                        // Create an array of vscode.Location objects for all results
+                        const locations = results.map((result) => {
+                            const uri = vscode.Uri.file(result.uri);
+                            const range = new vscode.Range(
+                                new vscode.Position(
+                                    result.position.line,
+                                    result.position.character,
+                                ),
+                                new vscode.Position(
+                                    result.position.line,
+                                    result.position.character,
+                                ),
+                            );
+                            return new vscode.Location(uri, range);
+                        });
+                        const bibleFileOpen =
+                            vscode.window.visibleTextEditors.some((editor) =>
+                                editor.document.fileName.endsWith(".bible"),
+                            );
+
+                        if (bibleFileOpen) {
+                            const filteredLocations = locations.filter(
+                                (location) =>
+                                    location.uri.path.endsWith(".bible"),
+                            );
+
+                            if (filteredLocations.length > 0) {
+                                const location = filteredLocations[0];
+                                const openEditor =
+                                    vscode.window.visibleTextEditors.find(
+                                        (editor) =>
+                                            editor.document.uri.toString() ===
+                                            location.uri.toString(),
+                                    );
+
+                                if (openEditor) {
+                                    openEditor.revealRange(
+                                        location.range,
+                                        vscode.TextEditorRevealType.InCenter,
+                                    );
+                                }
+                            }
+                        }
+                    }
                 }
 
                 if (selectionTimeout) {
@@ -89,7 +138,9 @@ export async function performSearch(
 
             callback(result);
         } catch (error: unknown) {
-            vscode.window.showErrorMessage("Error performing search for: " + selectedText + "\n" + error);
+            vscode.window.showErrorMessage(
+                "Error performing search for: " + selectedText + "\n" + error,
+            );
 
             console.error("Error performing search:", error);
             if (error instanceof Error) {
