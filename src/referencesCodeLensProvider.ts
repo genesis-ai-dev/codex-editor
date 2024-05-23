@@ -3,7 +3,7 @@ import { NOTEBOOK_TYPE } from "./utils/codexNotebookUtils";
 import { extractVerseRefFromLine } from "./utils/verseRefUtils";
 import { initializeStateStore } from "./stateStore";
 
-const SHOW_DISCUSS_COMMAND = false;
+const SHOW_DISCUSS_COMMAND = true;
 
 class ScriptureReferenceCodeLensProvider {
     private _onDidChangeCodeLenses: vscode.EventEmitter<void>;

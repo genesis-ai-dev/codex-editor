@@ -23,6 +23,7 @@ import {
 } from "../../utils";
 
 
+
 const ROOT_PATH = getWorkSpaceFolder();
 
 
@@ -172,10 +173,13 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         "codex-editor-extension.downloadSourceTextBibles",
         await downloadBible
     );
-    ensureBibleDownload(); // TODO: This feels weird, are the commands registered only to be called by this function?
+
+    // ensureBibleDownload(); // TODO: This feels weird, are the commands registered only to be called by this function?
+    // Ryder: yeah this should only be called when initializing a new project
+    // which now happens in the project management extension
 }
 
-async function ensureBibleDownload(){
+async function ensureBibleDownload() {
     // vscode.window.showInformationMessage(
     //     "Ensuring Source Bible is downloaded...",
     // );
