@@ -99,7 +99,7 @@ export function registerTextSelectionHandler(
                                 if (openEditor) {
                                     openEditor.revealRange(
                                         location.range,
-                                        vscode.TextEditorRevealType.InCenter,
+                                        vscode.TextEditorRevealType.AtTop,
                                     );
                                 }
                             }
