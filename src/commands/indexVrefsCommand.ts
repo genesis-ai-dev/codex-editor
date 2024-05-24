@@ -73,7 +73,7 @@ export async function indexVerseRefsInSourceText() {
 }
 
 function extractPotentialVrefs(line: string): string[] {
-    const verseRefPattern = /\b(?:[1-3]\s)?[A-Za-z]+(?:\s\d+:\d+(-\d+)?)/g;
+    const verseRefPattern = /\b(?:[1-3])?[A-Za-z]+(?:\s\d+:\d+(-\d+)?)/g;
     // fixme: Ryder, expand this search
     const matches = line.match(verseRefPattern);
     return matches || [];
