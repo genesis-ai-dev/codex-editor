@@ -39,23 +39,32 @@ export interface UsfmMessage{
 //I verify they exist.
 interface PerfAttributes{
     number: string,
+    "x-occurrence"?: string[],
+    "x-occurrences"?: string[],
+    "x-content"?: string[],
+    "x-lemma"?: string[],
+    lemma: string[],
+    "x-morph"?: string[],
+    "x-strong"?: string[],
+    strong: string[],
 }
 
-interface PerfContext{
+interface PerfContent{
     type?: string,
     subtype?: string,
     atts?: PerfAttributes,
+    content?: string[],
 }
 
 interface PerfBlock{
     type?: string,
     subtype?: string,
-    content?: PerfContext[],
+    content?: (PerfContent | string)[],
 }
 
 
 //Define an interface PerfVerse which is an array of PerfBlock.
-export interface PerfVerse extends Array<PerfBlock> {}
+export interface PerfVerse extends Array<PerfBlock | string> {}
 
 interface PerfAlignment{
 
@@ -153,11 +162,11 @@ export interface TAlignmentSuggestion{
         alignments: TSourceTargetAlignment[];
     }
   
-
+*/
     interface TReference{
         chapter: number;
         verse: number;
-    }
+    } /*
 
     interface TContextId{
         reference: TReference;
@@ -272,7 +281,7 @@ export function pullVerseFromPerf( reference: string, perf: Perf ): PerfVerse | 
     for( const block of perf?.sequences?.[perf?.main_sequence_id ?? ""]?.blocks ?? [] ){
         if( block.type == 'paragraph' ){
             for( const content of (block.content ?? []) ){
-                if( content.type == 'mark' ){
+                if( typeof(content) == 'object' && content.type == 'mark' ){
                     if( content.subtype == 'chapter' ){
                         currentChapter = content?.atts?.number ?? "-1";
                     }else if( content.subtype == 'verses' ){
@@ -305,10 +314,10 @@ export function pullVersesFromPerf( perf: Perf ): { [key: string]: PerfVerse } {
 
     //first iterate the chapters.
     //perf.sequences[perf.main_sequence_id].blocks is an array.
-    for( const block of perf?.sequences?.[perf?.main_sequence_id ?? ""]?.blocks ?? [] ){
+    for( const [blockIndex, block] of (perf?.sequences?.[perf?.main_sequence_id ?? ""]?.blocks ?? []).entries() ){
         if( block.type == 'paragraph' ){
-            for( const content of (block.content ?? []) ){
-                if( content.type == 'mark' ){
+            for( const [contentIndex, content] of (block.content ?? []).entries() ){
+                if( typeof(content) == 'object' && content.type == 'mark' ){
                     if( content.subtype == 'chapter' ){
                         currentChapter = content?.atts?.number ?? "-1";
                     }else if( content.subtype == 'verses' ){
@@ -385,7 +394,7 @@ export function replacePerfVerseInPerf( perf :Perf, perfVerse: PerfVerse, refere
             for( const content of block.content ?? [] ){
                 let dropContent  = false;
                 let pushNewVerse = false;
-                if( content.type == 'mark' ){
+                if( typeof(content) == 'object' && content.type == 'mark' ){
                     if( content.subtype == 'chapter' ){
                         currentChapter = content.atts?.number ?? "-1";
                     }else if( content.subtype == 'verses' ){
@@ -530,20 +539,23 @@ export function wordmapSuggestionToTAlignmentSuggestion( suggestion: Suggestion 
 }
 
 
-function perfContentToTWord( perfContent: any, type: string ): TWord {
+function perfContentToTWord( perfContent: any | string, type: string ): TWord {
     const word : TWord = {
         type
     };
-
-    if (perfContent?.atts?.["x-occurrence" ] ) { word["occurrence" ] = parseInt(perfContent.atts["x-occurrence" ].join(" ")); }
-    if (perfContent?.atts?.["x-occurrences"] ) { word["occurrences"] = parseInt(perfContent.atts["x-occurrences"].join(" ")); }
-    if (perfContent?.atts?.["x-content"    ] ) { word["text"       ] =          perfContent.atts["x-content"    ].join(" ");  }
-    if (perfContent?.      ["content"      ] ) { word["text"       ] =          perfContent.content              .join(" ");  }
-    if (perfContent?.atts?.["x-lemma"      ] ) { word["lemma"      ] =          perfContent.atts["x-lemma"      ].join(" ");  }
-    if (perfContent?.atts?.["lemma"        ] ) { word["lemma"      ] =          perfContent.atts["lemma"        ].join(" ");  }
-    if (perfContent?.atts?.["x-morph"      ] ) { word["morph"      ] =          perfContent.atts["x-morph"      ].join(",");  }
-    if (perfContent?.atts?.["x-strong"     ] ) { word["strong"     ] =          perfContent.atts["x-strong"     ].join(" ");  }
-    if (perfContent?.atts?.["strong"       ] ) { word["strong"     ] =          perfContent.atts["strong"       ].join(" ");  }
+    if( typeof( perfContent ) == "string" ) { 
+        word["text"       ] = perfContent; 
+    }else{
+        if (perfContent?.atts?.["x-occurrence" ] ) { word["occurrence" ] = parseInt(perfContent.atts["x-occurrence" ].join(" ")); }
+        if (perfContent?.atts?.["x-occurrences"] ) { word["occurrences"] = parseInt(perfContent.atts["x-occurrences"].join(" ")); }
+        if (perfContent?.atts?.["x-content"    ] ) { word["text"       ] =          perfContent.atts["x-content"    ].join(" ");  }
+        if (perfContent?.      ["content"      ] ) { word["text"       ] =          perfContent.content              .join(" ");  }
+        if (perfContent?.atts?.["x-lemma"      ] ) { word["lemma"      ] =          perfContent.atts["x-lemma"      ].join(" ");  }
+        if (perfContent?.atts?.["lemma"        ] ) { word["lemma"      ] =          perfContent.atts["lemma"        ].join(" ");  }
+        if (perfContent?.atts?.["x-morph"      ] ) { word["morph"      ] =          perfContent.atts["x-morph"      ].join(",");  }
+        if (perfContent?.atts?.["x-strong"     ] ) { word["strong"     ] =          perfContent.atts["x-strong"     ].join(" ");  }
+        if (perfContent?.atts?.["strong"       ] ) { word["strong"     ] =          perfContent.atts["strong"       ].join(" ");  }
+    }
     return word;
 }
 
@@ -589,20 +601,6 @@ export function extractWrappedWordsFromPerfVerse( perfVerse: PerfVerse, type: st
     return wrappedWords;
 }
 
-export function extractTextFromPerfVerse( perfVerse: PerfVerse ): string {
-    let result : string = "";
-
-    for( const content of perfVerse ){
-        if( typeof content == 'string' ){
-            result += content;
-        }else if( content.type == "wrapper" && content.subtype == "usfm:w" ){
-            result += content.content;
-        }
-    }
-
-    return result;
-}
-
 export function extractAlignmentsFromPerfVerse( perfVerse: PerfVerse ): TSourceTargetAlignment[] {
     const alignments : TSourceTargetAlignment[] = [];
     const sourceStack : any[] = [];
@@ -615,7 +613,7 @@ export function extractAlignmentsFromPerfVerse( perfVerse: PerfVerse ): TSourceT
     let targetIndex = 0;
     for( const content of perfVerse ){
 
-        if( content.type == "start_milestone" && content.subtype == "usfm:zaln" ){
+        if( typeof(content) == 'object' && content.type == "start_milestone" && content.subtype == "usfm:zaln" ){
             //we can't index the source words right now because they are out of order.
             //we will do it later when the alignments are supplemented with the unused source words.
             sourceStack.push( perfContentToTWord(content, PRIMARY_WORD) );
@@ -623,7 +621,7 @@ export function extractAlignmentsFromPerfVerse( perfVerse: PerfVerse ): TSourceT
             //If there are any target words then just drop them because they aren't part of this
             //group.
             targetStack.length = 0;
-        }else if( content.type == "end_milestone" && content.subtype == "usfm:zaln" ){
+        }else if( typeof(content) == 'object' && content.type == "end_milestone" && content.subtype == "usfm:zaln" ){
             //process the source and target stacks when we are a place where we are popping
             if( targetStack.length > 0 ){
                 const sourceNgram = [...sourceStack];
@@ -645,7 +643,7 @@ export function extractAlignmentsFromPerfVerse( perfVerse: PerfVerse ): TSourceT
             }
 
             sourceStack.pop();
-        }else if( content.type == "wrapper" && content.subtype == "usfm:w" ){
+        }else if( typeof(content) == 'object' && content.type == "wrapper" && content.subtype == "usfm:w" ){
             const wrappedWord = perfContentToTWord( content, SECONDARY_WORD );
             wrappedWord.index = targetIndex++;
             targetStack.push( wrappedWord );
@@ -789,9 +787,9 @@ export function replaceAlignmentsInPerfVerse( perfVerse: PerfVerse, newAlignment
         //we can just put it at the end but we will instead look backwards and find the last place
         //a word wrapper is and put it after that.
         let lastWordIndex = result.length - 1;
-        while( lastWordIndex >= 0 && 
-         !(( "type"    in result[lastWordIndex]) && result[lastWordIndex].type    == "wrapper" && 
-           ( "subtype" in result[lastWordIndex]) && result[lastWordIndex].subtype == "usfm:w") ){
+        while( lastWordIndex >= 0 && typeof(result[lastWordIndex]) == "object" &&
+         !(( "type"    in (result[lastWordIndex] as PerfBlock)) && (result[lastWordIndex] as PerfBlock).type    == "wrapper" && 
+           ( "subtype" in (result[lastWordIndex] as PerfBlock)) && (result[lastWordIndex] as PerfBlock).subtype  == "usfm:w") ){
             lastWordIndex--;
         }
 
@@ -808,7 +806,7 @@ export function replaceAlignmentsInPerfVerse( perfVerse: PerfVerse, newAlignment
 
     for( const perfContent of withoutOldAlignments ){
         //Only do something different if it is a wrapped word.
-        if( ("type" in perfContent) && perfContent.type == "wrapper" && 
+        if( typeof( perfContent ) == "object" && ("type" in perfContent) && perfContent.type == "wrapper" && 
         ("subtype" in perfContent) && perfContent.subtype == "usfm:w" ){
             
             const relevantAlignment = targetWordHashToAlignment.get( hashWordToString( perfContentToTWord( perfContent, SECONDARY_WORD ) ) );
@@ -884,3 +882,112 @@ export async function getSourceFolders( getConfiguration: (key: string) => Promi
 
 
 
+export function getReferencesFromPerf( perf: Perf ): TReference[] {
+    const result : TReference[] = [];
+    let currentChapter = -1;
+    let currentVerse = -1;
+    let lastChapter = -1;
+    let lastVerse = -1;
+
+    for( const block of perf?.sequences?.[perf?.main_sequence_id ?? ""]?.blocks ?? [] ){
+        if( block.type == 'paragraph' ){
+            for( const content of (block.content ?? []) ){
+                if( typeof(content) == 'object' && content.type == 'mark' ){
+                    if( content.subtype == 'chapter' ){
+                        currentChapter = parseInt(content?.atts?.number || "-1",10);
+                    }else if( content.subtype == 'verses' ){
+                        currentVerse = parseInt(content?.atts?.number || "-1",10);
+                    }
+                }else{
+                    if( currentChapter != lastChapter || currentVerse != lastVerse ){
+                        result.push({ chapter: currentChapter, verse: currentVerse });
+                        lastChapter = currentChapter;
+                        lastVerse = currentVerse;
+                    }
+                }
+            }
+        }
+    }
+    return result;
+}
+
+export interface TAttributedChar {
+    char: string;
+    blockIndex: number;
+    contentIndex: number;
+    charIndex: number;
+}
+
+
+export interface TAttributedString extends Array<TAttributedChar> {}
+
+export function getAttributedVerseCharactersFromPerf( perf: Perf, reference: TReference, includeAttributes: boolean = true ): TAttributedString | string {
+    let result : TAttributedString | string = includeAttributes ? [] : "";
+    let currentChapter = -1;
+    let currentVerse = -1;
+    let foundVerse = false;
+
+    for( const [blockIndex, block] of (perf?.sequences?.[perf?.main_sequence_id ?? ""]?.blocks ?? []).entries() ){
+        if( block.type == 'paragraph' ){
+            for( const [contentIndex, content] of (block.content ?? []).entries() ){
+                if( typeof( content ) == 'object' && content.type == 'mark' ){
+                    if( content.subtype == 'chapter' ){
+                        currentChapter = parseInt(content?.atts?.number || "-1",10);
+                    }else if( content.subtype == 'verses' ){
+                        currentVerse = parseInt(content?.atts?.number || "-1",10);
+                    }
+                }else if( currentChapter == reference.chapter && currentVerse == reference.verse ){
+                    //if this is a quote section we add a space on the front for some reason.
+                    //if( contentIndex == 0 && (block.subtype == "usfm:q" || block.subtype == "usfm:q2" || block.subtype == "usfm:m" )){
+                    if( contentIndex == 0 ){
+                        if( includeAttributes ){
+                            (result as TAttributedString).push( {
+                                char: " ",
+                                blockIndex,
+                                contentIndex,
+                                charIndex: 0
+                            });
+                        }else{
+                            (result as string) += " ";
+                        }
+                    }
+
+
+                    foundVerse = true;
+
+                    let currentWord : string | undefined = undefined;
+                    if (typeof content == 'string') {
+                        currentWord = content;
+                    }else if( content.type == "wrapper" && content.subtype == "usfm:w" ){
+                        currentWord = content.content?.join( " " ) ?? "";
+                    }
+
+                    if( currentWord !== undefined ){
+                        if( includeAttributes ){
+                            for( const [charIndex, char] of currentWord?.split("")?.entries() ?? [] ){
+                                (result as TAttributedString).push( {
+                                    char,
+                                    blockIndex,
+                                    contentIndex,
+                                    charIndex
+                                });
+                            }
+                        }else{
+                            (result as string) += currentWord;
+                        }
+                    }
+
+                }else if( foundVerse ){
+                    return result;
+                }
+            
+            }
+        }
+    }
+
+    return result;
+}
+
+export function stripAttributedString( attributedString: TAttributedString ): string {
+    return attributedString.map( (char) => char.char ).join( "" );
+}

@@ -1,7 +1,7 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
-import { Perf, PerfMetadataDocument, PerfVerse, chopUpPerfIntoChaptersAndVerses, extractTextFromPerfVerse, usfmToPerf } from './utils';
+import { Perf, PerfMetadataDocument, PerfVerse, chopUpPerfIntoChaptersAndVerses, getAttributedVerseCharactersFromPerf, getReferencesFromPerf, stripAttributedString, usfmToPerf } from './utils';
 import {CodexContentSerializer} from "../serializer";
 import {generateFiles} from "../utils/fileUtils";
 import { CellTypes } from '../utils/codexNotebookUtils';
@@ -156,49 +156,51 @@ async function readUsfmData( usfmFiles: vscode.Uri[] ) {
 //   await Promise.all(notebookCreationPromises);
 // }
 
-interface IntermediateFormat {
-    [filename: string]: {
-        document: PerfMetadataDocument,
-        chapterToVerse: {[chapter: number]: {[verse: number]: PerfVerse }}
-    }
-}
-
-function perfsToIntermediateFormat( filenameToPerf: { [filename: string]: Perf } ) : IntermediateFormat { 
-    const filenameToChapterToVerse = chopUpPerfIntoChaptersAndVerses(filenameToPerf);
-
-    const result = Object.fromEntries( 
-        Object.entries(filenameToChapterToVerse).map(([filename, chapterToVerse]) => {
-            return [
-                filename,
-                {
-                    document: filenameToPerf[filename]?.metadata?.document || {},
-                    chapterToVerse
-                }
-            ];
-        })
-    );
-    return result;
-}
-
 //The point of this hack is to get the strings to look the same as the other importer even if it doesn't make sense.
 //I am trying to round trip so I want things to be the same so I can catch important stuff.  We can remove the hacks
 //later.
 function importHacks( verseContent : string ) : string{
-    //search for all ‘ which are following a letter and put a space between them.
-    let result = verseContent.replace(/([a-z])(‘)/ig, "$1 $2");
 
-    //also the reverse where the ‘ is followed by a letter.
-    result = result.replace(/(‘)([a-z])/ig, "$1 $2");
+    let result : string = verseContent;
 
-    //add a space after a comma. (Perhaps this isn't a hack.  Why are we having to do this?)
-    result = result.replace(/(,)([a-z])/ig, "$1 $2");
+    result = result.trim();
 
+    // Put space between this kind of quote mark and letter.
+    result = result.replace(/(‘)([a-z0-9])/ig, "$1 $2");
+
+    // //add a space after a comma. (Perhaps this isn't a hack.  Why are we having to do this?)
+    // result = result.replace(/(,)([a-z])/ig, "$1 $2");
+
+    //remove the space between a { and a letter.
+    result = result.replace(/({) ([a-z])/ig, "$1$2");
+
+    //surround a quote mark with spaces.
+    //I don't think this is good, but it is what is currently going on.
+    result = result.replace(/(’)([a-z])/ig, "$1 $2");
+    result = result.replace(/([a-z])(’)/ig, "$1 $2");
+
+    //now put a space after all the commas.  This makes 5,000 into 5, 000 but we are
+    //just trying to match what is there and we can remove these hacks after.
+    result = result.replace(/(,)([a-z0-9])/ig, "$1 $2");
+
+    //Remove this space. K.
+    result = result.replace(/(—) ([^ ])/ig, "$1$2");
+    
+    //Add this space.  K.
+    result = result.replace(/([a-z])(…)/ig, "$1 $2");
+
+    //Add a space before {
+    result = result.replace(/([a-z])({)/ig, "$1 $2");
+
+    //add spaces before th between it and the number.  So 11 th instead of 11th.
+    result = result.replace(/([0-9])(th|st|nd|rd)/ig, "$1 $2");
+    
     return result;
 
 }
 
 
-async function generateNotebooks( intermediateFormat: IntermediateFormat ){
+async function generateNotebooks( filenameToPerf: { [filename: string]: Perf } ) {
 
 
     const filenameToCells: { [filename: string]: vscode.NotebookCellData[] } = {};
@@ -209,82 +211,88 @@ async function generateNotebooks( intermediateFormat: IntermediateFormat ){
     let currentChapterCell : vscode.NotebookCellData | undefined = undefined;
 
     //now generate the notebooks.
-    Object.entries(intermediateFormat).forEach(([filename, metadataAndChaptersToVerses]) => {
+    Object.entries(filenameToPerf).forEach(([filename, perf]) => {
     
         //https://stackoverflow.com/questions/175739/built-in-way-in-javascript-to-check-if-a-string-is-a-valid-number
         const strippedFilename = (filename.split("/").pop()?.split( "." )[0] || "").split('').filter( (char) => char !== "-" && isNaN(char as unknown as number) ).join('');
 
-        const bookAbbreviation = metadataAndChaptersToVerses.document.bookCode || metadataAndChaptersToVerses.document.toc3 ||
-            metadataAndChaptersToVerses.document.h || metadataAndChaptersToVerses.document.toc2 || strippedFilename;
+        const bookAbbreviation = perf.metadata?.document?.bookCode || perf.metadata?.document?.toc3 ||
+        perf.metadata?.document?.h || perf.metadata?.document?.toc2 || strippedFilename;
 
         //h followed by toc2 followed by bookCode followed by toc3 followed by the filename with nothing except for letters
-        const bookName = metadataAndChaptersToVerses.document.h || metadataAndChaptersToVerses.document.toc2 ||
-            metadataAndChaptersToVerses.document.bookCode || metadataAndChaptersToVerses.document.toc3 || strippedFilename;
+        const bookName = perf.metadata?.document?.h || perf.metadata?.document?.toc2 ||
+        perf.metadata?.document?.bookCode || perf.metadata?.document?.toc3 || strippedFilename;
 
-        Object.entries(metadataAndChaptersToVerses.chapterToVerse).forEach(([chapterNumber, verseToPerf]) => {
+        const references = getReferencesFromPerf(perf);
 
-            Object.entries(verseToPerf).forEach(([verseNumber, perfVerse]) => {
-                //remove path and add .codex
-                const notebookFilename = `files/target/${filename.split("/").pop()?.split( "." )[0] || ""}.codex`;
+        references.forEach((reference) => {
 
-                //If the chapter or filename has changed then add the notes to the previous chapter if it exists.
-                if( (currentChapter != -1 && (currentChapter !== parseInt(chapterNumber)) || (currentFilename && currentFilename !== notebookFilename)) ){
-                    filenameToCells[currentFilename].push(
-                        new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Markup,
-                            `### Notes for Chapter ${currentChapter}`,
-                            "markdown"
-                        )
-                    );
-                }
+            const verseText = getAttributedVerseCharactersFromPerf( perf, reference, false ) as string;
 
+            //remove path and add .codex
+            const notebookFilename = `files/target/${filename.split("/").pop()?.split( "." )[0] || ""}.codex`;
 
-                //if we are in a new filename, start a new cell group.
-                if( !(notebookFilename in filenameToCells) ) filenameToCells[notebookFilename] = [];
-                const cells = filenameToCells[notebookFilename];
-
-                //If we are in a new chapter, create the chapter header.
-                if( currentChapter != parseInt(chapterNumber) ){
-                    const newCell = new vscode.NotebookCellData(
+            //If the chapter or filename has changed then add the notes to the previous chapter if it exists.
+            if( (currentChapter != -1 && ((currentChapter !== reference.chapter) || (currentFilename && currentFilename !== notebookFilename))) ){
+                filenameToCells[currentFilename].push(
+                    new vscode.NotebookCellData(
                         vscode.NotebookCellKind.Markup,
-                        `# Chapter ${chapterNumber}`,
+                        `### Notes for Chapter ${currentChapter}`,
                         "markdown"
-                    );
-                    newCell.metadata = {
-                        type: CellTypes.CHAPTER_HEADING,
-                        data: {
-                            chapter: chapterNumber
-                        }
-                    };
-                    cells.push(newCell);
+                    )
+                );
+            }
 
-                    currentChapterCell = undefined;
-                }
 
-                //if we don't have a current cell create one.
-                if( currentChapterCell === undefined ){
-                    currentChapterCell = new vscode.NotebookCellData(
-                        vscode.NotebookCellKind.Code,
-                        "",
-                        "scripture"
-                    );
-                    cells.push( currentChapterCell );
-                }else{
-                    //otherwise add a newline.
-                    currentChapterCell!.value += `\n`;
+            //if we are in a new filename, start a new cell group.
+            if( !(notebookFilename in filenameToCells) ) filenameToCells[notebookFilename] = [];
+            const cells = filenameToCells[notebookFilename];
+
+            //If we are in a new chapter, create the chapter header.
+            if( currentChapter != reference.chapter || (currentFilename && currentFilename !== notebookFilename)){
+                const newCell = new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Markup,
+                    `# Chapter ${reference.chapter}`,
+                    "markdown"
+                );
+                newCell.metadata = {
+                    type: CellTypes.CHAPTER_HEADING,
+                    data: {
+                        chapter: "" + reference.chapter
+                    }
+                };
+                if( currentChapter == 1 ){
+                    newCell.metadata.perf = perf;
                 }
+                cells.push(newCell);
+
+                currentChapterCell = undefined;
+            }
+
+            //if we don't have a current cell create one.
+            if( currentChapterCell === undefined ){
+                currentChapterCell = new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Code,
+                    "",
+                    "scripture"
+                );
+                cells.push( currentChapterCell );
+            }else{
+                //otherwise add a newline.
+                currentChapterCell!.value += `\n`;
+            }
+            
+
+            currentFilename = notebookFilename;
+            currentChapter = reference.chapter;
+            currentVerse = reference.verse;
+
+            const refString = `${bookAbbreviation} ${currentChapter}:${currentVerse}`;
+            const verseContent = importHacks(verseText);
+
                 
-
-                currentFilename = notebookFilename;
-                currentChapter = parseInt(chapterNumber);
-                currentVerse = parseInt(verseNumber);
-
-                const refString = `${bookAbbreviation} ${currentChapter}:${currentVerse}`;
-                const verseContent = importHacks(extractTextFromPerfVerse(perfVerse).trim());
-
-                    
-                currentChapterCell!.value += `${refString} ${verseContent}`;
-            });
+            currentChapterCell!.value += `${refString} ${verseContent}`;
+        
         });
                 
     });
@@ -335,19 +343,17 @@ export function registerUsfmImporter(context: vscode.ExtensionContext) {
     // The command has been defined in the package.json file
     // Now provide the implementation of the command with registerCommand
     // The commandId parameter must match the command field in package.json
-    const disposable = vscode.commands.registerCommand('codex-editor-extension.importUsfm', async () => {
+    const import_disposable = vscode.commands.registerCommand('codex-editor-extension.importUsfm', async () => {
         // The code you place here will be executed every time your command is executed
         const importParameters = await getImportParameters();
 
         const filenameToPerf = await readUsfmData(importParameters.usfmFiles);
 
-        const intermediateFormat = perfsToIntermediateFormat(filenameToPerf);
-
-        await generateNotebooks(intermediateFormat);
+        await generateNotebooks(filenameToPerf);
 
         // Display a message box to the user
-        vscode.window.showInformationMessage('Hello Usfm!');
+        vscode.window.showInformationMessage('Usfm import complete.');
     });
 
-    context.subscriptions.push(disposable);
+    context.subscriptions.push(import_disposable);
 }
