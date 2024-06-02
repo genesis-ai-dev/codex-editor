@@ -143,13 +143,6 @@ function App() {
             query: query,
         } as searchCommand);
     };
-    const searchResources = (query: string) => {
-        vscode.postMessage({
-            command: "search",
-            database: "resources",
-            query: query,
-        } as searchCommand);
-    };
 
     const PassageTab = ({
         callback,
@@ -209,54 +202,51 @@ function App() {
                     >
                         {searchResults &&
                             searchResults[resultType]?.map((item, index) => (
-                                <div
-                                    key={index}
-                                    style={{
-                                        marginBottom: "20px",
-                                        background:
-                                            "var(--vscode-sideBar-background)",
-                                        borderRadius: "10px",
-                                        alignContent: "center",
-                                        display: "flex",
-                                        flexDirection: "column",
-                                        padding: "20px",
-                                        width: "100%",
-                                    }}
-                                >
-                                    <h3>
-                                        {item.ref}
-                                    </h3>
-                                    <p
+                                item.text && (
+                                    <div
+                                        key={index}
                                         style={{
+                                            marginBottom: "5px",
                                             background:
                                                 "var(--vscode-sideBar-dropBackground)",
-                                            borderRadius: "10px",
-                                            margin: "10px",
+                                            borderRadius: "5px",
+                                            alignContent: "center",
+                                            display: "flex",
+                                            flexDirection: "column",
                                             padding: "5px",
+                                            width: "100%",
                                         }}
                                     >
-                                        {item.text}
-                                    </p>
-                                    <p>
-                                    </p>
-                                    <button
-                                        onClick={() =>
-                                            handleUriClick(
-                                                item.uri,
-                                                `${item.ref}`,
-                                            )
-                                        }
-                                        style={{
-                                            marginTop: "10px",
-                                            padding: "5px 10px",
-                                            width: "95%",
-                                            alignSelf: "center",
-                                        }}
-                                    >
-                                        {" "}
-                                        Open
-                                    </button>
-                                </div>
+                                        <p
+                                            style={{
+                                                background:
+                                                    "none",
+                                                borderRadius: "10px",
+                                                margin: "10px",
+                                                padding: "5px",
+                                            }}
+                                        >
+                                            <b>{item.ref}</b> - {item.text}
+                                            <button
+                                                onClick={() =>
+                                                    handleUriClick(
+                                                        item.uri,
+                                                        `${item.ref}`,
+                                                    )
+                                                }
+                                                style={{
+                                                    marginTop: "10px",
+                                                    padding: "5px 10px",
+                                                    width: "auto",
+                                                    alignSelf: "center",
+                                                    background: "none", // Made background invisible
+                                                }}
+                                            >
+                                                Open
+                                            </button>
+                                        </p>                                   
+                                    </div>
+                                )
                             ))}
                     </div>
                 ) : null}
@@ -407,108 +397,7 @@ function App() {
             </div>
         );
     };
-    const ResourceTab: React.FC = () => {
-        const [query, setQuery] = React.useState("");
-        return (
-            <div
-                style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "2em",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    width: "95%",
-                    margin: "auto",
-                }}
-            >
-                {!loading && (
-                    <div
-                        style={{
-                            display: "flex",
-                            alignItems: "center",
-                            marginTop: "2em",
-                            width: "100%",
-                        }}
-                    >
-                        <VSCodeTextField
-                            placeholder="Enter text here"
-                            style={{ flexGrow: 1 }}
-                            onChange={(e) =>
-                                setQuery((e.target as HTMLInputElement).value)
-                            }
-                        />
-                        <VSCodeButton onClick={() => searchResources(query)}>
-                            Search
-                        </VSCodeButton>
-                    </div>
-                )}
-                {loading ? (
-                    <div
-                        style={{
-                            marginBottom: "20px",
-                            background: "var(--vscode-sideBar-background)",
-                            borderRadius: "10px",
-                            alignContent: "center",
-                            display: "flex",
-                            flexDirection: "column",
-                            padding: "20px",
-                            width: "100%",
-                            textAlign: "center",
-                        }}
-                    >
-                        <p>
-                            Loading, this may take up to 30 minutes, please do
-                            not close this tab.
-                        </p>
-                    </div>
-                ) : null}
-                {resourceResults.resourceResults.length > 0 ? (
-                    <div
-                        style={{
-                            marginBottom: "20px",
-                            background: "var(--vscode-sideBar-background)",
-                            borderRadius: "10px",
-                            alignContent: "center",
-                            display: "flex",
-                            flexDirection: "column",
-                            padding: "20px",
-                            width: "100%",
-                            marginTop: "20px",
-                        }}
-                    >
-                        {resourceResults?.resourceResults?.map(
-                            (resource, index) => (
-                                <div
-                                    key={index}
-                                    style={{ marginBottom: "30px" }}
-                                >
-                                    <p>{resource.text}</p>
-
-                                    <button
-                                        onClick={() =>
-                                            handleUriClick(
-                                                resource.uri,
-                                                resource.text,
-                                            )
-                                        }
-                                        style={{
-                                            marginTop: "10px",
-                                            padding: "5px 10px",
-                                            width: "95%",
-                                            alignSelf: "center",
-                                        }}
-                                    >
-                                        Open
-                                    </button>
-                                    
-                                </div>
-                            ),
-                        )}
-                    </div>
-                ) : null}
-            </div>
-        );
-    };
+    
     return (
         <VSCodePanels>
             <VSCodePanelTab id="tab1">Draft</VSCodePanelTab>
@@ -530,10 +419,6 @@ function App() {
             <VSCodePanelTab id="tab3">Anomalies</VSCodePanelTab>
             <VSCodePanelView id="view3">
                 <AnomalyTab />
-            </VSCodePanelView>
-            <VSCodePanelTab id="tab4">Resources</VSCodePanelTab>
-            <VSCodePanelView id="view4">
-                <ResourceTab />
             </VSCodePanelView>
         </VSCodePanels>
     );
