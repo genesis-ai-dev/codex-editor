@@ -1,5 +1,5 @@
 """
-init
+Note: `install_packages` must always be the first import.
 """
 from . import install_packages
 from . import bia
