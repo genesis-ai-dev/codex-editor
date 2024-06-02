@@ -226,7 +226,7 @@ function App() {
                                                 padding: "5px",
                                             }}
                                         >
-                                            <b>{item.ref}</b> - {item.text}
+                                            <b>{item.ref}</b> - {item.text || 'Anomaly: This appeared in the results the source tab, but is missing from the draft. It may have yet to be translated.'}
                                             <button
                                                 onClick={() =>
                                                     handleUriClick(
@@ -249,16 +249,34 @@ function App() {
                                 )
                             ))}
                     </div>
-                ) : null}
+                ) : 
+                null
+                }
                 {!loading && (
                     <div
+                    style={{
+                        marginBottom: "5px",
+                        background: "var(--vscode-sideBar-dropBackground)",
+                        borderRadius: "5px",
+                        alignContent: "center",
+                        display: "flex",
+                        flexDirection: "column",
+                        padding: "5px",
+                        width: "100%",
+                    }}
+                >
+                    <p
                         style={{
-                            display: "flex",
-                            flexDirection: "row",
-                            gap: "10px",
+                            background: "none",
+                            borderRadius: "10px",
+                            margin: "10px",
+                            padding: "5px",
+                            textAlign: "center",
                         }}
                     >
-                    </div>
+                        Results.
+                    </p>
+                </div>
                 )}
             </div>
         );
