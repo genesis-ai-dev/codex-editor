@@ -227,24 +227,24 @@ function App() {
                                             }}
                                         >
                                             <b>{item.ref}</b> - {item.text || 'Anomaly: This appeared in the results the source tab, but is missing from the draft. It may have yet to be translated.'}
-                                            <button
-                                                onClick={() =>
-                                                    handleUriClick(
-                                                        item.uri,
-                                                        `${item.ref}`,
-                                                    )
-                                                }
-                                                style={{
-                                                    marginTop: "10px",
-                                                    padding: "5px 10px",
-                                                    width: "auto",
-                                                    alignSelf: "center",
-                                                    background: "none", // Made background invisible
-                                                }}
-                                            >
-                                                Open
-                                            </button>
-                                        </p>                                   
+                                        </p>
+                                        <button
+                                            onClick={() =>
+                                                handleUriClick(
+                                                    item.uri,
+                                                    `${item.ref}`,
+                                                )
+                                            }
+                                            style={{
+                                                marginTop: "10px",
+                                                padding: "5px 10px",
+                                                width: "auto",
+                                                alignSelf: "center",
+                                                background: "none", // Made background invisible
+                                            }}
+                                        >
+                                            Open
+                                        </button>                                  
                                     </div>
                                 )
                             ))}
