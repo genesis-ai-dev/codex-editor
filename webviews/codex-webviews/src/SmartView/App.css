@@ -1,50 +1,45 @@
 .draft-tab {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  gap: 2em;
+  align-items: center;
+  justify-content: center;
+  width: 95%;
+  margin: auto;
   padding: 20px;
-  align-content: stretch;
 }
 
-
-
-/* .form-field label {
-  display: block;
-  margin-bottom: 5px;
-  font-weight: bold;
-} */
-
-/* .form-field .vscode-text-area {
+.search-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1em;
   width: 100%;
-  resize: none;
-} */
+}
 
 .form-error {
-  color: #ff0000;
+  color: var(--vscode-editorError-foreground);
   margin-bottom: 10px;
+  font-weight: bold;
 }
 
 .results-container {
   flex: 1;
   overflow-y: auto;
-  background-color: #1e1e1e;
-  border-radius: 4px;
+  background-color: var(--vscode-editor-background);
+  border-radius: 8px;
   padding: 20px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  width: 100%;
 }
 
-.loading-state,
 .empty-state {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100%;
   font-size: 18px;
-  color: #888;
-}
-
-.loading-state .vscode-progress-ring {
-  margin-bottom: 10px;
+  color: var(--vscode-editorHint-foreground);
+  height: 100%;
 }
 
 .empty-state .codicon {
@@ -55,16 +50,15 @@
 .codex-item {
   margin-bottom: 20px;
   padding: 15px;
-  background-color: #252526;
-  border-radius: 4px;
-  color: #d4d4d4;
+  background-color: var(--vscode-sideBar-background);
+  border-radius: 8px;
+  color: var(--vscode-editor-foreground);
 }
 
 .codex-item h3 {
   margin-top: 0;
   margin-bottom: 10px;
   font-size: 20px;
-  color: #fff;
 }
 
 .codex-item-content {
@@ -79,14 +73,13 @@
   margin-top: 0;
   margin-bottom: 5px;
   font-size: 18px;
-  color: #fff;
 }
 
 .codex-item-content p {
   margin: 0;
   padding: 10px;
-  background-color: #1e1e1e;
-  border-radius: 4px;
+  background-color: var(--vscode-editor-background);
+  border-radius: 8px;
   font-size: 16px;
 }
 
@@ -97,7 +90,4 @@
 
 .codex-item-actions .vscode-button {
   margin-left: 10px;
-}
-h2 {
-  margin: 5px;
 }

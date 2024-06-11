@@ -220,18 +220,18 @@ const DraftTab: React.FC<{
 }) => {
   return (
     <div className="draft-tab">
-      <h2>Before edit example:</h2>
-      <VSCodeTextArea id="before" placeholder="Enter original text." rows={10} />
-      <h2>After edit example:</h2>
-      <VSCodeTextArea id="after" placeholder="Enter ideal text." rows={10} />
-      {formError && <div className="form-error">{formError}</div>}
-      <VSCodeButton
-        appearance="primary"
-        onClick={onSearchForEdits}
-        disabled={loading}
-      >
-        {loading ? "Searching..." : "Find Smart Edits"}
-      </VSCodeButton>
+      <div className="search-container">
+        <VSCodeTextArea id="before" placeholder="Enter original text." rows={10} />
+        <VSCodeTextArea id="after" placeholder="Enter ideal text." rows={10} />
+        {formError && <div className="form-error">{formError}</div>}
+        <VSCodeButton
+          appearance="primary"
+          onClick={onSearchForEdits}
+          disabled={loading}
+        >
+          {loading ? "Searching..." : "Find Smart Edits"}
+        </VSCodeButton>
+      </div>
 
       <div className="results-container">
         {!loading && searchResults.length === 0 && (
