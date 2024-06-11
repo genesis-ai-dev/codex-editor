@@ -128,14 +128,10 @@ export async function performSearch(
 ) {
     if (selectedText) {
         // vscode.window.showInformationMessage("here is selected: "+selectedText);
-        vscode.commands.executeCommand(
-            "pygls.server.textSelected",
-            selectedText,
-        );
+
         try {
             // vscode.window.showInformationMessage("Searching: "+ selectedText);
             const result = await pyMessenger.detectAnomalies(selectedText, 10);
-
             callback(result);
         } catch (error: unknown) {
             vscode.window.showErrorMessage(

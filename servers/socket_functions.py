@@ -102,9 +102,12 @@ class SocketRouter:
             return json.dumps({'word': word})
         
         elif function_name == "hover_line":
-            line = self.lspw.most_recent_hovered_line
-            return json.dumps({'line': line})
-        
+            if self.lspw:
+                line = self.lspw.most_recent_hovered_line
+                return json.dumps({'line': line})
+            else:
+                return json.dumps({'line': ''})
+
         elif function_name == "get_status":
             key = args['key']
             return json.dumps({'status': self.get_status(key)})

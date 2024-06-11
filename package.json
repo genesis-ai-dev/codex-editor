@@ -274,11 +274,7 @@
                 "title": "Add to Dictionary",
                 "category": "pygls"
             },
-            {
-                "command": "pygls.server.textSelected",
-                "title": "Text Highlighted",
-                "category": "pygls"
-            },
+
             {
                 "command": "dictionaryTable.showDictionaryTable",
                 "title": "Dictionary Table: Show"

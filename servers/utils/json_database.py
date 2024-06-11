@@ -73,7 +73,7 @@ class JsonDatabase:
             self.source_texts.append(text)
             self.source_references.append(ref)
             self.source_uris.append(uri)
-        
+
         for verse in target_files:
             ref = verse["ref"]
             text = verse["text"]
@@ -97,13 +97,10 @@ class JsonDatabase:
                 self.tfidf_matrix_source = None
         else:
             self.tfidf_matrix_source = None
-
         if self.target_texts:
-            try:
-                self.tfidf_matrix_target = self.tfidf_vectorizer_target.fit_transform(self.target_texts)
-            except ValueError:
-                self.tfidf_matrix_target = None
-            self.tfidf_matrix_target = None
+            
+            self.tfidf_matrix_target = self.tfidf_vectorizer_target.fit_transform(self.target_texts)
+         
 
         self.load_resources(resources_dir)
     
@@ -126,14 +123,18 @@ class JsonDatabase:
             query_vector = self.tfidf_vectorizer_source.transform([query_text])
             similarities = cosine_similarity(query_vector, self.tfidf_matrix_source)
             top_indices = similarities.argsort()[0][-top_n:][::-1]
-            return [{'ref': self.source_references[i], 'text': self.source_texts[i], 'uri': self.source_uris[i]} for i in top_indices]
+            ret =  [{'ref': self.source_references[i], 'text': self.source_texts[i], 'uri': self.source_uris[i]} for i in top_indices]
+            return ret
         elif text_type == "target":
             if self.tfidf_matrix_target is None:
+
                 return [{'ref': ref, 'text': '', 'uri': uri} for ref, uri in zip(self.target_references, self.target_uris)][:top_n]
             query_vector = self.tfidf_vectorizer_target.transform([query_text])
             similarities = cosine_similarity(query_vector, self.tfidf_matrix_target)
             top_indices = similarities.argsort()[0][-top_n:][::-1]
-            return [{'ref': self.target_references[i], 'text': self.target_texts[i], 'uri': self.target_uris[i]} for i in top_indices]
+
+            ret =  [{'ref': self.target_references[i], 'text': self.target_texts[i], 'uri': self.target_uris[i]} for i in top_indices]
+            return ret
         else:
             raise ValueError("Invalid text_type. Choose either 'source' or 'target'.")
         

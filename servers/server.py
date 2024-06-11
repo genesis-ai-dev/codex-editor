@@ -3,7 +3,6 @@ Pygls language server
 """
 import os
 from typing import List
-import webbrowser
 import utils.install_packages as install_packages
 from pygls.server import LanguageServer
 import servable_forecasting
@@ -36,12 +35,6 @@ def on_highlight(params: List[str]) -> None:
 # Initialize the language server with metadata
 server = LanguageServer("code-action-server", "v0.1")
 
-def callback(text: str):
-    """
-    useless callback
-    """
-    webbrowser.open("https://www.mindguardian.com/?q="+text)
-
 # Create server functions and servables
 lsp_wrapper = lsp_wrapper.LSPWrapper(server=server, data_path='/.project')
 forcasting = servable_forecasting.ServableForecasting(lspw=lsp_wrapper, chunk_size=20)
@@ -63,7 +56,7 @@ lsp_wrapper.add_action(vrefs.vref_code_actions)
 # Register close function and commands with the server
 server.command("pygls.server.add_dictionary")(add_dictionary)
 server.command("pygls.server.add_line_dictionary")(add_line_dictionary)
-server.command("pygls.server.textSelected")(on_highlight)
+# server.command("pygls.server.textSelected")(on_highlight)
 # Start the Flask server and the language server
 
 lsp_wrapper.start()
