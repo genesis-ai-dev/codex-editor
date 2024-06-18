@@ -36,6 +36,10 @@ import { projectFileExists } from "./utils/fileUtils";
 
 let scmInterval: any; // Webpack & typescript for vscode are having issues
 
+// initial autoCommit config
+const configuration = vscode.workspace.getConfiguration("codex-editor.scm");
+let autoCommitEnabled = configuration.get<boolean>("autoCommit", true);
+
 export async function activate(context: vscode.ExtensionContext) {
     await indexVerseRefsInSourceText();
     await handleConfig();
@@ -78,12 +82,39 @@ async function executeCommandsAfter() {
 }
 
 async function startSyncLoop(context: vscode.ExtensionContext) {
-    scmInterval = setInterval(promptForLocalSync, 1000 * 60 * 15);
+    console.log("sync loop timer refreshed");
+    const syncIntervalTime = 1000 * 60 * 15; // 15 minutes
+
+    function startInterval() {
+        scmInterval = setInterval(promptForLocalSync, syncIntervalTime);
+    }
+
+    function stopInterval() {
+        if (scmInterval) {
+            clearInterval(scmInterval);
+            scmInterval = null;
+        }
+    }
+
+    if (autoCommitEnabled) {
+        startInterval();
+    }
 
     const configChangeSubscription = vscode.workspace.onDidChangeConfiguration(
         (e) => {
             if (e.affectsConfiguration("codex-editor.scm.remoteUrl")) {
                 syncUtils.checkConfigRemoteAndUpdateIt();
+            }
+            if (e.affectsConfiguration("codex-editor.scm.autoCommit")) {
+                const updatedConfiguration = vscode.workspace.getConfiguration("codex-editor.scm");
+                autoCommitEnabled = updatedConfiguration.get<boolean>("autoCommit", true);
+                vscode.window.showInformationMessage(`Auto-commit is now ${autoCommitEnabled ? 'enabled' : 'disabled'}.`);
+
+                if (autoCommitEnabled) {
+                    startInterval();
+                } else {
+                    stopInterval();
+                }
             }
         },
     );

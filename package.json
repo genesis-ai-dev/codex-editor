@@ -405,6 +405,11 @@
                         "type": "string",
                         "default": "",
                         "description": "The remote URL to cloud sync to."
+                    },
+                    "codex-editor.scm.autoCommit": {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "Enable or disable auto-commit feature."
                     }
                 }
             }
