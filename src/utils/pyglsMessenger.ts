@@ -66,9 +66,6 @@ class PythonMessenger {
     return this.sendRequest('search_for_edits', { before, after });
   }
 
-  async getEditResults(): Promise<any> {
-      return this.sendRequest('get_edit_results', {});
-  }
   async applyEdit(uri: string, before: string, after: string): Promise<any> {
     return this.sendRequest('apply_edit', { uri, before, after });
   }

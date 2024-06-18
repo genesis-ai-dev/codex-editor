@@ -65,27 +65,34 @@ class JsonDatabase:
             source_files = []
         target_files = extract_codex_chunks(path=codex_dir)
 
-        for verse in source_files:
-            ref = verse["ref"]
-            text = verse["text"]
-            uri = verse['uri']
-            self.dictionary[ref] = {"source": text, "source_uri": uri}
-            self.source_texts.append(text)
-            self.source_references.append(ref)
-            self.source_uris.append(uri)
+    
 
         for verse in target_files:
             ref = verse["ref"]
             text = verse["text"]
+            
             uri = verse['uri']
             if ref in self.dictionary:
                 self.dictionary[ref].update({"target": text, "target_uri": uri})
             else:
+                if len(text) < 4:
+                    continue
                 self.dictionary[ref] = {"target": text, "target_uri": uri}
             self.target_texts.append(text)
             self.target_references.append(ref)
             self.target_uris.append(uri)
             self.complete_draft += " " + text
+        for verse in source_files:
+            ref = verse["ref"]
+            text = verse["text"]
+            
+            uri = verse['uri']
+            if ref not in self.dictionary:
+                continue
+            self.dictionary[ref] = {"source": text, "source_uri": uri}
+            self.source_texts.append(text)
+            self.source_references.append(ref)
+            self.source_uris.append(uri)
 
         with open(save_all_path+"/complete_draft.context", "w+", encoding='utf-8') as f:
             f.write(self.complete_draft)
@@ -119,11 +126,11 @@ class JsonDatabase:
         """
         if text_type == "source":
             if self.tfidf_matrix_source is None:
-                return [{'ref': ref, 'text': '', 'uri': uri} for ref, uri in zip(self.source_references, self.source_uris)][:top_n]
+                return [{'ref': ref, 'text': '', 'uri': uri} for ref, uri in zip(self.source_references, self.source_uris) if ref in self.dictionary][:top_n]
             query_vector = self.tfidf_vectorizer_source.transform([query_text])
             similarities = cosine_similarity(query_vector, self.tfidf_matrix_source)
             top_indices = similarities.argsort()[0][-top_n:][::-1]
-            ret =  [{'ref': self.source_references[i], 'text': self.source_texts[i], 'uri': self.source_uris[i]} for i in top_indices]
+            ret = [{'ref': self.source_references[i], 'text': self.source_texts[i], 'uri': self.source_uris[i]} for i in top_indices if self.source_references[i] in self.dictionary]
             return ret
         elif text_type == "target":
             if self.tfidf_matrix_target is None:
@@ -330,6 +337,8 @@ def get_data(data, path):
                 if match:
                     text = match.group(1).strip()
                     # Create a dictionary for the verse
+                    if len(text) < 4:
+                        continue
                     verse = {
                         'ref': ref,
                         'text': text,
@@ -403,9 +412,12 @@ def extract_from_bible_file(path):
 
         for match in matches:
             ref, text = match
+            text = text.strip()
+            if len(text) < 4:
+                continue
             verse = {
                 'ref': ref,
-                'text': text.strip(),
+                'text': text,
                 'uri': str(path)
             }
             verses.append(verse)
