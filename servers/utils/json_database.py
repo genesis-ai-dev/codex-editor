@@ -291,6 +291,18 @@ class JsonDatabase:
             return self.dictionary[ref][text_type]
         return ""
     
+    def get_relavent_drafts(self, reference, top_n=5):
+        source_text = self.get_text(ref=reference, text_type='source')
+        rankings = self.search(query_text=source_text, text_type='source', top_n=top_n)
+        refs = []
+        for verse in rankings:
+            refs.append(verse['ref'])
+        target_verses = []
+        for ref in refs:
+            text = self.get_text(ref=ref, text_type='draft')
+            target_verses.append({'ref': ref, 'text': text})
+        return target_verses
+    
 def find_all(path: str, types: str = ".codex"):
     """
     Finds all files of a specified type within a directory and its subdirectories.

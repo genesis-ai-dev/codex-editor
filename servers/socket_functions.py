@@ -83,11 +83,12 @@ class SocketRouter:
         elif function_name == 'get_text':
             results = self.get_text(args['ref'], args['text_type'])
             return json.dumps({"text": results})
-        
+        elif function_name == 'get_similar_drafts':
+            results = self.database.get_similar_drafts(ref=args['ref'], top_n=args.get('limit', 5))
+            return json.dumps(results)
         elif function_name == 'detect_anomalies':
             results = self.detect_anomalies(args['query'], args.get('limit', 10))
             return json.dumps(results)
-        
         elif function_name == 'search_for_edits':
             self.set_status('smartview', 'loading')
             results = self.search_for_edits(args['before'], args['after'])
