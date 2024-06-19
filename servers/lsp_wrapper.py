@@ -281,6 +281,9 @@ class LSPWrapper:
         """
         for f in self.functions.on_selected_functions:
             f(text)
+            
+    def refresh_database(self):
+        self.socket_router.prepare(self.paths.raw_path, self)
 
     def initialize(self, lspw, params):
         """

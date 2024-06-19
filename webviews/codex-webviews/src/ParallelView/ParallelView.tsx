@@ -20,6 +20,12 @@ interface OpenFileMessage {
     uri: string;
     word: string;
 }
+interface applyEdit {
+    command: 'applyEdit',
+    uri: string;
+    before: string;
+    after: string;
+}
 
 interface searchCommand {
     command: string;
@@ -106,6 +112,34 @@ function App() {
 
     const PassageTab: React.FC = () => {
         const [query, setQuery] = React.useState("");
+        const [editingIndex, setEditingIndex] = useState<number | null>(null);
+        const [editedTexts, setEditedTexts] = useState<{ [key: number]: string }>({});
+
+        const handleEditClick = (index: number) => {
+            setEditingIndex(index);
+            setEditedTexts((prev) => ({
+                ...prev,
+                [index]: verses[index].codexText || "",
+            }));
+        };
+
+        const handleTextChange = (index: number, text: string) => {
+            setEditedTexts((prev) => ({
+                ...prev,
+                [index]: text,
+            }));
+        };
+
+        const handleSaveClick = (index: number, before: string, after: string, uri: string) => {
+            console.log(`Saving text at index ${index}: ${after}`);
+            vscode.postMessage({
+                command: 'applyEdit',
+                uri: uri,
+                before: before,
+                after: after
+            });
+            setEditingIndex(null);
+        };
 
         const compareVerses = () => {
             const combinedVerses = searchResults.bibleResults.map((bibleVerse) => {
@@ -190,7 +224,7 @@ function App() {
                                     width: "100%",
                                     border: item.text && item.codexText
                                         ? "2px solid rgba(0, 255, 0, 0.5)"
-                                        : "2px solid rgba(255, 0, 0, 0.5)",
+                                        : "2px solid rgba(0, 255, 0, 0.5)",
                                 }}
                             >
                                 <div
@@ -202,6 +236,17 @@ function App() {
                                     }}
                                 >
                                     <span>{item.ref}</span>
+                                    {item.codexText && (
+                                        <VSCodeButton
+                                        onClick={() =>
+                                            editingIndex === index
+                                                ? handleSaveClick(index, item.codexText || "", editedTexts[index], item.codexUri || "")
+                                                : handleEditClick(index)
+                                        }
+                                    >
+                                        {editingIndex === index ? "Save" : "Edit"}
+                                    </VSCodeButton>
+                                    )}
                                 </div>
                                 {item.text && (
                                     <div
@@ -267,16 +312,36 @@ function App() {
                                             </span>
                                             Target
                                         </span>
-                                        <p
-                                            style={{
-                                                cursor: "pointer",
-                                            }}
-                                            onClick={() =>
-                                                handleUriClick(item.codexUri || "", `${item.ref}`)
-                                            }
-                                        >
-                                            {item.codexText}
-                                        </p>
+                                        {editingIndex === index ? (
+                                            <textarea
+                                                value={editedTexts[index]}
+                                                onChange={(e) =>
+                                                    handleTextChange(index, e.target.value)
+                                                }
+                                                style={{
+                                                    width: "100%",
+                                                    height: "100px",
+                                                    borderRadius: "10px",
+                                                    padding: "10px",
+                                                    border: "1px solid var(--vscode-sideBar-border)",
+                                                    backgroundColor: "var(--vscode-editor-background)",
+                                                    color: "var(--vscode-editor-foreground)",
+                                                    fontFamily: "var(--vscode-font-family)",
+                                                    fontSize: "var(--vscode-font-size)",
+                                                }}
+                                            />
+                                        ) : (
+                                            <p
+                                                style={{
+                                                    cursor: "pointer",
+                                                }}
+                                                onClick={() =>
+                                                    handleUriClick(item.codexUri || "", `${item.ref}`)
+                                                }
+                                            >
+                                                {item.codexText}
+                                            </p>
+                                        )}
                                     </div>
                                 )}
                             </div>

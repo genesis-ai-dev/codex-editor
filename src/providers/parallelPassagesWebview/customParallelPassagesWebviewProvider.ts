@@ -145,6 +145,9 @@ const loadWebviewHtml = (
                     // vscode.window.showInformationMessage(message.uri);
                     simpleOpen(message.uri);//message.word);
                     break;
+                case "applyEdit":
+                    await pyMessenger.applyEdit(message.uri, message.before, message.after);
+                    break;
                 case "search":
                     if (message.database === 'resources') {
                         const query = message.query;

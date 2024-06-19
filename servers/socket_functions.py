@@ -96,6 +96,7 @@ class SocketRouter:
         
         elif function_name == 'apply_edit':
             self.change_file(args['uri'], args['before'], args['after'])
+            self.lspw.refresh_database()
             return json.dumps({'status': 'ok'})
         
         elif function_name == 'hover_word':
