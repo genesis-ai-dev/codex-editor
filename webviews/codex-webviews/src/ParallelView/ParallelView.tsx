@@ -186,7 +186,7 @@ function App() {
                     }}
                 >
                     <VSCodeTextField
-                        placeholder="Enter text here"
+                        placeholder="Search anything or highlight text."
                         style={{ flexGrow: 1 }}
                         onChange={(e) => setQuery((e.target as HTMLInputElement).value)}
                     />
