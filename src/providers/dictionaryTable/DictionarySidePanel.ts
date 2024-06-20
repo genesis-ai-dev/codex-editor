@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { getUri } from "./utilities/getUri";
 import { getNonce } from "./utilities/getNonce";
+import { FileHandler } from './utilities/FileHandler';
 import { Dictionary } from "codex-types";
 import { DictionaryPostMessages } from "../../../types";
 
@@ -27,13 +28,33 @@ export class DictionarySidePanel implements vscode.WebviewViewProvider {
 
     private async updateWebviewData() {
         const { data } = await FileHandler.readFile(dictionaryPath);
-        if (!data) return;
-        const dictionary: Dictionary = JSON.parse(data);
+        let dictionary: Dictionary;
+        if (!data) {
+            // Create an empty dictionary
+            dictionary = {
+                id: '',
+                label: '',
+                entries: [],
+                metadata: {},
+            };
+        } else {
+            dictionary = JSON.parse(data);
+        }
         this._view?.webview.postMessage({
             command: "sendData",
             data: dictionary,
         } as DictionaryPostMessages);
     }
+
+    // private async updateWebviewData() {
+    //     const { data } = await FileHandler.readFile(dictionaryPath);
+    //     if (!data) return;
+    //     const dictionary: Dictionary = JSON.parse(data);
+    //     this._view?.webview.postMessage({
+    //         command: "sendData",
+    //         data: dictionary,
+    //     } as DictionaryPostMessages);
+    // }
 
     public resolveWebviewView(
         webviewView: vscode.WebviewView,
@@ -49,12 +70,18 @@ export class DictionarySidePanel implements vscode.WebviewViewProvider {
 
         const initAsync = async () => {
             const { data, uri } = await FileHandler.readFile(dictionaryPath);
-            // return if no data
+            let dictionary: Dictionary;
             if (!data) {
-                return;
+                // Create an empty dictionary
+                dictionary = {
+                    id: '',
+                    label: '',
+                    entries: [],
+                    metadata: {},
+                };
+            } else {
+                dictionary = JSON.parse(data);
             }
-            const dictionary: Dictionary = JSON.parse(data);
-            console.log("Parsed dictionary:", dictionary);
 
             // Set the HTML content for the webview panel
             webviewView.webview.html = this.getWebviewContent(
@@ -147,43 +174,5 @@ export class DictionarySidePanel implements vscode.WebviewViewProvider {
             undefined,
             [],
         );
-    }
-}
-
-class FileHandler {
-    static async readFile(
-        filePath: string,
-    ): Promise<{ data: string | undefined; uri: vscode.Uri | undefined }> {
-        try {
-            if (!vscode.workspace.workspaceFolders) {
-                throw new Error("No workspace folder found");
-            }
-            const workspaceFolder = vscode.workspace.workspaceFolders?.[0].uri;
-            const fileUri = vscode.Uri.joinPath(workspaceFolder, filePath);
-            const fileData = await vscode.workspace.fs.readFile(fileUri);
-            const data = new TextDecoder().decode(fileData);
-            return { data, uri: fileUri };
-        } catch (error) {
-            vscode.window.showErrorMessage(`Error reading file: ${filePath}`);
-            console.error({ error });
-            return { data: undefined, uri: undefined };
-        }
-    }
-
-    static async writeFile(filePath: string, data: string): Promise<void> {
-        try {
-            if (!vscode.workspace.workspaceFolders) {
-                throw new Error("No workspace folder found");
-            }
-            const workspaceFolder = vscode.workspace.workspaceFolders?.[0].uri;
-            const fileUri = vscode.Uri.joinPath(workspaceFolder, filePath);
-            const fileData = new TextEncoder().encode(data);
-            await vscode.workspace.fs.writeFile(fileUri, fileData);
-        } catch (error) {
-            console.error({ error });
-            vscode.window.showErrorMessage(
-                `Error writing to file: ${filePath}`,
-            );
-        }
     }
 }

@@ -1,4 +1,10 @@
-import React, { CSSProperties, useMemo } from 'react';
+import React, { 
+  CSSProperties, 
+  useMemo,
+  //test
+  useCallback
+  //end test
+} from 'react';
 import {
   useTable,
   useBlockLayout,
@@ -29,8 +35,6 @@ export default function Table({
   dispatch: dataDispatch,
   skipReset,
 }: TableData) {
-  // export const Table: React.FC<TableData> = ({ columns, data, dispatch: dataDispatch, skipReset }) => {
-
   const sortTypes = useMemo(
     () => ({
       alphanumericFalsyLast(
@@ -59,6 +63,34 @@ export default function Table({
     []
   );
 
+  
+  //test
+  // const defaultColumn = useMemo(
+  //   () => ({
+  //     minWidth: 50,
+  //     width: 150,
+  //     maxWidth: 400,
+  //     Cell: Cell,
+  //     Header: Header,
+  //     sortType: 'alphanumericFalsyLast',
+  //   }),
+  //   []
+  // );
+
+  // const handleResize = useCallback(
+  //   (columnId: string, newWidth: number) => {
+  //     if (dataDispatch) {
+  //       dataDispatch({
+  //         type: ActionTypes.RESIZE_COLUMN,
+  //         columnId,
+  //         newWidth,
+  //       });
+  //     }
+  //   },
+  //   [dataDispatch]
+  // );
+  //endtest
+
   const {
     getTableProps,
     getTableBodyProps,
@@ -71,16 +103,18 @@ export default function Table({
       columns,
       data,
       defaultColumn,
-      dataDispatch, // Now correctly recognized as part of the configuration
+      dataDispatch, 
       autoResetSortBy: !skipReset,
       autoResetFilters: !skipReset,
       autoResetRowState: !skipReset,
       sortTypes,
-    } as CustomTableOptions<TableEntry>, // Cast to your custom interface
+    } as CustomTableOptions<TableEntry>,
     useBlockLayout,
     useResizeColumns,
     useSortBy
   );
+
+
   const RenderRow = React.useCallback(
     ({ index, style }: { index: number; style: React.CSSProperties }) => {
       const row = rows[index];
@@ -88,7 +122,14 @@ export default function Table({
       return (
         <div {...row?.getRowProps?.({ style })} className="tr">
           {row.cells.map((cell: any, cellIndex: number) => (
-            <div {...cell.getCellProps()} key={cellIndex} className="td">
+            <div 
+              {...cell.getCellProps()} 
+              key={cellIndex} 
+              className="td"
+
+              style={{ width: `${cell.column.width}px` }} // Apply the width here
+
+            >
               {cell.render('Cell')}
             </div>
           ))}
@@ -97,18 +138,6 @@ export default function Table({
     },
     [prepareRow, rows]
   );
-
-  // function isTableResizing(): boolean {
-  //   for (let headerGroup of headerGroups) {
-  //     for (let column of headerGroup.headers) {
-  //       if (column.isResizing) {
-  //         return true;
-  //       }
-  //     }
-  //   }
-
-  //   return false;
-  // }
 
   const Rows: React.FC = () => (
     <div>
@@ -131,31 +160,41 @@ export default function Table({
               key={index}
               className="tr"
             >
-              {headerGroup.headers.map((column: any) =>
-                column.render('Header', { key: column.id })
-              )}
+              {headerGroup.headers.map((column: any, columnIndex: number) => (
+                <div 
+                  {...column.getHeaderProps()} 
+                  key={columnIndex} 
+                  className="th"
+                  // style={{ width: `${column.width}px`, position: 'sticky', top: 0, zIndex: 1001 }} // Apply the width here
+                >
+                  {column.render('Header')}
+                </div>
+              ))}
             </div>
           ))}
         </div>
-        <div {...getTableBodyProps()}>
-          <Rows />
-          <div
-            className="tr add-row"
-            onClick={() =>
-              dataDispatch && dataDispatch({ type: ActionTypes.ADD_ROW })
-            }
-            style={{
-              marginTop: 20,
-              width: 'fit-content',
-              minWidth: '90px',
-            }}
-          >
-            <span className="svg-icon svg-gray icon-margin">
-              <PlusIcon />
-            </span>
-            New
+        <div className="table-container">
+          <div {...getTableBodyProps()}>
+            <Rows />
           </div>
         </div>
+        <div
+          className="tr add-row"
+          onClick={() =>
+            dataDispatch && dataDispatch({ type: ActionTypes.ADD_ROW })
+          }
+          style={{
+            marginTop: 30,
+            width: 'fit-content',
+            minWidth: '90px',
+          }}
+        >
+          <span className="svg-icon svg-gray icon-margin">
+            <PlusIcon />
+          </span>
+          New
+        </div>
+        
       </div>
     </div>
   );

@@ -16,6 +16,11 @@ function App() {
                     setEntries(numberOfEntries(dictionary));
                     break;
                 }
+
+                case "updateEntryCount": {
+                    setEntries(message.count);
+                    break;
+                }
             }
         };
         window.addEventListener("message", handleReceiveMessage);

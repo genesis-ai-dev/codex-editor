@@ -16,9 +16,10 @@ import { Dictionary } from 'codex-types';
 import Trash from './img/Trash';
 import { DictionaryPostMessages } from '../../../types';
 import { TableColumn, TableData, TableEntry } from './tableTypes';
+import debounce from 'lodash/debounce';
 
 function reducer(state: any, action: any) {
-  console.log({ action });
+  console.log('Reducer action:', action);
   switch (action.type) {
     case ActionTypes.ADD_OPTION_TO_COLUMN:
       const optionIndex = state.columns.findIndex(
@@ -39,12 +40,15 @@ function reducer(state: any, action: any) {
           },
         },
       });
+
     case ActionTypes.ADD_ROW:
       const newId = generateUniqueId(state.data);
+      console.log('New state after ADD_ROW:', state);
       return update(state, {
         skipReset: { $set: true },
         data: { $push: [{ id: newId }] },
       });
+
     case ActionTypes.UPDATE_COLUMN_TYPE:
       const typeIndex = state.columns.findIndex(
         (column: any) => column.id === action.columnId
@@ -115,6 +119,7 @@ function reducer(state: any, action: any) {
         default:
           return state;
       }
+
     case ActionTypes.UPDATE_COLUMN_HEADER:
       const index = state.columns.findIndex(
         (column: any) => column.id === action.columnId
@@ -123,6 +128,7 @@ function reducer(state: any, action: any) {
         skipReset: { $set: true },
         columns: { [index]: { label: { $set: action.label } } },
       });
+
     case ActionTypes.UPDATE_CELL:
       return update(state, {
         skipReset: { $set: true },
@@ -130,6 +136,7 @@ function reducer(state: any, action: any) {
           [action.rowIndex]: { [action.columnId]: { $set: action.value } },
         },
       });
+
     case ActionTypes.ADD_COLUMN_TO_LEFT:
       const leftIndex = state.columns.findIndex(
         (column: any) => column.id === action.columnId
@@ -154,6 +161,7 @@ function reducer(state: any, action: any) {
           ],
         },
       });
+
     case ActionTypes.ADD_COLUMN_TO_RIGHT:
       const rightIndex = state.columns.findIndex(
         (column: any) => column.id === action.columnId
@@ -178,6 +186,7 @@ function reducer(state: any, action: any) {
           ],
         },
       });
+
     case ActionTypes.DELETE_COLUMN:
       const deleteIndex = state.columns.findIndex(
         (column: any) => column.id === action.columnId
@@ -186,16 +195,28 @@ function reducer(state: any, action: any) {
         skipReset: { $set: true },
         columns: { $splice: [[deleteIndex, 1]] },
       });
+
     case ActionTypes.ENABLE_RESET:
       return update(state, { skipReset: { $set: true } });
+
     case ActionTypes.LOAD_DATA:
+      let columns = action.columns.map((column: TableColumn) => {
+        // Set visibility for specific columns
+        if (column.id && ['headWord', 'definition', 'translationEquivalents', 'checkbox_column', 'notes'].includes(column.id)) {
+          return { ...column, visible: true };
+        } else {
+          return { ...column, visible: false };
+        }
+      });
+    
       return {
         ...state,
         data: action.data,
-        columns: action.columns,
+        columns: columns,
         // skipReset: false,
         dictionary: action.dictionary,
       };
+
     case ActionTypes.REMOVE_CHECKED_ROWS:
       return {
         ...state,
@@ -203,6 +224,15 @@ function reducer(state: any, action: any) {
           (row: any) => !row[Constants.CHECKBOX_COLUMN_ID]
         ),
       };
+    
+    case ActionTypes.RESIZE_COLUMN_WIDTHS:
+      console.log('Resizing columns to', action.minWidth);
+      return {
+          ...state,
+          columns: state.columns.map((column: any) => 
+            column.dataType !== DataTypes.CHECKBOX ? { ...column, width: action.minWidth } : column
+          ),
+        };
 
     default:
       return state;
@@ -227,8 +257,9 @@ function App() {
   interface Action {
     type: string;
     data?: TableEntry[]; // Assuming data is an array of any objects, specify further if possible
-    columns?: TableColumn[]; // Use the Column interface already defined
-    dictionary?: Dictionary; // Assuming Dictionary is a known type in your project
+    columns?: TableColumn[];
+    dictionary?: Dictionary;
+    minWidth?: number; 
   }
 
   const initialState: AppState = {
@@ -265,8 +296,35 @@ function App() {
         data: dictionaryData,
       } as DictionaryPostMessages);
       console.log('Data changed and sent back');
+
+      vscode.postMessage({
+        command: 'updateEntryCount',
+        count: state.data.length,
+      });
     }
   }, [state.data, state.columns, state.dictionary]);
+
+  useEffect(() => {
+    // Define a debounced version of a function that dispatches a resize action
+    const calculateNewMinWidth = (windowWidth: number) => {
+      const numColumns = state.columns.filter(column => column.visible).length;
+      return (windowWidth - 60) / (numColumns - 1);
+    };
+    
+    const handleResize = debounce(() => {
+      const newMinWidth = calculateNewMinWidth(window.innerWidth);
+      dispatch({ type: ActionTypes.RESIZE_COLUMN_WIDTHS, minWidth: newMinWidth });
+    }, 100);
+  
+    // Add the event listener when the component mounts
+    window.addEventListener('resize', handleResize);
+  
+    // Return a cleanup function that removes the event listener when the component unmounts
+    return () => {
+      handleResize.cancel();
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [dispatch, state.columns.length]); // Only re-run the effect if `dispatch` changes
 
   useEffect(() => {
     //once was function, not const
@@ -278,7 +336,15 @@ function App() {
       switch (message.command) {
         case 'sendData': {
           // const dictionary = JSON.parse(message.data);
-          const dictionary: Dictionary = message.data;
+          let dictionary: Dictionary = message.data;
+
+          if (!dictionary.entries) {
+            dictionary = {
+                ...dictionary,
+                entries: [],
+            };
+        }
+
           console.log('Dictionary before transformation:');
           console.log({ dictionary });
           const tableData = transformToTableData(dictionary);
@@ -288,6 +354,8 @@ function App() {
             columns: tableData.columns,
             dictionary: dictionary,
           });
+          // Trigger window resize event manually to size columns correctly
+          window.dispatchEvent(new Event('resize'));
           break;
         }
         case 'removeConfirmed':
@@ -302,6 +370,8 @@ function App() {
       window.removeEventListener('message', handleReceiveMessage);
     };
   }, []);
+
+
 
   const removeCheckedRows = () => {
     const checkedRowsCount = state.data.filter(
@@ -328,13 +398,26 @@ function App() {
         flexDirection: 'column',
       }}
     >
-      <div style={{ marginBottom: 40, marginTop: 40 }}>
+      {/* <div style={{ marginBottom: 40, marginTop: 40 }}>
         <h1>Dictionary</h1>
+      </div> */}
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 40, marginTop: 40, minHeight: '60px' }}>
+        <h1>Dictionary</h1>
+        {deleteOptionShouldShow && (
+        <button
+          onClick={removeCheckedRows}
+          className="remove-button"
+          title="Remove selected rows"
+        >
+            <Trash />
+          </button>
+        )}
       </div>
 
       <div className="app-container">
         <div className="table-container">
-          {deleteOptionShouldShow && (
+          {/* {deleteOptionShouldShow && (
             <button
               onClick={removeCheckedRows}
               // disabled={!state.data.some((row: any) => row[Constants.CHECKBOX_COLUMN_ID])}
@@ -343,16 +426,9 @@ function App() {
             >
               <Trash />
             </button>
-          )}
+          )} */}
           <Table
-            columns={state.columns.filter(
-              column =>
-                column.id === 'headWord' ||
-                column.id === 'definition' ||
-                column.id === 'translationEquivalents' ||
-                column.id === 'checkbox_column' ||
-                column.id === 'notes'
-            )}
+            columns={state.columns.filter(column => column.visible)}
             data={state.data}
             dispatch={dispatch}
             skipReset={state.skipReset}

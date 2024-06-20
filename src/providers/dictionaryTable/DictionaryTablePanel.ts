@@ -8,6 +8,7 @@ import {
 } from "vscode";
 import { getUri } from "./utilities/getUri";
 import { getNonce } from "./utilities/getNonce";
+import { FileHandler } from './utilities/FileHandler';
 import * as vscode from "vscode";
 import { Dictionary } from "codex-types";
 import { DictionaryPostMessages } from "../../../types";
@@ -28,13 +29,31 @@ export class DictionaryTablePanel {
 
         const initAsync = async () => {
             const { data, uri } = await FileHandler.readFile(
-                "files/project.dictionary",
+                ".project/project.dictionary",
             );
             // return if no data
+            let dictionary: Dictionary;
             if (!data) {
-                return;
+                // Create a dictionary with default entries
+                dictionary = {
+                    id: "",
+                    label: "",
+                    entries: [{
+                        id: "",
+                        headWord: "",
+                        variantForms: [],
+                        definition: "",
+                        translationEquivalents: [],
+                        links: [],
+                        linkedEntries: [],
+                        metadata: {},
+                        notes: [],
+                    }],
+                    metadata: {},
+                };
+            } else {
+                dictionary = JSON.parse(data);
             }
-            const dictionary: Dictionary = JSON.parse(data);
             console.log("Parsed dictionary:", dictionary);
 
             // Set the HTML content for the webview panel
@@ -208,16 +227,12 @@ export class DictionaryTablePanel {
                 switch (command) {
                     case "updateData": {
                         console.log(
-                            "The data that would be written to file, pre-encoding:",
+                            "updateData message posted",
                         );
                         const fileData = new TextEncoder().encode(
                             JSON.stringify(message.data),
                         );
                         await vscode.workspace.fs.writeFile(uri, fileData);
-                        console.log(
-                            "The data that would be written to file, encoded:",
-                        );
-                        console.log({ fileData });
                         return;
                     }
                     case "confirmRemove": {
@@ -242,40 +257,3 @@ export class DictionaryTablePanel {
     }
 }
 
-class FileHandler {
-    static async readFile(
-        filePath: string,
-    ): Promise<{ data: string | undefined; uri: vscode.Uri | undefined }> {
-        try {
-            if (!vscode.workspace.workspaceFolders) {
-                throw new Error("No workspace folder found");
-            }
-            const workspaceFolder = vscode.workspace.workspaceFolders?.[0].uri;
-            const fileUri = vscode.Uri.joinPath(workspaceFolder, filePath);
-            const fileData = await vscode.workspace.fs.readFile(fileUri);
-            const data = new TextDecoder().decode(fileData);
-            return { data, uri: fileUri };
-        } catch (error) {
-            vscode.window.showErrorMessage(`Error reading file: ${filePath}`);
-            console.error({ error });
-            return { data: undefined, uri: undefined };
-        }
-    }
-
-    static async writeFile(filePath: string, data: string): Promise<void> {
-        try {
-            if (!vscode.workspace.workspaceFolders) {
-                throw new Error("No workspace folder found");
-            }
-            const workspaceFolder = vscode.workspace.workspaceFolders?.[0].uri;
-            const fileUri = vscode.Uri.joinPath(workspaceFolder, filePath);
-            const fileData = new TextEncoder().encode(data);
-            await vscode.workspace.fs.writeFile(fileUri, fileData);
-        } catch (error) {
-            console.error({ error });
-            vscode.window.showErrorMessage(
-                `Error writing to file: ${filePath}`,
-            );
-        }
-    }
-}

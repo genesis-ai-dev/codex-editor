@@ -1,7 +1,15 @@
 /* @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap'); */
-html {
-  box-sizing: border-box;
+
+html, body, #root {
+  height: 100%; /* Full height */
+  margin: 0;
+  padding: 0;
+  overflow: hidden; /* No scroll bars here */
 }
+
+/* html {
+  box-sizing: border-box;
+} */
 
 *,
 *:before,
@@ -17,10 +25,10 @@ html {
   background-color: var(--vscode-editor-background);
 }
 
-#root {
+/* #root {
   margin: 0px;
   padding: 0px;
-}
+} */
 
 .transition-fade-enter {
   opacity: 0;
@@ -193,8 +201,9 @@ html {
 }
 
 .remove-button svg {
-  height: 48px; /* Adjust size as needed */
-  width: 48px; /* Adjust size as needed */
+  height: 36px; /* Adjust size as needed */
+  width: 36px; /* Adjust size as needed */
+  margin-right: 20px;
   fill: var(
     --vscode-button-foreground
   ); /* Use VS Code theme color for the icon */
@@ -214,14 +223,24 @@ html {
 .app-container {
   display: flex;
   flex-direction: column;
-  align-items: stretch; /* Aligns the button to the right */
-  padding: 10px;
+  /* align-items: stretch;  */
+  /* padding: 10px; */
+
+  height: 100%;
 }
 
-.table-container {
+/* .table-container {
   position: relative;
   padding-top: 50px;
-  /* overflow: inherit; */
+} */
+
+.table-container {
+  overflow-y: auto;
+  /* height: calc(100vh - 70px); Adjust as needed */
+  /* padding-bottom: 50px; */
+  margin-bottom: 210px;
+  flex: 1;
+  width: 100%;
 }
 
 .remove-button-container {
@@ -251,9 +270,15 @@ html {
   align-items: center;
   font-size: 0.875rem;
   cursor: pointer;
-  height: 50px;
+  height: 40px;
   /* border: 1px solid #e0e0e0; */
   border: 1px solid var(--vscode-button-border);
+
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 10; /* Ensures the button is above the table */
 }
 
 .add-row:hover {

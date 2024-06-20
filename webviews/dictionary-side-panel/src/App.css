@@ -1,7 +1,7 @@
 .app-container {
-    color: #333;
+    color: var(--vscode-editor-foreground);
     padding: 20px;
-    background-color: #f3f4f6;
+    background-color: var(--vscode-editor-background);
     height: 100vh;
     box-sizing: border-box;
     display: flex;
@@ -10,13 +10,13 @@
 }
 
 .title {
-    color: #1e1e1e;
+    color: var(--vscode-editor-foreground);
     font-size: 24px;
     margin-bottom: 20px;
 }
 
 .card {
-    background-color: #fff;
+    background-color: var(--vscode-editorWidget-background);
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     padding: 20px;
     border-radius: 8px;
@@ -31,8 +31,8 @@
 }
 
 .show-table-btn {
-    background-color: #007acc;
-    color: #fff;
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
     border: none;
     padding: 10px 20px;
     border-radius: 4px;
@@ -42,5 +42,5 @@
 }
 
 .show-table-btn:hover {
-    background-color: #005fa3;
+    background-color: var(--vscode-button-hoverBackground);
 }

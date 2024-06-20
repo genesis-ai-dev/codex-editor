@@ -23,6 +23,7 @@ type TableColumn = {
   Cell?: any;
   Header?: any;
   sortType?: string;
+  visible?: boolean;
 };
 // type DictionaryTableColumn = TableColumn & {
 //   id:

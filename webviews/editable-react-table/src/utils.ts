@@ -13,6 +13,10 @@ export enum ActionTypes {
   ENABLE_RESET = 'enable_reset',
   LOAD_DATA = 'loaddata',
   REMOVE_CHECKED_ROWS = 'remove_checked_rows',
+  RESIZE_COLUMN_WIDTHS = 'resize_column_widths',
+  //test
+  // RESIZE_COLUMN = 'resize_column',
+  //endtest
 }
 
 export enum DataTypes {
@@ -37,7 +41,7 @@ export function randomColor(): string {
 
 export function transformToTableData(dictionary: Dictionary): TableData {
   // const data = dictionary.entries;
-  const data = dictionary.entries.map(entry => ({
+  let data = dictionary.entries.map(entry => ({
     ...entry,
     metadata:
       typeof entry.metadata === 'string'
@@ -51,7 +55,8 @@ export function transformToTableData(dictionary: Dictionary): TableData {
     id: Constants.CHECKBOX_COLUMN_ID as TableColumn['id'],
     label: ' ',
     accessor: 'checkbox_column',
-    minWidth: 20,
+    minWidth: 40,
+    width: 40,
     // disableResizing: true,
     dataType: DataTypes.CHECKBOX,
   };
@@ -63,7 +68,7 @@ export function transformToTableData(dictionary: Dictionary): TableData {
       id: key as TableColumn['id'],
       label: key.charAt(0).toUpperCase() + key.slice(1), // Capitalize the first letter
       accessor: key,
-      minWidth: 100,
+      minWidth: 200,
       dataType: DataTypes.TEXT, // Default to TEXT, adjust based on your needs
       options: [],
     }));
