@@ -20,6 +20,7 @@ interface OpenFileMessage {
     uri: string;
     word: string;
 }
+
 interface applyEdit {
     command: 'applyEdit',
     uri: string;
@@ -42,6 +43,7 @@ function App() {
         codexResults: [],
     });
     const [loading, setLoading] = useState<boolean>(false);
+    const [lastQuery, setLastQuery] = useState<string>("");
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
@@ -103,6 +105,7 @@ function App() {
     };
 
     const searchBoth = (query: string) => {
+        setLastQuery(query);  // Store the last query
         vscode.postMessage({
             command: "search",
             database: "both",
@@ -114,6 +117,11 @@ function App() {
         const [query, setQuery] = React.useState("");
         const [editingIndex, setEditingIndex] = useState<number | null>(null);
         const [editedTexts, setEditedTexts] = useState<{ [key: number]: string }>({});
+        const [verses, setVerses] = useState<any[]>([]);
+
+        useEffect(() => {
+            setVerses(compareVerses());
+        }, [searchResults]);
 
         const handleEditClick = (index: number) => {
             setEditingIndex(index);
@@ -139,6 +147,22 @@ function App() {
                 after: after
             });
             setEditingIndex(null);
+            
+            // Update the verse in the UI immediately
+            setVerses(prevVerses => {
+                const newVerses = [...prevVerses];
+                newVerses[index] = {...newVerses[index], codexText: after};
+                return newVerses;
+            });
+            
+            // Clear the edited text
+            setEditedTexts(prev => {
+                const newEditedTexts = {...prev};
+                delete newEditedTexts[index];
+                return newEditedTexts;
+            });
+
+            searchBoth(lastQuery);  // Trigger search for the last query after saving
         };
 
         const compareVerses = () => {
@@ -162,8 +186,6 @@ function App() {
 
             return [...combinedVerses, ...uniqueCodexVerses];
         };
-
-        const verses = compareVerses();
 
         return (
             <div
@@ -348,7 +370,7 @@ function App() {
                         ))}
                     </div>
                 ) : null}
-                {!loading && (
+                {!loading && verses.length === 0 && (
                     <div
                         style={{
                             marginBottom: "5px",
@@ -370,7 +392,7 @@ function App() {
                                 textAlign: "center",
                             }}
                         >
-                            Results.
+                            No results found.
                         </p>
                     </div>
                 )}
