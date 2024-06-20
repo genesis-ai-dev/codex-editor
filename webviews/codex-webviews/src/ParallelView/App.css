@@ -1,0 +1,92 @@
+.container {
+    display: flex;
+    flex-direction: column;
+    gap: 2em;
+    align-items: center;
+    justify-content: center;
+    width: 95%;
+    margin: auto;
+}
+
+.search-bar {
+    display: flex;
+    align-items: center;
+    margin-top: 2em;
+    width: 100%;
+}
+
+.verses-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1em;
+}
+
+.verse-item {
+    margin-bottom: 5px;
+    background: var(--vscode-sideBar-dropBackground);
+    border-radius: 5px;
+    align-content: center;
+    display: flex;
+    flex-direction: column;
+    padding: 5px;
+    width: 100%;
+}
+
+.both-present {
+    border: 2px solid rgba(0, 255, 0, 0.5);
+}
+
+.one-present {
+    border: 2px solid rgba(0, 255, 0, 0.5);
+}
+
+.verse-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.verse-text {
+    border-radius: 10px;
+    margin: 10px;
+    padding: 5px;
+}
+
+.verse-label {
+    background: rgba(0, 255, 0, 0.2);
+    padding: 2px 5px;
+    border-radius: 5px;
+    margin-bottom: 5px;
+    display: inline-flex;
+    align-items: center;
+}
+
+.verse-label span {
+    margin-right: 5px;
+}
+
+.verse-textarea {
+    width: 100%;
+    height: 100px;
+    border-radius: 10px;
+    padding: 10px;
+    border: 1px solid var(--vscode-sideBar-border);
+    background-color: var(--vscode-editor-background);
+    color: var(--vscode-editor-foreground);
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+}
+
+.no-results {
+    margin-bottom: 5px;
+    background: var(--vscode-sideBar-dropBackground);
+    border-radius: 5px;
+    align-content: center;
+    display: flex;
+    flex-direction: column;
+    padding: 5px;
+    width: 100%;
+    text-align: center;
+}
