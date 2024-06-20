@@ -6,6 +6,7 @@ import {
     VSCodeButton,
     VSCodeTextField,
 } from "@vscode/webview-ui-toolkit/react";
+import "./App.css";
 
 const vscode = acquireVsCodeApi();
 
@@ -21,14 +22,7 @@ interface OpenFileMessage {
     word: string;
 }
 
-interface applyEdit {
-    command: 'applyEdit',
-    uri: string;
-    before: string;
-    after: string;
-}
-
-interface searchCommand {
+interface SearchCommand {
     command: string;
     query: string;
     database: string;
@@ -42,7 +36,6 @@ function App() {
         bibleResults: [],
         codexResults: [],
     });
-    const [loading, setLoading] = useState<boolean>(false);
     const [lastQuery, setLastQuery] = useState<string>("");
 
     useEffect(() => {
@@ -65,9 +58,6 @@ function App() {
                     });
                     break;
                 }
-                case "completed":
-                    setLoading(false);
-                    break;
             }
         };
 
@@ -87,22 +77,7 @@ function App() {
         } as OpenFileMessage);
     };
 
-    const handleEmbedAllDocuments = () => {
-        console.log("Embedding all codex documents...");
-        setLoading(true);
-
-        vscode.postMessage({
-            command: "embedAllDocuments",
-        });
-    };
-
-    const handleEmbedBible = () => {
-        console.log("Embedding all bible documents...");
-        setLoading(true);
-        vscode.postMessage({
-            command: "embedSource",
-        });
-    };
+  
 
     const searchBoth = (query: string) => {
         setLastQuery(query);  // Store the last query
@@ -110,7 +85,7 @@ function App() {
             command: "search",
             database: "both",
             query: query,
-        } as searchCommand);
+        } as SearchCommand);
     };
 
     const PassageTab: React.FC = () => {
@@ -148,21 +123,19 @@ function App() {
             });
             setEditingIndex(null);
             
-            // Update the verse in the UI immediately
             setVerses(prevVerses => {
                 const newVerses = [...prevVerses];
                 newVerses[index] = {...newVerses[index], codexText: after};
                 return newVerses;
             });
             
-            // Clear the edited text
             setEditedTexts(prev => {
                 const newEditedTexts = {...prev};
                 delete newEditedTexts[index];
                 return newEditedTexts;
             });
 
-            searchBoth(lastQuery);  // Trigger search for the last query after saving
+            searchBoth(lastQuery);
         };
 
         const compareVerses = () => {
@@ -188,25 +161,8 @@ function App() {
         };
 
         return (
-            <div
-                style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "2em",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    width: "95%",
-                    margin: "auto",
-                }}
-            >
-                <div
-                    style={{
-                        display: "flex",
-                        alignItems: "center",
-                        marginTop: "2em",
-                        width: "100%",
-                    }}
-                >
+            <div className="container">
+                <div className="search-bar">
                     <VSCodeTextField
                         placeholder="Search anything or highlight text."
                         style={{ flexGrow: 1 }}
@@ -216,85 +172,28 @@ function App() {
                         Search
                     </VSCodeButton>
                 </div>
-
-                {loading ? (
-                    <p>
-                        Loading, this may take up to 30 minutes, please do not close this
-                        tab.
-                    </p>
-                ) : null}
                 {verses.length > 0 ? (
-                    <div
-                        style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            alignItems: "center",
-                            gap: "1em",
-                        }}
-                    >
+                    <div className="verses-container">
                         {verses.map((item, index) => (
-                            <div
-                                key={index}
-                                style={{
-                                    marginBottom: "5px",
-                                    background: "var(--vscode-sideBar-dropBackground)",
-                                    borderRadius: "5px",
-                                    alignContent: "center",
-                                    display: "flex",
-                                    flexDirection: "column",
-                                    padding: "5px",
-                                    width: "100%",
-                                    border: item.text && item.codexText
-                                        ? "2px solid rgba(0, 255, 0, 0.5)"
-                                        : "2px solid rgba(0, 255, 0, 0.5)",
-                                }}
-                            >
-                                <div
-                                    style={{
-                                        display: "flex",
-                                        justifyContent: "space-between",
-                                        alignItems: "center",
-                                        marginBottom: "10px",
-                                    }}
-                                >
+                            <div key={index} className={`verse-item ${item.text && item.codexText ? "both-present" : "one-present"}`}>
+                                <div className="verse-header">
                                     <span>{item.ref}</span>
                                     {item.codexText && (
                                         <VSCodeButton
-                                        onClick={() =>
-                                            editingIndex === index
-                                                ? handleSaveClick(index, item.codexText || "", editedTexts[index], item.codexUri || "")
-                                                : handleEditClick(index)
-                                        }
-                                    >
-                                        {editingIndex === index ? "Save" : "Edit"}
-                                    </VSCodeButton>
+                                            onClick={() =>
+                                                editingIndex === index
+                                                    ? handleSaveClick(index, item.codexText || "", editedTexts[index], item.codexUri || "")
+                                                    : handleEditClick(index)
+                                            }
+                                        >
+                                            {editingIndex === index ? "Save" : "Edit"}
+                                        </VSCodeButton>
                                     )}
                                 </div>
                                 {item.text && (
-                                    <div
-                                        style={{
-                                            borderRadius: "10px",
-                                            margin: "10px",
-                                            padding: "5px",
-                                        }}
-                                    >
-                                        <span
-                                            style={{
-                                                background: "rgba(0, 255, 0, 0.2)",
-                                                padding: "2px 5px",
-                                                borderRadius: "5px",
-                                                marginBottom: "5px",
-                                                display: "inline-flex",
-                                                alignItems: "center",
-                                            }}
-                                        >
-                                            <span
-                                                style={{
-                                                    marginRight: "5px",
-                                                }}
-                                            >
-                                                📖
-                                            </span>
+                                    <div className="verse-text">
+                                        <span className="verse-label">
+                                            <span>📖</span>
                                             Source
                                         </span>
                                         <p
@@ -308,30 +207,9 @@ function App() {
                                     </div>
                                 )}
                                 {item.codexText && (
-                                    <div
-                                        style={{
-                                            borderRadius: "10px",
-                                            margin: "10px",
-                                            padding: "5px",
-                                        }}
-                                    >
-                                        <span
-                                            style={{
-                                                background: "rgba(0, 255, 0, 0.2)",
-                                                padding: "2px 5px",
-                                                borderRadius: "5px",
-                                                marginBottom: "5px",
-                                                display: "inline-flex",
-                                                alignItems: "center",
-                                            }}
-                                        >
-                                            <span
-                                                style={{
-                                                    marginRight: "5px",
-                                                }}
-                                            >
-                                                🎯
-                                            </span>
+                                    <div className="verse-text">
+                                        <span className="verse-label">
+                                            <span>🎯</span>
                                             Target
                                         </span>
                                         {editingIndex === index ? (
@@ -340,17 +218,7 @@ function App() {
                                                 onChange={(e) =>
                                                     handleTextChange(index, e.target.value)
                                                 }
-                                                style={{
-                                                    width: "100%",
-                                                    height: "100px",
-                                                    borderRadius: "10px",
-                                                    padding: "10px",
-                                                    border: "1px solid var(--vscode-sideBar-border)",
-                                                    backgroundColor: "var(--vscode-editor-background)",
-                                                    color: "var(--vscode-editor-foreground)",
-                                                    fontFamily: "var(--vscode-font-family)",
-                                                    fontSize: "var(--vscode-font-size)",
-                                                }}
+                                                className="verse-textarea"
                                             />
                                         ) : (
                                             <p
@@ -370,32 +238,7 @@ function App() {
                         ))}
                     </div>
                 ) : null}
-                {!loading && verses.length === 0 && (
-                    <div
-                        style={{
-                            marginBottom: "5px",
-                            background: "var(--vscode-sideBar-dropBackground)",
-                            borderRadius: "5px",
-                            alignContent: "center",
-                            display: "flex",
-                            flexDirection: "column",
-                            padding: "5px",
-                            width: "100%",
-                        }}
-                    >
-                        <p
-                            style={{
-                                background: "none",
-                                borderRadius: "10px",
-                                margin: "10px",
-                                padding: "5px",
-                                textAlign: "center",
-                            }}
-                        >
-                            No results found.
-                        </p>
-                    </div>
-                )}
+               
             </div>
         );
     };
