@@ -847,7 +847,7 @@ async function getPerfFromActiveNotebook() : Promise<Perf> {
 
     executeNotebookEditActions( perf, notebook_edit_actions, perf_index );
 
-    updatePerfOnNotebook( notebook, perf );
+    await updatePerfOnNotebook( notebook, perf );
 
     return perf;
 }
@@ -1039,7 +1039,8 @@ async function generateNotebooks( filenameToPerf: { [filename: string]: Perf } )
     let currentChapterCell : vscode.NotebookCellData | undefined = undefined;
 
     //now generate the notebooks.
-    Object.entries(filenameToPerf).forEach(([filename, perf]) => {
+    //Object.entries(filenameToPerf).forEach(([filename, perf]) => {
+    for( let [filename, perf] of Object.entries(filenameToPerf) ){
     
         //https://stackoverflow.com/questions/175739/built-in-way-in-javascript-to-check-if-a-string-is-a-valid-number
         const strippedFilename = (filename.split("/").pop()?.split( "." )[0] || "").split('').filter( (char) => char !== "-" && isNaN(char as unknown as number) ).join('');
@@ -1059,6 +1060,23 @@ async function generateNotebooks( filenameToPerf: { [filename: string]: Perf } )
 
             //remove path and add .codex
             const notebookFilename = `files/target/${filename.split("/").pop()?.split( "." )[0] || ""}.codex`;
+
+            // //Check if the file already exists and if it does confirm with the user through vscode that the overwrite is ok.
+            // let fileExists = false;
+            // try{
+            //     vscode.workspace.fs.stat(vscode.Uri.file(notebookFilename));
+            //     fileExists = true;
+            // }catch(err){
+            //     fileExists = false;
+            // }
+            // if( fileExists ){
+            //     const overwrite = await vscode.window.showWarningMessage(
+            //         `Overwrite ${notebookFilename}?`,
+            //         { modal: true },
+            //         "Yes");
+                
+            //     if( !overwrite ) throw new Error("Overwrite cancelled");
+            // }
 
             //If the chapter or filename has changed then add the notes to the previous chapter if it exists.
             if( (currentChapter != -1 && ((currentChapter !== reference.chapter) || (currentFilename && currentFilename !== notebookFilename))) ){
