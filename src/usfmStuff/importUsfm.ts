@@ -1,7 +1,7 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
-import { Perf, PerfContent, PerfMetadataDocument, PerfReferenceSet, PerfVerse, TBlockContentIndex, chopUpPerfIntoChaptersAndVerses, extractAlignmentsFromPerfVerse, getAttributedVerseCharactersFromPerf, getIndexedReferencesFromPerf, getReferencesFromPerf, perfToUsfm, pullVerseFromPerf, reindexPerfVerse, replaceAlignmentsInPerfInPlace, stringToPerfVerse, stripAttributedString, usfmToPerf } from './utils';
+import { Perf, PerfContent, PerfMetadataDocument, PerfReferenceSet, PerfVerse, TBlockContentIndex, chopUpPerfIntoChaptersAndVerses, deepCopy, extractAlignmentsFromPerfVerse, getAttributedVerseCharactersFromPerf, getIndexedReferencesFromPerf, getReferencesFromPerf, perfToUsfm, pullVerseFromPerf, reindexPerfVerse, replaceAlignmentsInPerfInPlace, stringToPerfVerse, stripAttributedString, usfmToPerf } from './utils';
 import {CodexContentSerializer} from "../serializer";
 import {generateFiles} from "../utils/fileUtils";
 import { CellTypes } from '../utils/codexNotebookUtils';
@@ -110,7 +110,7 @@ function getUnupdatedPerfFromNotebookOrMakeIt( notebook: vscode.NotebookDocument
         const cell = notebook.cellAt(i);
         if (cell.kind === vscode.NotebookCellKind.Markup) {
             if( cell?.metadata?.perf ){
-                return cell.metadata.perf as Perf;
+                return deepCopy(cell.metadata.perf) as Perf;
             }
         }
     }
@@ -118,9 +118,9 @@ function getUnupdatedPerfFromNotebookOrMakeIt( notebook: vscode.NotebookDocument
     //if we get this far we need to construct a perf.
     //So invent a minimal usfm and convert it to perf.
     const minimal_usfm = `
-    \\p
-    \\c 1
-    \\v 1 
+\\c 1
+\\p
+\\v 1 blank
     `.trim();
     const minimal_perf = usfmToPerf(minimal_usfm);
     return minimal_perf;
@@ -478,6 +478,20 @@ function editVerse( perf: Perf, chapterNumber: number, verseNumber: number, newV
         }
         return dropped_char;
     }
+    function addPerfPiece( _perf: Perf, _blockIndex: number, _contentIndex: number, _content: string, _makeWord: boolean ){
+        const contentArray = _perf?.sequences?.[_perf?.main_sequence_id ?? ""]?.blocks?.[_blockIndex]?.content;
+        if( contentArray !== undefined ){
+            if( _makeWord ){
+                contentArray.splice( _contentIndex, 0, {
+                    type: "wrapper",
+                    subtype: 'usfm:w',
+                    content: [ _content ],
+                });
+            }else{
+                contentArray.splice( _contentIndex, 0, _content );
+            }
+        }        
+    }
     function insertIntoPerfPiece( _perf: Perf, _blockIndex: number, _contentIndex: number, _charIndex: number, _char: string ){
         const contentArray = _perf?.sequences?.[_perf?.main_sequence_id ?? ""]?.blocks?.[_blockIndex]?.content;
         if( contentArray !== undefined ){
@@ -536,7 +550,16 @@ function editVerse( perf: Perf, chapterNumber: number, verseNumber: number, newV
     }
     function dropPerfPiece( _perf: Perf, _blockIndex: number, _contentIndex: number ){
         const contentArray = _perf?.sequences?.[_perf?.main_sequence_id ?? ""]?.blocks?.[_blockIndex]?.content;
-        contentArray?.splice( _contentIndex, 1 );
+        const droppedPiece = contentArray?.splice( _contentIndex, 1 );
+
+        if( droppedPiece === undefined || droppedPiece.length == 0 ){
+            throw new Error("Internal error.  Attempting to drop a perf that does not exist.");
+        }
+
+        if( typeof( droppedPiece[0]) != "string" && 
+        (typeof(droppedPiece[0]) != "object" || (droppedPiece[0] as PerfContent)?.type != "wrapper" || (droppedPiece[0] as PerfContent)?.subtype != "usfm:w") ){
+            throw new Error("Internal error.  Attempting to drop a perf piece that is not a word or a string.");
+        }
     }
 
     function splitPerfPiece( _perf: Perf, _blockIndex: number, _contentIndex: number, _charIndex: number, _makeWord: boolean ){
@@ -552,8 +575,10 @@ function editVerse( perf: Perf, chapterNumber: number, verseNumber: number, newV
                 throw new Error("Internal error.  Attempting to split a perf that does not exist.");
             }else if( typeof( content ) == "string" ){
                 existingContentString = content;
-            }else{
+            }else if( typeof( content ) == "object" && content.type == "wrapper" && content.subtype == "usfm:w" ){
                 existingContentString = content.content!.join("");
+            }else{
+                throw new Error("Internal error.  Attempting to split a perf piece that is not a word or a string.");
             }
 
             //if the _charIndex is -1, then this is when we are dealing with content before the 
@@ -650,7 +675,6 @@ function editVerse( perf: Perf, chapterNumber: number, verseNumber: number, newV
                 editDiff.content.contentIndex = insertContentIndex;
                 editDiff.content.charIndex    = insertCharacterIndex;
             }else{
-                //This is a match or a delete which both reference the correct perf so we can update our indexes.
                 insertBlockIndex     = editDiff.content.blockIndex;
                 insertContentIndex   = editDiff.content.contentIndex;
                 insertCharacterIndex = editDiff.content.charIndex;
@@ -671,18 +695,24 @@ function editVerse( perf: Perf, chapterNumber: number, verseNumber: number, newV
             if( !targetChar.isMeta ){
                 if( editDiff.state == DiffState.STATE_PASSING_1ST ){
                     //passing first means deleting the target character.  So it needs to be spliced out.
-                    const droppedChar = dropPerfChar( perf, targetChar.blockIndex, targetChar.contentIndex, targetChar.charIndex );
-                    if( droppedChar != targetChar.char ){
-                        throw new Error("Internal error.  Attempting to remove a character that is not in the perf.");
+                    //see if supplemented is in the content.. If it is supplemented, you can't remove it.
+                    if( !editDiff.content.supplemented ){
+                        const droppedChar = dropPerfChar( perf, targetChar.blockIndex, targetChar.contentIndex, targetChar.charIndex );
+                        if( droppedChar != targetChar.char ){
+                            throw new Error("Internal error.  Attempting to remove a character that is not in the perf.");
+                        }
                     }
                 }else if( editDiff.state == DiffState.STATE_PASSING_2ND ){
                     //passing second means adding the target character.  So it needs to be added.
                     insertIntoPerfPiece( perf, targetChar.blockIndex, targetChar.contentIndex, targetChar.charIndex, targetChar.char );
                 }else if( editDiff.state == DiffState.STATE_MATCH ){
                     //just double check that this char is correct.
-                    const currentChar = getPerfChar( perf, targetChar.blockIndex, targetChar.contentIndex, targetChar.charIndex );
-                    if( currentChar != targetChar.char ){
-                        throw new Error("Internal error.  Character match is wrong.");
+                    //You can't verify a match with supplemented characters.
+                    if( !editDiff.content.supplemented ){
+                        const currentChar = getPerfChar( perf, targetChar.blockIndex, targetChar.contentIndex, targetChar.charIndex );
+                        if( currentChar != targetChar.char ){
+                            throw new Error("Internal error.  Character match is wrong.");
+                        }
                     }
                 }
             }else{ //if is meta (word boundary changes)
@@ -690,16 +720,30 @@ function editVerse( perf: Perf, chapterNumber: number, verseNumber: number, newV
                 if( editDiff.state == DiffState.STATE_PASSING_1ST ){
 
                     if( editDiff.content.char == "<" ){
-                        //This means that we are removing the current end of word boundary.  So the content of the current word or string
+                        //This means that we are removing the current start of word boundary.  So the content of the current word or string
                         //needs to be added to the end of the string or word that comes at a lower perf index.
                         if( editDiff.content.charIndex !== -1 ){
                             throw new Error( "Internal error.  Trying to remove a word boundary that is not at the start of a word." );
                         }
                         if( i > 0 ){
-                            //first insert it into the previous area
-                            insertIntoPerfPiece( perf, editDiffs[i-1].content.blockIndex, editDiffs[i-1].content.contentIndex, editDiffs[i-1].content.charIndex+1, getPerfPiece( perf, editDiff.content.blockIndex, editDiff.content.contentIndex )! );
-                            //and then remove as its own entity.
-                            dropPerfPiece( perf, editDiff.content.blockIndex, editDiff.content.contentIndex );
+                            //Can only combine in with the previous content if it actually exists.
+                            if( !editDiffs[i-1].content.supplemented ){
+                                const pieceToInsert = getPerfPiece( perf, editDiff.content.blockIndex, editDiff.content.contentIndex );
+                                //first insert it into the previous area
+                                if( pieceToInsert ){
+                                    insertIntoPerfPiece( perf, editDiffs[i-1].content.blockIndex, editDiffs[i-1].content.contentIndex, editDiffs[i-1].content.charIndex+1, pieceToInsert );
+                                }
+                                //and then remove as its own entity.
+                                dropPerfPiece( perf, editDiff.content.blockIndex, editDiff.content.contentIndex );
+                            }else{
+                                //otherwise we need to just demote ourselves to a string and the boundary before us is ok.
+                                const demotedContent = getPerfPiece( perf, editDiff.content.blockIndex, editDiff.content.contentIndex )!;
+                                dropPerfPiece( perf, editDiff.content.blockIndex, editDiff.content.contentIndex );
+                                //don't insert if an empty string or undefined.
+                                if( demotedContent ){
+                                    addPerfPiece( perf, editDiff.content.blockIndex, editDiff.content.contentIndex, demotedContent, false );
+                                }
+                            }
                         }
                     }else if( editDiff.content.char == ">" ){
                         //This means the removal of the end of a word boundary.  But the indexing for this is at the tail end of the word that
@@ -710,10 +754,19 @@ function editVerse( perf: Perf, chapterNumber: number, verseNumber: number, newV
                             throw new Error( "Internal error.  Trying to remove a word boundary that is not at the end of a word." );
                         }
                         if( i < editDiffs.length-1 ){
-                            //first insert it into the next area
-                            insertIntoPerfPiece( perf, editDiff.content.blockIndex, editDiff.content.contentIndex, editDiff.content.charIndex, getPerfPiece( perf, editDiffs[i+1].content.blockIndex, editDiffs[i+1].content.contentIndex )! );
-                            //and then remove as its own entity.
-                            dropPerfPiece( perf, editDiffs[i+1].content.blockIndex, editDiffs[i+1].content.contentIndex );
+                            //Even if editDiffs[i+1] was a deletion, there should still be an empty string there still.
+                            //but we need to make sure it isn't supplemented content because then it doesn't actually exist.
+                            if( !editDiffs[i+1].content.supplemented ){
+                                const pieceToInsert = getPerfPiece( perf, editDiffs[i+1].content.blockIndex, editDiffs[i+1].content.contentIndex );
+                                if( pieceToInsert ){
+                                    //first insert it into the next area
+                                    insertIntoPerfPiece( perf, editDiff.content.blockIndex, editDiff.content.contentIndex, editDiff.content.charIndex, pieceToInsert );
+                                }
+                                //and then remove as its own entity.
+                                dropPerfPiece( perf, editDiffs[i+1].content.blockIndex, editDiffs[i+1].content.contentIndex );
+                            }else{
+                                //otherwise, just do nothing because we there is a paragraph break after us or something that can't be joined in.
+                            }
                         }
                     }
                 }else if( editDiff.state == DiffState.STATE_PASSING_2ND ){

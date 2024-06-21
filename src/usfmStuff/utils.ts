@@ -1207,8 +1207,9 @@ export function getAttributedVerseCharactersFromPerf( perf: Perf, reference: TRe
                                 char: " ",
                                 blockIndex,
                                 contentIndex,
-                                charIndex: 0,
+                                charIndex: -1,  //-1 allows this index when copied to insertions before this supplemented char, and passed to insertIntoPerfPiece to automatically get added before the local object instead of trying to splice into it which doesn't make sense as it isn't an actual word or string.
                                 isMeta: false,
+                                supplemented: true,
                             });
                         }else{
                             (result as string) += " ";

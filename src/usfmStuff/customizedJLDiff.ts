@@ -6,6 +6,7 @@ export interface TAttributedChar {
     contentIndex: number;
     charIndex: number;
     isMeta: boolean;
+    supplemented?: boolean;
 }
 
 
