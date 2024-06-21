@@ -75,7 +75,7 @@ export function deactivate(): Thenable<void> {
 }
 
 async function executeCommandsAfter() {
-    // wasn't sure if these had to be executed seperately but it's here to be on the safeside, otherwise later it should go in commands.ts
+    // wasn't sure if these had to be executed separately but it's here to be on the safe side, otherwise later it should go in commands.ts
 
     vscode.commands.executeCommand("workbench.action.focusAuxiliaryBar");
     vscode.commands.executeCommand(
