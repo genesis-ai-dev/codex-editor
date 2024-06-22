@@ -233,6 +233,13 @@ export class DictionaryTablePanel {
                             JSON.stringify(message.data),
                         );
                         await vscode.workspace.fs.writeFile(uri, fileData);
+
+                        // Relay the message to the DictionarySidePanel
+                        vscode.commands.executeCommand(
+                            'dictionaryTable.updateEntryCount',
+                            message.data.entries.length
+                        );
+
                         return;
                     }
                     case "confirmRemove": {

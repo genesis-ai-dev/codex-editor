@@ -4,7 +4,7 @@ html, body, #root {
   height: 100%; /* Full height */
   margin: 0;
   padding: 0;
-  overflow: hidden; /* No scroll bars here */
+  overflow: hidden;
 }
 
 /* html {
@@ -223,32 +223,40 @@ html, body, #root {
 .app-container {
   display: flex;
   flex-direction: column;
-  /* align-items: stretch;  */
-  /* padding: 10px; */
-
   height: 100%;
-}
-
-/* .table-container {
-  position: relative;
-  padding-top: 50px;
-} */
-
-.table-container {
-  overflow-y: auto;
-  /* height: calc(100vh - 70px); Adjust as needed */
-  /* padding-bottom: 50px; */
-  margin-bottom: 210px;
+  /*888 below*/
+  overflow-y: auto; 
+  margin-bottom: 70px; 
   flex: 1;
   width: 100%;
 }
 
-.remove-button-container {
+.table {
+  display: flex;
+  flex-flow: column;
+  margin-top: 40px;
+}
+
+.table-header {
+  display: flex;
+  flex-flow: column;
+  position: absolute;
+  z-index: 1001;
+}
+
+.table-container {
+  /* overflow-y: auto; 888 */
+  margin-bottom: 40px; 
+  flex: 1;
+  width: 100%;
+}
+
+
+/* .remove-button-container {
   /* position: absolute; */
   /* right: 0; Aligns the button to the right */
   /* top: -50px; Adjusts the vertical position to float above the table */
   /* z-index: 10; Ensures the button is above the table */
-}
 
 .checkbox-container {
   display: flex;
@@ -326,12 +334,7 @@ html, body, #root {
   display: block;
 }
 
-.table {
-  display: flex;
-  flex-flow: column;
-  /* display: inline-block;
-  border-spacing: 0; */
-}
+
 
 .resizer {
   display: inline-block;

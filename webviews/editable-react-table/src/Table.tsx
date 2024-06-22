@@ -1,13 +1,10 @@
 import React, { 
   CSSProperties, 
   useMemo,
-  //test
-  useCallback
-  //end test
 } from 'react';
 import {
   useTable,
-  useBlockLayout,
+  useFlexLayout, /*Block 888*/
   useResizeColumns,
   useSortBy,
   TableOptions,
@@ -109,7 +106,7 @@ export default function Table({
       autoResetRowState: !skipReset,
       sortTypes,
     } as CustomTableOptions<TableEntry>,
-    useBlockLayout,
+    useFlexLayout, /*Block 888*/
     useResizeColumns,
     useSortBy
   );
@@ -151,33 +148,46 @@ export default function Table({
   );
 
   return (
-    <div style={{ maxWidth: '100vw', overflow: 'auto' }}>
-      <div {...getTableProps()} className={'table'}>
+    <div style={{ maxWidth: '100vw', overflow: 'auto' }}> 
+      <div 
+        // {...getTableProps()}
+        className={'table-header'}
+      >
         <div>
           {headerGroups.map((headerGroup: any, index: number) => (
             <div
               {...headerGroup.getHeaderGroupProps()}
               key={index}
               className="tr"
+              // style={{ position: 'sticky', top: 0, zIndex: 1, background: '#fff' }}
             >
               {headerGroup.headers.map((column: any, columnIndex: number) => (
-                <div 
+                <div
                   {...column.getHeaderProps()} 
                   key={columnIndex} 
                   className="th"
-                  // style={{ width: `${column.width}px`, position: 'sticky', top: 0, zIndex: 1001 }} // Apply the width here
+                  
                 >
                   {column.render('Header')}
                 </div>
               ))}
             </div>
           ))}
+
+
         </div>
-        <div className="table-container">
+      </div>
+      <div 
+        // {...getTableProps()}
+        className={'table'}>
+        <div>
+
+
           <div {...getTableBodyProps()}>
             <Rows />
           </div>
         </div>
+        
         <div
           className="tr add-row"
           onClick={() =>
@@ -199,3 +209,5 @@ export default function Table({
     </div>
   );
 }
+
+

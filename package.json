@@ -445,7 +445,8 @@
         "pretest": "npm run compile && npm run lint",
         "test": "node ./out/test/runTest.js",
         "format": "prettier --write .",
-        "build:table": "cd webviews/editable-react-table && npm run build"
+        "build:table": "cd webviews/editable-react-table && npm run build",
+        "build:dictionary-side": "cd webviews/dictionary-side-panel && npm run build"
     },
     "devDependencies": {
         "@babel/plugin-proposal-private-property-in-object": "^7.16.7",

@@ -19,6 +19,7 @@ function App() {
 
                 case "updateEntryCount": {
                     setEntries(message.count);
+                    console.log("Entry count updated to:", message.count);
                     break;
                 }
             }

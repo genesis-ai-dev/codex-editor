@@ -295,12 +295,7 @@ function App() {
         command: 'updateData',
         data: dictionaryData,
       } as DictionaryPostMessages);
-      console.log('Data changed and sent back');
-
-      vscode.postMessage({
-        command: 'updateEntryCount',
-        count: state.data.length,
-      });
+      console.log('Something in data, columns, or dict changed. New count:', state.data.length);
     }
   }, [state.data, state.columns, state.dictionary]);
 
@@ -398,11 +393,15 @@ function App() {
         flexDirection: 'column',
       }}
     >
-      {/* <div style={{ marginBottom: 40, marginTop: 40 }}>
-        <h1>Dictionary</h1>
-      </div> */}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 40, marginTop: 40, minHeight: '60px' }}>
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        marginBottom: 40, 
+        marginTop: 40, 
+        minHeight: '60px' 
+      }}>
         <h1>Dictionary</h1>
         {deleteOptionShouldShow && (
         <button
@@ -416,17 +415,8 @@ function App() {
       </div>
 
       <div className="app-container">
-        <div className="table-container">
-          {/* {deleteOptionShouldShow && (
-            <button
-              onClick={removeCheckedRows}
-              // disabled={!state.data.some((row: any) => row[Constants.CHECKBOX_COLUMN_ID])}
-              className="remove-button" // Add a class for styling
-              title="Remove selected rows" // Tooltip for the button
-            >
-              <Trash />
-            </button>
-          )} */}
+
+        <div className="table-container"> 
           <Table
             columns={state.columns.filter(column => column.visible)}
             data={state.data}

@@ -16,6 +16,15 @@ export class DictionarySidePanel implements vscode.WebviewViewProvider {
     constructor(extensionUri: vscode.Uri) {
         this.extensionUri = extensionUri;
         this.setupFileChangeListener();
+    
+        // Register the command (from DictionaryTablePanel) to update entry count
+        vscode.commands.registerCommand('dictionaryTable.updateEntryCount', (count: number) => {
+            this._view?.webview.postMessage({
+                command: "updateEntryCount",
+                count: count,
+            } as DictionaryPostMessages);
+        });
+    
     }
 
     private setupFileChangeListener() {
@@ -46,15 +55,6 @@ export class DictionarySidePanel implements vscode.WebviewViewProvider {
         } as DictionaryPostMessages);
     }
 
-    // private async updateWebviewData() {
-    //     const { data } = await FileHandler.readFile(dictionaryPath);
-    //     if (!data) return;
-    //     const dictionary: Dictionary = JSON.parse(data);
-    //     this._view?.webview.postMessage({
-    //         command: "sendData",
-    //         data: dictionary,
-    //     } as DictionaryPostMessages);
-    // }
 
     public resolveWebviewView(
         webviewView: vscode.WebviewView,
@@ -93,10 +93,6 @@ export class DictionarySidePanel implements vscode.WebviewViewProvider {
                 webviewView.webview,
                 this.extensionUri,
             );
-
-            // // Post message to app
-            // webviewView.webview.postMessage({ command: "sendData", data: dictionary });
-            // console.log('Dictionary data sent to side panel');
         };
         initAsync().catch(console.error);
     }

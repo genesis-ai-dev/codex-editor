@@ -103,6 +103,7 @@ type DictionaryPostMessages =
     | { command: "sendData"; data: Dictionary }
     | { command: "updateData"; data: Dictionary }
     | { command: "confirmRemove"; count: number }
+    | { command: "updateEntryCount"; count: number }
     | { command: "removeConfirmed" };
 
 type TranslationNotePostMessages =
