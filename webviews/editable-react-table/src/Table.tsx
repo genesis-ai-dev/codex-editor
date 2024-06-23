@@ -159,7 +159,6 @@ export default function Table({
               {...headerGroup.getHeaderGroupProps()}
               key={index}
               className="tr"
-              // style={{ position: 'sticky', top: 0, zIndex: 1, background: '#fff' }}
             >
               {headerGroup.headers.map((column: any, columnIndex: number) => (
                 <div

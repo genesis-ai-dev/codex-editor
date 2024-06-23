@@ -1,5 +1,5 @@
 import { vscode } from './utilities/vscode';
-import React, { useEffect, useReducer } from 'react';
+import React, { useEffect, useReducer, useState } from 'react';
 import './style.css';
 import Table from './Table';
 import {
@@ -17,6 +17,7 @@ import Trash from './img/Trash';
 import { DictionaryPostMessages } from '../../../types';
 import { TableColumn, TableData, TableEntry } from './tableTypes';
 import debounce from 'lodash/debounce';
+
 
 function reducer(state: any, action: any) {
   console.log('Reducer action:', action);
@@ -247,6 +248,7 @@ function generateUniqueId(data: any) {
   return newId;
 }
 
+
 function App() {
   interface AppState {
     columns: TableColumn[];
@@ -277,8 +279,10 @@ function App() {
   const [state, dispatch] = useReducer<React.Reducer<AppState, Action>>(
     reducer,
     initialState
-  );
+  );  
 
+  const [searchBarWidth, setSearchBarWidth] = useState(window.innerWidth - 20);
+  
   useEffect(() => {
     dispatch({ type: ActionTypes.ENABLE_RESET });
     console.log('Data changed');
@@ -309,8 +313,12 @@ function App() {
     const handleResize = debounce(() => {
       const newMinWidth = calculateNewMinWidth(window.innerWidth);
       dispatch({ type: ActionTypes.RESIZE_COLUMN_WIDTHS, minWidth: newMinWidth });
+      setSearchBarWidth(window.innerWidth - 20);
     }, 100);
   
+    // Set initial width for search bar
+    setSearchBarWidth(window.innerWidth - 20);
+
     // Add the event listener when the component mounts
     window.addEventListener('resize', handleResize);
   
@@ -366,8 +374,6 @@ function App() {
     };
   }, []);
 
-
-
   const removeCheckedRows = () => {
     const checkedRowsCount = state.data.filter(
       (row: any) => row[Constants.CHECKBOX_COLUMN_ID]
@@ -380,7 +386,20 @@ function App() {
   const deleteOptionShouldShow = state.data.some(
     (row: any) => row[Constants.CHECKBOX_COLUMN_ID]
   );
-  console.log({ state });
+  // console.log({ state });
+
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(event.target.value);
+  };
+
+  const filteredData = state.data.filter((row: any) => {
+    return Object.values(row).some(value => 
+      typeof value === 'string' && value.includes(searchQuery)
+    );
+  });
+
   return (
     <div
       // className="overflow-hidden"
@@ -414,12 +433,24 @@ function App() {
         )}
       </div>
 
+      <div style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
+        <input
+          type="text"
+          placeholder="Search..."
+          value={searchQuery}
+          onChange={handleSearchChange}
+          className="search-bar"
+          style={{ width: searchBarWidth }}
+        />
+      </div>
+
       <div className="app-container">
 
         <div className="table-container"> 
           <Table
             columns={state.columns.filter(column => column.visible)}
-            data={state.data}
+            // data={state.data} 888
+            data={filteredData}
             dispatch={dispatch}
             skipReset={state.skipReset}
           />
