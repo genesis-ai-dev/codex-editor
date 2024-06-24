@@ -480,7 +480,7 @@
         "@vscode/python-extension": "^1.0.5",
         "@vscode/webview-ui-toolkit": "^1.4.0",
         "bible-reference-range": "^1.1.1",
-        "codex-types": "^0.0.2",
+        "codex-types": "^0.0.4",
         "fitty": "^2.4.2",
         "hog-features": "^1.0.0",
         "html-loader": "^4.2.0",

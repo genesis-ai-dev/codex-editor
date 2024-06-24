@@ -244,7 +244,7 @@ export class DictionaryTablePanel {
                     }
                     case "confirmRemove": {
                         const confirmed = await window.showInformationMessage(
-                            `Do you want to remove ${message.count} items?`,
+                            `Are you sure you want to remove ${message.count} item${message.count > 1 ? 's' : ''}?`,
                             { modal: true },
                             "Yes",
                             "No",

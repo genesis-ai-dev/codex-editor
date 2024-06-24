@@ -4,7 +4,7 @@ import React, {
 } from 'react';
 import {
   useTable,
-  useFlexLayout, /*Block 888*/
+  useFlexLayout,
   useResizeColumns,
   useSortBy,
   TableOptions,
@@ -15,7 +15,7 @@ import PlusIcon from './img/Plus';
 import { ActionTypes } from './utils';
 import { TableColumn, TableData, TableEntry } from './tableTypes';
 interface CustomTableOptions<T extends object> extends TableOptions<T> {
-  dataDispatch?: React.Dispatch<any>; // Adjust the type according to your dispatch function
+  dataDispatch?: React.Dispatch<any>; 
 }
 const defaultColumn: TableColumn = {
   minWidth: 50,
@@ -60,33 +60,6 @@ export default function Table({
     []
   );
 
-  
-  //test
-  // const defaultColumn = useMemo(
-  //   () => ({
-  //     minWidth: 50,
-  //     width: 150,
-  //     maxWidth: 400,
-  //     Cell: Cell,
-  //     Header: Header,
-  //     sortType: 'alphanumericFalsyLast',
-  //   }),
-  //   []
-  // );
-
-  // const handleResize = useCallback(
-  //   (columnId: string, newWidth: number) => {
-  //     if (dataDispatch) {
-  //       dataDispatch({
-  //         type: ActionTypes.RESIZE_COLUMN,
-  //         columnId,
-  //         newWidth,
-  //       });
-  //     }
-  //   },
-  //   [dataDispatch]
-  // );
-  //endtest
 
   const {
     getTableProps,
@@ -124,7 +97,7 @@ export default function Table({
               key={cellIndex} 
               className="td"
 
-              style={{ width: `${cell.column.width}px` }} // Apply the width here
+              style={{ width: `${cell.column.width}px` }} 
 
             >
               {cell.render('Cell')}

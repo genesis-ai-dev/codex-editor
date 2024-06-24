@@ -396,7 +396,7 @@ function App() {
 
   const filteredData = state.data.filter((row: any) => {
     return Object.values(row).some(value => 
-      typeof value === 'string' && value.includes(searchQuery)
+      typeof value === 'string' && value.toLowerCase().includes(searchQuery.toLowerCase())
     );
   });
 

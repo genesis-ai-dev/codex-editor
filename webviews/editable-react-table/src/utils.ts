@@ -66,7 +66,7 @@ export function transformToTableData(dictionary: Dictionary): TableData {
     const firstEntry = data[0];
     columns = Object.keys(firstEntry).map(key => ({
       id: key as TableColumn['id'],
-      label: key.charAt(0).toUpperCase() + key.slice(1), // Capitalize the first letter
+      label: key.replace(/([A-Z])/g, ' $1').charAt(0).toUpperCase() + key.replace(/([A-Z])/g, ' $1').slice(1), // Capitalize the first letter and insert space before each capital letter
       accessor: key,
       minWidth: 200,
       dataType: DataTypes.TEXT, // Default to TEXT, adjust based on your needs
