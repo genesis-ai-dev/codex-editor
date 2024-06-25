@@ -7,6 +7,7 @@ import {
     ServerOptions,
     State,
 } from "vscode-languageclient/node";
+import * as path from 'path';
 
 let client: LanguageClient | undefined;
 let pyglsLogger: vscode.LogOutputChannel;
@@ -64,8 +65,9 @@ async function startLangServer(context: vscode.ExtensionContext) {
     const server_path = "/servers/server.py";
     const extension_path = context.extensionPath;
 
-    const full_path = vscode.Uri.parse(extension_path + server_path);
-    pyglsLogger.info(`full_server_path: '${full_path}'`);
+    // Use path.join to create a platform-independent path
+    const full_path = vscode.Uri.file(path.join(extension_path, server_path));
+    pyglsLogger.info(`full_server_path: '${full_path.fsPath}'`);
 
     const pythonCommand = await getPythonCommand(full_path);
     // vscode.window.showInformationMessage("Python command: " + pythonCommand);
