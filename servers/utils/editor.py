@@ -10,17 +10,7 @@ New: {after}
 """
 template = """
 Focus on finding similar words or patterns to what appeared in the 'old' sample and how they were changed in the 'new' sample.
-
-Provide your response in the following JSON format:
-{{
-  "reason": "Your reasoning for making the edit or deciding not to edit",
-  "edit": "The new text"
-}}
-BE CONCISE
-Do not focus on the meaning of words, simply look for patterns.
-Adhere strictly to the example. Only output json.
-Take a deep breath, you've got this, don't over think it because it's quite simple.
-Here is the new text sample to edit, it may have nothing to do with the example:
+Simply output the new text, nothing else.
 {text}
 """
 

@@ -79,7 +79,9 @@ class SocketRouter:
         elif function_name == 'get_rarity':
             result = self.get_rarity(args['text_type'], args['text'])
             return json.dumps({"rarity": result})
-        
+        elif function_name == "smart_edit":
+            result = editor.get_edit(args['before'], args['after'], args['query'])
+            return json.dumps({'text': result})
         elif function_name == 'get_text':
             results = self.get_text(args['ref'], args['text_type'])
             return json.dumps({"text": results})
@@ -89,10 +91,7 @@ class SocketRouter:
         elif function_name == 'detect_anomalies':
             results = self.detect_anomalies(args['query'], args.get('limit', 10))
             return json.dumps(results)
-        elif function_name == 'search_for_edits':
-            self.set_status('smartview', 'loading')
-            results = self.search_for_edits(args['before'], args['after'])
-            return json.dumps(results)
+        
         
         elif function_name == 'apply_edit':
             self.change_file(args['uri'], args['before'], args['after'])
@@ -119,10 +118,6 @@ class SocketRouter:
             value = args['value']
             self.set_status(key=key, value=value)
             return json.dumps({'status': value})
-
-        elif function_name == 'get_edit_results':
-            results = self.get_edit_results()
-            return json.dumps(results)
         else:
             raise ValueError(f"Unknown function: {function_name}")
 

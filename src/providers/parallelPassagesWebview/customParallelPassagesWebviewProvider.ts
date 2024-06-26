@@ -59,9 +59,6 @@ async function jumpToFirstOccurrence(uri: string, word: string) {
         vscode.TextEditorRevealType.InCenter,
     );
 
-    // vscode.window.showInformationMessage(
-    //     `Jumped to the first occurrence of "${word}"`,
-    // );
 }
 
 const loadWebviewHtml = (
@@ -147,6 +144,22 @@ const loadWebviewHtml = (
                     break;
                 case "applyEdit":
                     await pyMessenger.applyEdit(message.uri, message.before, message.after);
+                    break;
+                case "smart_edit":
+                    try {
+                        const result = await pyMessenger.smartEdit(message.before, message.after, message.query);
+                        webviewView.webview.postMessage({
+                            command: "smart_edit_result",
+                            requestId: message.requestId,
+                            result: JSON.stringify(result)
+                        });
+                    } catch (error: any) {
+                        webviewView.webview.postMessage({
+                            command: "smart_edit_result",
+                            requestId: message.requestId,
+                            error: error.message
+                        });
+                    }
                     break;
                 case "search":
                     if (message.database === 'resources') {

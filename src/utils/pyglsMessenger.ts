@@ -88,6 +88,10 @@ class PythonMessenger {
     const response = await this.sendRequest('set_status', {value, key});
     return response['status'];
   }
+  async smartEdit(before: string, after: string, query: string): Promise<any> {
+    const response = await this.sendRequest('smart_edit', {before, after, query});
+    return response['text']
+  }
 }
 
 export { PythonMessenger };

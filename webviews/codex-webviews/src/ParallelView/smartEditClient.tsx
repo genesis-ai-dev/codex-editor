@@ -1,6 +1,6 @@
 // Acquire the VS Code API
 
-class smartEditClient {
+class SmartEditClient {
   private vscode: any;
 
   constructor(vscode: any) {
@@ -30,7 +30,7 @@ class smartEditClient {
 
       // Send the message to the extension host
       this.vscode.postMessage({
-        command: 'smartEdit',
+        command: 'smart_edit',
         requestId: requestId,
         before: before,
         after: after,
@@ -50,21 +50,14 @@ class smartEditClient {
   }
 
   async getSmartEdit(before: string, after: string, query: string): Promise<any> {
-    try {
-      console.error(`${before} - ${after} -- ${query}`)
-      const result = await this.sendRequest(before, after, query);
-      console.log('Smart edit result:', result);
-      if (typeof result.text !== 'string') {
-        console.error('Unexpected result format:', result);
-        throw new Error('Unexpected result format');
-      }
-      return result;
-    } catch (error) {
-      console.error('Error in getSmartEdit:', error);
-      // Fallback to a default response if there's an error
-      return { text: 'Error occurred during smart edit. Please try again.' };
-    }
+  
+    console.error(`${before} - ${after} -- ${query}`)
+    const result = await this.sendRequest(before, after, query);
+    console.log('Smart edit result:', result);
+
+    return result;
+  
   }
 }
 
-export { smartEditClient };
+export { SmartEditClient };

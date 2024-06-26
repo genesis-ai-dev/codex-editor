@@ -68,7 +68,7 @@
 }
 
 .verse-textarea {
-    width: 100%;
+    width: calc(100% - 5px);  /* Subtract 20px to account for left and right padding */
     height: 100px;
     border-radius: 10px;
     padding: 10px;
@@ -77,6 +77,7 @@
     color: var(--vscode-editor-foreground);
     font-family: var(--vscode-font-family);
     font-size: var(--vscode-font-size);
+    box-sizing: border-box;  /* Include padding and border in the element's total width and height */
 }
 
 .no-results {
