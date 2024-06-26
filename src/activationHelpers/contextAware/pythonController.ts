@@ -174,7 +174,11 @@ async function getPythonCommand(
     let pythonPath: string = "";
     const pythonExtension = vscode.extensions.getExtension("project-accelerate.pythoninstaller");
     if (pythonExtension) {
-        pythonPath = pythonExtension.extensionPath + '/.env/bin/python';
+        if (process.platform === 'win32') {
+            pythonPath = path.join(pythonExtension.extensionPath, '.env', 'Scripts', 'python.exe');
+        } else {
+            pythonPath = path.join(pythonExtension.extensionPath, '.env', 'bin', 'python');
+        }
     }
     else {
         try {
@@ -218,7 +222,7 @@ function getClientOptions(): LanguageClientOptions {
     const options = {
         documentSelector: [
             {
-                language: "scripture",
+                language: "*",
                 scheme: "*",
                 pattern: "**/*.codex",
             },
