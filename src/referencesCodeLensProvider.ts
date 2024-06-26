@@ -50,12 +50,6 @@ class ScriptureReferenceCodeLensProvider {
                         arguments: [verseRef, document.uri.toString()],
                     }),
                 );
-                // lenses.push(
-                //     new vscode.CodeLens(range, {
-                //         title: "🪄 Smart Edit",
-                //         command: `workbench.view.extension.smart-edit-view`,
-                //     }),
-                // );
                 if (
                     activeFileIsACodexFile &&
                     vscode.extensions.getExtension(

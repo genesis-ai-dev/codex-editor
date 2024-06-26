@@ -2,7 +2,6 @@
 
 import * as vscode from "vscode";
 import { registerParallelViewWebviewProvider } from "../../providers/parallelPassagesWebview/customParallelPassagesWebviewProvider";
-import { registerSmartViewWebviewProvider } from "../../providers/smartView/custumSmartViewProvider";
 
 import { registerSemanticViewProvider } from "../../providers/semanticView/customSemanticViewProvider";
 import { registerDictionaryTableProvider } from "../../providers/dictionaryTable/dictionaryTableProvider";
@@ -14,5 +13,4 @@ export async function initializeWebviews(context: vscode.ExtensionContext){
     registerSemanticViewProvider(context);
     registerDictionaryTableProvider(context);
     registerDictionarySummaryProvider(context);
-    registerSmartViewWebviewProvider(context);
 }
