@@ -39,6 +39,7 @@ export class DictionaryTablePanel {
                     id: "",
                     label: "",
                     entries: [{
+                        headForm: "",
                         id: "",
                         headWord: "",
                         variantForms: [],
