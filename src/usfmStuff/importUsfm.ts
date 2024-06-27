@@ -1051,11 +1051,13 @@ async function generateNotebooks( filenameToPerf: { [filename: string]: Perf } )
         const bookName = perf.metadata?.document?.h || perf.metadata?.document?.toc2 ||
         perf.metadata?.document?.bookCode || perf.metadata?.document?.toc3 || strippedFilename;
 
-        const references = getReferencesFromPerf(perf);
+        const references = getIndexedReferencesFromPerf(perf);
 
-        for( const reference of references ){
+        for( const [stringReference, startIndex] of Object.entries(references.verses) ){
+            const [chapter, verse] = stringReference.split(":").map(Number);
+            const reference = {chapter,verse};
 
-            const verseText = getAttributedVerseCharactersFromPerf( perf, reference, false ) as string;
+            const verseText = getAttributedVerseCharactersFromPerf( perf, reference, false, startIndex ) as string;
 
             //remove path and add .codex
             const notebookFilename = `files/target/${filename.split("/").pop()?.split( "." )[0] || ""}.codex`;
@@ -1108,7 +1110,7 @@ async function generateNotebooks( filenameToPerf: { [filename: string]: Perf } )
                         chapter: "" + reference.chapter
                     }
                 };
-                if( currentChapter == 1 ){
+                if( reference.chapter == 1 ){
                     newCell.metadata.perf = perf;
                 }
                 cells.push(newCell);
