@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from "react";
-import { VSCodePanelTab, VSCodePanelView, VSCodePanels } from "@vscode/webview-ui-toolkit/react";
+import {
+    VSCodePanelTab,
+    VSCodePanelView,
+    VSCodePanels,
+} from "@vscode/webview-ui-toolkit/react";
 import "./App.css";
-import { Item, OpenFileMessage, SearchCommand, SearchResults } from './types';
-import { compareVerses } from './utils';
-import SearchBar from './SearchBar';
-import VerseItem from './VerseItem';
-import { SmartEditClient } from './SmartEditClient';
+import { Item, OpenFileMessage, SearchCommand, SearchResults } from "./types";
+import { compareVerses } from "./utils";
+import SearchBar from "./SearchBar";
+import VerseItem from "./VerseItem";
+import { SmartEditClient } from "./smartEditClient";
 
 const vscode = acquireVsCodeApi();
 const editClient = new SmartEditClient(vscode);
@@ -20,9 +24,6 @@ function App() {
     const [before, setBefore] = useState<string>("");
     const [after, setAfter] = useState<string>("");
     const [smartEditingIndex, setSmartEditingIndex] = useState<number>(-1);
-
-    
-
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
@@ -62,34 +63,40 @@ function App() {
         } as SearchCommand);
     };
 
-    const handleSaveClick = (index: number, before: string, after: string, uri: string) => {
+    const handleSaveClick = (
+        index: number,
+        before: string,
+        after: string,
+        uri: string,
+    ) => {
         vscode.postMessage({
-            command: 'applyEdit',
+            command: "applyEdit",
             uri: uri,
             before: before,
-            after: after
+            after: after,
         });
-        
-        setVerses(prevVerses => {
+
+        setVerses((prevVerses) => {
             const newVerses = [...prevVerses];
-            newVerses[index] = {...newVerses[index], codexText: after};
+            newVerses[index] = { ...newVerses[index], codexText: after };
             return newVerses;
         });
 
         searchBoth(lastQuery);
     };
-    const getEdit = async (query: string, setSmartEditText: React.Dispatch<React.SetStateAction<string>>) => {
+    const getEdit = async (
+        query: string,
+        setSmartEditText: React.Dispatch<React.SetStateAction<string>>,
+    ) => {
         try {
-            editClient.getSmartEdit(before, after, query)
-                .then(result => {
-                    setSmartEditText(result.toString());
-                });
-
+            editClient.getSmartEdit(before, after, query).then((result) => {
+                setSmartEditText(result.toString());
+            });
         } catch (error) {
-            console.error('Error getting smart edit:', error);
-            return '';
+            console.error("Error getting smart edit:", error);
+            return "";
         }
-    }
+    };
 
     return (
         <VSCodePanels>
@@ -99,13 +106,12 @@ function App() {
                     <SearchBar
                         query={lastQuery}
                         onQueryChange={setLastQuery}
-                        onSearch={() =>{
-                                setSmartEditingIndex(-1);
-                                setBefore('');
-                                setAfter('');
-                                searchBoth(lastQuery);
-                            }
-                        }
+                        onSearch={() => {
+                            setSmartEditingIndex(-1);
+                            setBefore("");
+                            setAfter("");
+                            searchBoth(lastQuery);
+                        }}
                     />
                     {verses.length > 0 && (
                         <div className="verses-container">
