@@ -57,17 +57,12 @@ class SmartEditClient {
         }
     }
 
-    async getSmartEdit(
-        before: string,
-        after: string,
-        query: string,
-    ): Promise<any> {
-        console.error(`${before} - ${after} -- ${query}`);
-        const result = await this.sendRequest(before, after, query);
-        console.log("Smart edit result:", result);
-
-        return result;
-    }
+  async getSmartEdit(before: string, after: string, query: string): Promise<any> {
+  
+    const result = await this.sendRequest(before, after, query);
+    return result;
+  
+  }
 }
 
 export { SmartEditClient };

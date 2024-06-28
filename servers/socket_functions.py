@@ -9,14 +9,6 @@ from utils import bia
 from utils import editor
 
 
-def replace_pairs(text):
-    # Define a regular expression pattern to match pairs of *some text*
-    pattern = r'\*(.*?)\*'
-    
-    # Use re.sub to replace matches with <b>some text</b>
-    replaced_text = re.sub(pattern, r'<b>\1</b>', text)
-    
-    return replaced_text
 
 class SocketRouter:
     """
@@ -160,7 +152,7 @@ class SocketRouter:
         """Retrieve text from the specified database based on book, chapter, and verse."""
         return self.database.get_text(ref=ref, text_type=text_type)
 
-    def detect_anomalies(self, query, limit=10):
+    def detect_anomalies(self, query, limit=100):
         """
         detects relative differences between source and target translations
         """
@@ -170,38 +162,17 @@ class SocketRouter:
             source_query = self.database.get_text(ref=ref, text_type="source")
             source_results = self.database.search(query_text=source_query, text_type="source", top_n=limit)
 
-            source_ids = [item['ref'] for item in source_results]
-            codex_ids = [item['ref'] for item in codex_results]
-
-            # Find codex IDs that are not in the source IDs
-            missing_in_source = [codex_id for codex_id in codex_ids if codex_id not in source_ids]
-            missing_in_codex = [source_id for source_id in source_ids if source_id not in codex_ids and self.database.get_text(source_id, text_type="source")]
-            anomalies = []
-            for missing_id in missing_in_source:
-                anomalies.append({
-                    "reference": missing_id,
-                    "reason": "Missing in source"
-                })
-            for missing_id in missing_in_codex:
-                anomalies.append({
-                    "reference": missing_id,
-                    "reason": "Missing in codex"
-                })
-
             return {
                 "bible_results": source_results,
-                "codex_results": codex_results,
-                "detailed_anomalies": anomalies
+                "codex_results": codex_results
             }
         except IndexError:
             return {
-                "bible_results":  self.database.search(query_text=query, text_type="source", top_n=limit),
-                "codex_results": self.database.search(query_text=query, text_type="target", top_n=limit),
-                "detailed_anomalies": [{"reason": ".codex results returned none", "reference": "N/A"}]
+                "bible_results": self.database.search(query_text=query, text_type="source", top_n=limit),
+                "codex_results": self.database.search(query_text=query, text_type="target", top_n=limit)
             }
     def change_file(self, uri, before, after):
-        after = after.replace("*", "")
-        before = before.replace("*", "") # in case its an undo command
+        after = after.replace('"', '\\"')
         with open(uri, 'r+', encoding='utf-8') as f:
             text = f.read()
             text = text.replace(before, after)
@@ -221,32 +192,5 @@ class SocketRouter:
         }
         return result
     
-    def search_for_edits(self, before, after):
-        items = self.database.search(before, text_type="target")
-        lock = threading.Lock()  # Create a lock for thread safety
-
-        def apply_edit_to_item(item_index):
-            try:
-                if item_index < len(items):
-                    item = items[item_index]
-                    result = self.apply_edit(item, before, after)
-                    with lock:  # Acquire the lock before appending to edit_results
-                        self.edit_results.append(result)
-                    # Spawn a new thread for the next item
-                    threading.Thread(target=apply_edit_to_item, args=(item_index + 1,)).start()
-                else:
-                    self.set_status('smartview', 'completed')
-            except:
-                self.set_status('smartview', 'completed')
-
-        # Start processing the first item
-        apply_edit_to_item(0)
-        return items
-
-    def get_edit_results(self):
-        
-        ret = self.edit_results.copy()
-        self.edit_results = []
-        return ret
     
 universal_socket_router = SocketRouter()

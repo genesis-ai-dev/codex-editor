@@ -20,12 +20,14 @@ const VerseItem: React.FC<VerseItemProps> = ({ item, index, onUriClick, onSaveCl
     const [isEditing, setIsEditing] = useState(false);
     const [editedText, setEditedText] = useState(item.codexText || '');
     const [smartEditText, setSmartEditText] = useState<string>("");
+    const EnableSmartEdit = false;
+
     React.useEffect(() => {
         if (!item.codexText && smartEditingIndex === index) {
             setSmartEditingIndex(smartEditingIndex + 1);
         }
-        if (item.codexText && smartEditingIndex === index) {
-           
+        if (item.codexText && smartEditingIndex === index && EnableSmartEdit) {
+            
             const fetchSmartEdit = async () => {
                 if (index == smartEditingIndex){
                     await getEdit(item.codexText || '', setSmartEditText);
@@ -94,7 +96,7 @@ const VerseItem: React.FC<VerseItemProps> = ({ item, index, onUriClick, onSaveCl
                     
                     }
                     
-                    {smartEditingIndex === -1 && isEditing && (
+                    {smartEditingIndex === -1 && isEditing && EnableSmartEdit &&(
                         <VSCodeButton onClick={beginSmartEdit}>
                             Begin Smart Edit
                         </VSCodeButton>
