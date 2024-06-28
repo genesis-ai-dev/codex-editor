@@ -7,6 +7,7 @@ import {generateFiles} from "../utils/fileUtils";
 import { CellTypes } from '../utils/codexNotebookUtils';
 import path from 'path';
 import { DiffState, TAttributedString, traceDiffs } from './customizedJLDiff';
+import { getWorkSpaceFolder } from '../utils';
 
 type UsfmImportParameters = {
     usfmFiles: vscode.Uri[];
@@ -1030,6 +1031,12 @@ async function readUsfmData( usfmFiles: vscode.Uri[] ) {
 
 async function generateNotebooks( filenameToPerf: { [filename: string]: Perf } ) {
 
+    const workspaceFolder = getWorkSpaceFolder();
+
+    if (!workspaceFolder) {
+        throw new Error("No workspace folder found");
+    }
+
 
     const filenameToCells: { [filename: string]: vscode.NotebookCellData[] } = {};
 
@@ -1060,13 +1067,14 @@ async function generateNotebooks( filenameToPerf: { [filename: string]: Perf } )
             const verseText = getAttributedVerseCharactersFromPerf( perf, reference, false, startIndex ) as string;
 
             //remove path and add .codex
-            const notebookFilename = `files/target/${filename.split("/").pop()?.split( "." )[0] || ""}.codex`;
+            const notebookFilename = `./files/target/${filename.split("/").pop()?.split( "." )[0] || ""}.codex`;
+            const notebookFilenameFullPath = path.join( workspaceFolder, notebookFilename );
 
             //Check if the file already exists and if it does confirm with the user through vscode that the overwrite is ok.
             if( currentFilename !== notebookFilename ){
                 let fileExists = false;
                 try{
-                    vscode.workspace.fs.stat(vscode.Uri.file(notebookFilename));
+                    await vscode.workspace.fs.stat(vscode.Uri.file(notebookFilenameFullPath));
                     fileExists = true;
                 }catch(err){
                     fileExists = false;
