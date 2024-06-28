@@ -9,7 +9,7 @@ import { Item, OpenFileMessage, SearchCommand, SearchResults } from "./types";
 import { compareVerses } from "./utils";
 import SearchBar from "./SearchBar";
 import VerseItem from "./VerseItem";
-import { SmartEditClient } from "./smartEditClient";
+import { SmartEditClient } from "./SmartEditClient";
 
 const vscode = acquireVsCodeApi();
 const editClient = new SmartEditClient(vscode);
