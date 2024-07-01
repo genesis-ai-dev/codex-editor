@@ -299,7 +299,7 @@ class JsonDatabase:
             refs.append(verse['ref'])
         target_verses = []
         for ref in refs:
-            text = self.get_text(ref=ref, text_type='draft')
+            text = self.get_text(ref=ref, text_type='target')
             target_verses.append({'ref': ref, 'text': text})
         return target_verses
     
