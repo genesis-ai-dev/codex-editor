@@ -291,9 +291,12 @@ class JsonDatabase:
             str: The text associated with the given reference and text type, or an empty string if not found.
         """
         if text_type == "target":
-            # Search for the reference in self.target_references
-            index = self.target_references.index(ref)
-            return self.target_texts[index]
+            try:
+                # Search for the reference in self.target_references
+                index = self.target_references.index(ref)
+                return self.target_texts[index]
+            except ValueError:
+                return ''
        # Return empty string if reference not found
             
         if ref in self.dictionary and text_type in self.dictionary[ref]:
@@ -301,16 +304,19 @@ class JsonDatabase:
         return ''
     
     def get_similar_drafts(self, ref, top_n=5):
-        source_text = self.get_text(ref=ref, text_type='target')
-        rankings = self.search(query_text=source_text, text_type='target', top_n=top_n)
-        refs = []
-        for verse in rankings:
-            refs.append(verse['ref'])
-        target_verses = []
-        for ref in refs:
-            target_text = self.get_text(ref=ref, text_type='target')
-            source_text = self.get_text(ref=ref, text_type='source')
-            target_verses.append({"ref": ref, "source": source_text, "target": target_text})
+        try:
+            source_text = self.get_text(ref=ref, text_type='target')
+            rankings = self.search(query_text=source_text, text_type='target', top_n=top_n+1)
+            refs = [verse['ref'] for verse in rankings[1:]]
+            for verse in rankings:
+                refs.append(verse['ref'])
+            target_verses = []
+            for ref in refs:
+                target_text = self.get_text(ref=ref, text_type='target')
+                source_text = self.get_text(ref=ref, text_type='source')
+                target_verses.append({"ref": ref, "source": source_text, "target": target_text})
+        except IndexError:
+            return ""
         return target_verses
     
 def find_all(path: str, types: str = ".codex"):
