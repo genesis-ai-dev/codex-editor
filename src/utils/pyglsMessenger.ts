@@ -87,7 +87,7 @@ class PythonMessenger {
   }
   async smartEdit(before: string, after: string, query: string): Promise<any> {
     const response = await this.sendRequest('smart_edit', {before, after, query});
-    return response['text']
+    return response['text'];
   }
 }
 

@@ -299,8 +299,9 @@ class JsonDatabase:
             refs.append(verse['ref'])
         target_verses = []
         for ref in refs:
-            text = self.get_text(ref=ref, text_type='target')
-            target_verses.append({'ref': ref, 'text': text})
+            target_text = self.get_text(ref=ref, text_type='target')
+            source_text = self.get_text(ref=ref, text_type='source')
+            target_verses.append({"ref": ref, "source": source_text, "target": target_text})
         return target_verses
     
 def find_all(path: str, types: str = ".codex"):
