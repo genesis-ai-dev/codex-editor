@@ -291,7 +291,7 @@ class JsonDatabase:
             return self.dictionary[ref][text_type]
         return ""
     
-    def get_relavent_drafts(self, reference, top_n=5):
+    def get_similar_drafts(self, reference, top_n=5):
         source_text = self.get_text(ref=reference, text_type='source')
         rankings = self.search(query_text=source_text, text_type='source', top_n=top_n)
         refs = []
