@@ -111,9 +111,7 @@ class JsonDatabase:
          
 
         self.load_resources(resources_dir)
-        print("Similar drafts:")
-        with open("logfile.txt", "w+") as f:
-            f.write(str(self.get_similar_drafts("MAT 1:1", 5)))
+        
 
     
     def search(self, query_text, text_type="source", top_n=5):
