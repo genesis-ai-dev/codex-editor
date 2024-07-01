@@ -82,14 +82,15 @@ class JsonDatabase:
             self.target_references.append(ref)
             self.target_uris.append(uri)
             self.complete_draft += " " + text
+    
         for verse in source_files:
             ref = verse["ref"]
             text = verse["text"]
             
             uri = verse['uri']
             if ref not in self.dictionary:
-                continue
-            self.dictionary[ref] = {"source": text, "source_uri": uri}
+                self.dictionary[ref] = {}
+            self.dictionary[ref].update({"source": text, "source_uri": uri})
             self.source_texts.append(text)
             self.source_references.append(ref)
             self.source_uris.append(uri)
@@ -110,6 +111,10 @@ class JsonDatabase:
          
 
         self.load_resources(resources_dir)
+        print("Similar drafts:")
+        with open("logfile.txt", "w+") as f:
+            f.write(str(self.get_similar_drafts("MAT 1:1", 5)))
+
     
     def search(self, query_text, text_type="source", top_n=5):
         """
@@ -287,13 +292,19 @@ class JsonDatabase:
         Returns:
             str: The text associated with the given reference and text type, or an empty string if not found.
         """
+        if text_type == "target":
+            # Search for the reference in self.target_references
+            index = self.target_references.index(ref)
+            return self.target_texts[index]
+       # Return empty string if reference not found
+            
         if ref in self.dictionary and text_type in self.dictionary[ref]:
             return self.dictionary[ref][text_type]
-        return ""
+        return ''
     
     def get_similar_drafts(self, ref, top_n=5):
-        source_text = self.get_text(ref=ref, text_type='source')
-        rankings = self.search(query_text=source_text, text_type='source', top_n=top_n)
+        source_text = self.get_text(ref=ref, text_type='target')
+        rankings = self.search(query_text=source_text, text_type='target', top_n=top_n)
         refs = []
         for verse in rankings:
             refs.append(verse['ref'])

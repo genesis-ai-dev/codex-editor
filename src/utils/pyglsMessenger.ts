@@ -30,6 +30,27 @@ async function sendMessage(data: string): Promise<string> {
   });
 }
 
+async function checkServerLife(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    socket.setTimeout(1000); // Set a 1-second timeout
+
+    socket.connect(PORT, HOST, () => {
+      socket.destroy();
+      resolve(true);
+    });
+
+    socket.on('error', () => {
+      resolve(false);
+    });
+
+    socket.on('timeout', () => {
+      socket.destroy();
+      resolve(false);
+    });
+  });
+}
+
 class PythonMessenger {
   private async sendRequest(functionName: string, args: any): Promise<any> {
     const requestData = JSON.stringify({ function_name: functionName, args });
@@ -91,4 +112,4 @@ class PythonMessenger {
   }
 }
 
-export { PythonMessenger };
+export { PythonMessenger, checkServerLife };
