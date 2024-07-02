@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.0.31",
+    "version": "0.0.32",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -56,13 +56,6 @@
             }
         ],
         "views": {
-            "explorer": [
-                {
-                    "id": "resource-explorer",
-                    "name": "Resource Explorer",
-                    "icon": "$(file-directory)"
-                }
-            ],
             "parallel-passages-view": [
                 {
                     "type": "webview",
@@ -79,33 +72,6 @@
                     "visibility": "visible",
                     "initialSize": 1,
                     "icon": "$(open-editors-view-icon)"
-                }
-            ],
-            "resource-explorer": [
-                {
-                    "id": "codex.downloaded-resources",
-                    "name": "Downloaded",
-                    "visibility": "visible",
-                    "type": "webview",
-                    "icon": "$(open-editors-view-icon)"
-                },
-                {
-                    "id": "scribe-vsc.obs-resources",
-                    "name": "All Resources",
-                    "icon": "$(cloud-download)",
-                    "visibility": "collapsed",
-                    "type": "webview",
-                    "contextualTitle": "Scribe Obs Story Resources"
-                }
-            ],
-            "scribe-vsc-obs-sidebar": [
-                {
-                    "id": "scribe-vsc.obs-outline",
-                    "name": "Stories Outline",
-                    "icon": "$(file-media)",
-                    "visibility": "hidden",
-                    "type": "webview",
-                    "contextualTitle": "Scribe Obs Story Outline"
                 }
             ],
             "dictionary-summary": [

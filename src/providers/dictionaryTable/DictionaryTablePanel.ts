@@ -40,7 +40,7 @@ export class DictionaryTablePanel {
                     label: "",
                     entries: [{
                         id: "",
-                        headWord: "",
+                        headForm: "",
                         variantForms: [],
                         definition: "",
                         translationEquivalents: [],
