@@ -71,8 +71,8 @@ class PythonMessenger {
   async getMostSimilar(textType: string, text: string): Promise<any> {
     return this.sendRequest('get_most_similar', { text_type: textType, text });
   }
-  async getSimilarDrafts(ref: string, limit: number=5): Promise<any> {
-    return this.sendRequest('get_similar_drafts', {'ref': ref, 'limit': limit});
+  async getSimilarDrafts(ref: string, limit: number = 5): Promise<any> {
+    return this.sendRequest('get_similar_drafts', { 'ref': ref, 'limit': limit });
   }
 
   async getRarity(textType: string, text: string): Promise<any> {
@@ -84,6 +84,8 @@ class PythonMessenger {
   }
 
   async detectAnomalies(query: string, limit: number = 10): Promise<any> {
+    // FIXME: we should enable anomaly detection via a settings configuration
+    // And we can add a 'quick fix' to disable anomaly detection
     return this.sendRequest('detect_anomalies', { query, limit });
   }
 
@@ -99,17 +101,18 @@ class PythonMessenger {
     return response['line'];
   }
   async getStatus(key: string): Promise<any> {
-    const response = await this.sendRequest('get_status', {key});
+    const response = await this.sendRequest('get_status', { key });
     return response['status'];
   }
   async setStatus(value: string, key: string): Promise<any> {
-    const response = await this.sendRequest('set_status', {value, key});
+    const response = await this.sendRequest('set_status', { value, key });
     return response['status'];
   }
   async smartEdit(before: string, after: string, query: string): Promise<any> {
-    const response = await this.sendRequest('smart_edit', {before, after, query});
+    const response = await this.sendRequest('smart_edit', { before, after, query });
     return response['text'];
   }
+  // Add function to get glosser information
 }
 
 export { PythonMessenger, checkServerLife };

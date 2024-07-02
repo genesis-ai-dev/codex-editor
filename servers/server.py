@@ -56,6 +56,7 @@ lsp_wrapper.add_action(vrefs.vref_code_actions)
 # Register close function and commands with the server
 server.command("pygls.server.add_dictionary")(add_dictionary)
 server.command("pygls.server.add_line_dictionary")(add_line_dictionary)
+# FIXME: we want to be able to add a whole line without hovering the line and providing diagnostics
 # server.command("pygls.server.textSelected")(on_highlight)
 # Start the Flask server and the language server
 
