@@ -326,4 +326,4 @@ if __name__ == "__main__":
 
     while 1:
         text = input(":")
-        print(BDTF.synonimize(text, 77)[:10])
+        print(BDTF.get_possible_next(text, 4))
