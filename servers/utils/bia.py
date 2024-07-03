@@ -7,7 +7,6 @@ import concurrent.futures
 import re
 from sklearn.feature_extraction.text import TfidfVectorizer
 import numpy as np
-from scipy.sparse import csr_matrix
 
 
 class MarkovChain:
@@ -86,7 +85,7 @@ class BidirectionalInverseAttention:
         chain (MarkovChain): The Markov Chain model of the corpus.
         sentences (list): List of sentences in the corpus.
         vectorizer (TfidfVectorizer): TF-IDF vectorizer for the sentences.
-        tfidf_matrix (csr_matrix): Sparse TF-IDF matrix of the sentences.
+        tfidf_matrix: TF-IDF matrix of the sentences.
         vocab (dict): Vocabulary and indices from the TF-IDF vectorizer.
         idf (array): Inverse Document Frequency values.
     """
@@ -112,9 +111,6 @@ class BidirectionalInverseAttention:
 
         # Cache the IDF values
         self.idf = self.vectorizer.idf_
-
-        # Convert TF-IDF matrix to sparse matrix representation
-        self.tfidf_matrix = csr_matrix(self.tfidf_matrix)
 
     def search(self, query, bound=''):
         """

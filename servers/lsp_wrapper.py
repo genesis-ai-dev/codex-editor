@@ -102,6 +102,7 @@ class LSPWrapper:
         self.most_recent_hovered_word = ""
         self.most_recent_hovered_line = ""
         self.last_closed = time.time()
+        
     
     def add_diagnostic(self, function: Callable):
         """
