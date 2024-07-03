@@ -78,7 +78,7 @@ class SocketRouter:
             results = self.get_text(args['ref'], args['text_type'])
             return json.dumps({"text": results})
         elif function_name == 'get_similar_drafts':
-            results = self.database.get_similar_drafts(ref=args['ref'], top_n=args.get('limit', 5))
+            results = self.database.get_similar_drafts(ref=args['ref'], top_n=args.get('limit', 5), book=args.get('book', ''))
             return json.dumps(results)
         elif function_name == 'detect_anomalies':
             results = self.detect_anomalies(args['query'], args.get('limit', 10))

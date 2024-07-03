@@ -303,11 +303,11 @@ class JsonDatabase:
             return self.dictionary[ref][text_type]
         return ''
     
-    def get_similar_drafts(self, ref, top_n=5):
+    def get_similar_drafts(self, ref, top_n=5, book: str=''):
         try:
             source_text = self.get_text(ref=ref, text_type='target')
             rankings = self.search(query_text=source_text, text_type='target', top_n=top_n+1)
-            refs = [verse['ref'] for verse in rankings[1:]]
+            refs = [verse['ref'] for verse in rankings if verse['ref'] != ref and book in verse['ref']][:top_n]
             for verse in rankings:
                 refs.append(verse['ref'])
             target_verses = []
