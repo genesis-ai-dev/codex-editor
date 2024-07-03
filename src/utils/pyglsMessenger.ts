@@ -112,7 +112,33 @@ class PythonMessenger {
     const response = await this.sendRequest('smart_edit', { before, after, query });
     return response['text'];
   }
-  // Add function to get glosser information
+  async predictWordGlosses(word: string, isSource: boolean = true, topN: number = 3): Promise<any> {
+    console.log('RYDER: predictWordGlosses called');
+    const response = await this.sendRequest('predict_word_glosses', { word, is_source: isSource, top_n: topN });
+    console.log('RYDER: predictWordGlosses response', response);
+    return response;
+  }
+
+  async getGlosserInfo(): Promise<any> {
+    console.log('RYDER: getGlosserInfo called');
+    const response = await this.sendRequest('get_glosser_info', {});
+    console.log('RYDER: getGlosserInfo response', response);
+    return response;
+  }
+
+  async getGlosserCounts(): Promise<any> {
+    console.log('RYDER: getGlosserCounts called');
+    const response = await this.sendRequest('get_glosser_counts', {});
+    console.log('RYDER: getGlosserCounts response', response);
+    return response;
+  }
+
+  async predictSentenceGlosses(sentence: string, isSource: boolean = true): Promise<any> {
+    console.log('RYDER: predictSentenceGlosses called');
+    const response = await this.sendRequest('predict_sentence_glosses', { sentence, is_source: isSource });
+    console.log('RYDER: predictSentenceGlosses response', response);
+    return response;
+  }
 }
 
 export { PythonMessenger, checkServerLife };

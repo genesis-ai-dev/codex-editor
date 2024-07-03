@@ -4,6 +4,7 @@ import { getNonce } from "./utilities/getNonce";
 import { FileHandler } from './utilities/FileHandler';
 import { Dictionary } from "codex-types";
 import { DictionaryPostMessages } from "../../../types";
+import { PythonMessenger } from "../../utils/pyglsMessenger";
 
 // Dictionary path constant
 const dictionaryPath = ".project/project.dictionary";
@@ -16,7 +17,7 @@ export class DictionarySidePanel implements vscode.WebviewViewProvider {
     constructor(extensionUri: vscode.Uri) {
         this.extensionUri = extensionUri;
         this.setupFileChangeListener();
-    
+
         // Register the command (from DictionaryTablePanel) to update entry count
         vscode.commands.registerCommand('dictionaryTable.updateEntryCount', (count: number) => {
             this._view?.webview.postMessage({
@@ -24,35 +25,59 @@ export class DictionarySidePanel implements vscode.WebviewViewProvider {
                 count: count,
             } as DictionaryPostMessages);
         });
-    
+
     }
 
     private setupFileChangeListener() {
         vscode.workspace.onDidChangeTextDocument((event) => {
             if (event.document.uri.path.endsWith(dictionaryPath)) {
+                console.log("Dictionary file changed, updating webview data...");
                 this.updateWebviewData();
             }
         });
     }
 
     private async updateWebviewData() {
-        const { data } = await FileHandler.readFile(dictionaryPath);
-        let dictionary: Dictionary;
-        if (!data) {
-            // Create an empty dictionary
-            dictionary = {
-                id: '',
-                label: '',
-                entries: [],
-                metadata: {},
-            };
-        } else {
-            dictionary = JSON.parse(data);
+        try {
+            const { data } = await FileHandler.readFile(dictionaryPath);
+            let dictionary: Dictionary;
+            if (!data) {
+                dictionary = {
+                    id: '',
+                    label: '',
+                    entries: [],
+                    metadata: {},
+                };
+            } else {
+                dictionary = JSON.parse(data);
+            }
+
+            // Get glosser info and counts
+            const pythonMessenger = new PythonMessenger();
+            
+            console.log("Fetching glosser info...");
+            const glosserInfo = await pythonMessenger.getGlosserInfo();
+            console.log("Glosser info fetched:", glosserInfo);
+
+            console.log("Fetching glosser counts...");
+            const glosserCounts = await pythonMessenger.getGlosserCounts();
+            console.log("Glosser counts fetched:", glosserCounts);
+
+            // Show debug messages
+            vscode.window.showInformationMessage(`Glosser Info: ${JSON.stringify(glosserInfo)}`);
+            vscode.window.showInformationMessage(`Glosser Counts: ${JSON.stringify(glosserCounts)}`);
+
+            this._view?.webview.postMessage({
+                command: "sendGlosserData",
+                data: {
+                    glosserInfo,
+                    glosserCounts
+                },
+            } as DictionaryPostMessages);
+        } catch (error) {
+            console.error("Error in updateWebviewData:", error);
+            vscode.window.showErrorMessage(`Error updating webview data: ${error}`);
         }
-        this._view?.webview.postMessage({
-            command: "sendData",
-            data: dictionary,
-        } as DictionaryPostMessages);
     }
 
 
@@ -93,6 +118,9 @@ export class DictionarySidePanel implements vscode.WebviewViewProvider {
                 webviewView.webview,
                 this.extensionUri,
             );
+
+            // Update webview data when the view is resolved
+            await this.updateWebviewData();
         };
         initAsync().catch(console.error);
     }

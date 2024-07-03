@@ -6,6 +6,8 @@ import "./App.css";
 
 function App() {
     const [entries, setEntries] = useState(0);
+    const [glosserInfo, setGlosserInfo] = useState(null);
+    const [glosserCounts, setGlosserCounts] = useState(null);
 
     useEffect(() => {
         const handleReceiveMessage = (event: MessageEvent) => {
@@ -20,6 +22,14 @@ function App() {
                 case "updateEntryCount": {
                     setEntries(message.count);
                     console.log("Entry count updated to:", message.count);
+                    break;
+                }
+                case "sendGlosserData": {
+                    const { glosserInfo, glosserCounts } = message.data;
+                    setGlosserInfo(glosserInfo);
+                    setGlosserCounts(glosserCounts);
+                    console.log("Glosser info:", glosserInfo);
+                    console.log("Glosser counts:", glosserCounts);
                     break;
                 }
             }
@@ -46,6 +56,13 @@ function App() {
                 >
                     Show Dictionary Table
                 </button>
+            </div>
+            <div className="card">
+                Glosser Info:
+                <p className="glosser-info">Glosser Info: {glosserInfo}</p>
+                <p className="glosser-counts">
+                    Glosser Counts: {glosserCounts}
+                </p>
             </div>
         </div>
     );

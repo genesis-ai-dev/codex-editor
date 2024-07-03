@@ -104,7 +104,8 @@ type DictionaryPostMessages =
     | { command: "updateData"; data: Dictionary }
     | { command: "confirmRemove"; count: number }
     | { command: "updateEntryCount"; count: number }
-    | { command: "removeConfirmed" };
+    | { command: "removeConfirmed" }
+    | { command: "sendGlosserData"; data: { glosserInfo: any, glosserCounts: any } };
 
 type TranslationNotePostMessages =
     | { command: "update"; data: ScriptureTSV }

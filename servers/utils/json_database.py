@@ -4,7 +4,7 @@ import json
 from difflib import SequenceMatcher
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-
+from .improved_statistical_glosser import ImprovedStatisticalGlosser
 
 def similarity(first, second):
     """
@@ -47,6 +47,7 @@ class JsonDatabase:
         self.target_uris = []
         self.resource_uris = []
         self.complete_draft = ""
+        self.glosser = None
     
     def create_database(self, bible_dir, codex_dir, resources_dir, save_all_path):
         """
@@ -59,6 +60,7 @@ class JsonDatabase:
             resources_dir (str): Directory containing resource files.
             save_all_path (str): Path to save the complete draft of texts.
         """
+
         try:
             source_files = extract_from_bible_file(path=find_all(bible_dir, ".bible")[0])
         except IndexError:
@@ -112,7 +114,120 @@ class JsonDatabase:
 
         self.load_resources(resources_dir)
         
+        self.initialize_glosser()
 
+    def initialize_glosser(self):
+        """
+        Initialize and train the ImprovedStatisticalGlosser using the source and target texts.
+        """
+        self.glosser = ImprovedStatisticalGlosser()
+        
+        # Send a message to the pygls client about the number of training pairs
+        num_pairs = min(len(self.source_texts), len(self.target_texts))
+        
+
+        self.glosser.train(self.source_texts, self.target_texts)
+
+        # Optionally, add known glosses
+        known_glosses = {
+            # Add any known glosses here
+            # FIXME: pull in glosses from the dictionary
+        }
+        self.glosser.add_known_glosses(known_glosses)
+
+    def get_glosses(self, source_text, target_text):
+        """
+        Get glosses for a pair of source and target texts.
+
+        Args:
+            source_text (str): The source language text.
+            target_text (str): The target language text.
+
+        Returns:
+            list: A list of glosses as returned by the ImprovedStatisticalGlosser.
+        """
+        if self.glosser is None:
+            raise ValueError("Glosser has not been initialized. Call initialize_glosser() first.")
+        return self.glosser.gloss(source_text, target_text)
+
+    def get_glosser_info(self):
+        """
+        Get information about the current state of the glosser.
+
+        Returns:
+            dict: A dictionary containing information about the glosser.
+        """
+        return {
+            "status": "TEST",
+            "num_source_texts": 1,
+            "num_target_texts": 2,
+            "num_known_glosses": 3
+        }
+        
+        if self.glosser is None:
+            return {"status": "Not initialized"}
+        
+        return {
+            "status": "Initialized",
+            "num_source_texts": len(self.source_texts),
+            "num_target_texts": len(self.target_texts),
+            "num_known_glosses": len(self.glosser.known_glosses)
+        }
+
+    def get_glosser_counts(self):
+        """
+        Get counts of various elements in the glosser.
+
+        Returns:
+            dict: A dictionary containing counts of different elements in the glosser.
+        """
+        if self.glosser is None:
+            return {"error": "Glosser not initialized"}
+        
+        return {
+            "source_vocab_size": len(self.glosser.source_counts),
+            "target_vocab_size": len(self.glosser.target_counts),
+            "co_occurrences": sum(len(v) for v in self.glosser.co_occurrences.values()),
+            "known_glosses": len(self.glosser.known_glosses)
+        }
+
+    def predict_sentence_glosses(self, sentence, is_source=True, top_n=3):
+        """
+        Predict glosses for each word in a sentence.
+
+        Args:
+            sentence (str): The input sentence.
+            is_source (bool): If True, treat as source language; if False, treat as target language.
+            top_n (int): Number of top glosses to return for each word.
+
+        Returns:
+            list: A list of lists, where each inner list contains the top_n glosses for the corresponding word.
+        """
+        if self.glosser is None:
+            raise ValueError("Glosser has not been initialized. Call initialize_glosser() first.")
+        
+        return self.glosser.predict_sentence_glosses(sentence, is_source, top_n)
+
+    def generate_wooden_translation(self, sentence, is_source=True):
+        """
+        Generate a wooden back-translation for the input sentence.
+
+        Args:
+            sentence (str): The input sentence to translate.
+            is_source (bool): If True, translate from source to target language;
+                              if False, translate from target to source language.
+
+        Returns:
+            str: The wooden back-translation of the input sentence.
+        """
+        if self.glosser is None:
+            raise ValueError("Glosser has not been initialized. Call initialize_glosser() first.")
+        return self.glosser.generate_wooden_translation(sentence, is_source)
+    
+    def predict_word_glosses(self, word, is_source=True, top_n=3):
+        if self.glosser is None:
+            raise ValueError("Glosser has not been initialized. Call initialize_glosser() first.")
+        return self.glosser.predict_word_glosses(word, is_source, top_n)
     
     def search(self, query_text, text_type="source", top_n=5):
         """
@@ -297,8 +412,8 @@ class JsonDatabase:
                 return self.target_texts[index]
             except ValueError:
                 return ''
-       # Return empty string if reference not found
             
+        # Return empty string if reference not found
         if ref in self.dictionary and text_type in self.dictionary[ref]:
             return self.dictionary[ref][text_type]
         return ''
@@ -450,3 +565,4 @@ def extract_from_bible_file(path):
             }
             verses.append(verse)
     return verses
+

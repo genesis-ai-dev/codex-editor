@@ -110,6 +110,27 @@ class SocketRouter:
             value = args['value']
             self.set_status(key=key, value=value)
             return json.dumps({'status': value})
+        
+        elif function_name == "predict_word_glosses":
+            word = args['word']
+            is_source = args.get('is_source', True)
+            top_n = args.get('top_n', 3)
+            return json.dumps(self.database.predict_word_glosses(word, is_source, top_n))
+        
+        elif function_name == "get_glosser_info":
+            if self.database:
+                return json.dumps(self.database.get_glosser_info())
+            elif self.glosser == None:
+                return json.dumps({"error": "Glosser not initialized"})
+            else:
+                return json.dumps({"error": "Database not initialized"})
+        
+        elif function_name == "get_glosser_counts":
+            return json.dumps(self.database.get_glosser_counts())
+        
+        elif function_name == "predict_sentence_glosses":
+            return json.dumps(self.database.predict_sentence_glosses(args['sentence'], args['is_source']))
+        
         else:
             raise ValueError(f"Unknown function: {function_name}")
 
