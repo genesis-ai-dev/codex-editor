@@ -305,19 +305,30 @@ class JsonDatabase:
     
     def get_similar_drafts(self, ref, top_n=5, book: str=''):
         try:
+            books = book.split(", ") if book else []
             source_text = self.get_text(ref=ref, text_type='target')
             rankings = self.search(query_text=source_text, text_type='target', top_n=top_n+1)
-            refs = [verse['ref'] for verse in rankings if verse['ref'] != ref and book in verse['ref']][:top_n]
-            for verse in rankings:
-                refs.append(verse['ref'])
+            
+            refs = []
+            for verse in rankings[1:]:
+                if not books or any(b in verse['ref'] for b in books):
+                    refs.append(verse['ref'])
+            
+            if not refs:  # If no matches found, include all references
+                refs = [verse['ref'] for verse in rankings[1:]]
+            
+            if ref not in refs:
+                refs.append(ref)
+            
             target_verses = []
             for ref in refs:
                 target_text = self.get_text(ref=ref, text_type='target')
                 source_text = self.get_text(ref=ref, text_type='source')
                 target_verses.append({"ref": ref, "source": source_text, "target": target_text})
+            
+            return target_verses
         except IndexError:
-            return ""
-        return target_verses
+            return []
     
 def find_all(path: str, types: str = ".codex"):
     """
