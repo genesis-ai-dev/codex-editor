@@ -119,16 +119,16 @@ class PythonMessenger {
     return response;
   }
 
-  async getGlosserInfo(): Promise<any> {
+  async getGlosserInfo(forceRefresh: boolean = false): Promise<any> {
     console.log('RYDER: getGlosserInfo called');
-    const response = await this.sendRequest('get_glosser_info', {});
+    const response = await this.sendRequest('get_glosser_info', { force_refresh: forceRefresh });
     console.log('RYDER: getGlosserInfo response', response);
     return response;
   }
 
-  async getGlosserCounts(): Promise<any> {
+  async getGlosserCounts(forceRefresh: boolean = false): Promise<any> {
     console.log('RYDER: getGlosserCounts called');
-    const response = await this.sendRequest('get_glosser_counts', {});
+    const response = await this.sendRequest('get_glosser_counts', { force_refresh: forceRefresh });
     console.log('RYDER: getGlosserCounts response', response);
     return response;
   }

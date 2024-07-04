@@ -54,7 +54,7 @@ export class DictionarySidePanel implements vscode.WebviewViewProvider {
 
             // Get glosser info and counts
             const pythonMessenger = new PythonMessenger();
-            
+
             console.log("Fetching glosser info...");
             const glosserInfo = await pythonMessenger.getGlosserInfo();
             console.log("Glosser info fetched:", glosserInfo);
@@ -62,10 +62,6 @@ export class DictionarySidePanel implements vscode.WebviewViewProvider {
             console.log("Fetching glosser counts...");
             const glosserCounts = await pythonMessenger.getGlosserCounts();
             console.log("Glosser counts fetched:", glosserCounts);
-
-            // Show debug messages
-            vscode.window.showInformationMessage(`Glosser Info: ${JSON.stringify(glosserInfo)}`);
-            vscode.window.showInformationMessage(`Glosser Counts: ${JSON.stringify(glosserCounts)}`);
 
             this._view?.webview.postMessage({
                 command: "sendGlosserData",

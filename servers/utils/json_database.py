@@ -1,10 +1,36 @@
 import os
 import re
 import json
+import logging
 from difflib import SequenceMatcher
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from .improved_statistical_glosser import ImprovedStatisticalGlosser
+
+# Set this flag to True to enable verbose logging, False to disable
+VERBOSE_LOGGING = False
+
+# Set up logging
+if VERBOSE_LOGGING:
+    log_path = os.path.join(".", "json_database.log")
+    logging.basicConfig(filename=log_path, level=logging.DEBUG, 
+                        format='%(asctime)s - %(levelname)s - %(message)s')
+else:
+    # Set up a null handler to avoid "No handler found" warnings
+    logging.getLogger().addHandler(logging.NullHandler())
+
+def log(level, message):
+    if VERBOSE_LOGGING:
+        if level == 'DEBUG':
+            logging.debug(message)
+        elif level == 'INFO':
+            logging.info(message)
+        elif level == 'WARNING':
+            logging.warning(message)
+        elif level == 'ERROR':
+            logging.error(message)
+        elif level == 'CRITICAL':
+            logging.critical(message)
 
 def similarity(first, second):
     """
@@ -48,8 +74,9 @@ class JsonDatabase:
         self.resource_uris = []
         self.complete_draft = ""
         self.glosser = None
+        self.project_dictionary = None
     
-    def create_database(self, bible_dir, codex_dir, resources_dir, save_all_path):
+    def create_database(self, bible_dir, codex_dir, resources_dir, project_dictionary_path, save_all_path):
         """
         Populates the database with texts from bible files, codex chunks, and resources,
         and generates TF-IDF matrices for source, target, and resource texts.
@@ -58,16 +85,42 @@ class JsonDatabase:
             bible_dir (str): Directory containing bible files.
             codex_dir (str): Directory containing codex files.
             resources_dir (str): Directory containing resource files.
+            dictionary_path (str): Path to the project.dictionary file. - Note, this is a .dictionary file!
             save_all_path (str): Path to save the complete draft of texts.
+
+        Returns:
+            dict: A dictionary containing status information and any error messages.
         """
+        if VERBOSE_LOGGING:
+            # Update the log path to include the save_all_path from the frontend
+            log_path = os.path.join(save_all_path, "json_database.log")
+            logging.basicConfig(filename=log_path, level=logging.DEBUG, 
+                                format='%(asctime)s - %(levelname)s - %(message)s')
+        
+        status = {"success": True, "errors": []}
 
         try:
             source_files = extract_from_bible_file(path=find_all(bible_dir, ".bible")[0])
         except IndexError:
             source_files = []
-        target_files = extract_codex_chunks(path=codex_dir)
+            status["errors"].append("No .bible files found in the specified directory.")
+        except Exception as e:
+            status["errors"].append(f"Error extracting from bible file: {str(e)}")
 
-    
+        try:
+            target_files = extract_codex_chunks(path=codex_dir)
+        except Exception as e:
+            status["errors"].append(f"Error extracting codex chunks: {str(e)}")
+            target_files = []
+
+        try:
+            self.project_dictionary = extract_dictionary(path=project_dictionary_path)
+        except FileNotFoundError:
+            self.project_dictionary = None
+            status["errors"].append("Project dictionary file not found.")
+        except Exception as e:
+            status["errors"].append(f"Error extracting project dictionary: {str(e)}")
+            self.project_dictionary = None
 
         for verse in target_files:
             ref = verse["ref"]
@@ -97,43 +150,99 @@ class JsonDatabase:
             self.source_references.append(ref)
             self.source_uris.append(uri)
 
-        with open(save_all_path+"/complete_draft.context", "w+", encoding='utf-8') as f:
-            f.write(self.complete_draft)
-        
+        try:
+            with open(os.path.join(save_all_path, "complete_draft.context"), "w+", encoding='utf-8') as f:
+                f.write(self.complete_draft)
+        except Exception as e:
+            status["errors"].append(f"Error saving complete draft: {str(e)}")
+
         if self.source_texts:
             try:
                 self.tfidf_matrix_source = self.tfidf_vectorizer_source.fit_transform(self.source_texts)
             except ValueError:
                 self.tfidf_matrix_source = None
+                status["errors"].append("Error creating TF-IDF matrix for source texts.")
         else:
             self.tfidf_matrix_source = None
-        if self.target_texts:
-            
-            self.tfidf_matrix_target = self.tfidf_vectorizer_target.fit_transform(self.target_texts)
-         
+            status["errors"].append("No source texts available for TF-IDF matrix creation.")
 
-        self.load_resources(resources_dir)
+        if self.target_texts:
+            try:
+                self.tfidf_matrix_target = self.tfidf_vectorizer_target.fit_transform(self.target_texts)
+            except Exception as e:
+                status["errors"].append(f"Error creating TF-IDF matrix for target texts: {str(e)}")
+        else:
+            status["errors"].append("No target texts available for TF-IDF matrix creation.")
+
+        try:
+            self.load_resources(resources_dir)
+        except Exception as e:
+            status["errors"].append(f"Error loading resources: {str(e)}")
+
+        log('INFO', "Initializing glosser...")
+        try:
+            self.initialize_glosser()
+            log('INFO', "Glosser initialization completed")
+        except Exception as e:
+            status["errors"].append(f"Error initializing glosser: {str(e)}")
+            log('ERROR', f"Glosser initialization failed: {str(e)}")
+
+        if status["errors"]:
+            status["success"] = False
         
-        self.initialize_glosser()
+        log('INFO', f"Database creation completed. Status: {status}")
+        return status
 
     def initialize_glosser(self):
         """
         Initialize and train the ImprovedStatisticalGlosser using the source and target texts.
+
+        Returns:
+            dict: A dictionary containing status information and any error messages.
         """
+        status = {"success": True, "errors": []}
+
         self.glosser = ImprovedStatisticalGlosser()
         
-        # Send a message to the pygls client about the number of training pairs
+        log('INFO', f"Initializing glosser with {len(self.source_texts)} source texts and {len(self.target_texts)} target texts")
+
         num_pairs = min(len(self.source_texts), len(self.target_texts))
         
+        if num_pairs == 0:
+            status["errors"].append("No text pairs available for training the glosser")
+            log('WARNING', "No text pairs available for training the glosser")
+            return status
 
-        self.glosser.train(self.source_texts, self.target_texts)
+        log('INFO', f"Training glosser with {num_pairs} text pairs")
+        try:
+            self.glosser.train(self.source_texts[:num_pairs], self.target_texts[:num_pairs])
+        except Exception as e:
+            status["errors"].append(f"Error training glosser: {str(e)}")
+            log('ERROR', f"Error training glosser: {str(e)}")
+            return status
 
-        # Optionally, add known glosses
-        known_glosses = {
-            # Add any known glosses here
-            # FIXME: pull in glosses from the dictionary
-        }
-        self.glosser.add_known_glosses(known_glosses)
+        log('INFO', "Glosser training completed")
+        log('INFO', f"Source vocabulary size: {len(self.glosser.source_counts)}")
+        log('INFO', f"Target vocabulary size: {len(self.glosser.target_counts)}")
+        log('INFO', f"Co-occurrences: {sum(len(v) for v in self.glosser.co_occurrences.values())}")
+
+        if self.project_dictionary and "entries" in self.project_dictionary:
+            known_glosses = {
+                entry["headWord"]: entry["translationEquivalents"]
+                for entry in self.project_dictionary["entries"]
+                if entry["translationEquivalents"]
+            }
+            try:
+                self.glosser.add_known_glosses(known_glosses)
+                log('INFO', f"Added {len(known_glosses)} known glosses from project dictionary")
+            except Exception as e:
+                status["errors"].append(f"Error adding known glosses: {str(e)}")
+                log('ERROR', f"Error adding known glosses: {str(e)}")
+        else:
+            status["errors"].append("No project dictionary available or no entries found")
+            log('WARNING', "No project dictionary available or no entries found")
+
+        return status
 
     def get_glosses(self, source_text, target_text):
         """
@@ -144,52 +253,69 @@ class JsonDatabase:
             target_text (str): The target language text.
 
         Returns:
-            list: A list of glosses as returned by the ImprovedStatisticalGlosser.
+            dict: A dictionary containing the glosses or error information.
         """
+        log('INFO', f"Getting glosses for source text: '{source_text}' and target text: '{target_text}'")
         if self.glosser is None:
-            raise ValueError("Glosser has not been initialized. Call initialize_glosser() first.")
-        return self.glosser.gloss(source_text, target_text)
+            log('ERROR', "Glosser has not been initialized. Call initialize_glosser() first.")
+            return {"error": "Glosser has not been initialized. Call initialize_glosser() first."}
+        try:
+            glosses = self.glosser.gloss(source_text, target_text)
+            log('INFO', f"Successfully retrieved glosses: {glosses}")
+            return {"glosses": glosses}
+        except Exception as e:
+            log('ERROR', f"Error getting glosses: {str(e)}")
+            return {"error": f"Error getting glosses: {str(e)}"}
 
     def get_glosser_info(self):
         """
         Get information about the current state of the glosser.
 
         Returns:
-            dict: A dictionary containing information about the glosser.
+            dict: A dictionary containing information about the glosser or error information.
         """
-        return {
-            "status": "TEST",
-            "num_source_texts": 1,
-            "num_target_texts": 2,
-            "num_known_glosses": 3
-        }
-        
+        log('INFO', "Getting glosser information")
         if self.glosser is None:
-            return {"status": "Not initialized"}
-        
-        return {
+            try:
+                log('INFO', "Glosser not initialized. Attempting to initialize...")
+                self.initialize_glosser()
+            except Exception as e:
+                log('ERROR', f"Error initializing glosser: {str(e)}")
+                return {"error": f"Error initializing glosser: {str(e)}"}
+            
+        info = {
             "status": "Initialized",
             "num_source_texts": len(self.source_texts),
             "num_target_texts": len(self.target_texts),
             "num_known_glosses": len(self.glosser.known_glosses)
         }
+        log('INFO', f"Glosser information retrieved: {info}")
+        return info
 
     def get_glosser_counts(self):
         """
         Get counts of various elements in the glosser.
 
         Returns:
-            dict: A dictionary containing counts of different elements in the glosser.
+            dict: A dictionary containing counts of different elements in the glosser or error information.
         """
+        log('INFO', "Getting glosser counts")
         if self.glosser is None:
+            log('ERROR', "Glosser not initialized")
             return {"error": "Glosser not initialized"}
         
-        return {
-            "source_vocab_size": len(self.glosser.source_counts),
-            "target_vocab_size": len(self.glosser.target_counts),
-            "co_occurrences": sum(len(v) for v in self.glosser.co_occurrences.values()),
-            "known_glosses": len(self.glosser.known_glosses)
-        }
+        try:
+            counts = {
+                "source_vocab_size": len(self.glosser.source_counts),
+                "target_vocab_size": len(self.glosser.target_counts),
+                "co_occurrences": sum(len(v) for v in self.glosser.co_occurrences.values()),
+                "known_glosses": len(self.glosser.known_glosses)
+            }
+            log('INFO', f"Glosser counts retrieved: {counts}")
+            return counts
+        except Exception as e:
+            log('ERROR', f"Error getting glosser counts: {str(e)}")
+            return {"error": f"Error getting glosser counts: {str(e)}"}
 
     def predict_sentence_glosses(self, sentence, is_source=True, top_n=3):
         """
@@ -201,12 +327,21 @@ class JsonDatabase:
             top_n (int): Number of top glosses to return for each word.
 
         Returns:
-            list: A list of lists, where each inner list contains the top_n glosses for the corresponding word.
+            dict: A dictionary containing the predicted glosses or error information.
         """
+        log('INFO', f"Predicting sentence glosses for: '{sentence}', is_source={is_source}, top_n={top_n}")
+        logging.info(f"Predicting sentence glosses for: '{sentence}', is_source={is_source}, top_n={top_n}")
         if self.glosser is None:
-            raise ValueError("Glosser has not been initialized. Call initialize_glosser() first.")
+            logging.error("Glosser has not been initialized. Call initialize_glosser() first.")
+            return {"error": "Glosser has not been initialized. Call initialize_glosser() first."}
         
-        return self.glosser.predict_sentence_glosses(sentence, is_source, top_n)
+        try:
+            glosses = self.glosser.predict_sentence_glosses(sentence, is_source, top_n)
+            logging.info(f"Successfully predicted sentence glosses: {glosses}")
+            return {"glosses": glosses}
+        except Exception as e:
+            logging.error(f"Error predicting sentence glosses: {str(e)}")
+            return {"error": f"Error predicting sentence glosses: {str(e)}"}
 
     def generate_wooden_translation(self, sentence, is_source=True):
         """
@@ -218,16 +353,32 @@ class JsonDatabase:
                               if False, translate from target to source language.
 
         Returns:
-            str: The wooden back-translation of the input sentence.
+            dict: A dictionary containing the wooden translation or error information.
         """
+        log('INFO', f"Generating wooden translation for: '{sentence}', is_source={is_source}")
         if self.glosser is None:
-            raise ValueError("Glosser has not been initialized. Call initialize_glosser() first.")
-        return self.glosser.generate_wooden_translation(sentence, is_source)
+            log('ERROR', "Glosser has not been initialized. Call initialize_glosser() first.")
+            return {"error": "Glosser has not been initialized. Call initialize_glosser() first."}
+        try:
+            translation = self.glosser.generate_wooden_translation(sentence, is_source)
+            log('INFO', f"Successfully generated wooden translation: {translation}")
+            return {"translation": translation}
+        except Exception as e:
+            logging.error(f"Error generating wooden translation: {str(e)}")
+            return {"error": f"Error generating wooden translation: {str(e)}"}
     
     def predict_word_glosses(self, word, is_source=True, top_n=3):
+        log('INFO', f"Predicting word glosses for: '{word}', is_source={is_source}, top_n={top_n}")
         if self.glosser is None:
-            raise ValueError("Glosser has not been initialized. Call initialize_glosser() first.")
-        return self.glosser.predict_word_glosses(word, is_source, top_n)
+            log('ERROR', "Glosser has not been initialized. Call initialize_glosser() first.")
+            return {"error": "Glosser has not been initialized. Call initialize_glosser() first."}
+        try:
+            glosses = self.glosser.predict_word_glosses(word, is_source, top_n)
+            log('INFO', f"Successfully predicted word glosses: {glosses}")
+            return {"glosses": glosses}
+        except Exception as e:
+            log('ERROR', f"Error predicting word glosses: {str(e)}")
+            return {"error": f"Error predicting word glosses: {str(e)}"}
     
     def search(self, query_text, text_type="source", top_n=5):
         """
@@ -240,29 +391,31 @@ class JsonDatabase:
             top_n (int): The number of top results to return.
 
         Returns:
-            list: A list of dictionaries containing the 'ref', 'text', and 'uri' of the top matches.
+            dict: A dictionary containing the search results or error information.
         """
-        if text_type == "source":
-            if self.tfidf_matrix_source is None:
-                return [{'ref': ref, 'text': '', 'uri': uri} for ref, uri in zip(self.source_references, self.source_uris) if ref in self.dictionary][:top_n]
-            query_vector = self.tfidf_vectorizer_source.transform([query_text])
-            similarities = cosine_similarity(query_vector, self.tfidf_matrix_source)
-            top_indices = similarities.argsort()[0][-top_n:][::-1]
-            ret = [{'ref': self.source_references[i], 'text': self.source_texts[i], 'uri': self.source_uris[i]} for i in top_indices if self.source_references[i] in self.dictionary]
-            return ret
-        elif text_type == "target":
-            if self.tfidf_matrix_target is None:
+        try:
+            if text_type == "source":
+                if self.tfidf_matrix_source is None:
+                    return {"results": [{'ref': ref, 'text': '', 'uri': uri} for ref, uri in zip(self.source_references, self.source_uris) if ref in self.dictionary][:top_n]}
+                query_vector = self.tfidf_vectorizer_source.transform([query_text])
+                similarities = cosine_similarity(query_vector, self.tfidf_matrix_source)
+                top_indices = similarities.argsort()[0][-top_n:][::-1]
+                ret = [{'ref': self.source_references[i], 'text': self.source_texts[i], 'uri': self.source_uris[i]} for i in top_indices if self.source_references[i] in self.dictionary]
+                return {"results": ret}
+            elif text_type == "target":
+                if self.tfidf_matrix_target is None:
+                    return {"results": [{'ref': ref, 'text': '', 'uri': uri} for ref, uri in zip(self.target_references, self.target_uris)][:top_n]}
+                query_vector = self.tfidf_vectorizer_target.transform([query_text])
+                similarities = cosine_similarity(query_vector, self.tfidf_matrix_target)
+                top_indices = similarities.argsort()[0][-top_n:][::-1]
+                ret =  [{'ref': self.target_references[i], 'text': self.target_texts[i], 'uri': self.target_uris[i]} for i in top_indices]
+                return {"results": ret}
+            else:
+                raise ValueError("Invalid text_type. Choose either 'source' or 'target'.")
+        except Exception as e:
+            log('ERROR', f"Error searching for {text_type} texts: {str(e)}")
+            return {"error": f"Error searching for {text_type} texts: {str(e)}"}
 
-                return [{'ref': ref, 'text': '', 'uri': uri} for ref, uri in zip(self.target_references, self.target_uris)][:top_n]
-            query_vector = self.tfidf_vectorizer_target.transform([query_text])
-            similarities = cosine_similarity(query_vector, self.tfidf_matrix_target)
-            top_indices = similarities.argsort()[0][-top_n:][::-1]
-
-            ret =  [{'ref': self.target_references[i], 'text': self.target_texts[i], 'uri': self.target_uris[i]} for i in top_indices]
-            return ret
-        else:
-            raise ValueError("Invalid text_type. Choose either 'source' or 'target'.")
-        
     def get_lad(self, query: str, reference: str, n_samples=5):
         """
         Calculates the similarity between the target search results for a query and the source text
@@ -276,23 +429,34 @@ class JsonDatabase:
         Returns:
             int: The similarity score between the concatenated references of target and source results.
         """
-        target_results = self.search(query_text=query, text_type="target", top_n=100)
-        source_text = self.get_text(ref=reference, text_type="source")
-        source_results = self.search(query_text=source_text, text_type="source", top_n=100)
+        try:
+            target_results = self.search(query_text=query, text_type="target", top_n=100)
+            if not isinstance(target_results, dict) or 'results' not in target_results:
+                log('ERROR', f"Unexpected target_results format: {target_results}")
+                return 0
 
-        # Get the common references between target and source results
-        target_refs = [i['ref'] for i in target_results]
-        source_refs = [i['ref'] for i in source_results]
-        common_refs = list(set(target_refs) & set(source_refs))
+            source_text = self.get_text(ref=reference, text_type="source")
+            source_results = self.search(query_text=source_text, text_type="source", top_n=100)
+            if not isinstance(source_results, dict) or 'results' not in source_results:
+                log('ERROR', f"Unexpected source_results format: {source_results}")
+                return 0
 
-        # Filter the results to include only the common references
-        target_results = [i for i in target_results if i['ref'] in common_refs][:n_samples]
-        source_results = [i for i in source_results if i['ref'] in common_refs][:n_samples]
+            # Get the common references between target and source results
+            target_refs = [i['ref'] for i in target_results['results'] if isinstance(i, dict) and 'ref' in i]
+            source_refs = [i['ref'] for i in source_results['results'] if isinstance(i, dict) and 'ref' in i]
+            common_refs = list(set(target_refs) & set(source_refs))
 
-        ref_string_target = ''.join([i['ref'] for i in target_results])
-        ref_string_source = ''.join([i['ref'] for i in source_results])
+            # Filter the results to include only the common references
+            target_results = [i for i in target_results['results'] if isinstance(i, dict) and i.get('ref') in common_refs][:n_samples]
+            source_results = [i for i in source_results['results'] if isinstance(i, dict) and i.get('ref') in common_refs][:n_samples]
 
-        return similarity(ref_string_target, ref_string_source)
+            ref_string_target = ''.join([i['ref'] for i in target_results if isinstance(i, dict) and 'ref' in i])
+            ref_string_source = ''.join([i['ref'] for i in source_results if isinstance(i, dict) and 'ref' in i])
+
+            return similarity(ref_string_target, ref_string_source)
+        except Exception as e:
+            log('ERROR', f"Error in get_lad: {str(e)}")
+            return 0
 
     def word_rarity(self, text, text_type="source"):
         """
@@ -566,3 +730,24 @@ def extract_from_bible_file(path):
             verses.append(verse)
     return verses
 
+def extract_dictionary(path):
+    with open(path, "r", encoding="utf-8") as file:
+        data = json.load(file)
+    return data
+
+if __name__ == "__main__":
+    entries = extract_dictionary(path="/Users/ryderwishart/genesis/test-project-june-25/.project/project.dictionary")["entries"]
+    
+    known_glosses = {entry["headWord"]: entry["translationEquivalents"] for entry in entries if entry["translationEquivalents"]}
+    
+    print(len(known_glosses), 'glosses known')
+    
+    glosser = ImprovedStatisticalGlosser()
+    # Example English and French sentences
+    source_sentences = ["The cat is on the table", "I love to eat pizza"]
+    target_sentences = ["Le chat est sur la table", "J'aime manger de la pizza"]
+    glosser.add_known_glosses(known_glosses)
+    glosser.train(source_sentences, target_sentences)
+    
+    print(glosser.gloss(source_sentences[0], target_sentences[0]))
+    print(glosser.gloss(source_sentences[1], target_sentences[1]))
