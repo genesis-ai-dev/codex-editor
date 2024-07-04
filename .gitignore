@@ -16,3 +16,4 @@ webviews/obs/build
 .DS_Store
 package-lock.json
 /.vscode/settings.json
+json_database.log
