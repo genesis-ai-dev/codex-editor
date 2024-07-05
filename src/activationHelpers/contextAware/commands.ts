@@ -15,7 +15,6 @@ import {
 import { DownloadedResource } from "../../providers/obs/resources/types";
 import { translationAcademy } from "../../providers/translationAcademy/provider";
 import { downloadBible, initializeProject, setTargetFont } from "../contextUnaware/projectInitializers";
-import { ResourceProvider } from "../../providers/treeViews/resourceTreeViewProvider";
 
 import { CodexNotebookProvider } from "../../providers/treeViews/scriptureTreeViewProvider";
 import {
@@ -31,16 +30,7 @@ const ROOT_PATH = getWorkSpaceFolder();
 export async function registerCommands(context: vscode.ExtensionContext) {
 
     const scriptureTreeViewProvider = new CodexNotebookProvider(ROOT_PATH);
-    const resourceTreeViewProvider = new ResourceProvider(ROOT_PATH);
 
-    vscode.window.registerTreeDataProvider(
-        "resource-explorer",
-        resourceTreeViewProvider,
-    );
-
-    vscode.commands.registerCommand("resource-explorer.refreshEntry", () =>
-        resourceTreeViewProvider.refresh(),
-    );
     vscode.window.registerTreeDataProvider(
         "scripture-explorer-activity-bar",
         scriptureTreeViewProvider,

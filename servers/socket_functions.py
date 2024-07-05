@@ -41,6 +41,13 @@ class SocketRouter:
         self.data_cache: Dict[str, tuple[Any, float]] = {}
         self.data_hashes: Dict[str, str] = {}
         self.cache_expiration = 5  # Cache expiration time in seconds
+        self.last_dictionary_check = 0
+        self.last_sentence_count_check = 0
+        self.check_interval = 5  # Check every 5 seconds
+        self.dictionary_check_interval = 5  # Check dictionary every 5 seconds
+        self.dictionary_path = os.path.join(self.workspace_path, '.project', 'project.dictionary')
+        self.last_source_count = 0
+        self.last_target_count = 0
 
     def prepare(self, workspace_path, lspw):
         """prepares the socket stuff"""
@@ -88,6 +95,47 @@ class SocketRouter:
         new_hash = hashlib.md5(data_str.encode()).hexdigest()
         return new_hash != self.data_hashes[key]
 
+    def check_and_update_dictionary(self):
+        current_time = time.time()
+        if current_time - self.last_dictionary_check >= self.dictionary_check_interval:
+            self.last_dictionary_check = current_time
+            try:
+                mod_time = os.path.getmtime(self.dictionary_path)
+                if mod_time > self.last_dictionary_check:
+                    self.logger.info("Dictionary file changed. Updating glosser...")
+                    new_dictionary = extract_dictionary(self.dictionary_path)
+                    if new_dictionary and "entries" in new_dictionary:
+                        known_glosses = {
+                            entry["headWord"]: entry["translationEquivalents"]
+                            for entry in new_dictionary["entries"]
+                            if entry["translationEquivalents"]
+                        }
+                        self.database.glosser.add_known_glosses(known_glosses)
+                        self.logger.info(f"Added {len(known_glosses)} new glosses to the glosser")
+                    else:
+                        self.logger.warning("No valid entries found in the updated dictionary")
+            except FileNotFoundError:
+                self.logger.error(f"Dictionary file not found at {self.dictionary_path}")
+            except Exception as e:
+                self.logger.error(f"Error updating dictionary: {str(e)}")
+
+    def check_and_retrain_glosser(self):
+        current_time = time.time()
+        if current_time - self.last_sentence_count_check >= self.check_interval:
+            self.last_sentence_count_check = current_time
+            try:
+                current_source_count = len(self.database.source_texts)
+                current_target_count = len(self.database.target_texts)
+
+                if current_source_count != self.last_source_count or current_target_count != self.last_target_count:
+                    self.logger.info("Number of sentences changed. Retraining glosser...")
+                    self.database.initialize_glosser()  # Assuming this method exists and retrains the glosser
+                    self.last_source_count = current_source_count
+                    self.last_target_count = current_target_count
+                    self.logger.info(f"Glosser retrained with {current_source_count} source and {current_target_count} target sentences")
+            except Exception as e:
+                self.logger.error(f"Error checking sentence counts or retraining glosser: {str(e)}")
+
     def route_to(self, json_input):
         """
         Routes a json query to the needed function
@@ -100,6 +148,10 @@ class SocketRouter:
 
             # Generate a cache key based on the function name and arguments
             cache_key = f"{function_name}:{json.dumps(args, sort_keys=True)}"
+
+            # Check and update dictionary and retrain glosser if necessary
+            self.check_and_update_dictionary()
+            self.check_and_retrain_glosser()
 
             # Check if we have valid cached data for this request
             cached_data, is_valid = self.get_cached_data(cache_key)
