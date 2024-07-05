@@ -1,4 +1,5 @@
 import * as net from 'net';
+import * as vscode from 'vscode';
 
 const HOST = 'localhost';
 const PORT = 8857;
@@ -52,6 +53,24 @@ async function checkServerLife(): Promise<boolean> {
 }
 
 class PythonMessenger {
+  [key: string]: any;  // Allow any method to be called from another extension using only a string name for the method
+
+  constructor() {
+    this.registerCommands();
+  }
+
+  private registerCommands() {
+    if (!vscode.commands.getCommands().then(cmds => cmds.includes('codex-editor-extension.pythonMessenger'))) {
+      vscode.commands.registerCommand('codex-editor-extension.pythonMessenger', async (method: string, ...args: any[]) => {
+        if (this[method] && typeof this[method] === 'function') {
+          return await this[method](...args);
+        } else {
+          throw new Error(`Method ${method} not found in PythonMessenger`);
+        }
+      });
+    }
+  }
+
   private async sendRequest(functionName: string, args: any): Promise<any> {
     const requestData = JSON.stringify({ function_name: functionName, args });
     const response = await sendMessage(requestData);
@@ -71,8 +90,8 @@ class PythonMessenger {
   async getMostSimilar(textType: string, text: string): Promise<any> {
     return this.sendRequest('get_most_similar', { text_type: textType, text });
   }
-  async getSimilarDrafts(ref: string, limit: number = 5): Promise<any> {
-    return this.sendRequest('get_similar_drafts', { 'ref': ref, 'limit': limit });
+  async getSimilarDrafts(ref: string, limit: number = 5, sourceBookWhitelist?: string): Promise<any> {
+    return this.sendRequest('get_similar_drafts', { ref, limit, source_book_whitelist: sourceBookWhitelist });
   }
 
   async getRarity(textType: string, text: string): Promise<any> {
@@ -141,4 +160,8 @@ class PythonMessenger {
   }
 }
 
-export { PythonMessenger, checkServerLife };
+function createPythonMessenger(): PythonMessenger {
+  return new PythonMessenger();
+}
+
+export { PythonMessenger, checkServerLife, createPythonMessenger };
