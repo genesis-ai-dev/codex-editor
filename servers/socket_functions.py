@@ -1,177 +1,142 @@
-"""
-Socket function router, functions, and logic
-"""
 import re
 import json
 import threading
-from utils import json_database
-from utils import bia
-from utils import editor
+from typing import Dict, List, Any, Optional
+from dataclasses import dataclass
+from utils import json_database, bia, editor
 
-
+@dataclass
+class SearchResult:
+    text: str
+    value: float
 
 class SocketRouter:
-    """
-    TODO: come up with a more descriptive name, singleton
-    """
     _instance = None
 
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls):
         if cls._instance is None:
-            cls._instance = super().__new__(cls, *args, **kwargs)
+            cls._instance = super().__new__(cls)
         return cls._instance
     
     def __init__(self):
-        self.workspace_path = ""
-        self.database: json_database.JsonDatabase = None
-        self.edit_results = []
-        self.ready = False
-        self.bia: bia.BidirectionalInverseAttention = None
-        self.lspw = None
-        self.statuses = {}
+        self.workspace_path: str = ""
+        self.database: Optional[json_database.JsonDatabase] = None
+        self.edit_results: List[Any] = []
+        self.ready: bool = False
+        self.bia: Optional[bia.BidirectionalInverseAttention] = None
+        self.lspw: Any = None
+        self.statuses: Dict[str, str] = {}
 
-    def prepare(self, workspace_path, lspw):
-        """prepares the socket stuff"""
+    def prepare(self, workspace_path: str, lspw: Any) -> None:
         self.workspace_path = workspace_path
+        self.lspw = lspw
         try:
-            self.database: json_database.JsonDatabase = json_database.JsonDatabase()
-            self.database.create_database(bible_dir=self.workspace_path, codex_dir=self.workspace_path, resources_dir=self.workspace_path+'/.project/', save_all_path=self.workspace_path+"/.project/")
+            self.database = json_database.JsonDatabase()
+            self.database.create_database(
+                bible_dir=self.workspace_path,
+                codex_dir=self.workspace_path,
+                resources_dir=f"{self.workspace_path}/.project/",
+                save_all_path=f"{self.workspace_path}/.project/"
+            )
             self.ready = True
         except FileNotFoundError:
             self.ready = False
-        self.lspw = lspw
 
-        
-
-    def route_to(self, json_input):
-        """
-        Routes a json query to the needed function
-        """
-
+    def route_to(self, json_input: str) -> str:
         data = json.loads(json_input)
         function_name = data['function_name']
         args = data['args']
 
-        if function_name == 'verse_lad':
-            result = self.verse_lad(args['query'], args['vref'])
-            return json.dumps({"score": result})
+        router = {
+            'verse_lad': self._handle_verse_lad,
+            'search': self._handle_search,
+            'search_resources': self._handle_search_resources,
+            'get_most_similar': self._handle_get_most_similar,
+            'get_rarity': self._handle_get_rarity,
+            'smart_edit': self._handle_smart_edit,
+            'get_text': self._handle_get_text,
+            'get_similar_drafts': self._handle_get_similar_drafts,
+            'detect_anomalies': self._handle_detect_anomalies,
+            'apply_edit': self._handle_apply_edit,
+            'hover_word': self._handle_hover_word,
+            'hover_line': self._handle_hover_line,
+            'get_status': self._handle_get_status,
+            'set_status': self._handle_set_status
+        }
 
-        elif function_name == 'search':
-            results = self.search(args['text_type'], args['query'], args.get('limit', 10))
-            return json.dumps(results)
-
-        elif function_name == 'search_resources':
-            results = self.search_resources(args['query'], args.get('limit', 10))
-            return json.dumps(results)
-
-        elif function_name == 'get_most_similar':
-            results = self.get_most_similar(args['text_type'], args['text'])
-            return json.dumps([{'text': p[0], 'value': p[1]} for p in results])
-
-        elif function_name == 'get_rarity':
-            result = self.get_rarity(args['text_type'], args['text'])
-            return json.dumps({"rarity": result})
-        elif function_name == "smart_edit":
-            result = editor.get_edit(args['before'], args['after'], args['query'])
-            return json.dumps({'text': result})
-        elif function_name == 'get_text':
-            results = self.get_text(args['ref'], args['text_type'])
-            return json.dumps({"text": results})
-        elif function_name == 'get_similar_drafts':
-            results = self.database.get_similar_drafts(ref=args['ref'], top_n=args.get('limit', 5), book=args.get('book', ''))
-            return json.dumps(results)
-        elif function_name == 'detect_anomalies':
-            results = self.detect_anomalies(args['query'], args.get('limit', 10))
-            return json.dumps(results)
-        
-        
-        elif function_name == 'apply_edit':
-            self.change_file(args['uri'], args['before'], args['after'])
-            self.lspw.refresh_database()
-            return json.dumps({'status': 'ok'})
-        
-        elif function_name == 'hover_word':
-            word = self.lspw.most_recent_hovered_word
-            return json.dumps({'word': word})
-        
-        elif function_name == "hover_line":
-            if self.lspw:
-                line = self.lspw.most_recent_hovered_line
-                return json.dumps({'line': line})
-            else:
-                return json.dumps({'line': ''})
-
-        elif function_name == "get_status":
-            key = args['key']
-            return json.dumps({'status': self.get_status(key)})
-        
-        elif function_name == "set_status":
-            key = args['key']
-            value = args['value']
-            self.set_status(key=key, value=value)
-            return json.dumps({'status': value})
+        handler = router.get(function_name)
+        if handler:
+            return handler(args)
         else:
             raise ValueError(f"Unknown function: {function_name}")
 
-    def verse_lad(self, query, vref):
-        """
-        performs LAD on a verse
-        """
-        return self.database.get_lad(query, vref=vref)
+    def _handle_verse_lad(self, args: Dict[str, Any]) -> str:
+        result = self.database.get_lad(args['query'], vref=args['vref'])
+        return json.dumps({"score": result})
 
-    def search(self, text_type, query, limit=10):
-        """Search the specified database for a query."""
-        return self.database.search(query, text_type=text_type, top_n=int(limit))
+    def _handle_search(self, args: Dict[str, Any]) -> str:
+        results = self.database.search(args['query'], text_type=args['text_type'], top_n=int(args.get('limit', 10)))
+        return json.dumps(results)
 
-    def search_resources(self, query, limit=10):
-        """searches resources"""
-        return self.database.search_resources(query, limit)
+    def _handle_search_resources(self, args: Dict[str, Any]) -> str:
+        results = self.database.search_resources(args['query'], args.get('limit', 10))
+        return json.dumps(results)
 
-    def get_most_similar(self, text_type, text):
-        """Get words most similar to the given word from the specified database."""
-        return self.bia.synonimize(text, 100)[:15]
+    def _handle_get_most_similar(self, args: Dict[str, Any]) -> str:
+        results = self.bia.synonimize(args['text'], 100)[:15]
+        return json.dumps([{'text': p[0], 'value': p[1]} for p in results])
 
-    def get_status(self, key: str):
-        return self.statuses.get(key, 'none')
-    
-    def set_status(self, key: str, value: str):
-        current = self.statuses.get(key, None)
-        if current:
-            self.statuses[key] = value
-        else:
-            self.statuses.update({key: value})
-        
+    def _handle_get_rarity(self, args: Dict[str, Any]) -> str:
+        result = self.database.word_rarity(text=args['text'], text_type=args['text_type'])
+        return json.dumps({"rarity": result})
 
-    def get_rarity(self, text_type, text):
-        """
-        tifidf rarity of some words
-        """
-        return self.database.word_rarity(text=text, text_type=text_type)
+    def _handle_smart_edit(self, args: Dict[str, Any]) -> str:
+        result = editor.get_edit(args['before'], args['after'], args['query'])
+        return json.dumps({'text': result})
 
-    def get_text(self, ref, text_type):
-        """Retrieve text from the specified database based on book, chapter, and verse."""
-        return self.database.get_text(ref=ref, text_type=text_type)
+    def _handle_get_text(self, args: Dict[str, Any]) -> str:
+        results = self.database.get_text(ref=args['ref'], text_type=args['text_type'])
+        return json.dumps({"text": results})
 
-    def detect_anomalies(self, query, limit=100):
-        """
-        detects relative differences between source and target translations
-        """
-        codex_results = self.database.search(query_text=query, text_type="target", top_n=limit)
+    def _handle_get_similar_drafts(self, args: Dict[str, Any]) -> str:
+        results = self.database.get_similar_drafts(ref=args['ref'], top_n=args.get('limit', 5), book=args.get('book', ''))
+        return json.dumps(results)
+
+    def _handle_detect_anomalies(self, args: Dict[str, Any]) -> str:
+        codex_results = self.database.search(query_text=args['query'], text_type="target", top_n=args.get('limit', 100))
         try:
             ref = codex_results[0]['ref']
             source_query = self.database.get_text(ref=ref, text_type="source")
-            source_results = self.database.search(query_text=source_query, text_type="source", top_n=limit)
-
-            return {
-                "bible_results": source_results,
-                "codex_results": codex_results
-            }
+            source_results = self.database.search(query_text=source_query, text_type="source", top_n=args.get('limit', 100))
         except IndexError:
-            return {
-                "bible_results": self.database.search(query_text=query, text_type="source", top_n=limit),
-                "codex_results": self.database.search(query_text=query, text_type="target", top_n=limit)
-            }
-    def change_file(self, uri, before, after):
+            source_results = self.database.search(query_text=args['query'], text_type="source", top_n=args.get('limit', 100))
+        
+        return json.dumps({
+            "bible_results": source_results,
+            "codex_results": codex_results
+        })
+
+    def _handle_apply_edit(self, args: Dict[str, Any]) -> str:
+        self.change_file(args['uri'], args['before'], args['after'])
+        self.lspw.refresh_database()
+        return json.dumps({'status': 'ok'})
+
+    def _handle_hover_word(self, args: Dict[str, Any]) -> str:
+        word = self.lspw.most_recent_hovered_word
+        return json.dumps({'word': word})
+
+    def _handle_hover_line(self, args: Dict[str, Any]) -> str:
+        line = self.lspw.most_recent_hovered_line if self.lspw else ''
+        return json.dumps({'line': line})
+
+    def _handle_get_status(self, args: Dict[str, Any]) -> str:
+        return json.dumps({'status': self.get_status(args['key'])})
+
+    def _handle_set_status(self, args: Dict[str, Any]) -> str:
+        self.set_status(key=args['key'], value=args['value'])
+        return json.dumps({'status': args['value']})
+
+    def change_file(self, uri: str, before: str, after: str) -> None:
         after = after.replace('"', '\\"')
         with open(uri, 'r+', encoding='utf-8') as f:
             text = f.read()
@@ -179,18 +144,11 @@ class SocketRouter:
             f.seek(0)
             f.write(text)
             f.truncate()
-            
-    def apply_edit(self,item, before, after):
-        # soemthing that takes a while
-        result = editor.get_edit(before, after, item['text'])
-        jsn = json.loads(result)
-        result = {
-            "reference": item['ref'],
-            "uri": item['uri'],
-            "before": item['text'],
-            "after": jsn['edit']
-        }
-        return result
+
+    def get_status(self, key: str) -> str:
+        return self.statuses.get(key, 'none')
     
-    
+    def set_status(self, key: str, value: str) -> None:
+        self.statuses[key] = value
+
 universal_socket_router = SocketRouter()
