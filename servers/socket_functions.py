@@ -1,14 +1,20 @@
+
 import re
 import json
 import threading
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
-from utils import json_database, bia, editor
+
+import logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+from utils import json_database, bia, editor, api_handler
 
 @dataclass
 class SearchResult:
     text: str
     value: float
+
 
 class SocketRouter:
     _instance = None
@@ -61,7 +67,8 @@ class SocketRouter:
             'hover_word': self._handle_hover_word,
             'hover_line': self._handle_hover_line,
             'get_status': self._handle_get_status,
-            'set_status': self._handle_set_status
+            'set_status': self._handle_set_status,
+            'send_api_request': self._handle_send_api_request
         }
 
         handler = router.get(function_name)
@@ -150,5 +157,26 @@ class SocketRouter:
     
     def set_status(self, key: str, value: str) -> None:
         self.statuses[key] = value
+    
+    def _handle_send_api_request(self, args: Dict[str, Any]) -> str:
+        try:
+            received_data = args.get('config', {})
+            config = received_data.get('config', {})
+            verse_data = received_data.get('verse_data', {})
+            
+            logging.info(f"Received config: {config}")
+            logging.info(f"Received verse_data: {verse_data}")
+            
+            api_handler.api_handler.config = config
+            api_handler.api_handler.verse_data = verse_data
+            
+            logging.info("Sending API request...")
+            result = api_handler.api_handler.send_api_request(args)
+            logging.info(f"API request completed. Result: {result}")
+            
+            return json.dumps({"response": result})
+        except Exception as e:
+            logging.error(f"Error in _handle_send_api_request: {str(e)}")
+            return json.dumps({"error": str(e)})
 
 universal_socket_router = SocketRouter()

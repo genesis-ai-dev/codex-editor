@@ -1,6 +1,7 @@
 """
 Tools for the language server
 """
+import json
 import time
 import os
 import sys
@@ -136,13 +137,20 @@ class LSPWrapper:
 
     def handle_connection(self, conn):
         with conn:
-            data = conn.recv(1024).decode('utf-8')
+            data = conn.recv(1024*8).decode('utf-8')
             if self.socket_router:
-                response = self.socket_router.route_to(data)
-                if response:
-                    conn.sendall(response.encode('utf-8'))
-                else:
-                    conn.sendall("".encode('utf-8'))
+                try:
+                    response = self.socket_router.route_to(data)
+                    if response:
+                        conn.sendall(response.encode('utf-8'))
+                    else:
+                        conn.sendall("".encode('utf-8'))
+                except json.JSONDecodeError as e:
+                    print(f"JSON Decode Error: {e}")
+                    conn.sendall("Error: Invalid JSON data received".encode('utf-8'))
+                except Exception as e:
+                    print(f"Unexpected error in handle_connection: {e}")
+                    conn.sendall("Error: Unexpected server error".encode('utf-8'))
 
     def start_socket_server(self, host, port):
         """
