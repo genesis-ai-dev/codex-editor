@@ -9,7 +9,9 @@ type StateStoreUpdate =
     | { key: "uri"; value: string | null }
     | { key: "currentLineSelection"; value: SelectedTextDataWithContext }
     | { key: "plainTextNotes"; value: string}
-    | { key: "obsRef"; value: OBSRef };
+    | { key: "obsRef"; value: OBSRef }
+    | { key: "apiKey"; value: string };
+
 
 type StateStoreKey = StateStoreUpdate["key"];
 type StateStoreValue<K extends StateStoreKey> = Extract<
