@@ -20,7 +20,7 @@ const VerseItem: React.FC<VerseItemProps> = ({ item, index, onUriClick, onSaveCl
     const [isEditing, setIsEditing] = useState(false);
     const [editedText, setEditedText] = useState(item.codexText || '');
     const [smartEditText, setSmartEditText] = useState<string>("");
-    const EnableSmartEdit = false;
+    const EnableSmartEdit = true;
 
     React.useEffect(() => {
         if (!item.codexText && smartEditingIndex === index) {
