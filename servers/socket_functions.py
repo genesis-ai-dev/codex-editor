@@ -167,16 +167,19 @@ class SocketRouter:
             logging.info(f"Received config: {config}")
             logging.info(f"Received verse_data: {verse_data}")
             
-            api_handler.api_handler.config = config
-            api_handler.api_handler.verse_data = verse_data
+            logging.info("Creating APIHandler instance...")
+            api_handler_instance = api_handler.APIHandler(config, verse_data)
+            logging.info("APIHandler instance created successfully")
             
-            logging.info("Sending API request...")
-            result = api_handler.api_handler.send_api_request(args)
+            logging.info("Calling send_api_request method...")
+            result = api_handler_instance.send_api_request()
             logging.info(f"API request completed. Result: {result}")
             
             return json.dumps({"response": result})
         except Exception as e:
             logging.error(f"Error in _handle_send_api_request: {str(e)}")
+            logging.error(f"Error type: {type(e).__name__}")
+            logging.error(f"Error traceback: ", exc_info=True)
             return json.dumps({"error": str(e)})
 
 universal_socket_router = SocketRouter()

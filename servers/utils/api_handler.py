@@ -3,6 +3,9 @@ import requests
 import logging
 import re
 from typing import Dict, Any, List
+import outlines
+import json
+import random
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -10,47 +13,101 @@ class APIHandler:
     def __init__(self, config: Dict[str, Any], verse_data: Dict[str, Any]):
         self.config = config
         self.verse_data = verse_data
-
-    def build_message(self) -> List[Dict[str, str]]:
-        system_content = f"""# Biblical Translation Expert
         
-        You are an expert biblical translator working on translating from {self.verse_data['source_language_name']} to the target language. Your task is to learn the target language and complete a partial translation of a verse.
+    def parse_json_pairs(self, json_pairs_string: str) -> List[Dict[str, str]]:
+        # Split the string into individual JSON objects
+        json_strings = json_pairs_string.strip().split('\n\n')
+        
+        # Parse each JSON object and collect them in a list
+        parsed_pairs = []
+        for json_str in json_strings:
+            try:
+                pair = json.loads(json_str)
+                # Create partial translation
+                words = pair['target'].split()
+                n = random.randint(0, 5)
+                partial_translation = f"{pair['ref']} {' '.join(words[:n])}"
+                
+                # Create new dictionary with desired structure
+                parsed_pair = {
+                    "ref": pair['ref'],
+                    "source": pair['source'],
+                    "partial_translation": partial_translation,
+                    "completion": ' '.join(words[n:])
+                }
+                parsed_pairs.append(parsed_pair)
+            except json.JSONDecodeError:
+                logging.warning(f"Failed to parse JSON object: {json_str}")
+            except KeyError as e:
+                logging.warning(f"Missing key in JSON object: {e}")
+            except IndexError:
+                logging.warning(f"Failed to create partial translation for: {json_str}")
+        
+        return parsed_pairs
+    
+    @staticmethod
+    @outlines.prompt
+    def build_system_prompt(source_language_name: str):
+        """
+        # Biblical Translation Expert
+        --------
+        You are an expert biblical translator working on translating from {{ source_language_name }} to the target language. Your task is to learn the target language and complete a partial translation of a verse.
         
         ## Guidelines
-        
+        --------
         1. Only complete the missing part of the verse; do not modify already translated portions.
         2. Do not add explanatory content or commentary.
         3. If crucial information is missing, provide the best possible translation based on available context.
         
-        Use the data provided by the user to understand how the target language relates to {self.verse_data['source_language_name']}, then translate the Partial Translation."""
+        Use the data provided by the user to understand how the target language relates to {{ source_language_name }}, then translate the Partial Translation.
+        """
+    @staticmethod
+    @outlines.prompt
+    def build_user_prompt(similar_pairs: List[Dict[str, str]], surrounding_context: List[Dict[str, str]], verse_ref: str, source_verse: str, current_verse: str):        
+        """
+        # Please complete the translation task based on the following examples:
 
-        user_content = f"""# Translation Task
+        Example translations:
+        --------
+
+        {% for pair in similar_pairs %}
+        ref: {{ pair.ref }}
+        source: {{ pair.source }}
+        partial translation: {{ pair.partial_translation }}
+        completion: {{ pair.completion }}
+        {% endfor %}
+
+        {% for pair in surrounding_context %}
+        ref: {{ pair.ref }}
+        source: {{ pair.source }}
+        partial translation: {{ pair.partial_translation }}
+        completion: {{ pair.completion }}
+        {% endfor %}
         
-        ## Reference Data
-        
-        ### Similar Verse Translations
-        
-        {self.reformat_pairs(self.verse_data['similar_pairs'])}
-        
-        ### Translations of Surrounding Verses
-        
-        {self.reformat_pairs(self.verse_data['surrounding_context'])}
-        
-        ### Additional Resources
-        
+        Other Resources:
+        --------
         {self.verse_data['other_resources']}
         
-        ## Instructions
+        Task:
+        --------
+        only return the completion of the verse.
         
-        1. Complete the partial translation of the verse.
-        2. Ensure your translation fits seamlessly with the existing partial translation.
+        ref: {{ verse_ref }}
+        source: {{ source_verse }}
+        partial translation: {{ current_verse }}
+        completion: 
+        """
+
+    def build_message(self) -> List[Dict[str, str]]:
         
-        ## Verse to Complete
-        
-        Reference: {self.verse_data['verse_ref']}
-        Source: {self.verse_data['source_verse']}
-        Partial Translation: 
-        "{self.verse_data['current_verse']}"""
+        system_content = self.build_system_prompt(self.verse_data['source_language_name'])
+        user_content = self.build_user_prompt(
+            self.parse_json_pairs(self.reformat_pairs(self.verse_data['similar_pairs'])),
+            self.parse_json_pairs(self.reformat_pairs(self.verse_data['surrounding_context'])),
+            self.verse_data['verse_ref'],
+            self.verse_data['source_verse'],
+            self.verse_data['current_verse']
+        )
 
         return [
             {"role": "system", "content": system_content},
@@ -66,14 +123,14 @@ class APIHandler:
         
         return result
 
-    def send_api_request(self, args: Dict[str, Any], max_retries: int = 3, retry_delay: float = 1.0) -> str:
+    def send_api_request(self, max_retries: int = 3, retry_delay: float = 1.0) -> str:
         try:
             messages = self.build_message()
             
             logging.info(f"Using config: {self.config}")
             logging.info(f"Using verse_data: {self.verse_data}")
             
-            url = "https://api.openai.com/v1" + "/chat/completions"
+            url = self.config.get('endpoint', 'https://api.openai.com/v1') + "/chat/completions"
             headers = {
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.config.get('api_key', '')}"
@@ -105,6 +162,3 @@ class APIHandler:
         except Exception as e:
             logging.error(f"Unexpected error in send_api_request: {str(e)}")
             raise Exception(f"Unexpected error in send_api_request: {str(e)}")
-    
-# Create an instance of APIHandler
-api_handler = APIHandler({}, {})
