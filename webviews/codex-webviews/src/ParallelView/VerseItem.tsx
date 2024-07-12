@@ -1,4 +1,4 @@
-import React, { EffectCallback, useState } from 'react';
+import React, { useState } from 'react';
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { Item } from './types';
 import { diffChars } from 'diff';

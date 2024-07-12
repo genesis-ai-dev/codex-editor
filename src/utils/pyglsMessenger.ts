@@ -1,5 +1,6 @@
 import * as net from 'net';
 import { initializeStateStore } from "../stateStore";
+import * as vscode from "vscode";
 
 const HOST = "localhost";
 const PORT = 8857;
@@ -149,7 +150,8 @@ class PythonMessenger {
     return response['status'];
   }
   async smartEdit(before: string, after: string, query: string): Promise<any> {
-    const api_key = await this.state_store?.getStoreState("apiKey");
+    // const api_key = await this.state_store?.getStoreState("apiKey");
+    const api_key = vscode.workspace.getConfiguration("translators-copilot").get('api_key');
     const response = await this.sendRequest('smart_edit', {before, after, query, api_key});
     return response['text'];
   }
