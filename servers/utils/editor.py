@@ -15,9 +15,10 @@ New text to edit:
 Output only the edited text, with no additional commentary.
 """
 
-client = OpenAI(api_key="")
 
-def get_edit(before, after, text):
+def get_edit(before, after, text, api_key):
+    client = OpenAI(api_key=api_key)
+
     completion = client.chat.completions.create(
         model="gpt-4o",
         messages=[
