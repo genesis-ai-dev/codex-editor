@@ -98,7 +98,8 @@ class SocketRouter:
         return json.dumps({"rarity": result})
 
     def _handle_smart_edit(self, args: Dict[str, Any]) -> str:
-        result = editor.get_edit(args['before'], args['after'], args['query'])
+        assert 1 == 0, str(args)
+        result = editor.get_edit(args['before'], args['after'], args['query'], args['api_key'])
         return json.dumps({'text': result})
 
     def _handle_get_text(self, args: Dict[str, Any]) -> str:
