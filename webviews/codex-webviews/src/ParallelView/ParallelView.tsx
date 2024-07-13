@@ -88,14 +88,10 @@ function App() {
         query: string,
         setSmartEditText: React.Dispatch<React.SetStateAction<string>>,
     ) => {
-        try {
-            editClient.getSmartEdit(before, after, query).then((result) => {
-                setSmartEditText(result.toString());
-            });
-        } catch (error) {
-            console.error("Error getting smart edit:", error);
-            return "";
-        }
+        editClient.getSmartEdit(before, after, query).then((result) => {
+            setSmartEditText(result.toString());
+        });
+       
     };
 
     return (
@@ -139,3 +135,5 @@ function App() {
 }
 
 export default App;
+
+

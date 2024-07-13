@@ -58,8 +58,8 @@ class SmartEditClient {
     }
 
   async getSmartEdit(before: string, after: string, query: string): Promise<any> {
-  
     const result = await this.sendRequest(before, after, query);
+    console.log(`Result: ${result}`)
     return result;
   
   }

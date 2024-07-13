@@ -98,7 +98,8 @@ class SocketRouter:
         return json.dumps({"rarity": result})
 
     def _handle_smart_edit(self, args: Dict[str, Any]) -> str:
-        result = editor.get_edit(args['before'], args['after'], args['query'])
+        result = editor.get_edit(args['before'], args['after'], args['query'], args['api_key'])
+
         return json.dumps({'text': result})
 
     def _handle_get_text(self, args: Dict[str, Any]) -> str:
@@ -163,7 +164,7 @@ class SocketRouter:
             received_data = args.get('config', {})
             config = received_data.get('config', {})
             verse_data = received_data.get('verse_data', {})
-            
+        
             logging.info(f"Received config: {config}")
             logging.info(f"Received verse_data: {verse_data}")
             

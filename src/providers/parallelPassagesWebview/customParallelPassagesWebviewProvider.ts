@@ -163,6 +163,7 @@ const loadWebviewHtml = (
                     break;
                 case "search":
                     if (message.database === 'resources') {
+                        
                         const query = message.query;
                         try {
                             const data = await pyMessenger.searchResources(query, 10);

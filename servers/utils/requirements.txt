@@ -5,6 +5,7 @@ imagehash
 pillow
 flask
 urllib3
+outlines
 flask-cors
 swig
 regex
