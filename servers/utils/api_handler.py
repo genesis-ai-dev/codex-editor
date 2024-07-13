@@ -93,7 +93,7 @@ class APIHandler:
         only return the completion of the verse.
         
         DO NOT use any of the following excluded words:
-        completion, partial translation, source, ref, verse, verse_ref, source_verse, current_verse, other_resources, other resources, partial translation, {{ verse_ref }}, {{ source_verse }}
+        completion, partial, translation, source, ref, verse, {{ verse_ref }}, {{ source_verse }}
         
         ref: {{ verse_ref }}
         source: {{ source_verse }}
