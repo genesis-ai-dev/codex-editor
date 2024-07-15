@@ -9,6 +9,10 @@ import random
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+
+def api_handler_readiness_test() -> str:
+    return "pong"
+
 class APIHandler:
     def __init__(self, config: Dict[str, Any], verse_data: Dict[str, Any]):
         self.config = config

@@ -68,7 +68,8 @@ class SocketRouter:
             'hover_line': self._handle_hover_line,
             'get_status': self._handle_get_status,
             'set_status': self._handle_set_status,
-            'send_api_request': self._handle_send_api_request
+            'send_api_request': self._handle_send_api_request,
+            'api_handler_readiness_test': self._handle_api_handler_readiness_test
         }
 
         handler = router.get(function_name)
@@ -182,5 +183,9 @@ class SocketRouter:
             logging.error(f"Error type: {type(e).__name__}")
             logging.error(f"Error traceback: ", exc_info=True)
             return json.dumps({"error": str(e)})
+
+    def _handle_api_handler_readiness_test(self, args: Dict[str, Any]) -> str:
+        result = api_handler.api_handler_readiness_test()
+        return json.dumps({"response": result})
 
 universal_socket_router = SocketRouter()

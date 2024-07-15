@@ -1,4 +1,4 @@
-import * as net from 'net';
+import * as net from "net";
 import { initializeStateStore } from "../stateStore";
 import * as vscode from "vscode";
 
@@ -57,21 +57,26 @@ async function checkServerLife(): Promise<boolean> {
 }
 
 class PythonMessenger {
-  private state_store: Awaited<ReturnType<typeof initializeStateStore>> | undefined;
+    private state_store:
+        | Awaited<ReturnType<typeof initializeStateStore>>
+        | undefined;
 
-  constructor() {
-    this.initializeStateStore();
-  }
+    constructor() {
+        this.initializeStateStore();
+    }
 
-  private async initializeStateStore() {
-    this.state_store = await initializeStateStore();
-  }
+    private async initializeStateStore() {
+        this.state_store = await initializeStateStore();
+    }
 
-  private async sendRequest(functionName: string, args: any): Promise<any> {
-    const requestData = JSON.stringify({ function_name: functionName, args });
-    const response = await sendMessage(requestData);
-    return JSON.parse(response);
-  }
+    private async sendRequest(functionName: string, args: any): Promise<any> {
+        const requestData = JSON.stringify({
+            function_name: functionName,
+            args,
+        });
+        const response = await sendMessage(requestData);
+        return JSON.parse(response);
+    }
 
     async verseLad(query: string, vref: string): Promise<any> {
         return this.sendRequest("verse_lad", { query, vref });
@@ -120,8 +125,8 @@ class PythonMessenger {
     async detectAnomalies(query: string, limit: number = 10): Promise<any> {
         return this.sendRequest("detect_anomalies", { query, limit });
     }
-   
-  async sendAPIRequest(config: any, verse_data: any): Promise<any> {
+
+    async sendAPIRequest(config: any, verse_data: any): Promise<any> {
         console.log("Sending API request from PythonMessenger");
         const response = await this.sendRequest("send_api_request", {
             config: config,
@@ -130,31 +135,64 @@ class PythonMessenger {
         console.log("Received response in PythonMessenger:", response);
         return response;
     }
-  async applyEdit(uri: string, before: string, after: string): Promise<any> {
-    return this.sendRequest('apply_edit', { uri, before, after });
-  }
-  async getHoveredWord(): Promise<any> {
-    const response = await this.sendRequest('hover_word', {});
-    return response['word'];
-  }
-  async getHoveredLine(): Promise<any> {
-    const response = await this.sendRequest('hover_line', {});
-    return response['line'];
-  }
-  async getStatus(key: string): Promise<any> {
-    const response = await this.sendRequest('get_status', {key});
-    return response['status'];
-  }
-  async setStatus(value: string, key: string): Promise<any> {
-    const response = await this.sendRequest('set_status', {value, key});
-    return response['status'];
-  }
-  async smartEdit(before: string, after: string, query: string): Promise<any> {
-    // const api_key = await this.state_store?.getStoreState("apiKey");
-    const api_key = vscode.workspace.getConfiguration("translators-copilot").get('api_key');
-    const response = await this.sendRequest('smart_edit', {before, after, query, api_key});
-    return response['text'];
-  }
+    async applyEdit(uri: string, before: string, after: string): Promise<any> {
+        return this.sendRequest("apply_edit", { uri, before, after });
+    }
+    async getHoveredWord(): Promise<any> {
+        const response = await this.sendRequest("hover_word", {});
+        return response["word"];
+    }
+    async getHoveredLine(): Promise<any> {
+        const response = await this.sendRequest("hover_line", {});
+        return response["line"];
+    }
+    async getStatus(key: string): Promise<any> {
+        const response = await this.sendRequest("get_status", { key });
+        return response["status"];
+    }
+    async setStatus(value: string, key: string): Promise<any> {
+        const response = await this.sendRequest("set_status", { value, key });
+        return response["status"];
+    }
+    async smartEdit(
+        before: string,
+        after: string,
+        query: string,
+    ): Promise<any> {
+        // const api_key = await this.state_store?.getStoreState("apiKey");
+        const api_key = vscode.workspace
+            .getConfiguration("translators-copilot")
+            .get("api_key");
+        const response = await this.sendRequest("smart_edit", {
+            before,
+            after,
+            query,
+            api_key,
+        });
+        return response["text"];
+    }
+    async isAPIHandlerReady(ref: string): Promise<boolean> {
+        console.log("Sending API handler readiness test request");
+        const api_handler_response = await this.sendRequest(
+            "api_handler_readiness_test",
+            {},
+        );
+        const get_similar_drafts_response = await this.sendRequest(
+            "get_similar_drafts",
+            { ref: ref, limit: 1, book: "" },
+        );
+        console.log(
+            "Received response from API handler readiness test:",
+            api_handler_response,
+            get_similar_drafts_response[0],
+        );
+        return (
+            api_handler_response.response === "pong" &&
+            get_similar_drafts_response.length > 0 &&
+            get_similar_drafts_response[0].source.trim() !== "" &&
+            get_similar_drafts_response[0].target.trim() !== ""
+        );
+    }
 }
 
 export { PythonMessenger, checkServerLife };
