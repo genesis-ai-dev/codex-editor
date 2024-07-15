@@ -2,7 +2,7 @@ import time
 import requests
 import logging
 import re
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 import outlines
 import json
 import random
@@ -79,6 +79,7 @@ class APIHandler:
         source: {{ pair.source }}
         partial translation: {{ pair.partial_translation }}
         completion: {{ pair.completion }}
+        
         {% endfor %}
 
         {% for pair in surrounding_context %}
@@ -86,6 +87,7 @@ class APIHandler:
         source: {{ pair.source }}
         partial translation: {{ pair.partial_translation }}
         completion: {{ pair.completion }}
+        
         {% endfor %}
         
         Other Resources:
@@ -130,12 +132,9 @@ class APIHandler:
         
         return result
 
-    def send_api_request(self, max_retries: int = 3, retry_delay: float = 1.0) -> str:
+    def send_api_request(self, max_retries: int = 3, retry_delay: float = 1.0) -> Tuple[str, List[Dict[str, str]]]:
         try:
             messages = self.build_message()
-            
-            logging.info(f"Using config: {self.config}")
-            logging.info(f"Using verse_data: {self.verse_data}")
             
             url = self.config.get('endpoint', 'https://api.openai.com/v1') + "/chat/completions"
             headers = {
@@ -155,7 +154,8 @@ class APIHandler:
                 try:
                     response = requests.post(url, headers=headers, json=data, timeout=30)
                     response.raise_for_status()
-                    return response.json()['choices'][0]['message']['content'].replace('"', '\"')
+                    finalResponse = response.json()['choices'][0]['message']['content'].replace('"', '\"')
+                    return [finalResponse, messages]
                 except requests.exceptions.RequestException as req_err:
                     logging.error(f"Request error: {req_err}")
                     if attempt < max_retries - 1:

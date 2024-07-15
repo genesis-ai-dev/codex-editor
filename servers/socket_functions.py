@@ -1,12 +1,11 @@
 
-import re
 import json
-import threading
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
+import sys
+from pathlib import Path
 
-import logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+sys.path.append(str(Path(__file__).parent.parent))
 
 from utils import json_database, bia, editor, api_handler
 
@@ -166,22 +165,11 @@ class SocketRouter:
             config = received_data.get('config', {})
             verse_data = received_data.get('verse_data', {})
         
-            logging.info(f"Received config: {config}")
-            logging.info(f"Received verse_data: {verse_data}")
-            
-            logging.info("Creating APIHandler instance...")
             api_handler_instance = api_handler.APIHandler(config, verse_data)
-            logging.info("APIHandler instance created successfully")
-            
-            logging.info("Calling send_api_request method...")
             result = api_handler_instance.send_api_request()
-            logging.info(f"API request completed. Result: {result}")
             
-            return json.dumps({"response": result})
+            return json.dumps({"response": result[0], "messages": result[1]})
         except Exception as e:
-            logging.error(f"Error in _handle_send_api_request: {str(e)}")
-            logging.error(f"Error type: {type(e).__name__}")
-            logging.error(f"Error traceback: ", exc_info=True)
             return json.dumps({"error": str(e)})
 
     def _handle_api_handler_readiness_test(self, args: Dict[str, Any]) -> str:

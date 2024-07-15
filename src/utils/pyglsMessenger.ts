@@ -126,14 +126,34 @@ class PythonMessenger {
         return this.sendRequest("detect_anomalies", { query, limit });
     }
 
-    async sendAPIRequest(config: any, verse_data: any): Promise<any> {
+    async sendAPIRequest(
+        config: any,
+        verse_data: any,
+    ): Promise<{ response: [string, any[]] } | { error: string }> {
         console.log("Sending API request from PythonMessenger");
-        const response = await this.sendRequest("send_api_request", {
+        const rawResponse = await this.sendRequest("send_api_request", {
             config: config,
             verse_data: verse_data,
         });
-        console.log("Received response in PythonMessenger:", response);
-        return response;
+        if (typeof rawResponse === "string") {
+            try {
+                const response = JSON.parse(rawResponse);
+                if ("error" in response) {
+                    throw new Error(response.error);
+                }
+                return response;
+            } catch (e) {
+                console.error("Error parsing JSON response:", e);
+                throw new Error("Failed to parse server response");
+            }
+        } else if (typeof rawResponse === "object") {
+            if ("error" in rawResponse) {
+                throw new Error(rawResponse.error);
+            }
+            return rawResponse;
+        } else {
+            throw new Error("Unexpected response type from server");
+        }
     }
     async applyEdit(uri: string, before: string, after: string): Promise<any> {
         return this.sendRequest("apply_edit", { uri, before, after });
