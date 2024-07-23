@@ -191,27 +191,20 @@ class PythonMessenger {
         });
         return response["text"];
     }
-    async isAPIHandlerReady(ref: string): Promise<boolean> {
-        console.log("Sending API handler readiness test request");
-        const api_handler_response = await this.sendRequest(
-            "api_handler_readiness_test",
-            {},
-        );
-        const get_similar_drafts_response = await this.sendRequest(
-            "get_similar_drafts",
-            { ref: ref, limit: 1, book: "" },
-        );
-        console.log(
-            "Received response from API handler readiness test:",
-            api_handler_response,
-            get_similar_drafts_response[0],
-        );
-        return (
-            api_handler_response.response === "pong" &&
-            get_similar_drafts_response.length > 0 &&
-            get_similar_drafts_response[0].source.trim() !== "" &&
-            get_similar_drafts_response[0].target.trim() !== ""
-        );
+    async checkAPIHandlerReadiness(
+        ref: string,
+    ): Promise<
+        [{ response: string }, { ref: string; source: string; target: string }]
+    > {
+        const [apiHandlerResponse, similarDraftsResponse] = await Promise.all([
+            this.sendRequest("api_handler_readiness_test", {}),
+            this.sendRequest("get_similar_drafts", { ref, limit: 1, book: "" }),
+        ]);
+
+        return [
+            apiHandlerResponse,
+            similarDraftsResponse[0], // Assuming the response is an array, we take the first item
+        ];
     }
 }
 
