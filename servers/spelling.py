@@ -20,7 +20,6 @@ from lsprotocol.types import (CodeAction, CodeActionKind, CodeActionParams,
                               Command, CompletionItem, CompletionParams,
                               Diagnostic, DiagnosticSeverity, DocumentDiagnosticParams,
                               Position, Range, TextEdit, WorkspaceEdit)
-from utils import genetic_tokenizer
 
 class Hash:
     """
@@ -223,12 +222,7 @@ class Dictionary:
         """
         self.path = project_path + '/project.dictionary'  # TODO: #4 Use all .dictionary files in files directory
         self.dictionary = self.load_dictionary()  # Load the .dictionary (json file)
-        self.tokenizer = genetic_tokenizer.TokenDatabase(self.path, single_words=True, default_tokens=[entry for entry in self.dictionary['entries']])
-        try:
-            self.tokenizer.tokenizer.evolve([" ".join([entry['headWord'] for entry in self.dictionary["entries"]])])
-        except ValueError:
-            pass
-            
+
     def load_dictionary(self) -> Dict:
         """
         Loads the dictionary from a JSON file.
@@ -289,11 +283,9 @@ class Dictionary:
             
             self.dictionary['entries'].append(new_entry)
             self.save_dictionary()
-        self.tokenizer.insert_manual([word])
         text = ""
         for entry in self.dictionary["entries"]:
             text += entry['headWord']
-        self.tokenizer.upsert_text(text)
 
     def remove(self, word: str) -> None:
         """
@@ -471,7 +463,7 @@ class SPELLING_MESSAGE(Enum):
     Spelling error messages 
     (seriosly pylint should not require every class to have a docstring 🤦)
     """
-    TYPO = "❓🔤: '{word}'"
+    TYPO = "❓🔤: Spelling Error"
     ADD_WORD = "'{word}' → 📖"
     ADD_ALL_WORDS = "Add all {count} 📖" # Not implemented yet
     REPLACE_WORD = "'{word}' → '{correction}'"
@@ -553,9 +545,8 @@ class ServableSpelling:
                     _range = Range(start=Position(line=line_num, character=start_char),
                                 end=Position(line=line_num, character=end_char))
                     
-                    tokenized_word = self.spell_check.dictionary.tokenizer.tokenize(word)
-                    detokenized_word = self.spell_check.dictionary.tokenizer.tokenizer.detokenize(tokenized_word, join="-")
-                    formatted_message = SPELLING_MESSAGE.TYPO.value.format(word=detokenized_word)
+                    
+                    formatted_message = SPELLING_MESSAGE.TYPO.value
 
                     diagnostics.append(Diagnostic(range=_range, message=formatted_message, severity=DiagnosticSeverity.Information, source='Spell-Check'))
                 # Add one if the next character is whitespace
