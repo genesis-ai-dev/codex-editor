@@ -1,10 +1,8 @@
-"""
-Installs needed dependencies automatically
-"""
 import sys
 import os
 import subprocess
-
+from typing import Optional
+from importlib import util
 
 def install_dependencies() -> bool:
     """Install required dependencies from requirements.txt."""
@@ -22,4 +20,22 @@ def install_dependencies() -> bool:
             return False
     return True
 
-INSTALLED = install_dependencies()
+def check_requirements_met() -> bool:
+    """Check if required packages are installed by reading requirements.txt."""
+    try:
+        script_directory = os.path.dirname(os.path.abspath(__file__))
+        requirements_file = os.path.join(script_directory, "requirements.txt")
+        with open(requirements_file, "r") as f:
+            required_packages = [line.strip() for line in f.readlines()]
+        for package in required_packages:
+            spec = util.find_spec(package)
+            if spec is None:
+                return False
+        return True
+    except:
+        return False
+
+if not check_requirements_met():
+    INSTALLED = install_dependencies()
+else:
+    INSTALLED = True

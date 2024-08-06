@@ -97,7 +97,7 @@ const VerseItem: React.FC<VerseItemProps> = ({ item, index, onUriClick, onSaveCl
                     }
                     
                     {smartEditingIndex === -1 && isEditing && EnableSmartEdit &&(
-                        <VSCodeButton onClick={beginSmartEdit}>
+                        <VSCodeButton onClick={beginSmartEdit} title="Smart Edits allow an AI to apply similar edits to other verses">
                             Begin Smart Edit
                         </VSCodeButton>
                     )}
@@ -106,7 +106,6 @@ const VerseItem: React.FC<VerseItemProps> = ({ item, index, onUriClick, onSaveCl
             </div>
             {item.text && (
                 <div className="verse-text">
-                    <span className="verse-label">Source</span>
                     <p
                         style={{ cursor: "pointer" }}
                         onClick={() => onUriClick(item.uri, `${item.ref}`)}
@@ -117,7 +116,12 @@ const VerseItem: React.FC<VerseItemProps> = ({ item, index, onUriClick, onSaveCl
             )}
             {item.codexText && (
                 <div className="verse-text">
-                    <span className="verse-label">Target</span>
+                    <p
+                        style={{ cursor: "pointer" }}
+                        onClick={() => onUriClick(item.codexUri || "", `${item.ref}`)}
+                    >
+                        {item.codexText}
+                    </p>
                     {isEditing ? (
                         <textarea
                             id={`${index}text`}
@@ -125,14 +129,7 @@ const VerseItem: React.FC<VerseItemProps> = ({ item, index, onUriClick, onSaveCl
                             onChange={(e) => setEditedText(e.target.value)}
                             className="verse-textarea"
                         />
-                    ) : (
-                        <p
-                            style={{ cursor: "pointer" }}
-                            onClick={() => onUriClick(item.codexUri || "", `${item.ref}`)}
-                        >
-                            {item.codexText}
-                        </p>
-                    )}
+                    ) : null}
                     
                     {smartEditingIndex === index && (
                         <div className="verse-text" style={{ backgroundColor: '#a0a0a0' }}>
