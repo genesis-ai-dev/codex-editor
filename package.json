@@ -109,11 +109,6 @@
                     "icon": "$(unfold)"
                 },
                 {
-                    "id": "resource-explorer",
-                    "title": "Resource Explorer",
-                    "icon": "$(cloud-download)"
-                },
-                {
                     "id": "dictionary-summary",
                     "title": "Dictionary Summary",
                     "icon": "$(notebook)"
