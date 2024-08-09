@@ -4,19 +4,6 @@ import { registerTextSelectionHandler, performSearch } from "../../handlers/text
 import { PythonMessenger } from "../../utils/pyglsMessenger";
 
 const pyMessenger: PythonMessenger = new PythonMessenger();
-const abortController: AbortController | null = null;
-
-interface OpenFileMessage {
-    command: "openFileAtLocation";
-    uri: string;
-    word: string;
-}
-
-interface searchCommand {
-    command: "searchResources"
-    query: string,
-    database: string,
-}
 
 async function simpleOpen(uri: string) {
     try {
@@ -36,30 +23,6 @@ async function simpleOpen(uri: string) {
 
 
 
-async function jumpToFirstOccurrence(uri: string, word: string) {
-    const chapter = word.split(":");
-    jumpToCellInNotebook(uri, parseInt(chapter[0], 10));
-    const editor = vscode.window.activeTextEditor;
-    if (!editor) {
-        return;
-    }
-
-    const document = editor.document;
-    const text = document.getText();
-    const wordIndex = text.indexOf(word);
-
-    if (wordIndex === -1) {
-        return;
-    }
-
-    const position = document.positionAt(wordIndex);
-    editor.selection = new vscode.Selection(position, position);
-    editor.revealRange(
-        new vscode.Range(position, position),
-        vscode.TextEditorRevealType.InCenter,
-    );
-
-}
 
 const loadWebviewHtml = (
     webviewView: vscode.WebviewView,
