@@ -8,6 +8,8 @@ import {
 import { getWorkSpaceFolder } from "../../utils";
 import { Dictionary, DictionaryEntry, SpellCheckResult, SpellCheckDiagnostic } from "../../../types";
 
+// TODO: let's use a sqlite db instead of the dictionary file
+
 // Helper function to calculate Levenshtein distance
 function levenshteinDistance(a: string, b: string): number {
     const matrix = [];
@@ -133,15 +135,28 @@ function generateHash(word: string) {
 }
 
 // Function to add word to dictionary
-function addToDictionary(word: string, dictionary: Dictionary) {
+async function addToDictionary(word: string, dictionary: Dictionary) {
     const newEntry: DictionaryEntry = {
-        id: generateUniqueId(), // Implement this function
+        id: generateUniqueId(),
         headWord: word,
-        hash: generateHash(word) // Implement this function
+        hash: generateHash(word)
     };
     dictionary.entries.push(newEntry);
-    // TODO: Save updated dictionary to file
+
+    // Serialize and save updated dictionary to file
+    try {
+        const serializedDictionary = JSON.stringify(dictionary, null, 2);
+        await vscode.workspace.fs.writeFile(dictionaryPath, Buffer.from(serializedDictionary));
+    } catch (error) {
+        console.error('Error saving dictionary:', error);
+        vscode.window.showErrorMessage('Failed to save dictionary. Please try again.');
+    }
 }
+
+const workspaceFolder = getWorkSpaceFolder();
+const dictionaryPath = vscode.Uri.file(
+    `${workspaceFolder}/files/project.dictionary`
+);
 
 export async function languageServerTS(context: vscode.ExtensionContext) {
     vscode.window.showInformationMessage("languageServerTS activated");
@@ -173,6 +188,10 @@ export async function languageServerTS(context: vscode.ExtensionContext) {
     // FEATURE: Document symbol provider
     // TODO: Implement document symbol provider
     // - Create a provider to outline the structure of scripture documents
+    // --this structure includes all of the vrefs in the file
+    // also, we want to identify all proper nouns in the file, by looking at a lookup definition of all entities/places/etc. (ACAI data) in the Bible, and then we can 
+    // check in the file for any of those entities, and then we can highlight them in the file OR check whether they are present. We will need a tool for prompting the
+    // user about which words in the current verse draft correspond to the key terms, etc.
     // - Register document symbol provider with the server
 
     // FEATURE: Hover provider
@@ -184,11 +203,21 @@ export async function languageServerTS(context: vscode.ExtensionContext) {
     let dictionary: Dictionary | null = null;
 
     // Read the dictionary file
-    const workspaceFolder = getWorkSpaceFolder();
     if (workspaceFolder) {
-        const dictionaryPath = vscode.Uri.file(
-            `${workspaceFolder}/files/project.dictionary`
-        );
+
+        // Try creating the dictionary if it doesn't exist
+        try {
+            await vscode.workspace.fs.stat(dictionaryPath);
+        } catch {
+            // File doesn't exist, create it with an empty dictionary
+            const emptyDictionary = { entries: [] };
+            await vscode.workspace.fs.writeFile(
+                dictionaryPath,
+                Buffer.from(JSON.stringify(emptyDictionary))
+            );
+            vscode.window.showInformationMessage("Created new empty dictionary.");
+        }
+
         try {
             const content = await vscode.workspace.fs.readFile(dictionaryPath);
             dictionary = JSON.parse(content.toString());
@@ -249,8 +278,8 @@ export async function languageServerTS(context: vscode.ExtensionContext) {
 
         // Register command to add words to dictionary
         context.subscriptions.push(
-            vscode.commands.registerCommand('extension.addToDictionary', (word: string) => {
-                addToDictionary(word, dictionary!);
+            vscode.commands.registerCommand('extension.addToDictionary', async (word: string) => {
+                await addToDictionary(word, dictionary!,);
                 vscode.window.showInformationMessage(`Added '${word}' to dictionary.`);
                 // Refresh diagnostics for all open documents
                 vscode.workspace.textDocuments.forEach(updateDiagnostics);
