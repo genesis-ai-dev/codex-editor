@@ -362,6 +362,21 @@
                         "description": "Enable or disable auto-commit feature."
                     }
                 }
+            },
+            {
+                "title": "Translators Copilot Server",
+                "properties": {
+                    "translators-copilot-server.enable": {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "Enable or disable the Translators Copilot feature."
+                    },
+                    "translators-copilot-server.primarySourceBible": {
+                        "type": "string",
+                        "default": "",
+                        "description": "The source Bible to use for the Translators Copilot feature."
+                    }
+                }
             }
         ],
         "customEditors": [

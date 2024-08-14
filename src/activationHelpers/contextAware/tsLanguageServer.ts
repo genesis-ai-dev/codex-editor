@@ -160,7 +160,16 @@ const dictionaryPath = vscode.Uri.file(
 );
 
 export async function languageServerTS(context: vscode.ExtensionContext) {
-    vscode.window.showInformationMessage("languageServerTS activated");
+    // Check if Translators Copilot is enabled
+    const config = vscode.workspace.getConfiguration('translators-copilot-server');
+    const isCopilotEnabled = config.get<boolean>('enable', true);
+
+    if (!isCopilotEnabled) {
+        vscode.window.showInformationMessage("Translators Copilot Server is disabled. Language server not activated.");
+        return;
+    }
+
+    vscode.window.showInformationMessage("Translators Copilot Server activated");
     const languages = ["scripture"];
     const disposables = languages.map((language) => {
         return vscode.languages.registerInlineCompletionItemProvider(language, {
@@ -369,20 +378,37 @@ export async function languageServerTS(context: vscode.ExtensionContext) {
         `${workspaceFolder}/.project/sourceTextBibles`
     );
 
-    // Function to index source Bible
+    // Function to index all source Bibles
     async function indexSourceBible() {
-        vscode.window.showInformationMessage(`Indexing source Bible`);
-        const config = vscode.workspace.getConfiguration('scriptureTranslation');
-        const sourceBible = config.get<string>('sourceBible');
-        if (sourceBible && workspaceFolder) {
-            const sourcePath = vscode.Uri.joinPath(allSourceBiblesPath, `${sourceBible}.bible`);
+        vscode.window.showInformationMessage(`Indexing all source Bibles`);
+        
+        if (workspaceFolder) {
             try {
-                const document = await vscode.workspace.openTextDocument(sourcePath);
-                indexDocument(document, true);
+                const files = await vscode.workspace.fs.readDirectory(allSourceBiblesPath);
+                const biblePaths = files.filter(([name, type]) => name.endsWith('.bible') && type === vscode.FileType.File);
+                
+                if (biblePaths.length === 0) {
+                    vscode.window.showWarningMessage('No source Bibles found to index.');
+                    return;
+                }
+
+                for (const [fileName, _] of biblePaths) {
+                    const sourcePath = vscode.Uri.joinPath(allSourceBiblesPath, fileName);
+                    try {
+                        const document = await vscode.workspace.openTextDocument(sourcePath);
+                        indexDocument(document, true);
+                        vscode.window.showInformationMessage(`Indexed source Bible: ${fileName}`);
+                    } catch (error) {
+                        console.error(`Error reading source Bible ${fileName}:`, error);
+                        vscode.window.showErrorMessage(`Failed to read source Bible file: ${fileName}`);
+                    }
+                }
             } catch (error) {
-                console.error('Error reading source Bible:', error);
-                vscode.window.showErrorMessage('Failed to read source Bible file.');
+                console.error('Error reading source Bible directory:', error);
+                vscode.window.showErrorMessage('Failed to read source Bible directory.');
             }
+        } else {
+            vscode.window.showErrorMessage('Workspace folder not found.');
         }
     }
 
@@ -392,7 +418,7 @@ export async function languageServerTS(context: vscode.ExtensionContext) {
     // Function to index target Bible
     async function indexTargetBible() {
         vscode.window.showInformationMessage(`Indexing target Bible`);
-        const config = vscode.workspace.getConfiguration('scriptureTranslation');
+        const config = vscode.workspace.getConfiguration('translators-copilot-server');
         const targetBible = config.get<string>('targetBible');
         if (targetBible && workspaceFolder) {
             const targetPath = vscode.Uri.joinPath(targetDraftsPath, `${targetBible}.codex`);
