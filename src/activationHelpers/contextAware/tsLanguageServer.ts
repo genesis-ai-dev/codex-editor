@@ -160,6 +160,53 @@ const dictionaryPath = vscode.Uri.file(
     `${workspaceFolder}/files/project.dictionary`
 );
 
+interface FileManifest {
+    [filePath: string]: number; // last modified timestamp
+}
+
+const manifestPath = vscode.Uri.file(
+    `${workspaceFolder}/.project/copilot_server_minisearch_index_manifest.json`
+);
+
+async function loadManifest(): Promise<FileManifest> {
+    try {
+        const data = await vscode.workspace.fs.readFile(manifestPath);
+        return JSON.parse(Buffer.from(data).toString('utf8'));
+    } catch (error) {
+        return {};
+    }
+}
+
+async function saveManifest(manifest: FileManifest) {
+    const data = JSON.stringify(manifest, null, 2);
+    await vscode.workspace.fs.writeFile(manifestPath, Buffer.from(data, 'utf8'));
+}
+
+async function checkIfIndexNeedsUpdate(): Promise<boolean> {
+    const manifest = await loadManifest();
+    const currentTime = Date.now();
+    const oneWeek = 7 * 24 * 60 * 60 * 1000; // milliseconds in a week
+
+    // Force re-index if it's been more than a week since last full re-index
+    if (!manifest['lastFullReindex'] || currentTime - manifest['lastFullReindex'] > oneWeek) {
+        return true;
+    }
+
+    const filesToCheck = [
+        ...await vscode.workspace.findFiles('**/*.bible'),
+        ...await vscode.workspace.findFiles('**/*.codex')
+    ];
+
+    for (const file of filesToCheck) {
+        const stats = await vscode.workspace.fs.stat(file);
+        if (!manifest[file.fsPath] || stats.mtime > manifest[file.fsPath]) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 export async function createTypescriptLanguageServer(context: vscode.ExtensionContext) {
     // Check if Translators Copilot is enabled
     const config = vscode.workspace.getConfiguration('translators-copilot-server');
@@ -346,24 +393,24 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
                 const content = line.substring(match.index! + match[0].length).trim();
                 const id = `${isSourceBible ? 'source' : 'target'}:${uri}:${lineIndex}:${vref}`;
 
-                // Check if the document already exists in the index
-                const existingDoc = miniSearch.search(id, { fields: ['id'], combineWith: 'AND' });
-                if (existingDoc.length > 0) {
-                    // If it exists, remove it before adding the new version
-                    miniSearch.remove({ id });
-                }
+                // Remove existing entry with the same ID before adding
+                miniSearch.remove({ id });
 
-                miniSearch.add({
-                    id,
-                    vref,
-                    book,
-                    chapter,
-                    verse,
-                    content,
-                    uri,
-                    line: lineIndex,
-                    isSourceBible
-                } as minisearchDoc);
+                try {
+                    miniSearch.add({
+                        id,
+                        vref,
+                        book,
+                        chapter,
+                        verse,
+                        content,
+                        uri,
+                        line: lineIndex,
+                        isSourceBible
+                    } as minisearchDoc);
+                } catch (error) {
+                    console.error(`Error indexing document ${uri} at line ${lineIndex}:`, error);
+                }
             }
         });
     }
@@ -471,6 +518,8 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
     async function serializeIndex(miniSearch: MiniSearch) {
         vscode.window.showInformationMessage(`Serializing index`);
         const serialized = JSON.stringify(miniSearch.toJSON());
+
+        // Write directly to the file
         await vscode.workspace.fs.writeFile(minisearchIndexPath, Buffer.from(serialized, 'utf8'));
     }
 
@@ -479,13 +528,26 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
         vscode.window.showInformationMessage(`Loading serialized index`);
         try {
             const data = await vscode.workspace.fs.readFile(minisearchIndexPath);
-            const serialized = Buffer.from(data).toString('utf8');
-            return MiniSearch.loadJSON(serialized, {
+            const dataString = Buffer.from(data).toString('utf8');
+
+            // Validate JSON before parsing
+            JSON.parse(dataString);
+
+            return MiniSearch.loadJSON(dataString, {
                 fields: ['vref', 'book', 'chapter', 'fullVref', 'content'],
                 storeFields: ['vref', 'book', 'chapter', 'fullVref', 'content', 'uri', 'line']
             });
         } catch (error) {
             console.error('Error loading serialized index:', error);
+
+            // If there's an error, attempt to delete the corrupted file
+            try {
+                await vscode.workspace.fs.delete(minisearchIndexPath);
+                vscode.window.showWarningMessage('Corrupted index file deleted. A new index will be created.');
+            } catch (unlinkError) {
+                console.error('Error deleting corrupted index file:', unlinkError);
+            }
+
             return null;
         }
     }
@@ -497,14 +559,49 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
         if (loadedIndex) {
             miniSearch = loadedIndex;
             vscode.window.showInformationMessage(`Loaded serialized index`);
+
+            // Check if we need to update the index
+            const needsUpdate = await checkIfIndexNeedsUpdate();
+            if (needsUpdate) {
+                vscode.window.showInformationMessage(`Updating existing index`);
+                await updateIndex();
+            }
         } else {
             vscode.window.showInformationMessage(`Building new index`);
-            await indexSourceBible();
-            await indexTargetBible();
-            await indexTargetDrafts();
-            vscode.workspace.textDocuments.forEach(doc => indexDocument(doc));
-            await serializeIndex(miniSearch);
+            await rebuildFullIndex();
         }
+    }
+
+    async function rebuildFullIndex() {
+        await indexSourceBible();
+        await indexTargetBible();
+        await indexTargetDrafts();
+        vscode.workspace.textDocuments.forEach(doc => indexDocument(doc));
+        await serializeIndex(miniSearch);
+    }
+
+    async function updateIndex() {
+        const manifest = await loadManifest();
+        const currentTime = Date.now();
+
+        await indexSourceBible();
+        await indexTargetBible();
+        await indexTargetDrafts();
+
+        // Update manifest with new timestamps
+        const filesToUpdate = [
+            ...await vscode.workspace.findFiles('**/*.bible'),
+            ...await vscode.workspace.findFiles('**/*.codex')
+        ];
+
+        for (const file of filesToUpdate) {
+            const stats = await vscode.workspace.fs.stat(file);
+            manifest[file.fsPath] = stats.mtime;
+        }
+
+        manifest['lastFullReindex'] = currentTime;
+        await saveManifest(manifest);
+        await serializeIndex(miniSearch);
     }
 
     // Set up event listeners
@@ -517,12 +614,15 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
     );
 
     async function hasFileChanged(filePath: vscode.Uri): Promise<boolean> {
-        const stat = await vscode.workspace.fs.stat(filePath);
-        const lastModified = stat.mtime;
-        // You'll need to store and compare this with the last known modification time
-        // This could be stored in a separate file or in your extension's global state
-        // For simplicity, let's assume it always changed for now
-        return true;
+        try {
+            const stat = await vscode.workspace.fs.stat(filePath);
+            const lastModified = stat.mtime;
+            const manifest = await loadManifest();
+            return !manifest[filePath.fsPath] || lastModified > manifest[filePath.fsPath];
+        } catch (error) {
+            console.error(`Error checking if file ${filePath.fsPath} has changed:`, error);
+            return true; // Assume the file has changed if there's an error
+        }
     }
 
     // Call initializeIndexing
@@ -555,6 +655,15 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
     context.subscriptions.push(
         vscode.commands.registerCommand('translators-copilot.searchIndex', (query: string) => {
             return searchIndex(query);
+        })
+    );
+
+    // Add a command to force re-indexing
+    context.subscriptions.push(
+        vscode.commands.registerCommand('translators-copilot.forceReindex', async () => {
+            vscode.window.showInformationMessage('Force re-indexing started');
+            await rebuildFullIndex();
+            vscode.window.showInformationMessage('Force re-indexing completed');
         })
     );
 

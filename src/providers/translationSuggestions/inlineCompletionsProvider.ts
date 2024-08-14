@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { llmCompletion } from "./llmCompletion";
 
 let shouldProvideCompletion = false;
 let isAutocompletingInProgress = false;
@@ -124,7 +125,7 @@ function cancelAutocompletion(message: string) {
 
 function verseCompletion(document: vscode.TextDocument, position: vscode.Position, completionConfig: CompletionConfig, token: vscode.CancellationToken): Promise<string> {
     // TODO: Implement verse completion using LLM
-    return Promise.resolve("Hello, world!");
+    return llmCompletion(document, position, completionConfig, token);
 }
 
 export async function fetchCompletionConfig(): Promise<CompletionConfig> {
