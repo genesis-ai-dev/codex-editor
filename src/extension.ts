@@ -15,18 +15,14 @@ import { registerScmStatusBar } from "./providers/scm/statusBar";
 import { DownloadedResourcesProvider } from "./providers/downloadedResource/provider";
 import {
     handleConfig,
-    onBoard,
-    initializeProject,
+    // onBoard,
 } from "./activationHelpers/contextUnaware/projectInitializers";
 import {
-    initializeServer,
     stopLangServer,
 } from "./activationHelpers/contextAware/pythonController";
 import { initializeWebviews } from "./activationHelpers/contextAware/webviewInitializers";
 import { syncUtils } from "./activationHelpers/contextAware/syncUtils";
-import { initializeStateStore } from "./stateStore";
-import { projectFileExists } from "./utils/fileUtils";
-import { languageServerTS } from "./activationHelpers/contextAware/tsLanguageServer";
+import { createTypescriptLanguageServer } from "./activationHelpers/contextAware/tsLanguageServer";
 
 // The following block ensures a smooth user experience by guiding the user through the initial setup process before the extension is fully activated. This is crucial for setting up the necessary project environment and avoiding any functionality issues that might arise from missing project configurations.
 
@@ -44,12 +40,11 @@ let autoCommitEnabled = configuration.get<boolean>("autoCommit", true);
 export async function activate(context: vscode.ExtensionContext) {
     await indexVerseRefsInSourceText();
     await handleConfig();
-    // await initializeServer(context);
-    await languageServerTS(context);
+    const languageServer = await createTypescriptLanguageServer(context);
     await initializeWebviews(context);
     registerReferencesCodeLens(context);
     registerSourceCodeLens(context);
-    registerTextSelectionHandler(context, () => undefined);
+    registerTextSelectionHandler(context, languageServer?.handleTextSelection || (() => []));
 
     const [, syncStatus] = registerScmStatusBar(context);
     syncUtils.registerSyncCommands(context, syncStatus);

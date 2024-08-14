@@ -142,7 +142,7 @@
             ],
             "editor/title": [
                 {
-                    "command": "codex-editor.scm.stageAndCommitAll",
+                    "command": "codex-editor-extension.scm.stageAndCommitAll",
                     "group": "navigation"
                 }
             ]
@@ -233,15 +233,15 @@
                 "title": "Open Translation Notes"
             },
             {
-                "command": "codex-editor.scm.stageAndCommitAll",
+                "command": "codex-editor-extension.scm.stageAndCommitAll",
                 "title": "Stage & Commit All"
             },
             {
-                "command": "codex-editor.scm.addRemote",
+                "command": "codex-editor-extension.scm.addRemote",
                 "title": "Add Remote"
             },
             {
-                "command": "codex-editor.scm.sync",
+                "command": "codex-editor-extension.scm.sync",
                 "title": "Sync"
             }
         ],
@@ -351,12 +351,12 @@
             {
                 "title": "Codex Editor - SCM",
                 "properties": {
-                    "codex-editor.scm.remoteUrl": {
+                    "codex-editor-extension.scm.remoteUrl": {
                         "type": "string",
                         "default": "",
                         "description": "The remote URL to cloud sync to."
                     },
-                    "codex-editor.scm.autoCommit": {
+                    "codex-editor-extension.scm.autoCommit": {
                         "type": "boolean",
                         "default": true,
                         "description": "Enable or disable auto-commit feature."

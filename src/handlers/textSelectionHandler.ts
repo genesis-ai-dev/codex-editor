@@ -8,8 +8,8 @@ const pyMessenger: PythonMessenger = new PythonMessenger();
 
 export function registerTextSelectionHandler(
     context: vscode.ExtensionContext,
-    callback: CallableFunction,
-): any {
+    handleTextSelection: (selectedText: string) => any
+): void {
     let selectionTimeout: ReturnType<typeof setTimeout> | undefined;
     context.subscriptions.push(
         vscode.window.onDidChangeTextEditorSelection(
@@ -114,7 +114,7 @@ export function registerTextSelectionHandler(
                     selectionTimeout = setTimeout(() => {
                         const selectedText: string =
                             activeEditor.document.getText(event.selections[0]);
-                        performSearch(selectedText, callback);
+                        performSearch(selectedText, handleTextSelection);
                     }, 500); // Adjust delay as needed
                 }
             },
@@ -124,20 +124,22 @@ export function registerTextSelectionHandler(
 
 export async function performSearch(
     selectedText: string,
-    callback: CallableFunction,
+    handleTextSelection: (selectedText: string) => any
 ) {
     if (selectedText) {
-        // vscode.window.showInformationMessage("here is selected: "+selectedText);
-
         try {
-            // vscode.window.showInformationMessage("Searching: "+ selectedText);
-            const result = await pyMessenger.detectAnomalies(selectedText, 10);
-            callback(result);
+            // Perform existing search
+            // const anomalyResult = await pyMessenger.detectAnomalies(selectedText, 10);
+            // Handle anomaly result as before
+
+            // Perform new search using the language server's handler
+            const searchResults = handleTextSelection(selectedText);
+
+            // The language server will process the results internally
         } catch (error: unknown) {
             vscode.window.showErrorMessage(
-                "Error performing search for: " + selectedText + "\n" + error,
+                "Error performing search for: " + selectedText + "\n" + error
             );
-
             console.error("Error performing search:", error);
             if (error instanceof Error) {
                 console.error(error.message);

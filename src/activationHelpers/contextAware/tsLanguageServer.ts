@@ -159,7 +159,7 @@ const dictionaryPath = vscode.Uri.file(
     `${workspaceFolder}/files/project.dictionary`
 );
 
-export async function languageServerTS(context: vscode.ExtensionContext) {
+export async function createTypescriptLanguageServer(context: vscode.ExtensionContext) {
     // Check if Translators Copilot is enabled
     const config = vscode.workspace.getConfiguration('translators-copilot-server');
     const isCopilotEnabled = config.get<boolean>('enable', true);
@@ -381,12 +381,12 @@ export async function languageServerTS(context: vscode.ExtensionContext) {
     // Function to index all source Bibles
     async function indexSourceBible() {
         vscode.window.showInformationMessage(`Indexing all source Bibles`);
-        
+
         if (workspaceFolder) {
             try {
                 const files = await vscode.workspace.fs.readDirectory(allSourceBiblesPath);
                 const biblePaths = files.filter(([name, type]) => name.endsWith('.bible') && type === vscode.FileType.File);
-                
+
                 if (biblePaths.length === 0) {
                     vscode.window.showWarningMessage('No source Bibles found to index.');
                     return;
@@ -526,11 +526,27 @@ export async function languageServerTS(context: vscode.ExtensionContext) {
 
     // Function to search the index
     function searchIndex(query: string) {
-        return miniSearch.search(query);
+        const results = miniSearch.search(query);
+        processSearchResults(results, query);
+        return results;
     }
 
-    // TODO: Implement WebSocket server to handle search requests
+    function processSearchResults(results: any[], query: string) {
+        // Process the results here
+        vscode.window.showInformationMessage(`Processing ${results.length} results for query: ${query}`);
+        
+        // Here we need to use the parallel passages retrieved by the text selection 
+        // handler (or whatever calling process) and pass them to the LAD and 
+        // autocomplete functions, then return the results to the calling process
+
+    }
+
+    function handleTextSelection(selectedText: string) {
+        return searchIndex(selectedText);
+    }
+
     // TODO: Implement handlers for various socket requests (search, LAD, etc.)
+    // Note - we did other things with the python websocket messenger. That's what I want to implement here
 
     // FEATURE: Database integration
     // TODO: Implement database integration
@@ -545,4 +561,10 @@ export async function languageServerTS(context: vscode.ExtensionContext) {
     // - Implement helper functions for text processing, verse validation, etc.
 
     context.subscriptions.push(commandDisposable);
+
+    // Expose the search function
+    return {
+        handleTextSelection,
+        // ... other functions or objects you want to expose
+    };
 }
