@@ -7,6 +7,7 @@ import {
 } from "../../providers/translationSuggestions/inlineCompletionsProvider";
 import { getWorkSpaceFolder } from "../../utils";
 import { Dictionary, DictionaryEntry, SpellCheckResult, SpellCheckDiagnostic } from "../../../types";
+import MiniSearch from 'minisearch';
 
 // TODO: let's use a sqlite db instead of the dictionary file
 
@@ -298,10 +299,212 @@ export async function languageServerTS(context: vscode.ExtensionContext) {
     // - Add verse reference code actions (port from verse_validator.py)
     // - Register code action providers with the server
 
-    // FEATURE: WebSocket server functions
-    // TODO: Implement WebSocket server functions
-    // - Port relevant parts of socket_functions.py
-    // - Implement handlers for various socket requests (search, LAD, etc.)
+    // FEATURE: MiniSearch indexing for draft verses and source Bible
+    // Initialize MiniSearch instance
+    let miniSearch = new MiniSearch({
+        fields: ['vref', 'book', 'chapter', 'fullVref', 'content'],
+        storeFields: ['vref', 'book', 'chapter', 'fullVref', 'content', 'uri', 'line'],
+        searchOptions: {
+            boost: { vref: 2, fullVref: 3 },
+            fuzzy: 0.2
+        }
+    });
+
+    interface minisearchDoc {
+        id: string;
+        vref: string;
+        book: string;
+        chapter: string;
+        verse: string;
+        content: string;
+        uri: string;
+        line: number;
+        isSourceBible: boolean;
+    }
+
+    // Function to index a document
+    function indexDocument(document: vscode.TextDocument, isSourceBible: boolean = false) {
+        vscode.window.showInformationMessage(`Indexing document: ${document.uri}`);
+        const uri = document.uri.toString();
+        const lines = document.getText().split('\n');
+        lines.forEach((line, lineIndex) => {
+            const match = line.match(verseRefRegex);
+            if (match) {
+                const [vref] = match;
+                const [book, chapterVerse] = vref.split(' ');
+                const [chapter, verse] = chapterVerse.split(':');
+                const content = line.substring(match.index! + match[0].length).trim();
+                miniSearch.add({
+                    id: `${isSourceBible ? 'source' : 'target'}:${uri}:${lineIndex}`,
+                    vref,
+                    book,
+                    chapter,
+                    verse,
+                    content,
+                    uri,
+                    line: lineIndex,
+                    isSourceBible
+                } as minisearchDoc);
+            }
+        });
+    }
+
+    // Function to update index on document change
+    function updateIndex(event: vscode.TextDocumentChangeEvent) {
+        vscode.window.showInformationMessage(`Updating index for document: ${event.document.uri}`);
+        const document = event.document;
+        if (document.languageId === 'scripture' || document.fileName.endsWith('.codex')) {
+            // Remove old entries for this document
+            const docsToRemove = miniSearch.search(document.uri.toString(), {
+                fields: ['uri'],
+                combineWith: 'AND'
+            });
+            miniSearch.removeAll(docsToRemove.map(doc => doc.id));
+            // Re-index the document
+            indexDocument(document);
+        }
+    }
+
+    const allSourceBiblesPath = vscode.Uri.file(
+        `${workspaceFolder}/.project/sourceTextBibles`
+    );
+
+    // Function to index source Bible
+    async function indexSourceBible() {
+        vscode.window.showInformationMessage(`Indexing source Bible`);
+        const config = vscode.workspace.getConfiguration('scriptureTranslation');
+        const sourceBible = config.get<string>('sourceBible');
+        if (sourceBible && workspaceFolder) {
+            const sourcePath = vscode.Uri.joinPath(allSourceBiblesPath, `${sourceBible}.bible`);
+            try {
+                const document = await vscode.workspace.openTextDocument(sourcePath);
+                indexDocument(document, true);
+            } catch (error) {
+                console.error('Error reading source Bible:', error);
+                vscode.window.showErrorMessage('Failed to read source Bible file.');
+            }
+        }
+    }
+
+    const targetDraftsPath = vscode.Uri.file(
+        `${workspaceFolder}/files/target`
+    );
+    // Function to index target Bible
+    async function indexTargetBible() {
+        vscode.window.showInformationMessage(`Indexing target Bible`);
+        const config = vscode.workspace.getConfiguration('scriptureTranslation');
+        const targetBible = config.get<string>('targetBible');
+        if (targetBible && workspaceFolder) {
+            const targetPath = vscode.Uri.joinPath(targetDraftsPath, `${targetBible}.codex`);
+            try {
+                const document = await vscode.workspace.openTextDocument(targetPath);
+                indexDocument(document);
+            } catch (error) {
+                console.error('Error reading target Bible:', error);
+                vscode.window.showErrorMessage('Failed to read target Bible file.');
+            }
+        }
+    }
+
+    // Function to index target drafts
+    async function indexTargetDrafts() {
+        vscode.window.showInformationMessage(`Indexing target drafts`);
+        if (workspaceFolder) {
+            vscode.window.showInformationMessage(`Indexing target drafts`);
+            const pattern = new vscode.RelativePattern(targetDraftsPath, '**/*.codex');
+            const files = await vscode.workspace.findFiles(pattern);
+
+            for (const file of files) {
+                if (await hasFileChanged(file)) {
+                    try {
+                        const document = await vscode.workspace.openTextDocument(file);
+                        indexDocument(document);
+                    } catch (error) {
+                        console.error(`Error reading target draft ${file.fsPath}:`, error);
+                    }
+                }
+            }
+        }
+    }
+
+    const minisearchIndexPath = vscode.Uri.file(
+        `${workspaceFolder}/.vscode/minisearch_index.json`
+    );
+
+    // Function to serialize the MiniSearch index
+    async function serializeIndex(miniSearch: MiniSearch) {
+        vscode.window.showInformationMessage(`Serializing index`);
+        const serialized = JSON.stringify(miniSearch.toJSON());
+        await vscode.workspace.fs.writeFile(minisearchIndexPath, Buffer.from(serialized, 'utf8'));
+    }
+
+    // Function to load the serialized index
+    async function loadSerializedIndex(): Promise<MiniSearch | null> {
+        vscode.window.showInformationMessage(`Loading serialized index`);
+        try {
+            const data = await vscode.workspace.fs.readFile(minisearchIndexPath);
+            const serialized = Buffer.from(data).toString('utf8');
+            return MiniSearch.loadJSON(serialized, {
+                fields: ['vref', 'book', 'chapter', 'fullVref', 'content'],
+                storeFields: ['vref', 'book', 'chapter', 'fullVref', 'content', 'uri', 'line']
+            });
+        } catch (error) {
+            console.error('Error loading serialized index:', error);
+            return null;
+        }
+    }
+
+    // Initialize indexing
+    async function initializeIndexing() {
+        vscode.window.showInformationMessage(`Initializing index`);
+        const loadedIndex = await loadSerializedIndex();
+        if (loadedIndex) {
+            miniSearch = loadedIndex;
+            vscode.window.showInformationMessage(`Loaded serialized index`);
+        } else {
+            vscode.window.showInformationMessage(`Building new index`);
+            await indexSourceBible();
+            await indexTargetBible();
+            await indexTargetDrafts();
+            vscode.workspace.textDocuments.forEach(doc => indexDocument(doc));
+            await serializeIndex(miniSearch);
+        }
+    }
+
+    // Set up event listeners
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeTextDocument(async (event) => {
+            updateIndex(event);
+            await serializeIndex(miniSearch);
+        }),
+        vscode.workspace.onDidOpenTextDocument(async (doc) => {
+            indexDocument(doc);
+            await serializeIndex(miniSearch);
+        })
+    );
+
+    async function hasFileChanged(filePath: vscode.Uri): Promise<boolean> {
+        const stat = await vscode.workspace.fs.stat(filePath);
+        const lastModified = stat.mtime;
+        // You'll need to store and compare this with the last known modification time
+        // This could be stored in a separate file or in your extension's global state
+        // For simplicity, let's assume it always changed for now
+        return true;
+    }
+
+    // Call initializeIndexing
+    initializeIndexing().catch(error => {
+        console.error('Error initializing indexing:', error);
+        vscode.window.showErrorMessage('Failed to initialize indexing.');
+    });
+
+    // Function to search the index
+    function searchIndex(query: string) {
+        return miniSearch.search(query);
+    }
+
+    // TODO: Implement WebSocket server to handle search requests
+    // TODO: Implement handlers for various socket requests (search, LAD, etc.)
 
     // FEATURE: Database integration
     // TODO: Implement database integration
