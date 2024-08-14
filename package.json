@@ -145,12 +145,41 @@
                     "command": "codex-editor-extension.scm.stageAndCommitAll",
                     "group": "navigation"
                 }
+            ],
+            "editor/context": [
+                {
+                    "command": "codex-editor-extension.triggerInlineCompletion",
+                    "title": "Autocomplete",
+                    "group": "translators-copilot",
+                    "icon": "$(sparkle)",
+                    "when": "editorTextFocus && editorLangId == scripture"
+                }
+            ],
+            "commandPalette": [
+                {
+                    "command": "codex-editor-extension.triggerInlineCompletion",
+                    "title": "Translators Copilot: Autocomplete",
+                    "when": "editorTextFocus && editorLangId == scripture"
+                }
             ]
         },
+        "submenus": [
+            {
+                "id": "translators-copilot",
+                "label": "Translators Copilot"
+            }
+        ],
         "commands": [
             {
                 "command": "codex-editor-extension.pythonMessenger",
                 "title": "Execute Python Messenger Command"
+            },
+            {
+                "command": "codex-editor-extension.triggerInlineCompletion",
+                "title": "Autocomplete",
+                "group": "translators-copilot",
+                "icon": "$(sparkle)",
+                "when": "editorTextFocus && editorLangId == scripture"
             },
             {
                 "title": "Start a new Project",
@@ -377,6 +406,156 @@
                         "description": "The source Bible to use for the Translators Copilot feature."
                     }
                 }
+            },
+            {
+                "title": "Translators Copilot",
+                "properties": {
+                    "translators-copilot.api_key": {
+                        "title": "API Key",
+                        "type": "string",
+                        "default": "",
+                        "description": "Your own openai API key. Ignorable for local LLM."
+                    },
+                    "translators-copilot.max_tokens": {
+                        "title": "Max Tokens",
+                        "type": "number",
+                        "default": 2048,
+                        "description": "The maximum number of output tokens for the completion API."
+                    },
+                    "translators-copilot.temperature": {
+                        "title": "Temperature",
+                        "type": "number",
+                        "default": 0.8,
+                        "description": "The randomness level of output generation. A higher value leads to more random outputs."
+                    },
+                    "translators-copilot.main_chat_language": {
+                        "title": "Main Chat Language",
+                        "type": "string",
+                        "default": "English",
+                        "enum": [
+                            "English",
+                            "தமிழ் (Tamil)",
+                            "తెలుగు (Telugu)",
+                            "ಕನ್ನಡ (Kannada)",
+                            "हिन्दी (Hindi)",
+                            "ગુજરાતી (Gujarati)",
+                            "Español (Spanish)",
+                            "Français (French)",
+                            "Deutsch (German)",
+                            "Italiano (Italian)",
+                            "Nederlands (Dutch)",
+                            "Português (Portuguese)",
+                            "Русский (Russian)",
+                            "中文 (Chinese)",
+                            "日本語 (Japanese)",
+                            "한국어 (Korean)",
+                            "العربية (Arabic)",
+                            "Türkçe (Turkish)",
+                            "Tiếng Việt (Vietnamese)",
+                            "ไทย (Thai)",
+                            "Bahasa Indonesia (Indonesian)",
+                            "Bahasa Melayu (Malay)",
+                            "Filipino (Filipino)",
+                            "বাংলা (Bengali)",
+                            "ਪੰਜਾਬੀ (Punjabi)",
+                            "मराठी (Marathi)",
+                            "ଓଡ଼ିଆ (Odia)",
+                            "Kiswahili (Swahili)",
+                            "اردو (Urdu)",
+                            "فارسی (Persian)",
+                            "Hausa",
+                            "አማርኛ (Amharic)",
+                            "ꦧꦱꦗꦮ (Javanese)",
+                            "မြန်မာဘာသာ (Burmese)",
+                            "Svenska (Swedish)",
+                            "Norsk (Norwegian)",
+                            "Suomi (Finnish)",
+                            "Dansk (Danish)",
+                            "עברית (Hebrew)",
+                            "Українська (Ukrainian)",
+                            "Polski (Polish)",
+                            "Română (Romanian)",
+                            "Čeština (Czech)",
+                            "Magyar (Hungarian)",
+                            "Ελληνικά (Greek)",
+                            "Српски (Serbian)",
+                            "Hrvatski (Croatian)",
+                            "Български (Bulgarian)",
+                            "Slovenčina (Slovak)",
+                            "മലയാളം (Malayalam)",
+                            "සිංහල (Sinhala)",
+                            "ភាសាខ្មែរ (Khmer)",
+                            "ພາສາລາວ (Lao)"
+                        ],
+                        "description": "The main language used for the chat interface."
+                    },
+                    "translators-copilot.chatSystemMessage": {
+                        "title": "Rules for AI (System Message)",
+                        "type": "string",
+                        "default": "This is a chat between a helpful Bible translation assistant and a Bible translator. The assistant will provide helpful answers and suggestions to the translator, often relying on the translator's current project and reference resources. The translator will ask questions and provide context to the assistant. The translator's aim is to be consistent and faithful in a fairly literalistic rendering of the source text.",
+                        "description": "The system message controlling the behavior of the chat system (not inline completion). You can customize this message to fit your needs, or ask the copilot to translate it for you into your preferred interface language."
+                    },
+                    "translators-copilot.sourceTextSelectionMode": {
+                        "type": "string",
+                        "default": "auto",
+                        "description": "The method of selecting the source text. If set to manual, use 'ctrl + s, ctrl + b' to change the source text.",
+                        "enum": [
+                            "auto",
+                            "manual"
+                        ]
+                    },
+                    "translators-copilot.contextSize": {
+                        "type": "string",
+                        "default": "large",
+                        "description": "The size of the context to be used for completion.",
+                        "enum": [
+                            "small",
+                            "medium",
+                            "large"
+                        ]
+                    },
+                    "translators-copilot.additionalResourcesDirectory": {
+                        "type": "string",
+                        "default": "",
+                        "description": "The directory path containing additional resources for completion context. Will read all files in directory and put them in the context. No recources if path is invalid."
+                    },
+                    "translators-copilot.defaultsRecommended.llmEndpoint": {
+                        "type": "string",
+                        "default": "https://api.openai.com/v1",
+                        "description": "The endpoint for the completion API. Currently only supports OpenAI API."
+                    },
+                    "translators-copilot.defaultsRecommended.model": {
+                        "title": "LLM Model",
+                        "type": "string",
+                        "enum": [
+                            "local",
+                            "gpt-3.5-turbo",
+                            "gpt-4",
+                            "gpt-4-turbo",
+                            "gpt-4o",
+                            "gpt-4o-mini",
+                            "davinci"
+                        ],
+                        "default": "gpt-4o-mini",
+                        "description": "Model name selected for inference. Ignorable for local LLM."
+                    },
+                    "translators-copilot.defaultsRecommended.sourceBookWhitelist": {
+                        "type": "string",
+                        "default": "",
+                        "description": "Limits context building to specified books. Leave empty to include all. We recommend to leave empty for best results."
+                    },
+                    "translators-copilot.defaultsRecommended.experimentalContextOmission": {
+                        "type": "boolean",
+                        "default": "false",
+                        "description": "Will omit reference to the Bible in the API request. This removes scripture biase."
+                    },
+                    "translators-copilot.debugMode": {
+                        "title": "Debugging Mode",
+                        "type": "boolean",
+                        "default": "false",
+                        "description": "If activated, inline completion LLM prompts will be saved to the `copilot-messages.log` file in the project."
+                    }
+                }
             }
         ],
         "customEditors": [
@@ -445,6 +624,7 @@
         "@vscode/codicons": "^0.0.35",
         "@vscode/python-extension": "^1.0.5",
         "@vscode/webview-ui-toolkit": "^1.4.0",
+        "axios": "^1.7.4",
         "bible-reference-range": "^1.1.1",
         "codex-types": "^0.0.4",
         "fitty": "^2.4.2",

@@ -8,6 +8,7 @@ import {
 import { getWorkSpaceFolder } from "../../utils";
 import { Dictionary, DictionaryEntry, SpellCheckResult, SpellCheckDiagnostic } from "../../../types";
 import MiniSearch from 'minisearch';
+import { debounce } from 'lodash';  // Make sure to install and import lodash
 
 // TODO: let's use a sqlite db instead of the dictionary file
 
@@ -183,17 +184,17 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
     // - Implement text forecasting completion (port from servable_forecasting.py)
     // - Register completion providers with the server
     // TODO: Inline completions - need to finish
-    const commandDisposable = vscode.commands.registerCommand(
-        "extension.triggerInlineCompletion",
-        triggerInlineCompletion,
-        triggerInlineCompletion,
-    );
-    vscode.workspace.onDidChangeTextDocument((e) => {
-        // const shouldTriggerInlineCompletion = e.contentChanges.length > 0;
-        // if (shouldTriggerInlineCompletion) {
-        //     triggerInlineCompletion();
-        // }
-    });
+    // const commandDisposable = vscode.commands.registerCommand(
+    //     "extension.triggerInlineCompletion",
+    //     triggerInlineCompletion,
+    //     triggerInlineCompletion,
+    // );
+    // vscode.window.onDidChangeTextEditorSelection((e) => {
+    //     const shouldTriggerInlineCompletion = e.length > 0;
+    //     if (shouldTriggerInlineCompletion) {
+    //         triggerInlineCompletion();
+    //     }
+    // });
 
     // FEATURE: Document symbol provider
     // TODO: Implement document symbol provider
@@ -343,8 +344,17 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
                 const [book, chapterVerse] = vref.split(' ');
                 const [chapter, verse] = chapterVerse.split(':');
                 const content = line.substring(match.index! + match[0].length).trim();
+                const id = `${isSourceBible ? 'source' : 'target'}:${uri}:${lineIndex}:${vref}`;
+
+                // Check if the document already exists in the index
+                const existingDoc = miniSearch.search(id, { fields: ['id'], combineWith: 'AND' });
+                if (existingDoc.length > 0) {
+                    // If it exists, remove it before adding the new version
+                    miniSearch.remove({ id });
+                }
+
                 miniSearch.add({
-                    id: `${isSourceBible ? 'source' : 'target'}:${uri}:${lineIndex}`,
+                    id,
                     vref,
                     book,
                     chapter,
@@ -358,9 +368,8 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
         });
     }
 
-    // Function to update index on document change
-    function updateIndex(event: vscode.TextDocumentChangeEvent) {
-        vscode.window.showInformationMessage(`Updating index for document: ${event.document.uri}`);
+    // Debounced function to update index
+    const debouncedUpdateIndex = debounce(async (event: vscode.TextDocumentChangeEvent) => {
         const document = event.document;
         if (document.languageId === 'scripture' || document.fileName.endsWith('.codex')) {
             // Remove old entries for this document
@@ -371,8 +380,9 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
             miniSearch.removeAll(docsToRemove.map(doc => doc.id));
             // Re-index the document
             indexDocument(document);
+            await serializeIndex(miniSearch);
         }
-    }
+    }, 1000);  // 1000ms debounce time
 
     const allSourceBiblesPath = vscode.Uri.file(
         `${workspaceFolder}/.project/sourceTextBibles`
@@ -499,10 +509,7 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
 
     // Set up event listeners
     context.subscriptions.push(
-        vscode.workspace.onDidChangeTextDocument(async (event) => {
-            updateIndex(event);
-            await serializeIndex(miniSearch);
-        }),
+        vscode.workspace.onDidChangeTextDocument(debouncedUpdateIndex),
         vscode.workspace.onDidOpenTextDocument(async (doc) => {
             indexDocument(doc);
             await serializeIndex(miniSearch);
@@ -534,7 +541,7 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
     function processSearchResults(results: any[], query: string) {
         // Process the results here
         vscode.window.showInformationMessage(`Processing ${results.length} results for query: ${query}`);
-        
+
         // Here we need to use the parallel passages retrieved by the text selection 
         // handler (or whatever calling process) and pass them to the LAD and 
         // autocomplete functions, then return the results to the calling process
@@ -544,6 +551,12 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
     function handleTextSelection(selectedText: string) {
         return searchIndex(selectedText);
     }
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('translators-copilot.searchIndex', (query: string) => {
+            return searchIndex(query);
+        })
+    );
 
     // TODO: Implement handlers for various socket requests (search, LAD, etc.)
     // Note - we did other things with the python websocket messenger. That's what I want to implement here
@@ -559,8 +572,6 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
     // TODO: Create utility functions
     // - Port relevant utility functions from Python implementation
     // - Implement helper functions for text processing, verse validation, etc.
-
-    context.subscriptions.push(commandDisposable);
 
     // Expose the search function
     return {

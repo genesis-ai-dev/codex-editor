@@ -23,6 +23,7 @@ import {
 import { initializeWebviews } from "./activationHelpers/contextAware/webviewInitializers";
 import { syncUtils } from "./activationHelpers/contextAware/syncUtils";
 import { createTypescriptLanguageServer } from "./activationHelpers/contextAware/tsLanguageServer";
+import { registerCompletionsCodeLensProviders } from "./activationHelpers/contextAware/completionsCodeLensProviders";
 
 // The following block ensures a smooth user experience by guiding the user through the initial setup process before the extension is fully activated. This is crucial for setting up the necessary project environment and avoiding any functionality issues that might arise from missing project configurations.
 
@@ -58,6 +59,9 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(ObsEditorProvider.register(context));
     context.subscriptions.push(providerRegistration);
     context.subscriptions.push(commandRegistration);
+
+    // Register the inline completion command
+    registerCompletionsCodeLensProviders(context);
 
     await executeCommandsAfter();
     await startSyncLoop(context);
