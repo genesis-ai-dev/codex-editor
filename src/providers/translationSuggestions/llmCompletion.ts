@@ -4,7 +4,13 @@ import { extractVerseRefFromLine, verseRefRegex } from '../../utils/verseRefUtil
 import { callLLM } from '../../utils/llmUtils';
 import { ChatMessage } from '../../../types';
 
-export async function llmCompletion(document: vscode.TextDocument, position: vscode.Position, completionConfig: CompletionConfig, token: vscode.CancellationToken): Promise<string> {
+export async function llmCompletion(
+    document: vscode.TextDocument, 
+    position: vscode.Position, 
+    completionConfig: CompletionConfig, 
+    token: vscode.CancellationToken,
+    registerCodeLens: (codeLens: vscode.CodeLens) => void
+): Promise<string> {
     // Get the current line content
     const lineContent = document.lineAt(position.line).text;
 
@@ -80,9 +86,39 @@ export async function llmCompletion(document: vscode.TextDocument, position: vsc
 
             const completion = await callLLM(messages, completionConfig);
 
-            return `LLM Translation for ${currentVref}:\n${completion}\n\nContext: Found ${results.length} relevant results. Current line vref: ${currentVref}. Preceding vrefs: ${allPrecedingVrefs.join(', ')}`;
+            // Create a CodeLens to show additional info inline
+            const codeLens = new vscode.CodeLens(new vscode.Range(position, position), {
+                title: "Show Translation Context",
+                command: "translators-copilot.showTranslationContext",
+                arguments: [{
+                    resultsCount: results.length,
+                    currentVref: currentVref,
+                    precedingVerses: allPrecedingVrefs
+                }]
+            });
+
+            // Use the callback to register the CodeLens
+            registerCodeLens(codeLens);
+
+            // Return only the completion
+            return completion;
         } else {
-            return `No results found for "${query}". Current line vref: ${currentLineVref || 'None'}. Preceding vrefs: ${allPrecedingVrefs.join(', ')}`;
+            // Show warning message for no results
+            const warningMessage = 'No relevant translated sentences found for context.';
+            const detailedWarning = 'Unable to find any relevant sentences that have already been translated. This may affect the quality of the translation suggestion.';
+            
+            vscode.window.showWarningMessage(warningMessage, 'More Info', 'Dismiss').then(selection => {
+                if (selection === 'More Info') {
+                    vscode.window.showInformationMessage(detailedWarning, 'How to Fix').then(selection => {
+                        if (selection === 'How to Fix') {
+                            vscode.window.showInformationMessage('Try translating more sentences in nearby verses or chapters to provide better context for future suggestions.');
+                        }
+                    });
+                }
+            });
+
+            // Return an empty string or undefined when no results are found
+            return '';
         }
     } catch (error) {
         console.error("Error in llmCompletion:", error);

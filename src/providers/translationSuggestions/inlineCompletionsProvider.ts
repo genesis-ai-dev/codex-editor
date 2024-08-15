@@ -77,24 +77,17 @@ export async function provideInlineCompletionItems(
         // Ensure we have the latest config
         const completionConfig = await fetchCompletionConfig();
 
-        let text: string;
+        let completions: vscode.InlineCompletionItem[];
         // eslint-disable-next-line prefer-const
-        text = await verseCompletion(document, position, completionConfig, token);
-
+        completions = await verseCompletion(document, position, completionConfig, token);
 
         if (token.isCancellationRequested) {
             return undefined;
         }
 
-        const completionItem = new vscode.InlineCompletionItem(
-            text,
-            new vscode.Range(position, position)
-        );
-        completionItem.range = new vscode.Range(position, position);
-
         shouldProvideCompletion = false;
 
-        return [completionItem];
+        return completions;
     } catch (error) {
         console.error("Error providing inline completion items", error);
         vscode.window.showErrorMessage("Failed to provide inline completion. Check the output panel for details.");
@@ -124,9 +117,33 @@ function cancelAutocompletion(message: string) {
     }
 }
 
-function verseCompletion(document: vscode.TextDocument, position: vscode.Position, completionConfig: CompletionConfig, token: vscode.CancellationToken): Promise<string> {
-    // TODO: Implement verse completion using LLM
-    return llmCompletion(document, position, completionConfig, token);
+async function verseCompletion(document: vscode.TextDocument, position: vscode.Position, completionConfig: CompletionConfig, token: vscode.CancellationToken): Promise<vscode.InlineCompletionItem[]> {
+    const registerCodeLens = (codeLens: vscode.CodeLens) => {
+        vscode.languages.registerCodeLensProvider({ scheme: 'file', language: 'plaintext' }, {
+            provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
+                return [codeLens];
+            }
+        });
+    };
+
+    const completions: vscode.InlineCompletionItem[] = [];
+
+    // Generate LLM completion
+    const llmCompletionText = await llmCompletion(document, position, completionConfig, token, registerCodeLens);
+    completions.push(new vscode.InlineCompletionItem(llmCompletionText, new vscode.Range(position, position)));
+
+    // Try to get AI translation
+    const currentLine = document.lineAt(position.line).text;
+    const vrefMatch = currentLine.match(/^([\w\d\s:]+):/);
+    if (vrefMatch) {
+        const vref = vrefMatch[1].trim();
+        const aiTranslation = getAiTranslation(vref);
+        if (aiTranslation) {
+            completions.push(new vscode.InlineCompletionItem(aiTranslation, new vscode.Range(position, position)));
+        }
+    }
+
+    return completions;
 }
 
 export async function fetchCompletionConfig(): Promise<CompletionConfig> {
