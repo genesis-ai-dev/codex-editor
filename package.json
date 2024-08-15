@@ -182,6 +182,18 @@
                 "when": "editorTextFocus && editorLangId == scripture"
             },
             {
+                "command": "translators-copilot.searchIndex",
+                "title": "Search Index",
+                "icon": "$(search)",
+                "category": "Translators Copilot"
+            },
+            {
+                "command": "translators-copilot.forceReindex",
+                "title": "Force Reindex",
+                "icon": "$(refresh)",
+                "category": "Translators Copilot"
+            },
+            {
                 "title": "Start a new Project",
                 "shortTitle": "Start a new Project",
                 "command": "codex-editor-extension.initializeNewProject"
