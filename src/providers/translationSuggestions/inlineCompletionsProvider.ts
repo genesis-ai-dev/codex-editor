@@ -23,6 +23,7 @@ export interface CompletionConfig {
     temperature: number;
     mainChatLanguage: string;
     chatSystemMessage: string;
+    numberOfFewShotExamples: number;
     debugMode: boolean;
 }
 
@@ -148,6 +149,7 @@ export async function fetchCompletionConfig(): Promise<CompletionConfig> {
             temperature: config.get("temperature") || 0.8,
             mainChatLanguage: config.get("main_chat_language") || "English",
             chatSystemMessage: config.get("chatSystemMessage") || "This is a chat between a helpful Bible translation assistant and a Bible translator...",
+            numberOfFewShotExamples: config.get("numberOfFewShotExamples") || 30,
             debugMode: config.get("debugMode") || false
         };
     } catch (error) {

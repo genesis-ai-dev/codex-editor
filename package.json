@@ -516,6 +516,11 @@
                             "manual"
                         ]
                     },
+                    "translators-copilot.numberOfFewShotExamples": {
+                        "type": "number",
+                        "default": 30,
+                        "description": "The number of sample translation pairs to show the Copilot."
+                    },
                     "translators-copilot.contextSize": {
                         "type": "string",
                         "default": "large",
@@ -657,6 +662,7 @@
         "react-wordcloud": "^1.2.7",
         "semver": "^7.6.0",
         "sinon": "^17.0.1",
+        "token.js": "^0.4.3",
         "uuid": "^9.0.1",
         "vscode-languageclient": "^9.0.1",
         "vscode-languageserver": "^9.0.1",
