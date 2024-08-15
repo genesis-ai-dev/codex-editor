@@ -528,6 +528,7 @@ export async function languageServerTS(context: vscode.ExtensionContext) {
     function searchIndex(query: string) {
         return miniSearch.search(query);
     }
+    context.subscriptions.push(commandDisposable);
 
     // TODO: Implement WebSocket server to handle search requests
     // TODO: Implement handlers for various socket requests (search, LAD, etc.)
@@ -544,5 +545,4 @@ export async function languageServerTS(context: vscode.ExtensionContext) {
     // - Port relevant utility functions from Python implementation
     // - Implement helper functions for text processing, verse validation, etc.
 
-    context.subscriptions.push(commandDisposable);
 }
