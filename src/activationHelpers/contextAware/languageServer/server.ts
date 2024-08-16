@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { Dictionary, DictionaryEntry, SpellCheckResult, SpellCheckDiagnostic } from "../../../../types";
 import { SpellChecker, DictionaryManager } from './spellCheck';
+import { getWorkSpaceUri } from '../../../utils';
 
 // Types and interfaces
 interface CustomDiagnostic {
@@ -114,9 +115,14 @@ class EasyLanguageServer {
 
 // Usage example
 export async function activate(context: vscode.ExtensionContext) {
-    const dictionaryPath = vscode.Uri.joinPath(context.extensionUri, 'resources', 'dictionary.json');
+    const workspaceUri = getWorkSpaceUri();
+    if (!workspaceUri) {
+        console.error('Workspace URI not found');
+        return;
+    }
+    const dictionaryPath = vscode.Uri.joinPath(workspaceUri, 'files', 'project.dictionary');
     const server = new EasyLanguageServer(context);
-    
+
     const dictionaryManager = new DictionaryManager(dictionaryPath);
     const spellChecker = new SpellChecker(dictionaryManager.dictionary);
 
