@@ -22,6 +22,7 @@ import {
     getWorkSpaceFolder,
 } from "../../utils";
 import { PythonMessenger } from "../../utils/pyglsMessenger";
+import { verseRefRegex } from "../../utils/verseRefUtils";
 
 
 
@@ -185,6 +186,36 @@ export async function registerCommands(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand(
         "codex-editor-extension.downloadSourceTextBibles",
         await downloadBible
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('translators-copilot.extractVerseRefsFromCurrentEditor', () => {
+            const editor = vscode.window.activeTextEditor;
+            if (editor) {
+                const content = editor.document.getText();
+                const matches = content.match(verseRefRegex) || [];
+                vscode.window.showInformationMessage(`Extracted verse references: ${matches.join(', ')}`);
+            } else {
+                vscode.window.showErrorMessage('No active editor found');
+            }
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('translators-copilot.extractVerseRefFromCurrentLine', () => {
+            const editor = vscode.window.activeTextEditor;
+            if (editor) {
+                const line = editor.document.lineAt(editor.selection.active.line).text;
+                const match = line.match(verseRefRegex);
+                if (match) {
+                    vscode.window.showInformationMessage(`Extracted verse reference: ${match[0]}`);
+                } else {
+                    vscode.window.showInformationMessage('No verse reference found in the current line');
+                }
+            } else {
+                vscode.window.showErrorMessage('No active editor found');
+            }
+        })
     );
 
     // ensureBibleDownload(); // TODO: This feels weird, are the commands registered only to be called by this function?

@@ -76,7 +76,12 @@ export async function findReferences({
     return filesWithReferences;
 }
 
-export const verseRefRegex = /(\b[A-Z, 1-9]{3}\s\d+:\d+\b)/;
+export const verseRefRegex = /(\b[A-Z0-9]{3}\s\d+:\d+\b)/g;
+
+export function extractVerseRefsFromString(content: string): string[] {
+    const matches = content.match(verseRefRegex);
+    return matches ? matches : [];
+}
 
 export function extractVerseRefFromLine(line: string): string | null {
     // Implement logic to extract the verse reference (e.g., 'MAT 1:1') from a line
