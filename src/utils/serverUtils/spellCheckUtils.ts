@@ -31,7 +31,7 @@ export function levenshteinDistance(a: string, b: string): number {
 // Update spellCheck function to provide suggestions based on edit distance
 export function spellCheck(word: string, dictionary: Dictionary): SpellCheckResult {
     const lowercaseWord = word.toLowerCase();
-    const isInDictionary = dictionary.entries.some(entry => entry.headWord.toLowerCase() === lowercaseWord);
+    const isInDictionary = Array.isArray(dictionary?.entries) && dictionary.entries.some(entry => entry.headWord.toLowerCase() === lowercaseWord);
 
     if (isInDictionary) {
         return { word, corrections: [] };

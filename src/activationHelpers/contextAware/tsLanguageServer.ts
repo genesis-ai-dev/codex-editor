@@ -163,7 +163,7 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
             const content = await vscode.workspace.fs.readFile(dictionaryPath);
             dictionary = JSON.parse(content.toString());
             if (dictionary) {
-                const wordCount = dictionary.entries.length;
+                const wordCount = dictionary?.entries?.length;
                 vscode.window.showInformationMessage(`Dictionary loaded with ${wordCount} words.`);
             } else {
                 vscode.window.showErrorMessage("Failed to load dictionary. Code 2");

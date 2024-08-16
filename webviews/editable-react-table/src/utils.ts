@@ -40,14 +40,19 @@ export function randomColor(): string {
 }
 
 export function transformToTableData(dictionary: Dictionary): TableData {
-  // const data = dictionary.entries;
-  let data = dictionary.entries.map(entry => ({
-    ...entry,
-    metadata:
-      typeof entry.metadata === 'string'
-        ? entry.metadata
-        : JSON.stringify(entry.metadata), // Only stringify if not already a string
-  }));
+  let data: TableEntry[] = [];
+
+  if (dictionary && Array.isArray(dictionary.entries)) {
+    data = dictionary.entries.map(entry => ({
+      ...entry,
+      metadata:
+        typeof entry.metadata === 'string'
+          ? entry.metadata
+          : JSON.stringify(entry.metadata), // Only stringify if not already a string
+    }));
+  } else {
+    console.error('dictionary.entries is not an array:', dictionary?.entries);
+  }
 
   let columns: TableColumn[] = [];
   let checkboxColumn: TableColumn = {
