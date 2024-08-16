@@ -18,6 +18,14 @@ export const getWorkSpaceFolder = (): string | undefined => {
     return workspaceFolder;
 };
 
+export const getWorkSpaceUri = (): vscode.Uri | undefined => {
+    const workspaceFolder = getWorkSpaceFolder();
+    if (!workspaceFolder) {
+        return;
+    }
+    return vscode.Uri.file(workspaceFolder);
+};
+
 export async function getProjectMetadata(): Promise<Project> {
     /**
      * Generic function to get the project metadata
