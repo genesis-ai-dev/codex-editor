@@ -284,6 +284,14 @@
             {
                 "command": "codex-editor-extension.scm.sync",
                 "title": "Sync"
+            },
+            {
+                "command": "translators-copilot.extractVerseRefsFromCurrentEditor",
+                "title": "Extract Verse References from Current Editor"
+            },
+            {
+                "command": "translators-copilot.extractVerseRefFromCurrentLine",
+                "title": "Extract Verse Reference from Current Line"
             }
         ],
         "notebooks": [

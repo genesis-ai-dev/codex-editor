@@ -1,5 +1,8 @@
 import * as vscode from "vscode";
 import { llmCompletion } from "./llmCompletion";
+import { getAiTranslation } from "./aiZeroDraftProvider";
+import { extractVerseRefFromLine } from '../../utils/verseRefUtils';
+import { registerCompletionsCodeLensProviders } from '../../activationHelpers/contextAware/completionsCodeLensProviders';
 
 let shouldProvideCompletion = false;
 let isAutocompletingInProgress = false;
@@ -74,19 +77,38 @@ export async function provideInlineCompletionItems(
             return undefined;
         }
 
-        // Ensure we have the latest config
         const completionConfig = await fetchCompletionConfig();
+        const completions: vscode.InlineCompletionItem[] = [];
 
-        let completions: vscode.InlineCompletionItem[];
-        // eslint-disable-next-line prefer-const
-        completions = await verseCompletion(document, position, completionConfig, token);
+        // Get AI translations
+        const currentLine = document.lineAt(position.line).text;
+        const vref = extractVerseRefFromLine(currentLine);
+        if (vref) {
+            const aiTranslations = getAiTranslation(vref);
+            if (aiTranslations) {
+                aiTranslations.forEach(translation => {
+                    completions.push(new vscode.InlineCompletionItem(translation, new vscode.Range(position, position)));
+                });
+            }
+        }
 
-        if (token.isCancellationRequested) {
-            return undefined;
+        // Generate LLM completion if no AI translations are available
+        if (completions.length === 0) {
+            const { completion, context } = await llmCompletion(document, position, completionConfig, token);
+            completions.push(new vscode.InlineCompletionItem(completion, new vscode.Range(position, position)));
+
+            // Create and register CodeLens if context is available
+            if (context) {
+                const codeLens = new vscode.CodeLens(new vscode.Range(position, position), {
+                    title: "Show Translation Context",
+                    command: "translators-copilot.showTranslationContext",
+                    arguments: [context]
+                });
+                registerCodeLens(codeLens);
+            }
         }
 
         shouldProvideCompletion = false;
-
         return completions;
     } catch (error) {
         console.error("Error providing inline completion items", error);
@@ -137,9 +159,11 @@ async function verseCompletion(document: vscode.TextDocument, position: vscode.P
     const vrefMatch = currentLine.match(/^([\w\d\s:]+):/);
     if (vrefMatch) {
         const vref = vrefMatch[1].trim();
-        const aiTranslation = getAiTranslation(vref);
-        if (aiTranslation) {
-            completions.push(new vscode.InlineCompletionItem(aiTranslation, new vscode.Range(position, position)));
+        const aiTranslations = getAiTranslation(vref);
+        if (aiTranslations) {
+            aiTranslations.forEach(translation => {
+                completions.push(new vscode.InlineCompletionItem(translation, new vscode.Range(position, position)));
+            });
         }
     }
 
@@ -173,4 +197,12 @@ export async function fetchCompletionConfig(): Promise<CompletionConfig> {
         console.error("Error getting completion configuration", error);
         throw new Error("Failed to get completion configuration");
     }
+}
+
+function registerCodeLens(codeLens: vscode.CodeLens) {
+    vscode.languages.registerCodeLensProvider({ scheme: 'file', language: 'scripture' }, {
+        provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
+            return [codeLens];
+        }
+    });
 }

@@ -5,12 +5,11 @@ import { callLLM } from '../../utils/llmUtils';
 import { ChatMessage } from '../../../types';
 
 export async function llmCompletion(
-    document: vscode.TextDocument, 
-    position: vscode.Position, 
-    completionConfig: CompletionConfig, 
-    token: vscode.CancellationToken,
-    registerCodeLens: (codeLens: vscode.CodeLens) => void
-): Promise<string> {
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    completionConfig: CompletionConfig,
+    token: vscode.CancellationToken
+): Promise<{ completion: string; context: any }> {
     // Get the current line content
     const lineContent = document.lineAt(position.line).text;
 
@@ -60,6 +59,10 @@ export async function llmCompletion(
                 .map(r => `${r.vref} ${r.isSourceBible ? r.content : ''}`)
                 .join('\n');
 
+            // Get preceding content (up to 500 characters)
+            const precedingContentLimit = 500;
+            const limitedPrecedingContent = precedingContent.slice(-precedingContentLimit);
+
             // Create the prompt
             const userMessageInstructions = [
                 "1. Analyze the provided reference data to understand the translation patterns and style.",
@@ -74,9 +77,11 @@ export async function llmCompletion(
             const userMessage = [
                 "## Instructions",
                 userMessageInstructions,
-                "## Task",
-                `Translate all the following pairs:`,
+                "## Context",
+                `Reference data:`,
                 `${fewShotExamples}`,
+                "## Task",
+                `${limitedPrecedingContent}`,
                 `${currentVref} ${currentVrefSourceContent}`,
             ].join('\n');
             const messages: ChatMessage[] = [
@@ -86,27 +91,20 @@ export async function llmCompletion(
 
             const completion = await callLLM(messages, completionConfig);
 
-            // Create a CodeLens to show additional info inline
-            const codeLens = new vscode.CodeLens(new vscode.Range(position, position), {
-                title: "Show Translation Context",
-                command: "translators-copilot.showTranslationContext",
-                arguments: [{
+            // Return the completion and context
+            return {
+                completion,
+                context: {
                     resultsCount: results.length,
                     currentVref: currentVref,
                     precedingVerses: allPrecedingVrefs
-                }]
-            });
-
-            // Use the callback to register the CodeLens
-            registerCodeLens(codeLens);
-
-            // Return only the completion
-            return completion;
+                }
+            };
         } else {
             // Show warning message for no results
             const warningMessage = 'No relevant translated sentences found for context.';
             const detailedWarning = 'Unable to find any relevant sentences that have already been translated. This may affect the quality of the translation suggestion.';
-            
+
             vscode.window.showWarningMessage(warningMessage, 'More Info', 'Dismiss').then(selection => {
                 if (selection === 'More Info') {
                     vscode.window.showInformationMessage(detailedWarning, 'How to Fix').then(selection => {
@@ -117,8 +115,8 @@ export async function llmCompletion(
                 }
             });
 
-            // Return an empty string or undefined when no results are found
-            return '';
+            // Return an empty string and context when no results are found
+            return { completion: '', context: null };
         }
     } catch (error) {
         console.error("Error in llmCompletion:", error);
