@@ -1,250 +1,188 @@
 import * as vscode from "vscode";
-import { verseRefRegex } from "../../utils/verseRefUtils";
+import { llmCompletion } from "./llmCompletion";
+// import { getAiTranslation } from "./aiZeroDraftProvider";
+import { extractVerseRefFromLine } from '../../utils/verseRefUtils';
+import { meshCompletion } from '../../utils/completionUtils';
 
-const config = vscode.workspace.getConfiguration("translators-copilot");
-const endpoint = config.get("llmEndpoint"); // NOTE: config.endpoint is reserved so we must have unique name
-const apiKey = config.get("api_key");
-const model = config.get("model");
-const temperature = config.get("temperature");
-const maxTokens = config.get("max_tokens");
-const maxLength = 4000;
 let shouldProvideCompletion = false;
+let isAutocompletingInProgress = false;
+let autocompleteCancellationTokenSource: vscode.CancellationTokenSource | undefined;
+const currentSourceText = "";
+
+export const MAX_TOKENS = 4000;
+export const TEMPERATURE = 0.8;
+const sharedStateExtension = vscode.extensions.getExtension("project-accelerate.shared-state-store");
+
+export interface CompletionConfig {
+    endpoint: string;
+    apiKey: string;
+    model: string;
+    contextSize: string;
+    additionalResourceDirectory: string;
+    contextOmission: boolean;
+    sourceBookWhitelist: string;
+    maxTokens: number;
+    temperature: number;
+    mainChatLanguage: string;
+    chatSystemMessage: string;
+    numberOfFewShotExamples: number;
+    debugMode: boolean;
+}
+
+export async function triggerInlineCompletion(statusBarItem: vscode.StatusBarItem) {
+    if (isAutocompletingInProgress) {
+        vscode.window.showInformationMessage("Autocomplete is already in progress.");
+        return;
+    }
+
+    isAutocompletingInProgress = true;
+    autocompleteCancellationTokenSource = new vscode.CancellationTokenSource();
+
+    try {
+        statusBarItem.text = "$(sync~spin) Autocompleting...";
+        statusBarItem.show();
+
+        const disposable = vscode.workspace.onDidChangeTextDocument((event) => {
+            if (event.contentChanges.length > 0 && isAutocompletingInProgress) {
+                cancelAutocompletion("User input detected. Autocompletion cancelled.");
+            }
+        });
+
+        shouldProvideCompletion = true;
+        await vscode.commands.executeCommand("editor.action.inlineSuggest.trigger", autocompleteCancellationTokenSource.token);
+
+        disposable.dispose();
+    } catch (error) {
+        console.error("Error triggering inline completion", error);
+        vscode.window.showErrorMessage("Error triggering inline completion. Check the output panel for details.");
+    } finally {
+        shouldProvideCompletion = false;
+        isAutocompletingInProgress = false;
+        statusBarItem.hide();
+        if (autocompleteCancellationTokenSource) {
+            autocompleteCancellationTokenSource.dispose();
+        }
+    }
+}
+
 export async function provideInlineCompletionItems(
     document: vscode.TextDocument,
     position: vscode.Position,
     context: vscode.InlineCompletionContext,
     token: vscode.CancellationToken
 ): Promise<vscode.InlineCompletionItem[] | undefined> {
-    vscode.window.showInformationMessage("provideInlineCompletionItems called");
-    if (!shouldProvideCompletion) {
+    try {
+        if (!shouldProvideCompletion || token.isCancellationRequested) {
+            return undefined;
+        }
+
+        const completionConfig = await fetchCompletionConfig();
+
+        // Use the verseCompletion function to get completions
+        const completions = await verseCompletion(document, position, completionConfig, token);
+
+        // Create and register CodeLens if context is available
+        if (completions.length > 0 && (completions[0] as any).context) {
+            const codeLens = new vscode.CodeLens(new vscode.Range(position, position), {
+                title: "Show Translation Context",
+                command: "translators-copilot.showTranslationContext",
+                arguments: [(completions[0] as any).context]
+            });
+            registerCodeLens(codeLens);
+        }
+
+        shouldProvideCompletion = false;
+        return completions;
+    } catch (error) {
+        console.error("Error providing inline completion items", error);
+        vscode.window.showErrorMessage("Failed to provide inline completion. Check the output panel for details.");
         return undefined;
+    } finally {
+        isAutocompletingInProgress = false;
+        const statusBarItem = vscode.window.createStatusBarItem();
+        if (statusBarItem) {
+            statusBarItem.hide();
+        }
     }
-    const text =
-        (model as string).startsWith("gpt") &&
-            ((endpoint as string).startsWith("https://api") ||
-                (endpoint as string).startsWith("https://localhost"))
-            ? await getCompletionTextGPT(document, position)
-            : await getCompletionText(document, position);
-    const completionItem = new vscode.InlineCompletionItem(
-        text ?? "",
-        new vscode.Range(position, position)
-    );
-    completionItem.range = new vscode.Range(position, position);
+}
+
+function cancelAutocompletion(message: string) {
+    if (autocompleteCancellationTokenSource) {
+        autocompleteCancellationTokenSource.cancel();
+        autocompleteCancellationTokenSource.dispose();
+        autocompleteCancellationTokenSource = undefined;
+    }
+    isAutocompletingInProgress = false;
     shouldProvideCompletion = false;
-    return [completionItem];
-}
+    vscode.window.showInformationMessage(message);
 
-// Preprocess the document
-function preprocessDocument(docText: string) {
-    // Split all lines
-    const lines = docText.split("\r\n");
-    // Apply preprocessing rules to each line except the last
-    for (let i = 0; i < lines.length; i++) {
-        if (i > 0 && lines[i - 1].trim() !== "" && isStartWithComment(lines[i])) {
-            lines[i] = "\r\n" + lines[i];
-        }
-    }
-    // Merge all lines
-    return lines.join("\r\n");
-    function isStartWithComment(line: string): boolean {
-        const trimLine = line.trim();
-        // Define a list of comment start symbols
-        const commentStartSymbols = ["//", "#", "/*", "<!--", "{/*"];
-        for (const symbol of commentStartSymbols) {
-            if (trimLine.startsWith(symbol)) return true;
-        }
-        return false;
+    const statusBarItem = vscode.window.createStatusBarItem();
+    if (statusBarItem) {
+        statusBarItem.hide();
     }
 }
-async function getCompletionText(
-    document: vscode.TextDocument,
-    position: vscode.Position
-) {
-    // Retrieve the language ID of the current document to use in the prompt for language-specific completions.
-    const language = document.languageId;
-    // Extract the text from the beginning of the document up to the current cursor position.
-    let textBeforeCursor = document.getText(
-        new vscode.Range(new vscode.Position(0, 0), position)
-    );
-    // If the extracted text is longer than the maximum allowed length, truncate it to fit.
-    textBeforeCursor =
-        textBeforeCursor.length > maxLength
-            ? textBeforeCursor.substr(textBeforeCursor.length - maxLength)
-            : textBeforeCursor;
 
-    // Apply preprocessing to the text before the cursor to ensure it's in the correct format for processing.
-    textBeforeCursor = preprocessDocument(textBeforeCursor);
+async function verseCompletion(document: vscode.TextDocument, position: vscode.Position, completionConfig: CompletionConfig, token: vscode.CancellationToken): Promise<vscode.InlineCompletionItem[]> {
+    const completions: vscode.InlineCompletionItem[] = [];
+    const currentLineText = document.lineAt(position.line).text;
+    const currentPosition = position.character;
 
-    // Initialize the prompt variable that will be used to hold the text sent for completion.
-    let prompt = "";
-    // Define a set of stop sequences that signal the end of a completion suggestion.
-    const stop = ["\n", "\n\n", "\r\r", "\r\n\r", "\n\r\n", "```"];
+    // Generate LLM completion
+    const { completion, context } = await llmCompletion(document, position, completionConfig, token);
+    const meshedCompletion = meshCompletion(currentLineText.substring(0, currentPosition), completion);
+    const completionRange = new vscode.Range(position.line, currentPosition, position.line, currentLineText.length);
+    completions.push(new vscode.InlineCompletionItem(meshedCompletion, completionRange));
+    (completions[0] as any).context = context; // Store context for CodeLens
 
-    // Extract the most recent vref from the text content to the left of the cursor
-    const vrefs = textBeforeCursor.match(verseRefRegex);
-    const mostRecentVref = vrefs ? vrefs[vrefs.length - 1] : null;
-    if (mostRecentVref) {
-        // If a vref is found, extract the book part (e.g., "MAT" from "MAT 1:1") and add it to the stop symbols
-        const bookPart = mostRecentVref.split(" ")[0];
-        stop.push(bookPart);
-    }
+    // // Try to get AI translation
+    // const vrefMatch = currentLineText.match(/^([\w\d\s:]+):/);
+    // if (vrefMatch) {
+    //     const vref = vrefMatch[1].trim();
+    //     const aiTranslations = getAiTranslation(vref);
+    //     if (aiTranslations) {
+    //         aiTranslations.forEach(translation => {
+    //             const meshedTranslation = meshCompletion(currentLineText.substring(0, currentPosition), translation);
+    //             completions.push(new vscode.InlineCompletionItem(meshedTranslation, completionRange));
+    //         });
+    //     }
+    // }
 
-    // Retrieve the content of the current line up to the cursor position and trim any whitespace.
-    const lineContent = document.lineAt(position.line).text;
-    const leftOfCursor = lineContent.substr(0, position.character).trim();
-    // If there is text to the left of the cursor on the same line, add a line break to the stop sequences.
-    if (leftOfCursor !== "") {
-        stop.push("\r\n");
-    }
+    return completions;
+}
 
-    // If there is text before the cursor, format it as a code block with the document's language for the completion engine.
-    if (textBeforeCursor) {
-        prompt = "```" + language + "\r\n" + textBeforeCursor;
-    } else {
-        // If there is no text before the cursor, exit the function without providing a completion.
-        return;
-    }
-
-    const data: {
-        prompt: string;
-        max_tokens: number;
-        temperature: unknown;
-        stream: boolean;
-        stop: string[];
-        n: number;
-        model: string | undefined;
-    } = {
-        prompt: prompt,
-        max_tokens: 10,
-        temperature: temperature,
-        stream: false,
-        stop: stop,
-        n: 1,
-        model: undefined,
-    };
-    if (model && typeof model === 'string') {
-        data.model = model;
-    }
-    const headers = {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey || ""}`, // Ensures the Authorization header works with an empty apiKey
-    };
-    const config = {
-        method: "POST",
-        url: endpoint + "/completions",
-        headers,
-        data: JSON.stringify(data),
-    };
-
-    const requestBody = JSON.stringify(data);
-
+export async function fetchCompletionConfig(): Promise<CompletionConfig> {
     try {
-        const response = await fetch(endpoint + "/completions", {
-            method: "POST",
-            headers: headers,
-            body: requestBody,
-        });
-        const responseData = await response.json();
-        if (
-            responseData &&
-            responseData.choices &&
-            responseData.choices.length > 0
-        ) {
-            return postProcessResponse(responseData.choices[0].text); //.replace(/[\r\n]+$/g, "");
+        const config = vscode.workspace.getConfiguration("translators-copilot");
+        if (sharedStateExtension) {
+            const stateStore = sharedStateExtension.exports;
+            stateStore.updateStoreState({ key: 'currentUserAPI', value: config.get("api_key") || "" });
         }
+
+        return {
+            endpoint: config.get("defaultsRecommended.llmEndpoint") || "https://api.openai.com/v1",
+            apiKey: config.get("api_key") || "",
+            model: config.get("defaultsRecommended.model") || "gpt-4o",
+            contextSize: config.get("contextSize") || "large",
+            additionalResourceDirectory: config.get("additionalResourcesDirectory") || "",
+            contextOmission: config.get("defaultsRecommended.experimentalContextOmission") || false,
+            sourceBookWhitelist: config.get("defaultsRecommended.sourceBookWhitelist") || "",
+            maxTokens: config.get("max_tokens") || 2048,
+            temperature: config.get("temperature") || 0.8,
+            mainChatLanguage: config.get("main_chat_language") || "English",
+            chatSystemMessage: config.get("chatSystemMessage") || "This is a chat between a helpful Bible translation assistant and a Bible translator...",
+            numberOfFewShotExamples: config.get("numberOfFewShotExamples") || 30,
+            debugMode: config.get("debugMode") || false
+        };
     } catch (error) {
-        console.log("Error:", error);
-        vscode.window.showErrorMessage("LLM service access failed.");
+        console.error("Error getting completion configuration", error);
+        throw new Error("Failed to get completion configuration");
     }
 }
 
-function postProcessResponse(text: string) {
-    // Filter out vrefs from text using verseRefRegex
-    const vrefs = text.match(verseRefRegex);
-    if (vrefs) {
-        for (const vref of vrefs) {
-            text = text.replace(vref, "");
+function registerCodeLens(codeLens: vscode.CodeLens) {
+    vscode.languages.registerCodeLensProvider({ scheme: 'file', language: 'scripture' }, {
+        provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
+            return [codeLens];
         }
-    }
-    return text;
-}
-
-async function getCompletionTextGPT(
-    document: vscode.TextDocument,
-    position: vscode.Position
-) {
-    vscode.window.showInformationMessage("getCompletionTextGPT called");
-    let textBeforeCursor = document.getText(
-        new vscode.Range(new vscode.Position(0, 0), position)
-    );
-    textBeforeCursor =
-        textBeforeCursor.length > maxLength
-            ? textBeforeCursor.substr(textBeforeCursor.length - maxLength)
-            : textBeforeCursor;
-    textBeforeCursor = preprocessDocument(textBeforeCursor);
-    const url = endpoint + "/chat/completions";
-    console.log({ url });
-    const messages = [
-        {
-            role: "system",
-            content:
-                "No communication! Just continue writing the text provided by the user in the language they are using.",
-        },
-        { role: "user", content: textBeforeCursor },
-    ];
-    const data = {
-        max_tokens: maxTokens,
-        temperature,
-        model,
-        stream: false,
-        messages,
-        stop: ["\n\n", "\r\r", "\r\n\r", "\n\r\n"],
-    };
-    const headers = {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + apiKey,
-    };
-    let text = "";
-    const requestBody = JSON.stringify(data);
-
-    try {
-        const response = await fetch(url, {
-            method: "POST",
-            headers: headers,
-            body: requestBody,
-        });
-        const responseData = await response.json();
-        if (
-            responseData &&
-            responseData.choices &&
-            responseData.choices.length > 0
-        ) {
-            text = responseData.choices[0].message.content;
-
-            if (text.startsWith("```")) {
-                const textLines = text.split("\n");
-                const startIndex = textLines.findIndex((line) =>
-                    line.startsWith("```")
-                );
-                const endIndex = textLines
-                    .slice(startIndex + 1)
-                    .findIndex((line) => line.startsWith("```"));
-                text =
-                    endIndex >= 0
-                        ? textLines
-                            .slice(startIndex + 1, startIndex + endIndex + 1)
-                            .join("\n")
-                        : textLines.slice(startIndex + 1).join("\n");
-            }
-        }
-    } catch (error) {
-        console.log("Error:", error);
-        vscode.window.showErrorMessage("LLM service access failed.");
-    }
-    return text;
-}
-
-export function triggerInlineCompletion() {
-    shouldProvideCompletion = true;
-    vscode.commands.executeCommand("editor.action.inlineSuggest.trigger");
+    });
 }

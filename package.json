@@ -126,7 +126,7 @@
                     "command": "dictionaryTable.showDictionaryTable",
                     "when": "view == dictionaryTable",
                     "group": "navigation"
-                },
+                }
             ],
             "view/item/context": [
                 {
