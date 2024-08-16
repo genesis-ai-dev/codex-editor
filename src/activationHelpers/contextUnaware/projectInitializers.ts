@@ -310,6 +310,14 @@ export async function initializeProject() {
 export async function handleConfig() {
     const config = vscode.workspace.getConfiguration();
 
+    // simplify editor UI when lauching to avoid overwhelming the user
+    config.update('window.menuBarVisibility', 'toggle', vscode.ConfigurationTarget.Global);
+    config.update('window.commandCenter', false, vscode.ConfigurationTarget.Workspace);
+    config.update('workbench.layoutControl.enabled', false, vscode.ConfigurationTarget.Workspace);
+    config.update('workbench.statusBar.visible', false, vscode.ConfigurationTarget.Workspace);
+    config.update('workbench.editor.showTabs', 'single', vscode.ConfigurationTarget.Workspace);
+    config.update('breadcrumbs.enabled', false, vscode.ConfigurationTarget.Workspace);
+
     config.update(
         "editor.wordWrap",
         "on",
