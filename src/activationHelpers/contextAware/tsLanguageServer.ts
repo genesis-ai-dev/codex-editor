@@ -267,40 +267,42 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
         console.log(`Indexing document: ${document.uri}, isSourceBible: ${isSourceBible}`);
         const uri = document.uri.toString();
         let indexedCount = 0;
-        const batchSize = 1000; // Adjust this value based on performance
+        const batchSize = 1000;
         let batch: minisearchDoc[] = [];
 
         const processBatch = () => {
             if (batch.length > 0) {
                 miniSearch.addAll(batch);
+                indexedCount += batch.length;
                 batch = [];
             }
         };
 
         if ('getText' in document) {
+            // Handle TextDocument
             const lines = document.getText().split('\n');
             for (let i = 0; i < lines.length; i++) {
                 const indexedDoc = indexLine(lines[i], i, uri, isSourceBible);
                 if (indexedDoc) {
                     batch.push(indexedDoc);
-                    indexedCount++;
-                }
-                if (batch.length >= batchSize) {
-                    processBatch();
+                    if (batch.length >= batchSize) {
+                        processBatch();
+                    }
                 }
             }
         } else if ('getCells' in document) {
+            // Handle NotebookDocument
             for (const cell of document.getCells()) {
                 if (cell.kind === vscode.NotebookCellKind.Code) {
+                    const cellUri = cell.document.uri.toString();
                     const lines = cell.document.getText().split('\n');
                     for (let i = 0; i < lines.length; i++) {
-                        const indexedDoc = indexLine(lines[i], i, uri, isSourceBible);
+                        const indexedDoc = indexLine(lines[i], i, cellUri, isSourceBible);
                         if (indexedDoc) {
                             batch.push(indexedDoc);
-                            indexedCount++;
-                        }
-                        if (batch.length >= batchSize) {
-                            processBatch();
+                            if (batch.length >= batchSize) {
+                                processBatch();
+                            }
                         }
                     }
                 }
@@ -313,6 +315,7 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
         return indexedCount;
     }
 
+    // Update the indexLine function to use a more unique ID
     function indexLine(line: string, lineIndex: number, uri: string, isSourceBible: boolean): minisearchDoc | null {
         const match = line.match(verseRefRegex);
         if (match) {
@@ -351,9 +354,9 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
     );
 
     // Function to index all source Bibles
-    async function indexSourceBible() {
+    async function indexSourceBible(): Promise<number> {
         vscode.window.showInformationMessage(`Indexing all source Bibles`);
-
+        let indexed = 0;
         if (workspaceFolder) {
             try {
                 const files = await vscode.workspace.fs.readDirectory(allSourceBiblesPath);
@@ -361,23 +364,22 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
 
                 if (biblePaths.length === 0) {
                     vscode.window.showWarningMessage('No source Bibles found to index.');
-                    return;
+                    return indexed;
                 }
 
-                let totalIndexed = 0;
                 for (const [fileName, _] of biblePaths) {
                     const sourcePath = vscode.Uri.joinPath(allSourceBiblesPath, fileName);
                     try {
                         const document = await vscode.workspace.openTextDocument(sourcePath);
-                        const indexed = await indexDocument(document, true);
-                        totalIndexed += indexed;
+                        indexed += await indexDocument(document, true);
                         vscode.window.showInformationMessage(`Indexed ${indexed} verses from source Bible: ${fileName}`);
                     } catch (error) {
                         console.error(`Error reading source Bible ${fileName}:`, error);
                         vscode.window.showErrorMessage(`Failed to read source Bible file: ${fileName}`);
                     }
                 }
-                console.log(`Total verses indexed from source Bibles: ${totalIndexed}`);
+                console.log(`Total verses indexed from source Bibles: ${indexed}`);
+                return indexed;
             } catch (error) {
                 console.error('Error reading source Bible directory:', error);
                 vscode.window.showErrorMessage('Failed to read source Bible directory.');
@@ -385,6 +387,7 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
         } else {
             vscode.window.showErrorMessage('Workspace folder not found.');
         }
+        return indexed;
     }
 
     const targetDraftsPath = vscode.Uri.file(
@@ -395,41 +398,43 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
         vscode.window.showInformationMessage(`Indexing target Bible`);
         const config = vscode.workspace.getConfiguration('translators-copilot-server');
         const targetBible = config.get<string>('targetBible');
+        let indexed = 0;
         if (targetBible && workspaceFolder) {
             const targetPath = vscode.Uri.joinPath(targetDraftsPath, `${targetBible}.codex`);
             try {
                 const document = await vscode.workspace.openNotebookDocument(targetPath);
-                const indexed = await indexDocument(document, false);
+                indexed = await indexDocument(document, false);
                 vscode.window.showInformationMessage(`Indexed ${indexed} verses from target Bible`);
             } catch (error) {
                 console.error('Error reading target Bible:', error);
                 vscode.window.showErrorMessage('Failed to read target Bible file.');
             }
         }
+        return indexed;
     }
 
     // Function to index target drafts
     async function indexTargetDrafts() {
         vscode.window.showInformationMessage(`Indexing target drafts`);
+        let indexed = 0;
         if (workspaceFolder) {
             const pattern = new vscode.RelativePattern(targetDraftsPath, '**/*.codex');
             const files = await vscode.workspace.findFiles(pattern);
 
-            let totalIndexed = 0;
             for (const file of files) {
                 if (await hasFileChanged(file)) {
                     try {
                         const document = await vscode.workspace.openNotebookDocument(file);
-                        const indexed = await indexDocument(document, false);
-                        totalIndexed += indexed;
+                        indexed += await indexDocument(document, false);
                         vscode.window.showInformationMessage(`Indexed ${indexed} verses from target draft: ${file.fsPath}`);
                     } catch (error) {
                         console.error(`Error reading target draft ${file.fsPath}:`, error);
                     }
                 }
             }
-            console.log(`Total verses indexed from target drafts: ${totalIndexed}`);
+            console.log(`Total verses indexed from target drafts: ${indexed}`);
         }
+        return indexed;
     }
 
     const minisearchIndexPath = vscode.Uri.file(
@@ -467,10 +472,13 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
             // Validate JSON before parsing
             JSON.parse(dataString);
 
-            return MiniSearch.loadJSON(dataString, {
+            const loadedIndex = MiniSearch.loadJSON(dataString, {
                 fields: ['vref', 'book', 'chapter', 'fullVref', 'content'],
                 storeFields: ['id', 'vref', 'book', 'chapter', 'fullVref', 'content', 'uri', 'line', 'isSourceBible']
             });
+
+            console.log(`Loaded index with ${loadedIndex.documentCount} documents`);
+            return loadedIndex;
         } catch (error) {
             console.error('Error loading serialized index:', error);
 
@@ -489,20 +497,25 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
     // Initialize indexing
     async function initializeIndexing() {
         vscode.window.showInformationMessage(`Initializing index`);
-        const loadedIndex = await loadSerializedIndex();
-        if (loadedIndex) {
-            miniSearch = loadedIndex;
-            vscode.window.showInformationMessage(`Loaded serialized index`);
+        try {
+            const loadedIndex = await loadSerializedIndex();
+            if (loadedIndex) {
+                miniSearch = loadedIndex;
+                vscode.window.showInformationMessage(`Loaded serialized index with ${miniSearch.documentCount} documents`);
 
-            // Check if we need to update the index
-            const needsUpdate = await checkIfIndexNeedsUpdate();
-            if (needsUpdate) {
-                vscode.window.showInformationMessage(`Updating existing index`);
-                await updateIndex();
+                // Check if we need to update the index
+                const needsUpdate = await checkIfIndexNeedsUpdate();
+                if (needsUpdate) {
+                    vscode.window.showInformationMessage(`Updating existing index`);
+                    await updateIndex();
+                }
+            } else {
+                vscode.window.showInformationMessage(`Building new index`);
+                await rebuildFullIndex();
             }
-        } else {
-            vscode.window.showInformationMessage(`Building new index`);
-            await rebuildFullIndex();
+        } catch (error) {
+            console.error('Error during index initialization:', error);
+            vscode.window.showErrorMessage('Failed to initialize indexing. Check the logs for details.');
         }
     }
 
@@ -513,14 +526,20 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
 
     async function rebuildFullIndex() {
         clearIndex();
-        await indexSourceBible();
-        await indexTargetBible();
-        await indexTargetDrafts();
-        for (const doc of vscode.workspace.textDocuments) {
-            await indexDocument(doc);
+        try {
+            let totalIndexed = 0;
+            totalIndexed += await indexSourceBible();
+            totalIndexed += await indexTargetBible();
+            totalIndexed += await indexTargetDrafts();
+            for (const doc of vscode.workspace.textDocuments) {
+                totalIndexed += await indexDocument(doc);
+            }
+            await serializeIndex(miniSearch);
+            vscode.window.showInformationMessage(`Index rebuilt and serialized with ${totalIndexed} documents`);
+        } catch (error) {
+            console.error('Error rebuilding full index:', error);
+            vscode.window.showErrorMessage('Failed to rebuild full index. Check the logs for details.');
         }
-        await serializeIndex(miniSearch);
-        vscode.window.showInformationMessage('Index rebuilt and serialized');
     }
 
     async function updateIndex() {
@@ -556,8 +575,14 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
         })
     );
 
+    // Update the hasFileChanged function to handle notebook cells
     async function hasFileChanged(filePath: vscode.Uri): Promise<boolean> {
         try {
+            if (filePath.scheme === 'vscode-notebook-cell') {
+                // For notebook cells, always return true to ensure they're indexed
+                return true;
+            }
+
             const stat = await vscode.workspace.fs.stat(filePath);
             const lastModified = stat.mtime;
             const manifest = await loadManifest();
