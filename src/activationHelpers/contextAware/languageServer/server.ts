@@ -45,12 +45,12 @@ class EasyLanguageServer {
 
         const workspaceUri = getWorkSpaceUri();
         if (workspaceUri) {
-            const dbPath = path.join(workspaceUri.fsPath, '.vscode', 'verse_index.db');
-            this.verseIndexer = new VerseIndexer(dbPath);
-            vscode.window.showInformationMessage(`VerseIndexer initialized with dbPath: ${dbPath}`); // Added log
-            this.verseIndexer.initialize().catch(error => {
-                console.error('Failed to initialize VerseIndexer:', error);
-            });
+            // const dbPath = path.join(workspaceUri.fsPath, '.vscode', 'verse_index.db');
+            // this.verseIndexer = new VerseIndexer(dbPath);
+            // vscode.window.showInformationMessage(`VerseIndexer initialized with dbPath: ${dbPath}`); // Added log
+            // this.verseIndexer.initialize().catch(error => {
+            // console.error('Failed to initialize VerseIndexer:', error);
+            // });
         } else {
             console.error('Workspace URI not found');
         }
@@ -115,33 +115,37 @@ class EasyLanguageServer {
     }
 
     public addDiagnosticsProvider(provider: (document: vscode.TextDocument) => SpellCheckDiagnostic[]): void {
-        const diagnosticsProvider = vscode.workspace.onDidChangeTextDocument((event) => {
-            const diagnostics = provider(event.document);
-            this.diagnosticCollection.set(event.document.uri, diagnostics);
-        });
-        this.context.subscriptions.push(diagnosticsProvider);
+        this.context.subscriptions.push(
+            vscode.workspace.onDidChangeTextDocument((event) => {
+                const changeDiagnostics = provider(event.document);
+                this.diagnosticCollection.set(event.document.uri, changeDiagnostics);
+            }),
+            vscode.workspace.onDidOpenTextDocument((doc) => {
+                const openDiagnostics = provider(doc);
+                this.diagnosticCollection.set(doc.uri, openDiagnostics);
+            })
+        );
     }
 
-    public addVerseIndexingProvider(): void {
-        const indexingProvider = vscode.workspace.onDidChangeTextDocument(async (event) => {
-            if (this.verseIndexer && event.document.languageId === 'scripture') {
-                await this.verseIndexer.indexDocument(event.document);
-            }
-        });
-        this.context.subscriptions.push(indexingProvider);
-    }
+    // public addVerseIndexingProvider(): void {
+    //     const indexingProvider = vscode.workspace.onDidChangeTextDocument(async (event) => {
+    //         if (this.verseIndexer && event.document.languageId === 'scripture') {
+    //             const count = this.verseIndexer.indexDocument(event.document);
+    //             console.log(`Indexed ${count} items`);
+    //         }
+    //     });
+    //     this.context.subscriptions.push(indexingProvider);
+    // }
 
-    public searchVerseIndex(query: string): any[] {
-        if (this.verseIndexer) {
-            return this.verseIndexer.searchIndex(query);
-        }
-        return [];
-    }
+    // public searchVerseIndex(query: string): any[] {
+    //     if (this.verseIndexer) {
+    //         return this.verseIndexer.searchIndex(query);
+    //     }
+    //     return [];
+    // }
 
     public dispose(): void {
-        if (this.verseIndexer) {
-            this.verseIndexer.close();
-        }
+        // No need to close anything as MiniSearch is in-memory
     }
 
     public start(): void {
@@ -149,22 +153,22 @@ class EasyLanguageServer {
         console.log('EasyLanguageServer started');
     }
 
-    public async testIndexing(): Promise<void> {
-        // Hard-code a file path for testing
-        const testFilePath = vscode.Uri.file(path.join(this.context.extensionUri.fsPath, 'test', 'sample.bible'));
-        try {
-            const document = await vscode.workspace.openTextDocument(testFilePath);
-            const count = await this.verseIndexer?.indexDocument(document, true); // Assuming it's a source Bible file
-            console.log(`Indexed ${count} items from ${testFilePath}`);
-        } catch (error) {
-            console.error('Error during test indexing:', error);
-        }
-    }
+    // public async testIndexing(): Promise<void> {
+    //     // Hard-code a file path for testing
+    //     const testFilePath = vscode.Uri.file(path.join(this.context.extensionUri.fsPath, 'test', 'sample.bible'));
+    //     try {
+    //         const document = await vscode.workspace.openTextDocument(testFilePath);
+    //         const count = await this.verseIndexer?.indexDocument(document, true); // Assuming it's a source Bible file
+    //         console.log(`Indexed ${count} items from ${testFilePath}`);
+    //     } catch (error) {
+    //         console.error('Error during test indexing:', error);
+    //     }
+    // }
 
-    public async testSearch(): Promise<void> {
-        const searchResults = this.verseIndexer?.searchIndex('Genesis 1:1');
-        console.log('Search results:', searchResults);
-    }
+    // public async testSearch(): Promise<void> {
+    //     const searchResults = this.verseIndexer?.searchIndex('Genesis 1:1');
+    //     console.log('Search results:', searchResults);
+    // }
 }
 
 // Usage example
@@ -205,18 +209,18 @@ export async function activate(context: vscode.ExtensionContext) {
     );
 
     // Add verse indexing provider
-    server.addVerseIndexingProvider();
+    // server.addVerseIndexingProvider();
 
-    // Register command for searching verse index
-    context.subscriptions.push(
-        vscode.commands.registerCommand('easyLanguageServer.searchVerseIndex', (query: string) => {
-            return server.searchVerseIndex(query);
-        })
-    );
+    // // Register command for searching verse index
+    // context.subscriptions.push(
+    //     vscode.commands.registerCommand('easyLanguageServer.searchVerseIndex', (query: string) => {
+    //         return server.searchVerseIndex(query);
+    //     })
+    // );
 
-    // Register commands for testing
-    context.subscriptions.push(vscode.commands.registerCommand('easyLanguageServer.testIndexing', () => server.testIndexing()));
-    context.subscriptions.push(vscode.commands.registerCommand('easyLanguageServer.testSearch', () => server.testSearch()));
+    // // Register commands for testing
+    // context.subscriptions.push(vscode.commands.registerCommand('easyLanguageServer.testIndexing', () => server.testIndexing()));
+    // context.subscriptions.push(vscode.commands.registerCommand('easyLanguageServer.testSearch', () => server.testSearch()));
 
     // // Register command to reindex verses
     // context.subscriptions.push(

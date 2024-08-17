@@ -28,6 +28,7 @@ import { initializeStateStore } from "./stateStore";
 import { projectFileExists } from "./utils/fileUtils";
 import { activate as activateLanguageServer } from "./activationHelpers/contextAware/languageServer/server";
 import { registerCompletionsCodeLensProviders } from "./activationHelpers/contextAware/completionsCodeLensProviders";
+import { createIndexingLanguageServer } from "./activationHelpers/contextAware/tsLanguageServer";
 
 // The following block ensures a smooth user experience by guiding the user through the initial setup process before the extension is fully activated. This is crucial for setting up the necessary project environment and avoiding any functionality issues that might arise from missing project configurations.
 
@@ -49,6 +50,7 @@ export async function activate(context: vscode.ExtensionContext) {
     await initializeWebviews(context);
     registerReferencesCodeLens(context);
     registerSourceCodeLens(context);
+    createIndexingLanguageServer(context);
     registerCompletionsCodeLensProviders(context);
     registerTextSelectionHandler(context, () => undefined);
 
