@@ -282,6 +282,31 @@
             {
                 "command": "translators-copilot.extractVerseRefFromCurrentLine",
                 "title": "Extract Verse Reference from Current Line"
+            },
+            {
+                "command": "verseIndexer.searchIndex",
+                "title": "Search Verse Index",
+                "category": "Verse Indexer"
+            },
+            {
+                "command": "verseIndexer.rebuildFullIndex",
+                "title": "Rebuild Full Index",
+                "category": "Verse Indexer"
+            },
+            {
+                "command": "verseIndexer.closeIndexer",
+                "title": "Close Verse Indexer",
+                "category": "Verse Indexer"
+            },
+            {
+                "command": "easyLanguageServer.testIndexing",
+                "title": "Test Indexing",
+                "category": "Easy Language Server"
+            },
+            {
+                "command": "easyLanguageServer.testSearch",
+                "title": "Test Search",
+                "category": "Easy Language Server"
             }
         ],
         "notebooks": [
@@ -618,6 +643,7 @@
         "@types/react": "^18.3.3",
         "@types/semver": "^7.5.6",
         "@types/sinon": "^17.0.3",
+        "@types/sql.js": "^1.4.9",
         "@types/uuid": "^9.0.7",
         "@types/vscode": "^1.74.0",
         "@typescript-eslint/eslint-plugin": "^6.7.0",
@@ -636,6 +662,7 @@
         "webpack-cli": "^5.1.4"
     },
     "dependencies": {
+        "@types/better-sqlite3": "^7.6.11",
         "@vscode/codicons": "^0.0.35",
         "@vscode/python-extension": "^1.0.5",
         "@vscode/webview-ui-toolkit": "^1.4.0",
@@ -659,6 +686,7 @@
         "react-wordcloud": "^1.2.7",
         "semver": "^7.6.0",
         "sinon": "^17.0.1",
+        "sql.js": "^1.11.0",
         "token.js": "^0.4.3",
         "uuid": "^9.0.1",
         "vscode-languageclient": "^9.0.1",

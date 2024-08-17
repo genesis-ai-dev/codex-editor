@@ -1,48 +1,11 @@
 "use strict";
 import * as vscode from "vscode";
 import { verseRefRegex } from "../../utils/verseRefUtils";
-import {
-    provideInlineCompletionItems,
-} from "../../providers/translationSuggestions/inlineCompletionsProvider";
 import { getWorkSpaceFolder } from "../../utils";
-import { Dictionary, DictionaryEntry } from "codex-types";
 import MiniSearch from 'minisearch';
 import { debounce } from 'lodash';
-import { generateUniqueId, generateHash, provideDiagnostics, provideCodeActions } from '../../utils/serverUtils/spellCheckUtils';
-
-
-// Function to add word to dictionary
-async function addToDictionary(word: string, dictionary: Dictionary) {
-    const newEntry: DictionaryEntry = {
-        id: generateUniqueId(),
-        headWord: word,
-        hash: generateHash(word),
-        headForm: word,
-        variantForms: [],
-        definition: '',
-        translationEquivalents: [],
-        links: [],
-        linkedEntries: [],
-        notes: [],
-        metadata: {}
-    };
-    dictionary.entries.push(newEntry);
-
-    // Serialize and save updated dictionary to file
-    try {
-        const serializedDictionary = JSON.stringify(dictionary, null, 2);
-        await vscode.workspace.fs.writeFile(dictionaryPath, Buffer.from(serializedDictionary));
-    } catch (error) {
-        console.error('Error saving dictionary:', error);
-        vscode.window.showErrorMessage('Failed to save dictionary. Please try again.');
-    }
-}
 
 const workspaceFolder = getWorkSpaceFolder();
-const dictionaryPath = vscode.Uri.file(
-    `${workspaceFolder}/files/project.dictionary`
-);
-
 interface FileManifest {
     [filePath: string]: number; // last modified timestamp
 }
@@ -69,8 +32,6 @@ async function checkIfIndexNeedsUpdate(): Promise<boolean> {
     const manifest = await loadManifest();
     const currentTime = Date.now();
     const oneWeek = 7 * 24 * 60 * 60 * 1000; // milliseconds in a week
-
-    // Force re-index if it's been more than a week since last full re-index
     if (!manifest['lastFullReindex'] || currentTime - manifest['lastFullReindex'] > oneWeek) {
         return true;
     }
@@ -79,168 +40,23 @@ async function checkIfIndexNeedsUpdate(): Promise<boolean> {
         ...await vscode.workspace.findFiles('**/*.bible'),
         ...await vscode.workspace.findFiles('**/*.codex')
     ];
-
     for (const file of filesToCheck) {
         const stats = await vscode.workspace.fs.stat(file);
         if (!manifest[file.fsPath] || stats.mtime > manifest[file.fsPath]) {
             return true;
         }
     }
-
     return false;
 }
 
-export async function createTypescriptLanguageServer(context: vscode.ExtensionContext) {
-    // Check if Translators Copilot is enabled
+export async function createIndexingLanguageServer(context: vscode.ExtensionContext) {
     const config = vscode.workspace.getConfiguration('translators-copilot-server');
     const isCopilotEnabled = config.get<boolean>('enable', true);
-
     if (!isCopilotEnabled) {
         vscode.window.showInformationMessage("Translators Copilot Server is disabled. Language server not activated.");
         return;
     }
-
     vscode.window.showInformationMessage("Translators Copilot Server activated");
-    const languages = ["scripture"];
-    const disposables = languages.map((language) => {
-        return vscode.languages.registerInlineCompletionItemProvider(language, {
-            provideInlineCompletionItems,
-        });
-    });
-    disposables.forEach((disposable) => context.subscriptions.push(disposable));
-
-    // TODO: Enhance completion providers
-    // - Implement spell completion (port from spelling.py)
-    // - Implement text forecasting completion (port from servable_forecasting.py)
-    // - Register completion providers with the server
-    // TODO: Inline completions - need to finish
-    // const commandDisposable = vscode.commands.registerCommand(
-    //     "extension.triggerInlineCompletion",
-    //     triggerInlineCompletion,
-    //     triggerInlineCompletion,
-    // );
-    // vscode.window.onDidChangeTextEditorSelection((e) => {
-    //     const shouldTriggerInlineCompletion = e.length > 0;
-    //     if (shouldTriggerInlineCompletion) {
-    //         triggerInlineCompletion();
-    //     }
-    // });
-
-    // FEATURE: Document symbol provider
-    // TODO: Implement document symbol provider
-    // - Create a provider to outline the structure of scripture documents
-    // --this structure includes all of the vrefs in the file
-    // also, we want to identify all proper nouns in the file, by looking at a lookup definition of all entities/places/etc. (ACAI data) in the Bible, and then we can 
-    // check in the file for any of those entities, and then we can highlight them in the file OR check whether they are present. We will need a tool for prompting the
-    // user about which words in the current verse draft correspond to the key terms, etc.
-    // - Register document symbol provider with the server
-
-    // FEATURE: Hover provider
-    // TODO: Implement hover provider
-    // - Port hover functionality from lsp_wrapper.py
-    // - Register hover provider with the server
-
-    // FEATURE: Diagnostic providers
-    let dictionary: Dictionary | null = null;
-
-    // Read the dictionary file
-    if (workspaceFolder) {
-
-        // Try creating the dictionary if it doesn't exist
-        try {
-            await vscode.workspace.fs.stat(dictionaryPath);
-        } catch {
-            // File doesn't exist, create it with an empty dictionary
-            const emptyDictionary = { entries: [] };
-            await vscode.workspace.fs.writeFile(
-                dictionaryPath,
-                Buffer.from(JSON.stringify(emptyDictionary))
-            );
-            vscode.window.showInformationMessage("Created new empty dictionary.");
-        }
-
-        try {
-            const content = await vscode.workspace.fs.readFile(dictionaryPath);
-            dictionary = JSON.parse(content.toString());
-            if (dictionary) {
-                const wordCount = dictionary?.entries?.length;
-                vscode.window.showInformationMessage(`Dictionary loaded with ${wordCount} words.`);
-            } else {
-                vscode.window.showErrorMessage("Failed to load dictionary. Code 2");
-            }
-        } catch (error: any) {
-            vscode.window.showErrorMessage(
-                `Failed to read or parse dictionary: ${error.message}`
-            );
-        }
-    }
-    if (!dictionary) {
-        vscode.window.showErrorMessage("Failed to load dictionary. Code 1");
-        return;
-    }
-    if (dictionary) {
-        // Register diagnostic provider
-        const diagnosticCollection = vscode.languages.createDiagnosticCollection('spell-check');
-        context.subscriptions.push(diagnosticCollection);
-
-        const updateDiagnostics = (document: vscode.TextDocument) => {
-            const diagnostics = provideDiagnostics(document, dictionary!);
-            diagnosticCollection.set(document.uri, diagnostics);
-        };
-
-        // Update diagnostics for all open text documents immediately
-        vscode.workspace.textDocuments.forEach(doc => {
-            if (doc.languageId === 'scripture') { // Only check 'scripture' files
-                updateDiagnostics(doc);
-            }
-        });
-
-        // Update diagnostics on document open and change, but only for 'scripture' files
-        context.subscriptions.push(
-            vscode.workspace.onDidOpenTextDocument(doc => {
-                if (doc.languageId === 'scripture') {
-                    updateDiagnostics(doc);
-                }
-            }),
-            vscode.workspace.onDidChangeTextDocument(event => {
-                if (event.document.languageId === 'scripture') {
-                    updateDiagnostics(event.document);
-                }
-            })
-        );
-
-        // Register code action provider only for 'scripture' files
-        context.subscriptions.push(
-            vscode.languages.registerCodeActionsProvider('scripture', {
-                provideCodeActions: (document, range, context, token) =>
-                    provideCodeActions(document, range, context, token, dictionary!)
-            })
-        );
-
-        // Register command to add words to dictionary
-        context.subscriptions.push(
-            vscode.commands.registerCommand('extension.addToDictionary', async (word: string) => {
-                await addToDictionary(word, dictionary!,);
-                vscode.window.showInformationMessage(`Added '${word}' to dictionary.`);
-                // Refresh diagnostics for all open documents
-                vscode.workspace.textDocuments.forEach(updateDiagnostics);
-            })
-        );
-    }
-
-    // - Add LAD (Linguistic Anomaly Detection) diagnostics (port from servable_lad.py)
-    // - Add verse validation diagnostics (port from verse_validator.py)
-    // - Add Wildebeest analysis diagnostics (port from servable_wb.py)
-    // - Set up onDidChangeContent event to trigger diagnostics
-
-    // FEATURE: Code action providers
-    // TODO: Implement code action providers
-    // - Add spelling-related code actions (port from spelling.py)
-    // - Add verse reference code actions (port from verse_validator.py)
-    // - Register code action providers with the server
-
-    // FEATURE: MiniSearch indexing for draft verses and source Bible
-    // Initialize MiniSearch instance
     let miniSearch = new MiniSearch({
         fields: ['vref', 'book', 'chapter', 'fullVref', 'content'],
         storeFields: ['id', 'vref', 'book', 'chapter', 'fullVref', 'content', 'uri', 'line', 'isSourceBible'],
@@ -249,7 +65,6 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
             fuzzy: 0.2
         }
     });
-
     interface minisearchDoc {
         id: string;
         vref: string;
@@ -262,25 +77,59 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
         isSourceBible: boolean;
     }
 
-    // Function to index a document
     async function indexDocument(document: vscode.TextDocument | vscode.NotebookDocument, isSourceBible: boolean = false): Promise<number> {
-        console.log(`Indexing document: ${document.uri}, isSourceBible: ${isSourceBible}`);
         const uri = document.uri.toString();
         let indexedCount = 0;
         const batchSize = 1000;
         let batch: minisearchDoc[] = [];
-
         const processBatch = () => {
             if (batch.length > 0) {
-                miniSearch.addAll(batch);
-                indexedCount += batch.length;
+                try {
+                    miniSearch.addAll(batch);
+                    indexedCount += batch.length;
+                } catch (error) {
+                    if (error instanceof Error && error.message.includes('duplicate ID')) {
+                        processBatchRecursively(batch);
+                    } else {
+                        throw error;
+                    }
+                }
                 batch = [];
             }
         };
 
+        const processBatchRecursively = (currentBatch: minisearchDoc[]) => {
+            if (currentBatch.length === 0) return;
+            const smallerBatch = currentBatch.filter((_, index) => index % 10 === 0);
+            try {
+                miniSearch.addAll(smallerBatch);
+                indexedCount += smallerBatch.length;
+            } catch (error) {
+                if (error instanceof Error && error.message.includes('duplicate ID')) {
+                    for (const doc of smallerBatch) {
+                        try {
+                            miniSearch.add(doc);
+                            indexedCount++;
+                        } catch (innerError) {
+                            if (innerError instanceof Error && innerError.message.includes('duplicate ID')) {
+                                console.info(`Skipped duplicate ID: ${doc.id}`);
+                            } else {
+                                throw innerError;
+                            }
+                        }
+                    }
+                } else {
+                    throw error;
+                }
+            }
+            processBatchRecursively(currentBatch.filter((_, index) => index % 10 !== 0));
+        };
+
         if ('getText' in document) {
-            // Handle TextDocument
-            const lines = document.getText().split('\n');
+            const lines = document.getText().split('\n').filter(line => {
+                const matches = line.match(verseRefRegex);
+                return matches && line.trim().substring(matches[0].length).trim() !== '';
+            });
             for (let i = 0; i < lines.length; i++) {
                 const indexedDoc = indexLine(lines[i], i, uri, isSourceBible);
                 if (indexedDoc) {
@@ -291,7 +140,6 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
                 }
             }
         } else if ('getCells' in document) {
-            // Handle NotebookDocument
             for (const cell of document.getCells()) {
                 if (cell.kind === vscode.NotebookCellKind.Code) {
                     const cellUri = cell.document.uri.toString();
@@ -308,14 +156,10 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
                 }
             }
         }
-
         processBatch(); // Process any remaining documents in the batch
-
-        console.log(`Indexed ${indexedCount} verses from ${uri}`);
         return indexedCount;
     }
 
-    // Update the indexLine function to use a more unique ID
     function indexLine(line: string, lineIndex: number, uri: string, isSourceBible: boolean): minisearchDoc | null {
         const match = line.match(verseRefRegex);
         if (match) {
@@ -324,7 +168,6 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
             const [chapter, verse] = chapterVerse.split(':');
             const content = line.substring(match.index! + match[0].length).trim();
             const id = `${isSourceBible ? 'source' : 'target'}:${uri}:${lineIndex}:${vref}`;
-
             return {
                 id,
                 vref,
@@ -340,7 +183,6 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
         return null;
     }
 
-    // Debounced function to update index
     const debouncedUpdateIndex = debounce(async (event: vscode.TextDocumentChangeEvent) => {
         const document = event.document;
         if (document.languageId === 'scripture' || document.fileName.endsWith('.codex')) {
@@ -353,26 +195,21 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
         `${workspaceFolder}/.project/sourceTextBibles`
     );
 
-    // Function to index all source Bibles
     async function indexSourceBible(): Promise<number> {
-        vscode.window.showInformationMessage(`Indexing all source Bibles`);
         let indexed = 0;
         if (workspaceFolder) {
             try {
                 const files = await vscode.workspace.fs.readDirectory(allSourceBiblesPath);
                 const biblePaths = files.filter(([name, type]) => name.endsWith('.bible') && type === vscode.FileType.File);
-
                 if (biblePaths.length === 0) {
                     vscode.window.showWarningMessage('No source Bibles found to index.');
                     return indexed;
                 }
-
                 for (const [fileName, _] of biblePaths) {
                     const sourcePath = vscode.Uri.joinPath(allSourceBiblesPath, fileName);
                     try {
                         const document = await vscode.workspace.openTextDocument(sourcePath);
                         indexed += await indexDocument(document, true);
-                        vscode.window.showInformationMessage(`Indexed ${indexed} verses from source Bible: ${fileName}`);
                     } catch (error) {
                         console.error(`Error reading source Bible ${fileName}:`, error);
                         vscode.window.showErrorMessage(`Failed to read source Bible file: ${fileName}`);
@@ -393,9 +230,8 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
     const targetDraftsPath = vscode.Uri.file(
         `${workspaceFolder}/files/target`
     );
-    // Function to index target Bible
+
     async function indexTargetBible() {
-        vscode.window.showInformationMessage(`Indexing target Bible`);
         const config = vscode.workspace.getConfiguration('translators-copilot-server');
         const targetBible = config.get<string>('targetBible');
         let indexed = 0;
@@ -404,7 +240,6 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
             try {
                 const document = await vscode.workspace.openNotebookDocument(targetPath);
                 indexed = await indexDocument(document, false);
-                vscode.window.showInformationMessage(`Indexed ${indexed} verses from target Bible`);
             } catch (error) {
                 console.error('Error reading target Bible:', error);
                 vscode.window.showErrorMessage('Failed to read target Bible file.');
@@ -413,20 +248,16 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
         return indexed;
     }
 
-    // Function to index target drafts
     async function indexTargetDrafts() {
-        vscode.window.showInformationMessage(`Indexing target drafts`);
         let indexed = 0;
         if (workspaceFolder) {
             const pattern = new vscode.RelativePattern(targetDraftsPath, '**/*.codex');
             const files = await vscode.workspace.findFiles(pattern);
-
             for (const file of files) {
                 if (await hasFileChanged(file)) {
                     try {
                         const document = await vscode.workspace.openNotebookDocument(file);
                         indexed += await indexDocument(document, false);
-                        vscode.window.showInformationMessage(`Indexed ${indexed} verses from target draft: ${file.fsPath}`);
                     } catch (error) {
                         console.error(`Error reading target draft ${file.fsPath}:`, error);
                     }
@@ -442,11 +273,11 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
     );
 
     const debouncedSerializeIndex = debounce(async (miniSearch: MiniSearch) => {
-        console.log('Starting index serialization...');
         if (miniSearch.documentCount === 0) {
             console.warn("Attempting to serialize an empty index. Skipping serialization.");
             return;
         }
+
         const serialized = JSON.stringify(miniSearch.toJSON());
         try {
             await vscode.workspace.fs.writeFile(minisearchIndexPath, Buffer.from(serialized, 'utf8'));
@@ -458,64 +289,52 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
     }, 5000); // Debounce for 5 seconds
 
     async function serializeIndex(miniSearch: MiniSearch) {
-        vscode.window.showInformationMessage(`Queueing index serialization...`);
         debouncedSerializeIndex(miniSearch);
     }
 
-    // Function to load the serialized index
     async function loadSerializedIndex(): Promise<MiniSearch | null> {
-        vscode.window.showInformationMessage(`Loading serialized index`);
         try {
             const data = await vscode.workspace.fs.readFile(minisearchIndexPath);
             const dataString = Buffer.from(data).toString('utf8');
-
-            // Validate JSON before parsing
             JSON.parse(dataString);
-
             const loadedIndex = MiniSearch.loadJSON(dataString, {
                 fields: ['vref', 'book', 'chapter', 'fullVref', 'content'],
                 storeFields: ['id', 'vref', 'book', 'chapter', 'fullVref', 'content', 'uri', 'line', 'isSourceBible']
             });
-
             console.log(`Loaded index with ${loadedIndex.documentCount} documents`);
             return loadedIndex;
         } catch (error) {
             console.error('Error loading serialized index:', error);
-
-            // If there's an error, attempt to delete the corrupted file
             try {
                 await vscode.workspace.fs.delete(minisearchIndexPath);
-                vscode.window.showWarningMessage('Corrupted index file deleted. A new index will be created.');
+                console.log('Corrupted index file deleted, a new index will be created');
             } catch (unlinkError) {
                 console.error('Error deleting corrupted index file:', unlinkError);
             }
-
             return null;
         }
     }
 
-    // Initialize indexing
     async function initializeIndexing() {
-        vscode.window.showInformationMessage(`Initializing index`);
+        const startTime = Date.now();
         try {
             const loadedIndex = await loadSerializedIndex();
             if (loadedIndex) {
                 miniSearch = loadedIndex;
-                vscode.window.showInformationMessage(`Loaded serialized index with ${miniSearch.documentCount} documents`);
-
-                // Check if we need to update the index
                 const needsUpdate = await checkIfIndexNeedsUpdate();
                 if (needsUpdate) {
-                    vscode.window.showInformationMessage(`Updating existing index`);
                     await updateIndex();
                 }
             } else {
-                vscode.window.showInformationMessage(`Building new index`);
                 await rebuildFullIndex();
             }
         } catch (error) {
             console.error('Error during index initialization:', error);
             vscode.window.showErrorMessage('Failed to initialize indexing. Check the logs for details.');
+        } finally {
+            const endTime = Date.now();
+            const duration = (endTime - startTime) / 1000;
+            console.log(`Index initialized in ${duration.toFixed(2)} seconds`);
         }
     }
 
@@ -535,7 +354,6 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
                 totalIndexed += await indexDocument(doc);
             }
             await serializeIndex(miniSearch);
-            vscode.window.showInformationMessage(`Index rebuilt and serialized with ${totalIndexed} documents`);
         } catch (error) {
             console.error('Error rebuilding full index:', error);
             vscode.window.showErrorMessage('Failed to rebuild full index. Check the logs for details.');
@@ -545,41 +363,32 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
     async function updateIndex() {
         const manifest = await loadManifest();
         const currentTime = Date.now();
-
         await indexSourceBible();
         await indexTargetBible();
         await indexTargetDrafts();
-
-        // Update manifest with new timestamps
         const filesToUpdate = [
             ...await vscode.workspace.findFiles('**/*.bible'),
             ...await vscode.workspace.findFiles('**/*.codex')
         ];
-
         for (const file of filesToUpdate) {
             const stats = await vscode.workspace.fs.stat(file);
             manifest[file.fsPath] = stats.mtime;
         }
-
         manifest['lastFullReindex'] = currentTime;
         await saveManifest(manifest);
         await serializeIndex(miniSearch);
-        vscode.window.showInformationMessage('Index updated and serialized');
     }
 
     context.subscriptions.push(
         vscode.workspace.onDidChangeTextDocument(debouncedUpdateIndex),
         vscode.workspace.onDidOpenTextDocument(async (doc) => {
             await indexDocument(doc);
-            // Don't serialize here, let the debounced function handle it
         })
     );
 
-    // Update the hasFileChanged function to handle notebook cells
     async function hasFileChanged(filePath: vscode.Uri): Promise<boolean> {
         try {
             if (filePath.scheme === 'vscode-notebook-cell') {
-                // For notebook cells, always return true to ensure they're indexed
                 return true;
             }
 
@@ -593,23 +402,18 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
         }
     }
 
-    // Call initializeIndexing
     initializeIndexing().catch(error => {
         console.error('Error initializing indexing:', error);
         vscode.window.showErrorMessage('Failed to initialize indexing.');
     });
 
-    // Function to search the index
     function searchIndex(query: string) {
-        // First, try an exact match on the verse reference
         let results = miniSearch.search(query, {
             fields: ['vref'],
             combineWith: 'AND',
             prefix: false,
             fuzzy: 0
         });
-
-        // If no exact match, try a fuzzy search on vref and content
         if (results.length === 0) {
             results = miniSearch.search(query, {
                 fields: ['vref', 'fullVref', 'content'],
@@ -624,11 +428,8 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
             });
         }
 
-        // Limit the number of results
         const maxResults = 5;
         results = results.slice(0, maxResults);
-
-        // Include both source and target Bible entries
         return results.map(result => ({
             id: result.id,
             vref: result.vref,
@@ -642,13 +443,7 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
     }
 
     function processSearchResults(results: any[], query: string) {
-        // Process the results here
         vscode.window.showInformationMessage(`Processing ${results.length} results for query: ${query}`);
-
-        // Here we need to use the parallel passages retrieved by the text selection 
-        // handler (or whatever calling process) and pass them to the LAD and 
-        // autocomplete functions, then return the results to the calling process
-
     }
 
     function handleTextSelection(selectedText: string) {
@@ -666,24 +461,9 @@ export async function createTypescriptLanguageServer(context: vscode.ExtensionCo
         })
     ]);
 
-    // TODO: Implement handlers for various socket requests (search, LAD, etc.)
-    // Note - we did other things with the python websocket messenger. That's what I want to implement here
-
-    // FEATURE: Database integration
-    // TODO: Implement database integration
-    // - Create or port JsonDatabase class
-    // -- should we be using SQLite? It has bm25 out of the box
-    // - Implement TF-IDF functionality or use a TypeScript library for TF-IDF
-    // - Set up methods for searching and retrieving verse data
-
-    // FEATURE: Utility functions
-    // TODO: Create utility functions
-    // - Port relevant utility functions from Python implementation
-    // - Implement helper functions for text processing, verse validation, etc.
-
-    // Expose the search function
-    return {
+    const functionsToExpose = {
         handleTextSelection,
-        // ... other functions or objects you want to expose
     };
+
+    return functionsToExpose;
 }
