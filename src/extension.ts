@@ -26,7 +26,7 @@ import { initializeWebviews } from "./activationHelpers/contextAware/webviewInit
 import { syncUtils } from "./activationHelpers/contextAware/syncUtils";
 import { initializeStateStore } from "./stateStore";
 import { projectFileExists } from "./utils/fileUtils";
-import { activate as activateLanguageServer } from "./activationHelpers/contextAware/languageServer/server";
+import { initializeLanguageServer } from "./activationHelpers/contextAware/server/server";
 import { registerCompletionsCodeLensProviders } from "./activationHelpers/contextAware/completionsCodeLensProviders";
 import { createIndexingLanguageServer } from "./activationHelpers/contextAware/versesIndex/tsLanguageServer";
 
@@ -46,7 +46,7 @@ let autoCommitEnabled = configuration.get<boolean>("autoCommit", true);
 export async function activate(context: vscode.ExtensionContext) {
     await indexVerseRefsInSourceText();
     await handleConfig();
-    await activateLanguageServer(context);
+    await initializeLanguageServer(context);
 
     await initializeWebviews(context);
     registerReferencesCodeLens(context);
