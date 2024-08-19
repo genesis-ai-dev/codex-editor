@@ -1,9 +1,11 @@
 "use strict";
 import * as vscode from "vscode";
-import { verseRefRegex } from "../../utils/verseRefUtils";
-import { getWorkSpaceFolder } from "../../utils";
-import MiniSearch from 'minisearch';
+import { verseRefRegex } from "../../../utils/verseRefUtils";
+import { getWorkSpaceFolder } from "../../../utils";
+import MiniSearch, { SearchResult } from 'minisearch';
 import { debounce } from 'lodash';
+import { StatusBarHandler } from './statusBarHandler';
+import { MiniSearchVerseResult, TranslationPair } from "../../../../types";
 
 const workspaceFolder = getWorkSpaceFolder();
 interface FileManifest {
@@ -50,6 +52,9 @@ async function checkIfIndexNeedsUpdate(): Promise<boolean> {
 }
 
 export async function createIndexingLanguageServer(context: vscode.ExtensionContext) {
+    const statusBarHandler = StatusBarHandler.getInstance();
+    context.subscriptions.push(statusBarHandler);
+
     const config = vscode.workspace.getConfiguration('translators-copilot-server');
     const isCopilotEnabled = config.get<boolean>('enable', true);
     if (!isCopilotEnabled) {
@@ -77,7 +82,9 @@ export async function createIndexingLanguageServer(context: vscode.ExtensionCont
         isSourceBible: boolean;
     }
 
-    async function indexDocument(document: vscode.TextDocument | vscode.NotebookDocument, isSourceBible: boolean = false): Promise<number> {
+    async function indexDocument(document: vscode.TextDocument | vscode.NotebookDocument, isSourceBible: boolean): Promise<number> {
+        // FIXME: if a user updates a verse from `{vref} {content}` to just `{vref}`, then currently the line will be skipped during indexing, so the old version will stick around
+
         const uri = document.uri.toString();
         let indexedCount = 0;
         const batchSize = 1000;
@@ -167,7 +174,9 @@ export async function createIndexingLanguageServer(context: vscode.ExtensionCont
             const [book, chapterVerse] = vref.split(' ');
             const [chapter, verse] = chapterVerse.split(':');
             const content = line.substring(match.index! + match[0].length).trim();
-            const id = `${isSourceBible ? 'source' : 'target'}:${uri}:${lineIndex}:${vref}`;
+            // note: we cannot rely on isSourceBible here
+            const idPrefix = uri.match(/\\.bible/) ? 'source' : 'target';
+            const id = `${idPrefix}:${uri}:${lineIndex}:${vref}`;
             return {
                 id,
                 vref,
@@ -186,7 +195,7 @@ export async function createIndexingLanguageServer(context: vscode.ExtensionCont
     const debouncedUpdateIndex = debounce(async (event: vscode.TextDocumentChangeEvent) => {
         const document = event.document;
         if (document.languageId === 'scripture' || document.fileName.endsWith('.codex')) {
-            await indexDocument(document);
+            await indexDocument(document, false);
             await serializeIndex(miniSearch);
         }
     }, 1000);  // 1000ms debounce time
@@ -289,7 +298,9 @@ export async function createIndexingLanguageServer(context: vscode.ExtensionCont
     }, 5000); // Debounce for 5 seconds
 
     async function serializeIndex(miniSearch: MiniSearch) {
+        statusBarHandler.setIndexingActive();
         debouncedSerializeIndex(miniSearch);
+        statusBarHandler.setIndexingComplete();
     }
 
     async function loadSerializedIndex(): Promise<MiniSearch | null> {
@@ -342,25 +353,25 @@ export async function createIndexingLanguageServer(context: vscode.ExtensionCont
         miniSearch.removeAll();
         vscode.window.showInformationMessage('Index cleared');
     }
-
     async function rebuildFullIndex() {
+        statusBarHandler.setIndexingActive();
         clearIndex();
         try {
             let totalIndexed = 0;
             totalIndexed += await indexSourceBible();
             totalIndexed += await indexTargetBible();
             totalIndexed += await indexTargetDrafts();
-            for (const doc of vscode.workspace.textDocuments) {
-                totalIndexed += await indexDocument(doc);
-            }
             await serializeIndex(miniSearch);
         } catch (error) {
             console.error('Error rebuilding full index:', error);
             vscode.window.showErrorMessage('Failed to rebuild full index. Check the logs for details.');
+        } finally {
+            statusBarHandler.setIndexingComplete();
         }
     }
 
     async function updateIndex() {
+        statusBarHandler.setIndexingActive();
         const manifest = await loadManifest();
         const currentTime = Date.now();
         await indexSourceBible();
@@ -376,13 +387,17 @@ export async function createIndexingLanguageServer(context: vscode.ExtensionCont
         }
         manifest['lastFullReindex'] = currentTime;
         await saveManifest(manifest);
+        await new Promise(resolve => setTimeout(resolve, 5000)); // Wait for debounce
         await serializeIndex(miniSearch);
+        statusBarHandler.setIndexingComplete();
     }
 
     context.subscriptions.push(
         vscode.workspace.onDidChangeTextDocument(debouncedUpdateIndex),
         vscode.workspace.onDidOpenTextDocument(async (doc) => {
-            await indexDocument(doc);
+            if (doc.languageId === 'scripture' || doc.fileName.endsWith('.codex')) {
+                await indexDocument(doc, false);
+            }
         })
     );
 
@@ -407,39 +422,108 @@ export async function createIndexingLanguageServer(context: vscode.ExtensionCont
         vscode.window.showErrorMessage('Failed to initialize indexing.');
     });
 
-    function searchIndex(query: string) {
-        let results = miniSearch.search(query, {
-            fields: ['vref'],
+    function searchTargetVersesByQuery(query: string, k: number = 5, fuzziness: number = 0) {
+        return miniSearch.search(query, {
+            fields: ['vref', 'content'],
             combineWith: 'AND',
             prefix: false,
-            fuzzy: 0
-        });
-        if (results.length === 0) {
-            results = miniSearch.search(query, {
-                fields: ['vref', 'fullVref', 'content'],
-                combineWith: 'OR',
-                prefix: true,
-                fuzzy: 0.2,
-                boost: {
-                    vref: 2,
-                    fullVref: 3,
-                    content: 1
-                }
-            });
-        }
+            fuzzy: fuzziness,
+            filter: (result) => result.id.includes('.codex')
+        }).slice(0, k);
+    }
 
-        const maxResults = 5;
-        results = results.slice(0, maxResults);
-        return results.map(result => ({
-            id: result.id,
-            vref: result.vref,
-            fullVref: result.fullVref,
-            content: result.content,
-            uri: result.uri,
-            line: result.line,
-            isSourceBible: result.isSourceBible,
-            score: result.score
-        }));
+    function searchSourceVersesByQuery(query: string, k: number = 5, fuzziness: number = 0) {
+        return miniSearch.search(query, {
+            fields: ['vref', 'content'],
+            combineWith: 'AND',
+            prefix: false,
+            fuzzy: fuzziness,
+            filter: (result) => result.id.includes('.bible')
+        }).slice(0, k);
+    }
+
+    function getSourceVerseByVref(vref: string) {
+        return miniSearch.search(vref, {
+            fields: ['vref'],
+            combineWith: 'OR',
+            prefix: true,
+            fuzzy: 0.2,
+            boost: {
+                vref: 2,
+                content: 1
+            },
+            filter: (result) => result.id.includes('.bible') && result.id.includes(vref)
+        })[0];
+    }
+
+    function getTargetVerseByVref(vref: string) {
+        return miniSearch.search(vref, {
+            fields: ['vref'],
+            combineWith: 'OR',
+            prefix: true,
+            fuzzy: 0.2,
+            boost: {
+                vref: 2,
+                content: 1
+            },
+            filter: (result) => result.id.includes('.codex') && result.id.includes(vref)
+        })[0];
+    }
+
+    function getTranslationPairFromProject(vref: string): TranslationPair | null {
+        const sourceResults = miniSearch.search(`${vref}`, {
+            fields: ['vref'],
+            prefix: true,
+            filter: (result) => result.id.includes('.bible') && result.id.includes(vref)
+        }).filter(result => result.vref === vref);
+
+        const targetResults = miniSearch.search(`${vref}`, {
+            fields: ['vref'],
+            prefix: true,
+            filter: (result) => result.id.includes('.codex') && result.id.includes(vref)
+        }).filter(result => result.vref === vref);
+
+        console.log('Source results:', sourceResults.slice(0, 5));
+        console.log('Target results:', targetResults.slice(0, 5));
+
+        const sourceVerse = sourceResults[0];
+        const targetVerse = targetResults[0];
+
+        if (sourceVerse && targetVerse) {
+            return {
+                vref,
+                sourceVerse: sourceVerse as MiniSearchVerseResult,
+                targetVerse: targetVerse as MiniSearchVerseResult
+            };
+        }
+        return null;
+    }
+
+    function getTranslationPairsFromSourceVerseQuery(query: string) {
+        // Get the source verses that are similar to the query
+        const sourceResults = miniSearch.search(query, {
+            fields: ['vref', 'content'],
+            combineWith: 'AND',
+            prefix: false,
+            fuzzy: 0.5,
+            filter: (result) => result.id.includes('.bible')
+        });
+
+        const translationPairs = sourceResults.slice(0, 5).map(sourceVerse => {
+            const targetVerses = miniSearch.search(sourceVerse.vref, {
+                fields: ['vref'],
+                combineWith: 'AND',
+                prefix: true,
+                filter: (result) => result.id.includes('.codex') && result.content
+            });
+
+            // Find the target verse with an exact vref match
+            const targetVerse = targetVerses.find(tv => tv.vref === sourceVerse.vref);
+
+            return targetVerse ? { sourceVerse, targetVerse } : null;
+        }).filter(pair => pair !== null);
+
+        return translationPairs;
     }
 
     function processSearchResults(results: any[], query: string) {
@@ -447,22 +531,126 @@ export async function createIndexingLanguageServer(context: vscode.ExtensionCont
     }
 
     function handleTextSelection(selectedText: string) {
-        return searchIndex(selectedText);
+        return searchTargetVersesByQuery(selectedText);
     }
 
     context.subscriptions.push(...[
-        vscode.commands.registerCommand('translators-copilot.searchIndex', (query: string) => {
-            return searchIndex(query);
+        vscode.commands.registerCommand('translators-copilot.searchTargetVersesByQuery', async (query?: string, showInfo: boolean = false) => {
+            if (!query) {
+                query = await vscode.window.showInputBox({
+                    prompt: 'Enter a query to search target verses',
+                    placeHolder: 'e.g. love, faith, hope'
+                });
+                if (!query) return; // User cancelled the input
+                showInfo = true;
+            }
+            const results = await searchTargetVersesByQuery(query);
+            if (showInfo) {
+                vscode.window.showInformationMessage(`Found ${results.length} results for query: ${query}`);
+            }
+            return results;
+        }),
+        vscode.commands.registerCommand('translators-copilot.searchSourceVersesByQuery', async (query?: string, showInfo: boolean = false) => {
+            console.log('Executing searchSourceVersesByQuery with query:', query);
+            if (!query) {
+                query = await vscode.window.showInputBox({
+                    prompt: 'Enter a query to search source verses',
+                    placeHolder: 'e.g. love, faith, hope'
+                });
+                if (!query) return; // User cancelled the input
+                showInfo = true;
+            }
+            const results = await searchSourceVersesByQuery(query);
+            if (showInfo && results.length > 0) {
+                vscode.window.showInformationMessage(`Source verses for query: ${query}`);
+            }
+            return results;
+        }),
+        vscode.commands.registerCommand('translators-copilot.getSourceVerseByVref', async (vref?: string, showInfo: boolean = false) => {
+            if (!vref) {
+                vref = await vscode.window.showInputBox({
+                    prompt: 'Enter a verse reference',
+                    placeHolder: 'e.g. GEN 1:1'
+                });
+                if (!vref) return; // User cancelled the input
+                showInfo = true;
+            }
+            const results = await getSourceVerseByVref(vref);
+            if (showInfo && results.length > 0) {
+                vscode.window.showInformationMessage(`Source verse for ${vref}: ${results[0].content}`);
+            }
+            return results;
+        }),
+        vscode.commands.registerCommand('translators-copilot.getTargetVerseByVref', async (vref?: string, showInfo: boolean = false) => {
+            if (!vref) {
+                vref = await vscode.window.showInputBox({
+                    prompt: 'Enter a verse reference',
+                    placeHolder: 'e.g. GEN 1:1'
+                });
+                if (!vref) return; // User cancelled the input
+                showInfo = true;
+            }
+            const results = await getTargetVerseByVref(vref);
+            if (showInfo && results.length > 0) {
+                vscode.window.showInformationMessage(`Target verse for ${vref}: ${results[0].content}`);
+            }
+            return results;
+        }),
+        vscode.commands.registerCommand('translators-copilot.getTranslationPairFromProject', async (vref?: string, showInfo: boolean = false) => {
+            if (!vref) {
+                vref = await vscode.window.showInputBox({
+                    prompt: 'Enter a verse reference',
+                    placeHolder: 'e.g. GEN 1:1'
+                });
+                if (!vref) return; // User cancelled the input
+                showInfo = true;
+            }
+            const result = await getTranslationPairFromProject(vref);
+            if (showInfo) {
+                if (result) {
+                    vscode.window.showInformationMessage(`Translation pair for ${vref}: Source: ${result.sourceVerse.content}, Target: ${result.targetVerse.content}`);
+                } else {
+                    vscode.window.showInformationMessage(`No translation pair found for ${vref}`);
+                }
+            }
+            return result;
+        }),
+        vscode.commands.registerCommand('translators-copilot.getTranslationPairsFromSourceVerseQuery', async (query?: string, showInfo: boolean = false) => {
+            if (!query) {
+                query = await vscode.window.showInputBox({
+                    prompt: 'Enter a query to search for translation pairs',
+                    placeHolder: 'e.g. love, faith, hope'
+                });
+                if (!query) return; // User cancelled the input
+                showInfo = true;
+            }
+            const results = getTranslationPairsFromSourceVerseQuery(query);
+            if (showInfo && results.length > 0) {
+                vscode.window.showInformationMessage(`Found ${results.length} translation pairs for query: ${query}`);
+            }
+            return results;
         }),
         vscode.commands.registerCommand('translators-copilot.forceReindex', async () => {
             vscode.window.showInformationMessage('Force re-indexing started');
             await rebuildFullIndex();
             vscode.window.showInformationMessage('Force re-indexing completed');
+        }),
+        vscode.commands.registerCommand('translators-copilot.showIndexOptions', async () => {
+            const option = await vscode.window.showQuickPick(['Force Reindex'], {
+                placeHolder: 'Select an indexing option'
+            });
+
+            if (option === 'Force Reindex') {
+                vscode.commands.executeCommand('translators-copilot.forceReindex');
+            }
         })
     ]);
 
     const functionsToExpose = {
         handleTextSelection,
+        searchTargetVersesByQuery,
+        getSourceVerseByVref,
+        getTargetVerseByVref
     };
 
     return functionsToExpose;

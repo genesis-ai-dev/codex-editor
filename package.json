@@ -284,9 +284,34 @@
                 "title": "Extract Verse Reference from Current Line"
             },
             {
-                "command": "verseIndexer.searchIndex",
-                "title": "Search Verse Index",
-                "category": "Verse Indexer"
+                "command": "translators-copilot.searchTargetVersesByQuery",
+                "title": "Search Target Verses",
+                "category": "Translators Copilot"
+            },
+            {
+                "command": "translators-copilot.searchSourceVersesByQuery",
+                "title": "Search Source Verses",
+                "category": "Translators Copilot"
+            },
+            {
+                "command": "translators-copilot.getSourceVerseByVref",
+                "title": "Get Source Verse by Vref",
+                "category": "Translators Copilot"
+            },
+            {
+                "command": "translators-copilot.getTranslationPairFromProject",
+                "title": "Get Translation Pair from Project",
+                "category": "Translators Copilot"
+            },
+            {
+                "command": "translators-copilot.showIndexOptions",
+                "title": "Show Index Options",
+                "category": "Translators Copilot"
+            },
+            {
+                "command": "translators-copilot.getTargetVerseByVref",
+                "title": "Get Target Verse by Vref",
+                "category": "Translators Copilot"
             },
             {
                 "command": "verseIndexer.rebuildFullIndex",

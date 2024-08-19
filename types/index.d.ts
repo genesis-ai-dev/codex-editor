@@ -142,3 +142,24 @@ type SpellCheckDiagnostic = {
     severity: vscode.DiagnosticSeverity;
     source: string;
 }
+
+type MiniSearchVerseResult = {
+    book: string;
+    chapter: string;
+    content: string;
+    id: string;
+    isSourceBible: boolean;
+    line: number;
+    match: { [key: string]: string[] };
+    queryTerms: string[];
+    score: number;
+    terms: string[];
+    uri: string;
+    vref: string;
+}
+
+type TranslationPair = {
+    vref: string;
+    sourceVerse: MiniSearchVerseResult;
+    targetVerse: MiniSearchVerseResult;
+}

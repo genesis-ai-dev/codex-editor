@@ -127,10 +127,20 @@ async function verseCompletion(document: vscode.TextDocument, position: vscode.P
     const currentLineText = document.lineAt(position.line).text;
     const currentPosition = position.character;
 
-    // Generate LLM completion
     const { completion, context } = await llmCompletion(document, position, completionConfig, token);
+    if (!completion) {
+        vscode.window.showErrorMessage("No completion returned from LLM");
+        return completions;
+    }
+
+    // Create a mock completion
+    // const completion = 'mock completion';
+    // const context = { mock: true };
+
     const meshedCompletion = meshCompletion(currentLineText.substring(0, currentPosition), completion);
-    const completionRange = new vscode.Range(position.line, currentPosition, position.line, currentLineText.length);
+    const completionStart = currentPosition - meshedCompletion.length + completion.length;
+    const completionRange = new vscode.Range(position.line, completionStart, position.line, currentLineText.length);
+
     completions.push(new vscode.InlineCompletionItem(meshedCompletion, completionRange));
     (completions[0] as any).context = context; // Store context for CodeLens
 
