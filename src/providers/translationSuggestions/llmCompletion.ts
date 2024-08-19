@@ -21,7 +21,7 @@ export async function llmCompletion(
 
     console.log('hiuhiueh, source verse:', sourceVerse);
     // Ensure sourceVerse.content is a string
-    const sourceContent = typeof sourceVerse.content === 'string' ? sourceVerse.content : JSON.stringify(sourceVerse.content);
+    const sourceContent = typeof sourceVerse?.content === 'string' ? sourceVerse.content : JSON.stringify(sourceVerse?.content);
     console.log('hiuhiueh sourceContent:', sourceContent);
     const translationPairs: TranslationPair[] = await vscode.commands.executeCommand('translators-copilot.getTranslationPairsFromSourceVerseQuery', sourceContent);
     console.log('hiuhiueh, translation pairs for similar verses:', translationPairs);

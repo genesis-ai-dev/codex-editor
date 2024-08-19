@@ -8,19 +8,21 @@ import { createIndexWithContext } from './minisearchIndexer';
 
 export async function initializeLanguageServer(context: vscode.ExtensionContext) {
     const workspaceFolder = getWorkSpaceFolder();
-    
+
     const config = vscode.workspace.getConfiguration('translation-assistant-server');
     const isAssistantEnabled = config.get<boolean>('enable', true);
     if (!isAssistantEnabled) {
         return;
     }
 
+    createIndexWithContext(context);
+
     const spellChecker = new SpellChecker(workspaceFolder);
     await spellChecker.initializeDictionary();
 
     const diagnosticsProvider = new SpellCheckDiagnosticsProvider(spellChecker);
     const codeActionProvider = new SpellCheckCodeActionProvider(spellChecker);
-    
+
     context.subscriptions.push(
         vscode.languages.registerCodeActionsProvider('scripture', codeActionProvider),
         vscode.workspace.onDidOpenTextDocument(doc => {

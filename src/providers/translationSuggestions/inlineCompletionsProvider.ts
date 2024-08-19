@@ -1,7 +1,6 @@
 import * as vscode from "vscode";
 import { llmCompletion } from "./llmCompletion";
 // import { getAiTranslation } from "./aiZeroDraftProvider";
-import { extractVerseRefFromLine } from '../../utils/verseRefUtils';
 import { meshCompletion } from '../../utils/completionUtils';
 
 let shouldProvideCompletion = false;
