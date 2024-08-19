@@ -47,6 +47,7 @@ export async function activate(context: vscode.ExtensionContext) {
     await indexVerseRefsInSourceText();
     await handleConfig();
     await activateLanguageServer(context);
+
     await initializeWebviews(context);
     registerReferencesCodeLens(context);
     registerSourceCodeLens(context);
