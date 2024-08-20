@@ -289,18 +289,23 @@
                 "category": "Translators Copilot"
             },
             {
-                "command": "translators-copilot.searchSourceVersesByQuery",
+                "command": "translators-copilot.getTranslationPairsFromSourceVerseQuery",
                 "title": "Search Source Verses",
                 "category": "Translators Copilot"
             },
             {
-                "command": "translators-copilot.getSourceVerseByVref",
+                "command": "translators-copilot.getSourceVerseByVrefFromAllSourceVerses",
                 "title": "Get Source Verse by Vref",
                 "category": "Translators Copilot"
             },
             {
                 "command": "translators-copilot.getTranslationPairFromProject",
                 "title": "Get Translation Pair from Project",
+                "category": "Translators Copilot"
+            },
+            {
+                "command": "translators-copilot.getTranslationPairsFromSourceVerseQuery",
+                "title": "Get Translation Pairs from Source Verse Query",
                 "category": "Translators Copilot"
             },
             {

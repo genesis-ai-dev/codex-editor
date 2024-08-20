@@ -3,7 +3,7 @@
 import * as vscode from "vscode";
 import { getWorkSpaceFolder } from "../../../utils";
 import { SpellChecker, SpellCheckDiagnosticsProvider, SpellCheckCodeActionProvider } from './spellCheck';
-import { createIndexWithContext } from './minisearchIndexer';
+import { createIndexWithContext } from "./indexes";
 
 
 export async function initializeLanguageServer(context: vscode.ExtensionContext) {

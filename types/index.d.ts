@@ -119,9 +119,9 @@ type OBSRef = {
     paragraph: string;
 };
 
-type Dictionary = {
-    entries: DictionaryEntry[];
-}
+// type Dictionary = {
+//     entries: DictionaryEntry[];
+// }
 
 type DictionaryEntry = {
     id: string;
@@ -158,8 +158,21 @@ type MiniSearchVerseResult = {
     vref: string;
 }
 
+type MinimalVerseResult = {
+    vref: string,
+    content: string,
+    uri: string,
+    line: number,
+}
+
 type TranslationPair = {
     vref: string;
-    sourceVerse: MiniSearchVerseResult;
-    targetVerse: MiniSearchVerseResult;
+    sourceVerse: MinimalVerseResult;
+    targetVerse: MinimalVerseResult;
+}
+
+type SourceVerseVersions = {
+    vref: string;
+    content: string;
+    versions: string[];
 }
