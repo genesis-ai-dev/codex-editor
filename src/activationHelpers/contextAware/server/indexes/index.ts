@@ -59,119 +59,116 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         }
     }
 
-    if (!translationPairsIndex || !sourceBibleIndex) {
-        await rebuildIndexes();
-    } else {
-        // Push commands to the context once the indexes are built
-        context.subscriptions.push(...[
-            vscode.commands.registerCommand('translators-copilot.searchTargetVersesByQuery', async (query?: string, showInfo: boolean = false) => {
-                if (!query) {
-                    query = await vscode.window.showInputBox({
-                        prompt: 'Enter a query to search target verses',
-                        placeHolder: 'e.g. love, faith, hope'
-                    });
-                    if (!query) return; // User cancelled the input
-                    showInfo = true;
-                }
-                const results = await searchTargetVersesByQuery(translationPairsIndex, query);
-                if (showInfo) {
-                    vscode.window.showInformationMessage(`Found ${results.length} results for query: ${query}`);
-                }
-                return results;
-            }),
-            /** 
-             * This `getTranslationPairsFromSourceVerseQuery` command uses the 
-             * translation pair index to search for source verse. This ensures that 
-             * the source verses are paired up with populated target verses.
-             */
-            vscode.commands.registerCommand('translators-copilot.getTranslationPairsFromSourceVerseQuery', async (query?: string, showInfo: boolean = false) => {
-                console.log('Executing getTranslationPairsFromSourceVerseQuery with query:', query);
-                if (!query) {
-                    query = await vscode.window.showInputBox({
-                        prompt: 'Enter a query to search source verses',
-                        placeHolder: 'e.g. love, faith, hope'
-                    });
-                    if (!query) return []; // User cancelled the input
-                    showInfo = true;
-                }
-                const results = getTranslationPairsFromSourceVerseQuery(translationPairsIndex, query);
-                if (showInfo && results.length > 0) {
-                    vscode.window.showInformationMessage(`Source verses for query: ${query}`);
-                }
-                return results;
-            }),
-            /**
-             * This `getSourceVerseByVrefFromAllSourceVerses` command uses the source bible index to get a 
-             * source verse by verse reference. We need to use this index because the current
-             * verse being 'autocompleted' is probably not populated in the translation pairs
-             * index, because it hasn't been translated yet.
-             */
-            vscode.commands.registerCommand('translators-copilot.getSourceVerseByVrefFromAllSourceVerses', async (vref?: string, showInfo: boolean = false) => {
-                if (!vref) {
-                    vref = await vscode.window.showInputBox({
-                        prompt: 'Enter a verse reference',
-                        placeHolder: 'e.g. GEN 1:1'
-                    });
-                    if (!vref) return; // User cancelled the input
-                    showInfo = true;
-                }
-                const results = await getSourceVerseByVrefFromAllSourceVerses(sourceBibleIndex, vref);
-                if (showInfo && results) {
-                    vscode.window.showInformationMessage(`Source verse for ${vref}: ${results.content}`);
-                }
-                return results;
-            }),
-            vscode.commands.registerCommand('translators-copilot.getTargetVerseByVref', async (vref?: string, showInfo: boolean = false) => {
-                if (!vref) {
-                    vref = await vscode.window.showInputBox({
-                        prompt: 'Enter a verse reference',
-                        placeHolder: 'e.g. GEN 1:1'
-                    });
-                    if (!vref) return; // User cancelled the input
-                    showInfo = true;
-                }
-                const results = await getTargetVerseByVref(translationPairsIndex, vref);
-                if (showInfo && results) {
-                    vscode.window.showInformationMessage(`Target verse for ${vref}: ${results.targetContent}`);
-                }
-                return results;
-            }),
-            vscode.commands.registerCommand('translators-copilot.getTranslationPairFromProject', async (vref?: string, showInfo: boolean = false) => {
-                if (!vref) {
-                    vref = await vscode.window.showInputBox({
-                        prompt: 'Enter a verse reference',
-                        placeHolder: 'e.g. GEN 1:1'
-                    });
-                    if (!vref) return; // User cancelled the input
-                    showInfo = true;
-                }
-                const result = await getTranslationPairFromProject(translationPairsIndex, vref);
-                if (showInfo) {
-                    if (result) {
-                        vscode.window.showInformationMessage(`Translation pair for ${vref}: Source: ${result.sourceVerse.content}, Target: ${result.targetVerse.content}`);
-                    } else {
-                        vscode.window.showInformationMessage(`No translation pair found for ${vref}`);
-                    }
-                }
-                return result;
-            }),
-            vscode.commands.registerCommand('translators-copilot.forceReindex', async () => {
-                vscode.window.showInformationMessage('Force re-indexing started');
-                await rebuildIndexes();
-                vscode.window.showInformationMessage('Force re-indexing completed');
-            }),
-            vscode.commands.registerCommand('translators-copilot.showIndexOptions', async () => {
-                const option = await vscode.window.showQuickPick(['Force Reindex'], {
-                    placeHolder: 'Select an indexing option'
+    await rebuildIndexes();
+
+    // Push commands to the context once the indexes are built
+    context.subscriptions.push(...[
+        vscode.commands.registerCommand('translators-copilot.searchTargetVersesByQuery', async (query?: string, showInfo: boolean = false) => {
+            if (!query) {
+                query = await vscode.window.showInputBox({
+                    prompt: 'Enter a query to search target verses',
+                    placeHolder: 'e.g. love, faith, hope'
                 });
-
-                if (option === 'Force Reindex') {
-                    await rebuildIndexes();
+                if (!query) return; // User cancelled the input
+                showInfo = true;
+            }
+            const results = await searchTargetVersesByQuery(translationPairsIndex, query);
+            if (showInfo) {
+                vscode.window.showInformationMessage(`Found ${results.length} results for query: ${query}`);
+            }
+            return results;
+        }),
+        /** 
+         * This `getTranslationPairsFromSourceVerseQuery` command uses the 
+         * translation pair index to search for source verse. This ensures that 
+         * the source verses are paired up with populated target verses.
+         */
+        vscode.commands.registerCommand('translators-copilot.getTranslationPairsFromSourceVerseQuery', async (query?: string, showInfo: boolean = false) => {
+            console.log('Executing getTranslationPairsFromSourceVerseQuery with query:', query);
+            if (!query) {
+                query = await vscode.window.showInputBox({
+                    prompt: 'Enter a query to search source verses',
+                    placeHolder: 'e.g. love, faith, hope'
+                });
+                if (!query) return []; // User cancelled the input
+                showInfo = true;
+            }
+            const results = getTranslationPairsFromSourceVerseQuery(translationPairsIndex, query);
+            if (showInfo && results.length > 0) {
+                vscode.window.showInformationMessage(`Source verses for query: ${query}`);
+            }
+            return results;
+        }),
+        /**
+         * This `getSourceVerseByVrefFromAllSourceVerses` command uses the source bible index to get a 
+         * source verse by verse reference. We need to use this index because the current
+         * verse being 'autocompleted' is probably not populated in the translation pairs
+         * index, because it hasn't been translated yet.
+         */
+        vscode.commands.registerCommand('translators-copilot.getSourceVerseByVrefFromAllSourceVerses', async (vref?: string, showInfo: boolean = false) => {
+            if (!vref) {
+                vref = await vscode.window.showInputBox({
+                    prompt: 'Enter a verse reference',
+                    placeHolder: 'e.g. GEN 1:1'
+                });
+                if (!vref) return; // User cancelled the input
+                showInfo = true;
+            }
+            const results = await getSourceVerseByVrefFromAllSourceVerses(sourceBibleIndex, vref);
+            if (showInfo && results) {
+                vscode.window.showInformationMessage(`Source verse for ${vref}: ${results.content}`);
+            }
+            return results;
+        }),
+        vscode.commands.registerCommand('translators-copilot.getTargetVerseByVref', async (vref?: string, showInfo: boolean = false) => {
+            if (!vref) {
+                vref = await vscode.window.showInputBox({
+                    prompt: 'Enter a verse reference',
+                    placeHolder: 'e.g. GEN 1:1'
+                });
+                if (!vref) return; // User cancelled the input
+                showInfo = true;
+            }
+            const results = await getTargetVerseByVref(translationPairsIndex, vref);
+            if (showInfo && results) {
+                vscode.window.showInformationMessage(`Target verse for ${vref}: ${results.targetContent}`);
+            }
+            return results;
+        }),
+        vscode.commands.registerCommand('translators-copilot.getTranslationPairFromProject', async (vref?: string, showInfo: boolean = false) => {
+            if (!vref) {
+                vref = await vscode.window.showInputBox({
+                    prompt: 'Enter a verse reference',
+                    placeHolder: 'e.g. GEN 1:1'
+                });
+                if (!vref) return; // User cancelled the input
+                showInfo = true;
+            }
+            const result = await getTranslationPairFromProject(translationPairsIndex, vref);
+            if (showInfo) {
+                if (result) {
+                    vscode.window.showInformationMessage(`Translation pair for ${vref}: Source: ${result.sourceVerse.content}, Target: ${result.targetVerse.content}`);
+                } else {
+                    vscode.window.showInformationMessage(`No translation pair found for ${vref}`);
                 }
-            })
-        ]);
-    }
+            }
+            return result;
+        }),
+        vscode.commands.registerCommand('translators-copilot.forceReindex', async () => {
+            vscode.window.showInformationMessage('Force re-indexing started');
+            await rebuildIndexes();
+            vscode.window.showInformationMessage('Force re-indexing completed');
+        }),
+        vscode.commands.registerCommand('translators-copilot.showIndexOptions', async () => {
+            const option = await vscode.window.showQuickPick(['Force Reindex'], {
+                placeHolder: 'Select an indexing option'
+            });
 
+            if (option === 'Force Reindex') {
+                await rebuildIndexes();
+            }
+        })
+    ]);
 
     const functionsToExpose = {
         handleTextSelection,
