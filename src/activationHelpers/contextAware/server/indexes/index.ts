@@ -83,8 +83,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
          * translation pair index to search for source verse. This ensures that 
          * the source verses are paired up with populated target verses.
          */
-        vscode.commands.registerCommand('translators-copilot.getTranslationPairsFromSourceVerseQuery', async (query?: string, showInfo: boolean = false) => {
-            console.log('Executing getTranslationPairsFromSourceVerseQuery with query:', query);
+        vscode.commands.registerCommand('translators-copilot.getTranslationPairsFromSourceVerseQuery', async (query?: string, k: number = 10, showInfo: boolean = false) => {
             if (!query) {
                 query = await vscode.window.showInputBox({
                     prompt: 'Enter a query to search source verses',
@@ -93,7 +92,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 if (!query) return []; // User cancelled the input
                 showInfo = true;
             }
-            const results = getTranslationPairsFromSourceVerseQuery(translationPairsIndex, query);
+            const results = getTranslationPairsFromSourceVerseQuery(translationPairsIndex, query, k);
             if (showInfo && results.length > 0) {
                 vscode.window.showInformationMessage(`Source verses for query: ${query}`);
             }
