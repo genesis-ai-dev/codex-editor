@@ -70,7 +70,6 @@ export async function downloadBible() {
                 const sourceTextBiblePathUri =
                     vscode.Uri.file(sourceTextBiblePath);
                 try {
-                    console.log("Checking if source text bible exists");
                     await vscode.workspace.fs.stat(sourceTextBiblePathUri);
                     vscode.window.showInformationMessage(
                         `Source text bible ${selectedCorpusMetadata.file} already exists.`,

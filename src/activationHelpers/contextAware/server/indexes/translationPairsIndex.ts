@@ -16,17 +16,13 @@ export interface minisearchDoc {
 }
 
 export async function createTranslationPairsIndex(context: vscode.ExtensionContext, translationPairsIndex: MiniSearch<minisearchDoc>, workspaceFolder: string | undefined, statusBarHandler: StatusBarHandler): Promise<void> {
-    console.log('Starting createTranslationPairsIndex');
 
     if (!workspaceFolder) {
         console.warn('Workspace folder not found for Translation Pairs Index. Returning empty index.');
         return;
     }
 
-    console.log('MiniSearch instance created');
-
     async function indexAllDocuments(): Promise<number> {
-        console.log('Starting indexAllDocuments');
         let indexed = 0;
         if (!workspaceFolder) {
             vscode.window.showErrorMessage('Workspace folder not found.');
@@ -56,8 +52,6 @@ export async function createTranslationPairsIndex(context: vscode.ExtensionConte
             }
         }
 
-        console.log('targetVerseMap:', targetVerseMap);
-
         // Index source verses only if they have a corresponding target verse
         for (const file of sourceBibleFiles) {
             try {
@@ -70,7 +64,6 @@ export async function createTranslationPairsIndex(context: vscode.ExtensionConte
         }
 
         console.log(`Total verses indexed: ${indexed}`);
-        console.log('Sample document from translationPairsIndex:', translationPairsIndex.search('*')[0]);
         return indexed;
     }
 
@@ -85,7 +78,6 @@ export async function createTranslationPairsIndex(context: vscode.ExtensionConte
                 try {
                     translationPairsIndex.addAll(batch);
                     indexedCount += batch.length;
-                    console.log('added to translationPairsIndex:', batch[0]);
                 } catch (error) {
                     if (error instanceof Error && error.message.includes('duplicate ID')) {
                         processBatchRecursively(batch);
@@ -200,11 +192,8 @@ export async function createTranslationPairsIndex(context: vscode.ExtensionConte
 
     // Build the index
 
-    console.log('Starting index initialization');
     await initializeIndexing().catch(error => {
         console.error('Error initializing indexing:', error);
         vscode.window.showErrorMessage('Failed to initialize indexing.');
     });
-
-    console.log('Returning translationPairsIndex');
 }

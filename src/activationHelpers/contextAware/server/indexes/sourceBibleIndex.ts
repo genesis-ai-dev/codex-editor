@@ -37,8 +37,6 @@ export async function createSourceBibleIndex(sourceBibleIndex: MiniSearch<Source
         versions,
     }));
 
-    console.log('documents added to sourceBibleIndex:', documents);
-
     sourceBibleIndex.addAll(documents);
     console.log(`Source Bible index created with ${sourceBibleIndex.documentCount} verses`);
 

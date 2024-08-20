@@ -12,12 +12,9 @@ export function searchTargetVersesByQuery(translationPairsIndex: MiniSearch, que
 }
 
 export function getSourceVerseByVrefFromAllSourceVerses(sourceBibleIndex: MiniSearch, vref: string): SourceVerseVersions | null {
-    console.log('Executing getSourceVerseByVrefFromAllSourceVerses with vref:', vref);
 
     // Directly get the document from the index
     const result = sourceBibleIndex.getStoredFields(vref);
-
-    console.log('getSourceVerseByVrefFromAllSourceVerses result:', result);
 
     if (result) {
         return {
@@ -70,8 +67,6 @@ export function getTranslationPairsFromSourceVerseQuery(translationPairsIndex: M
         boost: { sourceContent: 2 }
     });
 
-    console.log('results after first search:', results);
-
     // If we still don't have enough results, try a more lenient search
     if (results.length < k) {
         results = translationPairsIndex.search(query, {
@@ -86,8 +81,6 @@ export function getTranslationPairsFromSourceVerseQuery(translationPairsIndex: M
         });
     }
 
-    console.log('results after second search:', results);
-
     // If we still don't have results, get all entries
     if (results.length === 0) {
         results = translationPairsIndex.search('*', {
@@ -95,8 +88,6 @@ export function getTranslationPairsFromSourceVerseQuery(translationPairsIndex: M
             boost: { vref: 1 }
         });
     }
-
-    console.log('results after third search:', results);
 
     return results.slice(0, k).map(result => ({
         vref: result.vref,

@@ -89,6 +89,5 @@ export function searchVerseRefPositionIndex(searchString: string) {
             filter: (result) => result.vref === normalizedSearchString,
         },
     ) as any;
-    console.log(results);
     return results;
 }
