@@ -4,7 +4,7 @@ import * as vscode from "vscode";
 import { getWorkSpaceFolder } from "../../../utils";
 import { SpellChecker, SpellCheckDiagnosticsProvider, SpellCheckCodeActionProvider } from './spellCheck';
 import { createIndexWithContext } from "./indexes";
-
+import { registerWordSuggestionProvider } from './forecasting';
 
 export async function initializeLanguageServer(context: vscode.ExtensionContext) {
     const workspaceFolder = getWorkSpaceFolder();
@@ -22,6 +22,8 @@ export async function initializeLanguageServer(context: vscode.ExtensionContext)
 
     const diagnosticsProvider = new SpellCheckDiagnosticsProvider(spellChecker);
     const codeActionProvider = new SpellCheckCodeActionProvider(spellChecker);
+
+    registerWordSuggestionProvider(context);
 
     context.subscriptions.push(
         vscode.languages.registerCodeActionsProvider('scripture', codeActionProvider),
