@@ -103,6 +103,8 @@ export class SpellChecker {
     }
 
     async addToDictionary(word: string) {
+        word = word.toLowerCase().replace(/[^\p{L}\s]/gu, "").trim();
+        
         if (!this.dictionary) {
             this.dictionary = { entries: [] };
         }
@@ -225,4 +227,78 @@ export class SpellCheckCodeActionProvider implements vscode.CodeActionProvider {
 
         return actions;
     }
+}
+
+export class SpellCheckCompletionItemProvider implements vscode.CompletionItemProvider {
+    private spellChecker: SpellChecker;
+
+    constructor(spellChecker: SpellChecker) {
+        this.spellChecker = spellChecker;
+    }
+
+    provideCompletionItems(
+        document: vscode.TextDocument,
+        position: vscode.Position,
+        token: vscode.CancellationToken,
+        context: vscode.CompletionContext
+    ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
+        const linePrefix = document.lineAt(position).text.substr(0, position.character);
+        const wordMatch = linePrefix.match(/\S+$/);
+        if (!wordMatch) {
+            return undefined;
+        }
+
+        const currentWord = wordMatch[0];
+        const spellCheckResult = this.spellChecker.spellCheck(currentWord);
+
+        return spellCheckResult.corrections.map(suggestion => {
+            const completionItem = new vscode.CompletionItem(suggestion);
+            completionItem.kind = vscode.CompletionItemKind.Text;
+            completionItem.detail = 'Spelling suggestion';
+            completionItem.range = new vscode.Range(position.translate(0, -currentWord.length), position);
+            return completionItem;
+        });
+    }
+}
+export function registerSpellCheckProviders(context: vscode.ExtensionContext, spellChecker: SpellChecker) {
+    const diagnosticsProvider = new SpellCheckDiagnosticsProvider(spellChecker);
+    const codeActionProvider = new SpellCheckCodeActionProvider(spellChecker);
+    const completionItemProvider = new SpellCheckCompletionItemProvider(spellChecker);
+
+    context.subscriptions.push(
+        vscode.languages.registerCodeActionsProvider('scripture', codeActionProvider),
+        vscode.languages.registerCompletionItemProvider('scripture', completionItemProvider),
+        vscode.workspace.onDidOpenTextDocument(doc => {
+            if (doc.fileName.endsWith('.bible')) {
+                return;
+            }
+            if (doc.languageId === 'scripture') {
+                diagnosticsProvider.updateDiagnostics(doc);
+            }
+        }),
+        vscode.workspace.onDidChangeTextDocument(event => {
+            if (event.document.fileName.endsWith('.bible')) {
+                return;
+            }
+            if (event.document.languageId === 'scripture') {
+                diagnosticsProvider.updateDiagnostics(event.document);
+                vscode.commands.executeCommand('editor.action.triggerSuggest');
+            }
+        }),
+        vscode.commands.registerCommand('extension.addToDictionary', async (word: string) => {
+            await spellChecker.addToDictionary(word);
+            vscode.window.showInformationMessage(`Added '${word}' to dictionary.`);
+            diagnosticsProvider.refreshDiagnostics();
+        })
+    );
+
+    // Update diagnostics for all open documents
+    vscode.workspace.textDocuments.forEach(document => {
+        if (document.fileName.endsWith('.bible')) {
+            return;
+        }
+        if (document.languageId === 'scripture') {
+            diagnosticsProvider.updateDiagnostics(document);
+        }
+    });
 }
