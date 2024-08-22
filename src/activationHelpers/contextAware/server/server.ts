@@ -2,9 +2,9 @@
 "use strict";
 import * as vscode from "vscode";
 import { getWorkSpaceFolder } from "../../../utils";
-import { SpellChecker, SpellCheckDiagnosticsProvider, SpellCheckCodeActionProvider } from './spellCheck';
+import { SpellChecker, SpellCheckDiagnosticsProvider, SpellCheckCodeActionProvider, SpellCheckCompletionItemProvider, registerSpellCheckProviders } from './spellCheck';
 import { createIndexWithContext } from "./indexes";
-
+import { registerWordSuggestionProvider } from './forecasting';
 
 export async function initializeLanguageServer(context: vscode.ExtensionContext) {
     const workspaceFolder = getWorkSpaceFolder();
@@ -20,32 +20,16 @@ export async function initializeLanguageServer(context: vscode.ExtensionContext)
     const spellChecker = new SpellChecker(workspaceFolder);
     await spellChecker.initializeDictionary();
 
-    const diagnosticsProvider = new SpellCheckDiagnosticsProvider(spellChecker);
-    const codeActionProvider = new SpellCheckCodeActionProvider(spellChecker);
+    registerSpellCheckProviders(context, spellChecker);
+    registerWordSuggestionProvider(context);
 
-    context.subscriptions.push(
-        vscode.languages.registerCodeActionsProvider('scripture', codeActionProvider),
-        vscode.workspace.onDidOpenTextDocument(doc => {
-            if (doc.fileName.endsWith('.bible')) {
-                return;
-            }
-            if (doc.languageId === 'scripture') {
-                // TODO: should we break out resource heavy diagnostics into a separate diagnostic provider?
-                diagnosticsProvider.updateDiagnostics(doc);
-            }
-        }),
-        vscode.workspace.onDidChangeTextDocument(event => {
-            if (event.document.languageId === 'scripture') {
-                diagnosticsProvider.updateDiagnostics(event.document);
-                // TODO: update resource-intensive diagnostics here, but not on the open event
-            }
-        }),
-        vscode.commands.registerCommand('extension.addToDictionary', async (word: string) => {
-            await spellChecker.addToDictionary(word);
-            vscode.window.showInformationMessage(`Added '${word}' to dictionary.`);
-            diagnosticsProvider.refreshDiagnostics();
-        })
-    );
+    // Update diagnostics for all open documents
+    vscode.workspace.textDocuments.forEach(document => {
+        if (document.languageId === 'scripture') {
+            const diagnosticsProvider = new SpellCheckDiagnosticsProvider(spellChecker);
+            diagnosticsProvider.updateDiagnostics(document);
+        }
+    });
 }
 
 // - Add LAD (Linguistic Anomaly Detection) diagnostics (port from servable_lad.py)

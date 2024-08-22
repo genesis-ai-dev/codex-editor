@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import MiniSearch from 'minisearch';
 import * as vscode from 'vscode';
 import { verseRefRegex } from '../../../../utils/verseRefUtils';
@@ -22,6 +24,8 @@ export async function createTranslationPairsIndex(context: vscode.ExtensionConte
         return;
     }
 
+    let completeDraft = '';
+
     async function indexAllDocuments(): Promise<number> {
         let indexed = 0;
         if (!workspaceFolder) {
@@ -29,42 +33,61 @@ export async function createTranslationPairsIndex(context: vscode.ExtensionConte
             return indexed;
         }
 
-        const sourceBibleFiles = await vscode.workspace.findFiles('**/*.bible');
         const targetBibleFiles = await vscode.workspace.findFiles('**/*.codex');
 
-        // Create a map of verse references to target verses
-        const targetVerseMap = new Map<string, string>();
+        // Process .codex files for indexing and complete draft
         for (const file of targetBibleFiles) {
-            const document = await vscode.workspace.openNotebookDocument(file);
-            const cells = document.getCells();
-            for (const cell of cells) {
-                const lines = cell.document.getText().split('\n');
-                for (const line of lines) {
-                    const match = line.match(verseRefRegex);
-                    if (match) {
-                        const [vref] = match;
-                        const verseContent = line.substring(match.index! + match[0].length).trim();
-                        if (verseContent) {
-                            targetVerseMap.set(vref, verseContent);
+            try {
+                const document = await vscode.workspace.openNotebookDocument(file);
+                const cells = document.getCells();
+                for (const cell of cells) {
+                    const lines = cell.document.getText().split('\n');
+                    for (const line of lines) {
+                        const match = line.match(verseRefRegex);
+                        if (match) {
+                            const [vref] = match;
+                            const verseContent = line.substring(match.index! + match[0].length).trim();
+                            if (verseContent) {
+                                // Add to index
+                                const indexedDoc = createIndexDoc(vref, verseContent, file.fsPath, indexed);
+                                translationPairsIndex.add(indexedDoc);
+                                indexed++;
+
+                                // Add to complete draft
+                                completeDraft += verseContent + '\n';
+                            }
                         }
                     }
                 }
+            } catch (error) {
+                console.error(`Error processing file ${file.fsPath}:`, error);
+                vscode.window.showErrorMessage(`Failed to process file: ${file.fsPath}`);
             }
         }
 
-        // Index source verses only if they have a corresponding target verse
-        for (const file of sourceBibleFiles) {
-            try {
-                const document = await vscode.workspace.openTextDocument(file);
-                indexed += await indexDocument(document, targetVerseMap);
-            } catch (error) {
-                console.error(`Error indexing file ${file.fsPath}:`, error);
-                vscode.window.showErrorMessage(`Failed to index file: ${file.fsPath}`);
-            }
-        }
+        // Write the complete draft to a file
+        const completeDraftPath = path.join(workspaceFolder, '.project', 'complete_draftts.txt');
+        fs.writeFileSync(completeDraftPath, completeDraft);
 
         console.log(`Total verses indexed: ${indexed}`);
+        console.log(`Complete draft created at: ${completeDraftPath}`);
         return indexed;
+    }
+
+    function createIndexDoc(vref: string, content: string, uri: string, id: number): minisearchDoc {
+        const [book, chapterVerse] = vref.split(' ');
+        const [chapter, verse] = chapterVerse.split(':');
+        return {
+            id: id.toString(),
+            vref,
+            book,
+            chapter,
+            verse,
+            sourceContent: '', // Empty for .codex files
+            targetContent: content,
+            uri,
+            line: -1 // We don't have line numbers for .codex files
+        };
     }
 
     async function indexDocument(document: vscode.TextDocument, targetVerseMap: Map<string, string>): Promise<number> {
