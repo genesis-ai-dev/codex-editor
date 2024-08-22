@@ -66,7 +66,7 @@ export async function createTranslationPairsIndex(context: vscode.ExtensionConte
         }
 
         // Write the complete draft to a file
-        const completeDraftPath = path.join(workspaceFolder, '.project', 'complete_draftts.txt');
+        const completeDraftPath = path.join(workspaceFolder, '.project', 'complete_drafts.txt');
         fs.writeFileSync(completeDraftPath, completeDraft);
 
         console.log(`Total verses indexed: ${indexed}`);

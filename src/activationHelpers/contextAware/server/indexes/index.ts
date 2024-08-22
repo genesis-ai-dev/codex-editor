@@ -7,7 +7,7 @@ import { createTranslationPairsIndex } from "./translationPairsIndex";
 import { createSourceBibleIndex } from "./sourceBibleIndex";
 import { searchTargetVersesByQuery, getTranslationPairsFromSourceVerseQuery, getSourceVerseByVrefFromAllSourceVerses, getTargetVerseByVref, getTranslationPairFromProject, handleTextSelection } from "./search";
 import MiniSearch from "minisearch";
-import { createZeroDraftIndex, ZeroDraftIndexRecord, getContentOptionsForVref, insertDraftsIntoTargetNotebooks, VerseWithMetadata } from "./zeroDraftIndex";
+import { createZeroDraftIndex, ZeroDraftIndexRecord, getContentOptionsForVref, insertDraftsIntoTargetNotebooks, insertDraftsInCurrentEditor, VerseWithMetadata } from "./zeroDraftIndex";
 
 export async function createIndexWithContext(context: vscode.ExtensionContext) {
     const workspaceFolder = getWorkSpaceFolder();
@@ -185,6 +185,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 vscode.window.showInformationMessage(`Found ${contentOptions?.verses?.length} content options for ${vref}`,
                     { detail: contentOptions?.verses?.map(verse => verse.content).join('\n') }
                 );
+                console.log('Content options for', vref, { contentOptions });
             } else {
                 vscode.window.showInformationMessage(`No content options found for ${vref}`);
             }
@@ -213,9 +214,40 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             );
 
             if (selectedFile) {
-                await insertDraftsIntoTargetNotebooks(selectedFile.detail);
-                vscode.window.showInformationMessage(`Inserted drafts from ${selectedFile.label} into target notebooks`);
+                const forceInsert = await vscode.window.showQuickPick(
+                    ['No', 'Yes'],
+                    { placeHolder: 'Force insert and overwrite existing verse drafts?' }
+                );
+
+                if (forceInsert === 'Yes') {
+                    const confirm = await vscode.window.showWarningMessage(
+                        'This will overwrite existing verse drafts. Are you sure?',
+                        { modal: true },
+                        'Yes', 'No'
+                    );
+                    if (confirm !== 'Yes') return;
+                }
+
+                await insertDraftsIntoTargetNotebooks(selectedFile.detail, forceInsert === 'Yes');
             }
+        }),
+
+        vscode.commands.registerCommand('translators-copilot.insertZeroDraftsInCurrentEditor', async () => {
+            const forceInsert = await vscode.window.showQuickPick(
+                ['No', 'Yes'],
+                { placeHolder: 'Force insert and overwrite existing verse drafts?' }
+            );
+
+            if (forceInsert === 'Yes') {
+                const confirm = await vscode.window.showWarningMessage(
+                    'This will overwrite existing verse drafts in the current editor. Are you sure?',
+                    { modal: true },
+                    'Yes', 'No'
+                );
+                if (confirm !== 'Yes') return;
+            }
+
+            await insertDraftsInCurrentEditor(zeroDraftIndex, forceInsert === 'Yes');
         })
     ]);
 

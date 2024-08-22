@@ -347,6 +347,11 @@
                 "command": "translators-copilot.insertZeroDraftsIntoNotebooks",
                 "title": "Insert Zero Drafts into Notebooks",
                 "category": "Translators Copilot"
+            },
+            {
+                "command": "translators-copilot.insertZeroDraftsInCurrentEditor",
+                "title": "Insert Zero Drafts into Current Editor",
+                "category": "Translators Copilot"
             }
         ],
         "notebooks": [

@@ -2,6 +2,7 @@ import MiniSearch from 'minisearch';
 import * as vscode from 'vscode';
 import { StatusBarHandler } from '../statusBarHandler';
 import { zeroDraftDocumentLoader } from '../../../../utils/zeroDraftUtils';
+import { verseRefRegex } from '../../../../utils/verseRefUtils';
 
 export interface ZeroDraftIndexRecord {
     id: string;
@@ -45,7 +46,6 @@ async function processZeroDraftFile(uri: vscode.Uri, zeroDraftIndex: MiniSearch<
                 vref: record.vref,
                 verses: updatedVerses
             });
-            console.log(`Updated existing record for ${record.vref}, now has ${updatedVerses.length} verses`);
         } else {
             // Add new record
             zeroDraftIndex.add({
@@ -53,7 +53,6 @@ async function processZeroDraftFile(uri: vscode.Uri, zeroDraftIndex: MiniSearch<
                 vref: record.vref,
                 verses: record.verses
             });
-            console.log(`Added new record for ${record.vref} with ${record.verses.length} verses`);
         }
     }
 
@@ -126,8 +125,113 @@ export function getContentOptionsForVref(zeroDraftIndex: MiniSearch<ZeroDraftInd
     return partialRecord;
 }
 
-// Placeholder function for inserting drafts into target notebooks
-export async function insertDraftsIntoTargetNotebooks(zeroDraftFilePath: string): Promise<void> {
-    // TODO: Implement the logic to insert drafts from the specified file into target notebooks
-    console.log(`Inserting drafts from ${zeroDraftFilePath} into target notebooks`);
+export async function insertDraftsIntoTargetNotebooks(zeroDraftFilePath: string, forceInsert: boolean = false): Promise<void> {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders) {
+        vscode.window.showErrorMessage('No workspace folder found');
+        return;
+    }
+
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(zeroDraftFilePath));
+    const zeroDrafts = zeroDraftDocumentLoader(document)
+        .map(record => ({
+            vref: record.vref,
+            content: record.verses[0].content.trim()
+        }));
+
+    const notebookFiles = await vscode.workspace.findFiles('**/*.codex');
+    let insertedCount = 0;
+    let skippedCount = 0;
+
+    for (const notebookFile of notebookFiles) {
+        const document = await vscode.workspace.openTextDocument(notebookFile);
+        let modified = false;
+
+        const lines = document.getText().split('\n');
+        const newLines: string[] = [];
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            newLines.push(line);
+
+            const match = line.match(verseRefRegex);
+            if (match) {
+                const vref = match[0];
+                const nextLine = lines[i + 1]?.trim();
+                const zeroDraft = zeroDrafts.find(draft => draft.vref === vref);
+
+                if (zeroDraft && (forceInsert || !nextLine || nextLine === '')) {
+                    newLines.push(zeroDraft.content);
+                    modified = true;
+                    insertedCount++;
+                    i++; // Skip the next line if we've inserted content
+                } else {
+                    skippedCount++;
+                }
+            }
+        }
+
+        if (modified) {
+            const edit = new vscode.WorkspaceEdit();
+            edit.replace(
+                notebookFile,
+                new vscode.Range(0, 0, document.lineCount, 0),
+                newLines.join('\n')
+            );
+            await vscode.workspace.applyEdit(edit);
+        }
+    }
+
+    vscode.window.showInformationMessage(
+        `Inserted ${insertedCount} drafts, skipped ${skippedCount} verses.`
+    );
+}
+
+export async function insertDraftsInCurrentEditor(zeroDraftIndex: MiniSearch, forceInsert: boolean = false): Promise<void> {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+        vscode.window.showErrorMessage('No active editor found');
+        return;
+    }
+
+    const document = editor.document;
+    const text = document.getText();
+    const lines = text.split('\n');
+    let insertedCount = 0;
+    let skippedCount = 0;
+    let modified = false;
+
+    const edit = new vscode.WorkspaceEdit();
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        const match = line.match(verseRefRegex);
+        if (match) {
+            const vref = match[0]; // Use the full match as vref
+            const contentOptions = getContentOptionsForVref(zeroDraftIndex, vref);
+            if (contentOptions && contentOptions.verses && contentOptions.verses.length > 0) {
+                const zeroDraft = contentOptions.verses[0].content.trim();
+
+                if (forceInsert || line === vref) {
+                    const range = new vscode.Range(
+                        new vscode.Position(i, 0),
+                        new vscode.Position(i, line.length)
+                    );
+                    edit.replace(document.uri, range, `${vref} ${zeroDraft}`);
+                    modified = true;
+                    insertedCount++;
+                } else {
+                    skippedCount++;
+                }
+            }
+        }
+    }
+
+    if (modified) {
+        await vscode.workspace.applyEdit(edit);
+    }
+
+    vscode.window.showInformationMessage(
+        `Inserted ${insertedCount} drafts, skipped ${skippedCount} verses in the current editor.`
+    );
 }
