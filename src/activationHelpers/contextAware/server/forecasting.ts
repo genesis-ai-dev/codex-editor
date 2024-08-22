@@ -1,6 +1,4 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
-import * as path from 'path';
 
 class MarkovChain {
     private chain: Map<string, Map<string, number>>;
@@ -34,14 +32,17 @@ export class WordSuggestionProvider implements vscode.CompletionItemProvider {
         this.buildMarkovChain(workspaceFolder);
     }
 
-    private buildMarkovChain(workspaceFolder: string) {
-        const completeDraftPath = path.join(workspaceFolder, '.project', 'complete_draftts.txt');
-        if (!fs.existsSync(completeDraftPath)) {
-            console.error(`File not found: ${completeDraftPath}`);
+    private async buildMarkovChain(workspaceFolder: string) {
+        const completeDraftPath = vscode.Uri.joinPath(vscode.Uri.file(workspaceFolder), '.project', 'complete_drafts.txt');
+        try {
+            await vscode.workspace.fs.stat(completeDraftPath);
+        } catch {
+            console.error(`File not found: ${completeDraftPath.fsPath}`);
             return;
         }
-        const content = fs.readFileSync(completeDraftPath, 'utf-8');
-        const words = content.split(/\s+/).filter(word => word.length > 0);
+        const contentBuffer = await vscode.workspace.fs.readFile(completeDraftPath);
+        const content = new TextDecoder().decode(contentBuffer);
+        const words = content.split(/\s+/).filter((word: string) => word.length > 0);
 
         for (let i = 0; i < words.length - 1; i++) {
             const word1 = words[i].toLowerCase().replace(/[^\p{L}\s]/gu, "");
