@@ -125,60 +125,70 @@ export function getContentOptionsForVref(zeroDraftIndex: MiniSearch<ZeroDraftInd
     return partialRecord;
 }
 
-export async function insertDraftsIntoTargetNotebooks(zeroDraftFilePath: string, forceInsert: boolean = false): Promise<void> {
+export async function insertDraftsIntoTargetNotebooks(zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>, forceInsert: boolean = false): Promise<void> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
         vscode.window.showErrorMessage('No workspace folder found');
         return;
     }
 
-    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(zeroDraftFilePath));
-    const zeroDrafts = zeroDraftDocumentLoader(document)
-        .map(record => ({
-            vref: record.vref,
-            content: record.verses[0].content.trim()
-        }));
-
     const notebookFiles = await vscode.workspace.findFiles('**/*.codex');
     let insertedCount = 0;
     let skippedCount = 0;
 
     for (const notebookFile of notebookFiles) {
-        const document = await vscode.workspace.openTextDocument(notebookFile);
+        const notebook = await vscode.workspace.openNotebookDocument(notebookFile);
         let modified = false;
 
-        const lines = document.getText().split('\n');
-        const newLines: string[] = [];
+        for (let cellIndex = 0; cellIndex < notebook.cellCount; cellIndex++) {
+            const cell = notebook.cellAt(cellIndex);
+            if (cell.kind === vscode.NotebookCellKind.Code) {
+                const lines = cell.document.getText().split('\n');
+                const newLines: string[] = [];
 
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].trim();
-            newLines.push(line);
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i].trim();
+                    const match = line.match(verseRefRegex);
+                    if (match) {
+                        const vref = match[0];
+                        const contentOptions = getContentOptionsForVref(zeroDraftIndex, vref);
+                        if (contentOptions && contentOptions.verses && contentOptions.verses.length > 0) {
+                            const zeroDraft = contentOptions.verses[0].content.trim();
 
-            const match = line.match(verseRefRegex);
-            if (match) {
-                const vref = match[0];
-                const nextLine = lines[i + 1]?.trim();
-                const zeroDraft = zeroDrafts.find(draft => draft.vref === vref);
+                            if (forceInsert || line === vref) {
+                                newLines.push(`${vref} ${zeroDraft}`);
+                                modified = true;
+                                insertedCount++;
+                            } else {
+                                newLines.push(line);
+                                skippedCount++;
+                            }
+                        } else {
+                            newLines.push(line);
+                        }
+                    } else {
+                        newLines.push(line);
+                    }
+                }
 
-                if (zeroDraft && (forceInsert || !nextLine || nextLine === '')) {
-                    newLines.push(zeroDraft.content);
-                    modified = true;
-                    insertedCount++;
-                    i++; // Skip the next line if we've inserted content
-                } else {
-                    skippedCount++;
+                if (modified) {
+                    const updatedCell = new vscode.NotebookCellData(
+                        vscode.NotebookCellKind.Code,
+                        newLines.join('\n'),
+                        cell.document.languageId
+                    );
+                    updatedCell.metadata = { ...cell.metadata };
+
+                    const notebookEdit = new vscode.NotebookEdit(
+                        new vscode.NotebookRange(cellIndex, cellIndex + 1),
+                        [updatedCell]
+                    );
+
+                    const workspaceEdit = new vscode.WorkspaceEdit();
+                    workspaceEdit.set(notebook.uri, [notebookEdit]);
+                    await vscode.workspace.applyEdit(workspaceEdit);
                 }
             }
-        }
-
-        if (modified) {
-            const edit = new vscode.WorkspaceEdit();
-            edit.replace(
-                notebookFile,
-                new vscode.Range(0, 0, document.lineCount, 0),
-                newLines.join('\n')
-            );
-            await vscode.workspace.applyEdit(edit);
         }
     }
 
