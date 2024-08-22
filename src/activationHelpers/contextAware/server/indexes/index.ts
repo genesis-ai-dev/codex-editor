@@ -7,10 +7,10 @@ import { createTranslationPairsIndex } from "./translationPairsIndex";
 import { createSourceBibleIndex } from "./sourceBibleIndex";
 import { searchTargetVersesByQuery, getTranslationPairsFromSourceVerseQuery, getSourceVerseByVrefFromAllSourceVerses, getTargetVerseByVref, getTranslationPairFromProject, handleTextSelection } from "./search";
 import MiniSearch from "minisearch";
-
-const workspaceFolder = getWorkSpaceFolder();
+import { createZeroDraftIndex, ZeroDraftIndexRecord, getContentOptionsForVref, insertDraftsIntoTargetNotebooks, VerseWithMetadata } from "./zeroDraftIndex";
 
 export async function createIndexWithContext(context: vscode.ExtensionContext) {
+    const workspaceFolder = getWorkSpaceFolder();
     const statusBarHandler = StatusBarHandler.getInstance();
     context.subscriptions.push(statusBarHandler);
 
@@ -21,10 +21,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         return;
     }
     vscode.window.showInformationMessage("Translators Copilot Server activated");
-
-    const minisearchIndexPath = vscode.Uri.file(
-        `${workspaceFolder}/.vscode/minisearch_index.json`
-    );
 
     const translationPairsIndex = new MiniSearch({
         fields: ['vref', 'book', 'chapter', 'sourceContent', 'targetContent'],
@@ -41,16 +37,24 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         idField: 'vref',
     });
 
+    const zeroDraftIndex = new MiniSearch<ZeroDraftIndexRecord>({
+        fields: ['content', 'verses'],
+        storeFields: ['vref', 'content', 'modelVersions', 'verses'],
+        idField: 'vref',
+    });
+
     async function rebuildIndexes() {
         statusBarHandler.setIndexingActive();
         try {
             // Clean
             translationPairsIndex?.removeAll();
             sourceBibleIndex?.removeAll();
+            zeroDraftIndex?.removeAll();
 
             // Rebuild
             await createTranslationPairsIndex(context, translationPairsIndex, workspaceFolder, statusBarHandler);
             await createSourceBibleIndex(sourceBibleIndex, statusBarHandler);
+            await createZeroDraftIndex(zeroDraftIndex, statusBarHandler);
         } catch (error) {
             console.error('Error rebuilding full index:', error);
             vscode.window.showErrorMessage('Failed to rebuild full index. Check the logs for details.');
@@ -60,6 +64,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     }
 
     await rebuildIndexes();
+    console.log('Zero Draft index contents:', zeroDraftIndex.documentCount);
 
     // Push commands to the context once the indexes are built
     context.subscriptions.push(...[
@@ -165,6 +170,51 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
             if (option === 'Force Reindex') {
                 await rebuildIndexes();
+            }
+        }),
+        vscode.commands.registerCommand('translators-copilot.getZeroDraftContentOptions', async (vref?: string) => {
+            if (!vref) {
+                vref = await vscode.window.showInputBox({
+                    prompt: 'Enter a verse reference',
+                    placeHolder: 'e.g. GEN 1:1'
+                });
+                if (!vref) return; // User cancelled the input
+            }
+            const contentOptions = getContentOptionsForVref(zeroDraftIndex, vref);
+            if (contentOptions) {
+                vscode.window.showInformationMessage(`Found ${contentOptions?.verses?.length} content options for ${vref}`,
+                    { detail: contentOptions?.verses?.map(verse => verse.content).join('\n') }
+                );
+            } else {
+                vscode.window.showInformationMessage(`No content options found for ${vref}`);
+            }
+            return contentOptions;
+        }),
+
+        vscode.commands.registerCommand('translators-copilot.insertZeroDraftsIntoNotebooks', async () => {
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            if (!workspaceFolders) {
+                vscode.window.showErrorMessage('No workspace folder found');
+                return;
+            }
+
+            const zeroDraftFolder = vscode.Uri.joinPath(workspaceFolders[0].uri, 'files', 'zero_drafts');
+            const zeroDraftFiles = await vscode.workspace.findFiles(new vscode.RelativePattern(zeroDraftFolder, '*.{jsonl,json,tsv,txt}'));
+
+            const zeroDraftFileOptions = zeroDraftFiles.map(file => ({
+                label: file.fsPath.split('/').pop() || '',
+                description: 'Select a zero draft file to insert into notebooks',
+                detail: file.fsPath
+            }));
+
+            const selectedFile = await vscode.window.showQuickPick(
+                zeroDraftFileOptions,
+                { placeHolder: 'Select a zero draft file to insert into notebooks' }
+            );
+
+            if (selectedFile) {
+                await insertDraftsIntoTargetNotebooks(selectedFile.detail);
+                vscode.window.showInformationMessage(`Inserted drafts from ${selectedFile.label} into target notebooks`);
             }
         })
     ]);

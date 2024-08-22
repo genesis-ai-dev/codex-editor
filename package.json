@@ -337,6 +337,16 @@
                 "command": "easyLanguageServer.testSearch",
                 "title": "Test Search",
                 "category": "Easy Language Server"
+            },
+            {
+                "command": "translators-copilot.getZeroDraftContentOptions",
+                "title": "Get Zero Draft Content Options for Vref",
+                "category": "Translators Copilot"
+            },
+            {
+                "command": "translators-copilot.insertZeroDraftsIntoNotebooks",
+                "title": "Insert Zero Drafts into Notebooks",
+                "category": "Translators Copilot"
             }
         ],
         "notebooks": [
