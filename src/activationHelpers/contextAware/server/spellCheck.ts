@@ -253,9 +253,9 @@ export class SpellCheckCodeActionProvider implements vscode.CodeActionProvider {
 
                 const addToDictionaryAction = new vscode.CodeAction(`${word} → 📖`, vscode.CodeActionKind.QuickFix);
                 addToDictionaryAction.command = {
-                    command: 'extension.addToDictionary',
-                    title: 'Add to Dictionary',
-                    arguments: [word]
+                    command: 'extension.addToDictionaryOptions',
+                    title: 'Add to Dictionary Options',
+                    arguments: [word, document, diagnostic.range]
                 };
                 actions.push(addToDictionaryAction);
             } else if (diagnostic.source === 'Punctuation-Check') {
@@ -338,6 +338,26 @@ export function registerSpellCheckProviders(context: vscode.ExtensionContext, sp
         vscode.commands.registerCommand('extension.addToDictionary', async (word: string) => {
             await spellChecker.addToDictionary(word);
             vscode.window.showInformationMessage(`Added '${word}' to dictionary.`);
+            diagnosticsProvider.refreshDiagnostics();
+        }),
+        vscode.commands.registerCommand('extension.addToDictionaryOptions', async (word: string, document: vscode.TextDocument, range: vscode.Range) => {
+            const options = ['Add this word', 'Add all words on this line'];
+            const selection = await vscode.window.showQuickPick(options, {
+                placeHolder: 'Choose an option to add to dictionary'
+            });
+
+            if (selection === options[0]) {
+                await spellChecker.addToDictionary(word);
+                vscode.window.showInformationMessage(`Added '${word}' to dictionary.`);
+            } else if (selection === options[1]) {
+                const line = document.lineAt(range.start.line).text;
+                const words = line.split(/\s+/).filter(w => w.length > 0);
+                for (const w of words) {
+                    await spellChecker.addToDictionary(w);
+                }
+                vscode.window.showInformationMessage(`Added all words from the line to dictionary.`);
+            }
+
             diagnosticsProvider.refreshDiagnostics();
         })
     );

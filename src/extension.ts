@@ -18,10 +18,10 @@ import {
     onBoard,
     initializeProject,
 } from "./activationHelpers/contextUnaware/projectInitializers";
-import {
-    initializeServer,
-    stopLangServer,
-} from "./activationHelpers/contextAware/pythonController";
+// import {
+//     initializeServer,
+//     stopLangServer,
+// } from "./activationHelpers/contextAware/pythonController";
 import { initializeWebviews } from "./activationHelpers/contextAware/webviewInitializers";
 import { syncUtils } from "./activationHelpers/contextAware/syncUtils";
 import { initializeStateStore } from "./stateStore";
@@ -49,7 +49,7 @@ export async function activate(context: vscode.ExtensionContext) {
     await initializeWebviews(context);
     registerReferencesCodeLens(context);
     registerSourceCodeLens(context);
-    // createIndexingLanguageServer(context);
+    // createIndexingLanguageServer(context);x
     registerCompletionsCodeLensProviders(context);
     registerTextSelectionHandler(context, () => undefined);
 
@@ -71,10 +71,10 @@ export async function activate(context: vscode.ExtensionContext) {
     await registerCommands(context);
 }
 
-export function deactivate(): Thenable<void> {
-    scmInterval && clearInterval(scmInterval);
-    return stopLangServer();
-}
+// export function deactivate(): Thenable<void> {
+//     scmInterval && clearInterval(scmInterval);
+//     return stopLangServer();
+// }
 
 async function executeCommandsAfter() {
     // wasn't sure if these had to be executed seperately but it's here to be on the safeside, otherwise later it should go in commands.ts

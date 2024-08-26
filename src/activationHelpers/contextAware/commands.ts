@@ -21,7 +21,7 @@ import { CodexNotebookProvider } from "../../providers/treeViews/scriptureTreeVi
 import {
     getWorkSpaceFolder,
 } from "../../utils";
-import { PythonMessenger } from "../../utils/pyglsMessenger";
+// import { PythonMessenger } from "../../utils/pyglsMessenger";
 
 
 
@@ -33,7 +33,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
 
     const scriptureTreeViewProvider = new CodexNotebookProvider(ROOT_PATH);
     const resourceTreeViewProvider = new ResourceProvider(ROOT_PATH);
-    const pythonMessenger = new PythonMessenger();
+    // const pythonMessenger = new PythonMessenger();
 
     vscode.window.registerTreeDataProvider(
         "scripture-explorer-activity-bar",
@@ -44,18 +44,18 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         "scripture-explorer-activity-bar.refreshEntry",
         () => scriptureTreeViewProvider.refresh(),
     );
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-editor-extension.pythonMessenger",
-            async (method: string, ...args: any[]) => {
-                if (method in pythonMessenger) {
-                    return await (pythonMessenger as any)[method](...args);
-                } else {
-                    throw new Error(`Method ${method} not found in PythonMessenger`);
-                }
-            }
-        )
-    );
+    // context.subscriptions.push(
+    //     vscode.commands.registerCommand(
+    //         "codex-editor-extension.pythonMessenger",
+    //         async (method: string, ...args: any[]) => {
+    //             if (method in pythonMessenger) {
+    //                 return await (pythonMessenger as any)[method](...args);
+    //             } else {
+    //                 throw new Error(`Method ${method} not found in PythonMessenger`);
+    //             }
+    //         }
+    //     )
+    // );
     context.subscriptions.push(
         vscode.commands.registerCommand(
             "scripture-explorer-activity-bar.openChapter",
