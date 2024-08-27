@@ -1,15 +1,28 @@
-"use strict";
-import * as vscode from "vscode";
+import {
+    Diagnostic,
+    DiagnosticSeverity,
+    Range,
+    TextDocument,
+    CodeAction,
+    CodeActionKind,
+    CompletionItem,
+    CompletionItemKind,
+    Position,
+    TextEdit,
+    CancellationToken,
+    CompletionContext
+} from 'vscode-languageserver/node';
 import { verseRefRegex } from "../../../utils/verseRefUtils";
-import { Dictionary, DictionaryEntry, SpellCheckResult, SpellCheckDiagnostic } from "../../../../types";
-
+import { Dictionary, DictionaryEntry, SpellCheckResult } from "../../../../types";
+import * as fs from 'fs';
+import * as path from 'path';
 
 export class SpellChecker {
     private dictionary: Dictionary | null = null;
-    private dictionaryPath: vscode.Uri;
+    private dictionaryPath: string;
 
     constructor(workspaceFolder: string | undefined) {
-        this.dictionaryPath = vscode.Uri.file(`${workspaceFolder}/files/project.dictionary`);
+        this.dictionaryPath = path.join(workspaceFolder || '', 'files', 'project.dictionary');
     }
 
     async initializeDictionary() {
@@ -17,33 +30,33 @@ export class SpellChecker {
             await this.ensureDictionaryExists();
             await this.loadDictionary();
         } catch (error: any) {
-            vscode.window.showErrorMessage(`Failed to initialize dictionary: ${error.message}`);
+            console.error(`Failed to initialize dictionary: ${error.message}`);
             this.dictionary = { entries: [] };
         }
     }
 
     private async ensureDictionaryExists() {
         try {
-            await vscode.workspace.fs.stat(this.dictionaryPath);
+            await fs.promises.access(this.dictionaryPath);
         } catch {
             const emptyDictionary = { entries: [] };
-            await vscode.workspace.fs.writeFile(
+            await fs.promises.writeFile(
                 this.dictionaryPath,
-                Buffer.from(JSON.stringify(emptyDictionary))
+                JSON.stringify(emptyDictionary)
             );
-            vscode.window.showInformationMessage("Created new empty dictionary.");
+            console.log("Created new empty dictionary.");
         }
     }
 
     private async loadDictionary() {
-        const content = await vscode.workspace.fs.readFile(this.dictionaryPath);
-        this.dictionary = JSON.parse(content.toString());
+        const content = await fs.promises.readFile(this.dictionaryPath, 'utf8');
+        this.dictionary = JSON.parse(content);
         if (this.dictionary && Array.isArray(this.dictionary.entries)) {
             const wordCount = this.dictionary.entries.length;
-            vscode.window.showInformationMessage(`Dictionary loaded with ${wordCount} words.`);
+            console.log(`Dictionary loaded with ${wordCount} words.`);
         } else {
             this.dictionary = { entries: [] };
-            vscode.window.showInformationMessage("Initialized empty dictionary.");
+            console.log("Initialized empty dictionary.");
         }
     }
 
@@ -121,10 +134,9 @@ export class SpellChecker {
 
         try {
             const serializedDictionary = JSON.stringify(this.dictionary, null, 2);
-            await vscode.workspace.fs.writeFile(this.dictionaryPath, Buffer.from(serializedDictionary));
+            await fs.promises.writeFile(this.dictionaryPath, serializedDictionary);
         } catch (error) {
             console.error('Error saving dictionary:', error);
-            vscode.window.showErrorMessage('Failed to save dictionary. Please try again.');
         }
     }
 
@@ -139,29 +151,18 @@ export class SpellChecker {
 }
 
 export class SpellCheckDiagnosticsProvider {
-    private diagnosticCollection: vscode.DiagnosticCollection;
     private spellChecker: SpellChecker;
 
     constructor(spellChecker: SpellChecker) {
-        this.diagnosticCollection = vscode.languages.createDiagnosticCollection('spell-check');
         this.spellChecker = spellChecker;
     }
 
-    updateDiagnostics(document: vscode.TextDocument) {
-        const diagnostics = this.provideDiagnostics(document);
-        this.diagnosticCollection.set(document.uri, diagnostics);
+    updateDiagnostics(document: TextDocument): Diagnostic[] {
+        return this.provideDiagnostics(document);
     }
 
-    refreshDiagnostics() {
-        vscode.workspace.textDocuments.forEach(doc => {
-            if (doc.languageId === 'scripture') {
-                this.updateDiagnostics(doc);
-            }
-        });
-    }
-
-    private provideDiagnostics(document: vscode.TextDocument): SpellCheckDiagnostic[] {
-        const diagnostics: SpellCheckDiagnostic[] = [];
+    private provideDiagnostics(document: TextDocument): Diagnostic[] {
+        const diagnostics: Diagnostic[] = [];
         const text = document.getText();
         const lines = text.split('\n');
 
@@ -177,14 +178,14 @@ export class SpellCheckDiagnosticsProvider {
                 if (word.length > 0) {
                     const spellCheckResult = this.spellChecker.spellCheck(word);
                     if (spellCheckResult.corrections.length > 0) {
-                        const range = new vscode.Range(
-                            new vscode.Position(lineIndex, editWindow),
-                            new vscode.Position(lineIndex, editWindow + word.length)
-                        );
+                        const range: Range = {
+                            start: { line: lineIndex, character: editWindow },
+                            end: { line: lineIndex, character: editWindow + word.length }
+                        };
                         diagnostics.push({
                             range,
                             message: `Possible spelling mistake. Suggestions: ${spellCheckResult.corrections.join(', ')}`,
-                            severity: vscode.DiagnosticSeverity.Information,
+                            severity: DiagnosticSeverity.Information,
                             source: 'Spell-Check'
                         });
                     }
@@ -196,14 +197,14 @@ export class SpellCheckDiagnosticsProvider {
             const repeatedPunctuationRegex = /([!?,.])\1+/g;
             let match2;
             while ((match2 = repeatedPunctuationRegex.exec(line)) !== null) {
-                const range = new vscode.Range(
-                    new vscode.Position(lineIndex, match2.index),
-                    new vscode.Position(lineIndex, match2.index + match2[0].length)
-                );
+                const range: Range = {
+                    start: { line: lineIndex, character: match2.index },
+                    end: { line: lineIndex, character: match2.index + match2[0].length }
+                };
                 diagnostics.push({
                     range,
                     message: `Repeated punctuation: "${match2[0]}"`,
-                    severity: vscode.DiagnosticSeverity.Information,
+                    severity: DiagnosticSeverity.Information,
                     source: 'Punctuation-Check'
                 });
             }
@@ -211,14 +212,14 @@ export class SpellCheckDiagnosticsProvider {
             // Check for whitespace around punctuation
             const whitespaceAroundPunctuationRegex = /\s([!?,.])\s/g;
             while ((match2 = whitespaceAroundPunctuationRegex.exec(line)) !== null) {
-                const range = new vscode.Range(
-                    new vscode.Position(lineIndex, match2.index),
-                    new vscode.Position(lineIndex, match2.index + match2[0].length)
-                );
+                const range: Range = {
+                    start: { line: lineIndex, character: match2.index },
+                    end: { line: lineIndex, character: match2.index + match2[0].length }
+                };
                 diagnostics.push({
                     range,
                     message: `Whitespace around punctuation: "${match2[0]}"`,
-                    severity: vscode.DiagnosticSeverity.Information,
+                    severity: DiagnosticSeverity.Information,
                     source: 'Punctuation-Check'
                 });
             }
@@ -228,15 +229,15 @@ export class SpellCheckDiagnosticsProvider {
     }
 }
 
-export class SpellCheckCodeActionProvider implements vscode.CodeActionProvider {
+export class SpellCheckCodeActionProvider {
     private spellChecker: SpellChecker;
 
     constructor(spellChecker: SpellChecker) {
         this.spellChecker = spellChecker;
     }
 
-    provideCodeActions(document: vscode.TextDocument, range: vscode.Range, context: vscode.CodeActionContext, token: vscode.CancellationToken): vscode.CodeAction[] {
-        const actions: vscode.CodeAction[] = [];
+    provideCodeActions(document: TextDocument, range: Range, context: { diagnostics: Diagnostic[] }): CodeAction[] {
+        const actions: CodeAction[] = [];
         const diagnostics = context.diagnostics.filter(diag => diag.source === 'Spell-Check' || diag.source === 'Punctuation-Check');
 
         diagnostics.forEach(diagnostic => {
@@ -245,31 +246,53 @@ export class SpellCheckCodeActionProvider implements vscode.CodeActionProvider {
                 const spellCheckResult = this.spellChecker.spellCheck(word);
 
                 spellCheckResult.corrections.forEach((correction: string) => {
-                    const action = new vscode.CodeAction(`${word} → ${correction}`, vscode.CodeActionKind.QuickFix);
-                    action.edit = new vscode.WorkspaceEdit();
-                    action.edit.replace(document.uri, diagnostic.range, correction);
+                    const action: CodeAction = {
+                        title: `${word} → ${correction}`,
+                        kind: CodeActionKind.QuickFix,
+                        edit: {
+                            changes: {
+                                [document.uri]: [TextEdit.replace(diagnostic.range, correction)]
+                            }
+                        }
+                    };
                     actions.push(action);
                 });
 
-                const addToDictionaryAction = new vscode.CodeAction(`${word} → 📖`, vscode.CodeActionKind.QuickFix);
-                addToDictionaryAction.command = {
-                    command: 'extension.addToDictionaryOptions',
-                    title: 'Add to Dictionary Options',
-                    arguments: [word, document, diagnostic.range]
+                // Add to dictionary action
+                const addToDictionaryAction: CodeAction = {
+                    title: `Add '${word}' to dictionary`,
+                    kind: CodeActionKind.QuickFix,
+                    command: {
+                        title: 'Add to Dictionary',
+                        command: 'spellcheck.addToDictionary',
+                        arguments: [word]
+                    }
                 };
                 actions.push(addToDictionaryAction);
             } else if (diagnostic.source === 'Punctuation-Check') {
                 if (diagnostic.message.startsWith('Repeated punctuation')) {
                     const correctedPunctuation = word[0]; // Just keep the first punctuation mark
-                    const action = new vscode.CodeAction(`Fix repeated punctuation`, vscode.CodeActionKind.QuickFix);
-                    action.edit = new vscode.WorkspaceEdit();
-                    action.edit.replace(document.uri, diagnostic.range, correctedPunctuation);
+                    const action: CodeAction = {
+                        title: `Fix repeated punctuation`,
+                        kind: CodeActionKind.QuickFix,
+                        edit: {
+                            changes: {
+                                [document.uri]: [TextEdit.replace(diagnostic.range, correctedPunctuation)]
+                            }
+                        }
+                    };
                     actions.push(action);
                 } else if (diagnostic.message.startsWith('Whitespace around punctuation')) {
                     const correctedPunctuation = word.trim(); // Remove whitespace around punctuation
-                    const action = new vscode.CodeAction(`Fix whitespace around punctuation`, vscode.CodeActionKind.QuickFix);
-                    action.edit = new vscode.WorkspaceEdit();
-                    action.edit.replace(document.uri, diagnostic.range, correctedPunctuation);
+                    const action: CodeAction = {
+                        title: `Fix whitespace around punctuation`,
+                        kind: CodeActionKind.QuickFix,
+                        edit: {
+                            changes: {
+                                [document.uri]: [TextEdit.replace(diagnostic.range, correctedPunctuation)]
+                            }
+                        }
+                    };
                     actions.push(action);
                 }
             }
@@ -279,7 +302,7 @@ export class SpellCheckCodeActionProvider implements vscode.CodeActionProvider {
     }
 }
 
-export class SpellCheckCompletionItemProvider implements vscode.CompletionItemProvider {
+export class SpellCheckCompletionItemProvider {
     private spellChecker: SpellChecker;
 
     constructor(spellChecker: SpellChecker) {
@@ -287,88 +310,26 @@ export class SpellCheckCompletionItemProvider implements vscode.CompletionItemPr
     }
 
     provideCompletionItems(
-        document: vscode.TextDocument,
-        position: vscode.Position,
-        token: vscode.CancellationToken,
-        context: vscode.CompletionContext
-    ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
-        const linePrefix = document.lineAt(position).text.substr(0, position.character);
+        document: TextDocument, 
+        position: Position, 
+        token: CancellationToken, 
+        context: CompletionContext
+    ): CompletionItem[] {
+        const text = document.getText();
+        const offset = document.offsetAt(position);
+        const linePrefix = text.substr(0, offset);
         const wordMatch = linePrefix.match(/\S+$/);
         if (!wordMatch) {
-            return undefined;
+            return [];
         }
 
         const currentWord = wordMatch[0];
         const spellCheckResult = this.spellChecker.spellCheck(currentWord);
 
-        return spellCheckResult.corrections.map(suggestion => {
-            const completionItem = new vscode.CompletionItem(suggestion);
-            completionItem.kind = vscode.CompletionItemKind.Text;
-            completionItem.detail = 'Spelling suggestion';
-            completionItem.range = new vscode.Range(position.translate(0, -currentWord.length), position);
-            return completionItem;
-        });
+        return spellCheckResult.corrections.map(suggestion => ({
+            label: suggestion,
+            kind: CompletionItemKind.Text,
+            detail: 'Spelling suggestion'
+        }));
     }
-}
-export function registerSpellCheckProviders(context: vscode.ExtensionContext, spellChecker: SpellChecker) {
-    const diagnosticsProvider = new SpellCheckDiagnosticsProvider(spellChecker);
-    const codeActionProvider = new SpellCheckCodeActionProvider(spellChecker);
-    const completionItemProvider = new SpellCheckCompletionItemProvider(spellChecker);
-
-    context.subscriptions.push(
-        vscode.languages.registerCodeActionsProvider('scripture', codeActionProvider),
-        vscode.languages.registerCompletionItemProvider('scripture', completionItemProvider),
-        vscode.workspace.onDidOpenTextDocument(doc => {
-            if (doc.fileName.endsWith('.bible')) {
-                return;
-            }
-            if (doc.languageId === 'scripture') {
-                diagnosticsProvider.updateDiagnostics(doc);
-            }
-        }),
-        vscode.workspace.onDidChangeTextDocument(event => {
-            if (event.document.fileName.endsWith('.bible')) {
-                return;
-            }
-            if (event.document.languageId === 'scripture') {
-                diagnosticsProvider.updateDiagnostics(event.document);
-                vscode.commands.executeCommand('editor.action.triggerSuggest');
-            }
-        }),
-        vscode.commands.registerCommand('extension.addToDictionary', async (word: string) => {
-            await spellChecker.addToDictionary(word);
-            vscode.window.showInformationMessage(`Added '${word}' to dictionary.`);
-            diagnosticsProvider.refreshDiagnostics();
-        }),
-        vscode.commands.registerCommand('extension.addToDictionaryOptions', async (word: string, document: vscode.TextDocument, range: vscode.Range) => {
-            const options = ['Add this word', 'Add all words on this line'];
-            const selection = await vscode.window.showQuickPick(options, {
-                placeHolder: 'Choose an option to add to dictionary'
-            });
-
-            if (selection === options[0]) {
-                await spellChecker.addToDictionary(word);
-                vscode.window.showInformationMessage(`Added '${word}' to dictionary.`);
-            } else if (selection === options[1]) {
-                const line = document.lineAt(range.start.line).text;
-                const words = line.split(/\s+/).filter(w => w.length > 0);
-                for (const w of words) {
-                    await spellChecker.addToDictionary(w);
-                }
-                vscode.window.showInformationMessage(`Added all words from the line to dictionary.`);
-            }
-
-            diagnosticsProvider.refreshDiagnostics();
-        })
-    );
-
-    // Update diagnostics for all open documents
-    vscode.workspace.textDocuments.forEach(document => {
-        if (document.fileName.endsWith('.bible')) {
-            return;
-        }
-        if (document.languageId === 'scripture') {
-            diagnosticsProvider.updateDiagnostics(document);
-        }
-    });
 }

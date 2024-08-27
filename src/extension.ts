@@ -18,23 +18,13 @@ import {
     onBoard,
     initializeProject,
 } from "./activationHelpers/contextUnaware/projectInitializers";
-// import {
-//     initializeServer,
-//     stopLangServer,
-// } from "./activationHelpers/contextAware/pythonController";
 import { initializeWebviews } from "./activationHelpers/contextAware/webviewInitializers";
 import { syncUtils } from "./activationHelpers/contextAware/syncUtils";
 import { initializeStateStore } from "./stateStore";
 import { projectFileExists } from "./utils/fileUtils";
-import { initializeLanguageServer } from "./activationHelpers/contextAware/server/server";
 import { registerCompletionsCodeLensProviders } from "./activationHelpers/contextAware/completionsCodeLensProviders";
-
-// The following block ensures a smooth user experience by guiding the user through the initial setup process before the extension is fully activated. This is crucial for setting up the necessary project environment and avoiding any functionality issues that might arise from missing project configurations.
-
-// NOTE: the following two blocks are deactivated for now while we work on the project management extension. We might not need them.
-// First, check if a project root path is set, indicating whether the user has an existing project open.
-// I moved all that to this onboard function
-// onBoard(); // NOTE: deactivated while we add the project management extension
+import * as path from 'path';
+import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from 'vscode-languageclient/node';
 
 let scmInterval: any; // Webpack & typescript for vscode are having issues
 
@@ -42,14 +32,14 @@ let scmInterval: any; // Webpack & typescript for vscode are having issues
 const configuration = vscode.workspace.getConfiguration("codex-editor.scm");
 let autoCommitEnabled = configuration.get<boolean>("autoCommit", true);
 
+let client: LanguageClient;
+
 export async function activate(context: vscode.ExtensionContext) {
     await indexVerseRefsInSourceText();
     await handleConfig();
-    await initializeLanguageServer(context);
     await initializeWebviews(context);
     registerReferencesCodeLens(context);
     registerSourceCodeLens(context);
-    // createIndexingLanguageServer(context);x
     registerCompletionsCodeLensProviders(context);
     registerTextSelectionHandler(context, () => undefined);
 
@@ -66,15 +56,46 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(providerRegistration);
     context.subscriptions.push(commandRegistration);
 
+    // Set up the language client
+    const serverModule = context.asAbsolutePath(path.join('out', 'server', 'server.js'));
+    const debugOptions = { execArgv: ['--nolazy', '--inspect=6009'] };
+
+    const serverOptions: ServerOptions = {
+        run: { module: serverModule, transport: TransportKind.ipc },
+        debug: { module: serverModule, transport: TransportKind.ipc, options: debugOptions }
+    };
+
+    const clientOptions: LanguageClientOptions = {
+        documentSelector: [{ scheme: 'file', language: 'scripture' }],
+        synchronize: {
+            fileEvents: vscode.workspace.createFileSystemWatcher('**/.clientrc')
+        }
+    };
+
+    client = new LanguageClient(
+        'scriptureLanguageServer',
+        'Scripture Language Server',
+        serverOptions,
+        clientOptions
+    );
+    // Start the client. This will also launch the server
+    client.start().then(() => {
+        context.subscriptions.push(client);
+    }).catch(error => {
+        console.error('Failed to start the client:', error);
+    });
+
     await executeCommandsAfter();
     await startSyncLoop(context);
     await registerCommands(context);
 }
 
-// export function deactivate(): Thenable<void> {
-//     scmInterval && clearInterval(scmInterval);
-//     return stopLangServer();
-// }
+export function deactivate(): Thenable<void> | undefined {
+    if (!client) {
+        return undefined;
+    }
+    return client.stop();
+}
 
 async function executeCommandsAfter() {
     // wasn't sure if these had to be executed seperately but it's here to be on the safeside, otherwise later it should go in commands.ts

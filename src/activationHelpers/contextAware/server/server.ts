@@ -1,76 +1,101 @@
-
-"use strict";
-import * as vscode from "vscode";
-import { getWorkSpaceFolder } from "../../../utils";
-import { SpellChecker, SpellCheckDiagnosticsProvider, SpellCheckCodeActionProvider, SpellCheckCompletionItemProvider, registerSpellCheckProviders } from './spellCheck';
+import {
+    createConnection,
+    TextDocuments,
+    ProposedFeatures,
+    InitializeParams,
+    TextDocumentSyncKind,
+    InitializeResult,
+    TextDocumentPositionParams,
+    CodeActionParams,
+    PublishDiagnosticsParams,
+    CompletionContext
+} from 'vscode-languageserver/node';
+import { TextDocument } from 'vscode-languageserver-textdocument';
+import { SpellChecker, SpellCheckDiagnosticsProvider, SpellCheckCodeActionProvider, SpellCheckCompletionItemProvider } from './spellCheck';
 import { createIndexWithContext } from "./indexes";
-import { registerWordSuggestionProvider } from './forecasting';
+import { WordSuggestionProvider } from './forecasting';
+import { workspace } from 'vscode';
 
-export async function initializeLanguageServer(context: vscode.ExtensionContext) {
-    const workspaceFolder = getWorkSpaceFolder();
+const connection = createConnection(ProposedFeatures.all);
+const documents = new TextDocuments(TextDocument);
 
-    const config = vscode.workspace.getConfiguration('translation-assistant-server');
-    const isAssistantEnabled = config.get<boolean>('enable', true);
-    if (!isAssistantEnabled) {
-        return;
-    }
+let spellChecker: SpellChecker;
+let diagnosticsProvider: SpellCheckDiagnosticsProvider;
+let codeActionProvider: SpellCheckCodeActionProvider;
+let completionItemProvider: SpellCheckCompletionItemProvider;
+let wordSuggestionProvider: WordSuggestionProvider;
 
-    createIndexWithContext(context);
+connection.onInitialize((params: InitializeParams) => {
+    const workspaceFolder = params.workspaceFolders?.[0].uri;
 
-    const spellChecker = new SpellChecker(workspaceFolder);
-    await spellChecker.initializeDictionary();
+    // Initialize services
+    spellChecker = new SpellChecker(workspaceFolder);
+    diagnosticsProvider = new SpellCheckDiagnosticsProvider(spellChecker);
+    codeActionProvider = new SpellCheckCodeActionProvider(spellChecker);
+    completionItemProvider = new SpellCheckCompletionItemProvider(spellChecker);
+    
+    if (workspaceFolder)
+    wordSuggestionProvider = new WordSuggestionProvider(workspaceFolder);
 
-    registerSpellCheckProviders(context, spellChecker);
-    registerWordSuggestionProvider(context);
+    // Initialize indexes
+    // createIndexWithContext(connection);
 
-    // Update diagnostics for all open documents
-    vscode.workspace.textDocuments.forEach(document => {
-        if (document.languageId === 'scripture') {
-            const diagnosticsProvider = new SpellCheckDiagnosticsProvider(spellChecker);
-            diagnosticsProvider.updateDiagnostics(document);
+    const result: InitializeResult = {
+        capabilities: {
+            textDocumentSync: TextDocumentSyncKind.Incremental,
+            completionProvider: {
+                resolveProvider: false,
+                triggerCharacters: [' ']
+            },
+            codeActionProvider: true,
+            hoverProvider: true,
+            documentSymbolProvider: true
         }
-    });
-}
+    };
+    return result;
+});
 
-// - Add LAD (Linguistic Anomaly Detection) diagnostics (port from servable_lad.py)
-// - Add verse validation diagnostics (port from verse_validator.py)
-// - Add Wildebeest analysis diagnostics (port from servable_wb.py)
-// - Set up onDidChangeContent event to trigger diagnostics
+documents.onDidChangeContent(change => {
+    const diagnostics = diagnosticsProvider.updateDiagnostics(change.document);
+    connection.sendDiagnostics({ uri: change.document.uri, diagnostics });
+});
 
-// FEATURE: Code action providers
-// TODO: Implement code action providers
-// - Add spelling-related code actions (port from spelling.py)
-// - Add verse reference code actions (port from verse_validator.py)
-// - Register code action providers with the server
+connection.onCompletion((params: TextDocumentPositionParams) => {
+    const document = documents.get(params.textDocument.uri);
+    if (!document) return [];
+    
+    // Create a dummy CancellationToken since we don't have one in this context
+    const dummyToken = { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) };
+    
+    // Create a default CompletionContext
+    const defaultContext: CompletionContext = { 
+        triggerKind: 1, // Invoked
+        triggerCharacter: undefined 
+    };
 
-// FEATURE: MiniSearch indexing for draft verses and source Bible
-// Initialize indexing
-// TODO: Implement WebSocket server to handle search requests
-// TODO: Implement handlers for various socket requests (search, LAD, etc.)
+    const spellCheckSuggestions = completionItemProvider.provideCompletionItems(
+        document, 
+        params.position, 
+        dummyToken, 
+        defaultContext
+    );
+    const wordSuggestions = wordSuggestionProvider.provideCompletionItems(
+        document, 
+        params.position, 
+        dummyToken, 
+        defaultContext
+    );
+    return [...spellCheckSuggestions, ...wordSuggestions];
+});
 
-// FEATURE: Database integration
-// TODO: Implement database integration
-// - Create or port JsonDatabase class
-// -- should we be using SQLite? It has bm25 out of the box
-// - Implement TF-IDF functionality or use a TypeScript library for TF-IDF
-// - Set up methods for searching and retrieving verse data
+connection.onCodeAction((params: CodeActionParams) => {
+    const document = documents.get(params.textDocument.uri);
+    if (!document) return [];
+    
+    return codeActionProvider.provideCodeActions(document, params.range, params.context);
+});
 
-// FEATURE: Utility functions
-// TODO: Create utility functions
-// - Port relevant utility functions from Python implementation
-// - Implement helper functions for text processing, verse validation, etc.
+// TODO: Implement other handlers (hover, document symbols, etc.)
 
-// FEATURE: Document symbol provider
-// TODO: Implement document symbol provider
-// - Create a provider to outline the structure of scripture documents
-// --this structure includes all of the vrefs in the file
-// also, we want to identify all proper nouns in the file, by looking at a lookup definition of all entities/places/etc. (ACAI data) in the Bible, and then we can
-// check in the file for any of those entities, and then we can highlight them in the file OR check whether they are present. We will need a tool for prompting the
-// user about which words in the current verse draft correspond to the key terms, etc.
-// - Register document symbol provider with the server
-
-// FEATURE: Hover provider
-// TODO: Implement hover provider
-// - Port hover functionality from lsp_wrapper.py
-// - Register hover provider with the server
-
+documents.listen(connection);
+connection.listen();
