@@ -126,6 +126,9 @@ export function getContentOptionsForVref(zeroDraftIndex: MiniSearch<ZeroDraftInd
 }
 
 export async function insertDraftsIntoTargetNotebooks(zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>, forceInsert: boolean = false): Promise<void> {
+    // FIXME: This function is not working correctly yet; 
+    // but I need to set up the language server before fixing it
+    // For now just use insertDraftsInCurrentEditor
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
         vscode.window.showErrorMessage('No workspace folder found');
