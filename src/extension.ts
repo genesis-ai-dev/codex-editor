@@ -57,7 +57,7 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(commandRegistration);
 
     // Set up the language client
-    const serverModule = context.asAbsolutePath(path.join('out', 'server', 'server.js'));
+    const serverModule = context.asAbsolutePath(path.join('out', 'server.js'));
     const debugOptions = { execArgv: ['--nolazy', '--inspect=6009'] };
 
     const serverOptions: ServerOptions = {
@@ -66,7 +66,7 @@ export async function activate(context: vscode.ExtensionContext) {
     };
 
     const clientOptions: LanguageClientOptions = {
-        documentSelector: [{ scheme: 'file', language: 'scripture' }],
+        documentSelector: [{ scheme: 'file', language: '*' }],
         synchronize: {
             fileEvents: vscode.workspace.createFileSystemWatcher('**/.clientrc')
         }

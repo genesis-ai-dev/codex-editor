@@ -12,8 +12,8 @@ import {
     CancellationToken,
     CompletionContext
 } from 'vscode-languageserver/node';
-import { verseRefRegex } from "../../../utils/verseRefUtils";
-import { Dictionary, DictionaryEntry, SpellCheckResult } from "../../../../types";
+import { verseRefRegex } from "./types";
+import { Dictionary, DictionaryEntry, SpellCheckResult } from "./types";
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -23,8 +23,8 @@ export class SpellChecker {
 
     constructor(workspaceFolder: string | undefined) {
         this.dictionaryPath = path.join(workspaceFolder || '', 'files', 'project.dictionary');
+        console.log("Dictionary path: " + this.dictionaryPath);
     }
-
     async initializeDictionary() {
         try {
             await this.ensureDictionaryExists();

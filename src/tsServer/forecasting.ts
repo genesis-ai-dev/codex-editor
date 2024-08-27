@@ -43,8 +43,14 @@ export class WordSuggestionProvider {
 
     private async buildMarkovChain(workspaceFolder: string) {
         const completeDraftPath = path.join(workspaceFolder, '.project', 'complete_drafts.txt');
+        console.log(`Attempting to read file at: ${completeDraftPath}`);
         try {
+            const stats = await fs.promises.stat(completeDraftPath);
+            console.log(`File exists: ${stats.isFile()}, Size: ${stats.size} bytes`);
+            
             const content = await fs.promises.readFile(completeDraftPath, 'utf8');
+            console.log(`Successfully read file. Content length: ${content.length}`);
+            
             const words = content.split(/\s+/).filter((word: string) => word.length > 0);
 
             for (let i = 0; i < words.length - 1; i++) {
@@ -56,6 +62,7 @@ export class WordSuggestionProvider {
             }
         } catch (error) {
             console.error(`Failed to build Markov chain: ${error}`);
+            console.error(`Error stack: ${(error as Error).stack}`);
         }
     }
 

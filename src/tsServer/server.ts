@@ -12,9 +12,9 @@ import {
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { SpellChecker, SpellCheckDiagnosticsProvider, SpellCheckCodeActionProvider, SpellCheckCompletionItemProvider } from './spellCheck';
-import { createIndexWithContext } from "./indexes";
+// import { createIndexWithContext } from "./indexes"; TODO: Make sure this happens somewhere
 import { WordSuggestionProvider } from './forecasting';
-import { workspace } from 'vscode';
+import { URI } from 'vscode-uri';
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
@@ -27,6 +27,7 @@ let wordSuggestionProvider: WordSuggestionProvider;
 
 connection.onInitialize((params: InitializeParams) => {
     const workspaceFolder = params.workspaceFolders?.[0].uri;
+    console.log(`Initializing with workspace folder: ${workspaceFolder}`);
 
     // Initialize services
     spellChecker = new SpellChecker(workspaceFolder);
@@ -34,8 +35,13 @@ connection.onInitialize((params: InitializeParams) => {
     codeActionProvider = new SpellCheckCodeActionProvider(spellChecker);
     completionItemProvider = new SpellCheckCompletionItemProvider(spellChecker);
     
-    if (workspaceFolder)
-    wordSuggestionProvider = new WordSuggestionProvider(workspaceFolder);
+    if (workspaceFolder) {
+        const fsPath = URI.parse(workspaceFolder).fsPath;
+        console.log(`Creating WordSuggestionProvider with workspace folder: ${fsPath}`);
+        wordSuggestionProvider = new WordSuggestionProvider(fsPath);
+    } else {
+        console.warn('No workspace folder provided. WordSuggestionProvider not initialized.');
+    }
 
     // Initialize indexes
     // createIndexWithContext(connection);
