@@ -66,7 +66,11 @@ export async function activate(context: vscode.ExtensionContext) {
     };
 
     const clientOptions: LanguageClientOptions = {
-        documentSelector: [{ scheme: 'file', language: '*' }],
+        documentSelector: [
+            { scheme: 'file', language: '*' },
+            { scheme: 'vscode-notebook-cell', language: '*' },
+            { notebook: '*', language: '*' }
+        ],
         synchronize: {
             fileEvents: vscode.workspace.createFileSystemWatcher('**/.clientrc')
         }

@@ -8,7 +8,8 @@ import {
     TextDocumentPositionParams,
     CodeActionParams,
     PublishDiagnosticsParams,
-    CompletionContext
+    CompletionContext,
+    Connection
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { SpellChecker, SpellCheckDiagnosticsProvider, SpellCheckCodeActionProvider, SpellCheckCompletionItemProvider } from './spellCheck';
@@ -46,6 +47,8 @@ connection.onInitialize((params: InitializeParams) => {
     // Initialize indexes
     // createIndexWithContext(connection);
 
+    spellChecker.registerCommands(connection);
+
     const result: InitializeResult = {
         capabilities: {
             textDocumentSync: TextDocumentSyncKind.Incremental,
@@ -55,7 +58,10 @@ connection.onInitialize((params: InitializeParams) => {
             },
             codeActionProvider: true,
             hoverProvider: true,
-            documentSymbolProvider: true
+            documentSymbolProvider: true,
+            executeCommandProvider: {
+                commands: ['spellcheck.addToDictionary', 'spellcheck.addMultipleWords']
+            }
         }
     };
     return result;

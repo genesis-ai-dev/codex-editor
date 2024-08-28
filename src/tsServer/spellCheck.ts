@@ -16,18 +16,28 @@ import { verseRefRegex } from "./types";
 import { Dictionary, DictionaryEntry, SpellCheckResult } from "./types";
 import * as fs from 'fs';
 import * as path from 'path';
+import { URI } from 'vscode-uri';
+import { Connection } from 'vscode-languageserver/node';
 
 export class SpellChecker {
     private dictionary: Dictionary | null = null;
     private dictionaryPath: string;
 
     constructor(workspaceFolder: string | undefined) {
-        this.dictionaryPath = path.join(workspaceFolder || '', 'files', 'project.dictionary');
+        if (workspaceFolder) {
+            const folderUri = URI.parse(workspaceFolder);
+            this.dictionaryPath = path.join(folderUri.fsPath, 'files', 'project.dictionary');
+        } else {
+            // Fallback to a default path if no workspace folder is provided
+            this.dictionaryPath = path.join(process.cwd(), 'files', 'project.dictionary');
+        }
         console.log("Dictionary path: " + this.dictionaryPath);
+        this.ensureDictionaryExists();
+        this.initializeDictionary();
     }
+
     async initializeDictionary() {
         try {
-            await this.ensureDictionaryExists();
             await this.loadDictionary();
         } catch (error: any) {
             console.error(`Failed to initialize dictionary: ${error.message}`);
@@ -40,6 +50,7 @@ export class SpellChecker {
             await fs.promises.access(this.dictionaryPath);
         } catch {
             const emptyDictionary = { entries: [] };
+            await fs.promises.mkdir(path.dirname(this.dictionaryPath), { recursive: true });
             await fs.promises.writeFile(
                 this.dictionaryPath,
                 JSON.stringify(emptyDictionary)
@@ -49,11 +60,13 @@ export class SpellChecker {
     }
 
     private async loadDictionary() {
-        const content = await fs.promises.readFile(this.dictionaryPath, 'utf8');
+        console.log(this.dictionaryPath);
+        const content = await fs.promises.readFile(this.dictionaryPath, 'utf-8');
         this.dictionary = JSON.parse(content);
         if (this.dictionary && Array.isArray(this.dictionary.entries)) {
             const wordCount = this.dictionary.entries.length;
             console.log(`Dictionary loaded with ${wordCount} words.`);
+            console.log(`First few words: ${this.dictionary.entries.slice(0, 5).map(e => e.headWord).join(', ')}`);
         } else {
             this.dictionary = { entries: [] };
             console.log("Initialized empty dictionary.");
@@ -65,18 +78,24 @@ export class SpellChecker {
             return { word, corrections: ['[Dictionary is empty]'] };
         }
 
+        const originalWord = word;
         const lowercaseWord = word.toLowerCase();
-        const isInDictionary = this.dictionary.entries.some(entry => 
-            entry.headWord === lowercaseWord || 
-            entry.headWord === lowercaseWord.replace(/['-]/g, '') // Check without punctuation
-        );
+        
+        // Improved punctuation handling
+        const wordWithoutPunctuation = lowercaseWord.replace(/[^\p{L}\p{N}'-]/gu, '');
+
+        const isInDictionary = this.dictionary.entries.some(entry => {
+            const entryWithoutPunctuation = entry.headWord.replace(/[^\p{L}\p{N}'-]/gu, '');
+            return entryWithoutPunctuation === wordWithoutPunctuation;
+        });
 
         if (isInDictionary) {
-            return { word, corrections: [] };
+            return { word: originalWord, corrections: [] };
         }
 
-        const suggestions = this.getSuggestions(lowercaseWord);
-        return { word, corrections: suggestions };
+        const suggestions = this.getSuggestions(wordWithoutPunctuation);
+
+        return { word: originalWord, corrections: suggestions };
     }
 
     private getSuggestions(word: string): string[] {
@@ -118,8 +137,8 @@ export class SpellChecker {
     }
 
     async addToDictionary(word: string) {
-        // Trim whitespace and remove leading/trailing punctuation
-        word = word.trim().replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "").toLowerCase();
+        // Remove all punctuation except apostrophes and hyphens
+        word = word.replace(/[^\p{L}\p{N}'-]/gu, "").toLowerCase();
 
         if (!this.dictionary) {
             this.dictionary = { entries: [] };
@@ -135,6 +154,7 @@ export class SpellChecker {
         try {
             const serializedDictionary = JSON.stringify(this.dictionary, null, 2);
             await fs.promises.writeFile(this.dictionaryPath, serializedDictionary);
+            // Reload the dictionary after adding a new word
         } catch (error) {
             console.error('Error saving dictionary:', error);
         }
@@ -147,6 +167,17 @@ export class SpellChecker {
     private generateHash(word: string): string {
         // FIXME: this should be an image hash
         return word.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0).toString();
+    }
+
+    registerCommands(connection: Connection) {
+        connection.onExecuteCommand(async (params) => {
+            if (params.command === 'spellcheck.addToDictionary' && params.arguments) {
+                const word = params.arguments[0];
+                await this.addToDictionary(word);
+                // Notify the client that the dictionary has been updated
+                connection.sendNotification('spellcheck/dictionaryUpdated');
+            }
+        });
     }
 }
 
