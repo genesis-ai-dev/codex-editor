@@ -654,6 +654,15 @@
         ],
         "customEditors": [
             {
+                "viewType": "codex.chunkEditor",
+                "displayName": "Codex Chunk",
+                "selector": [
+                    {
+                        "filenamePattern": "*.codex2"
+                    }
+                ]
+            },
+            {
                 "viewType": "codex.obs.editor",
                 "displayName": "Obs Editor",
                 "selector": [
@@ -757,7 +766,6 @@
     "extensionDependencies": [
         "project-accelerate.shared-state-store",
         "project-accelerate.scripture-language-support",
-        "project-accelerate.pythoninstaller",
         "vscode.git"
     ]
 }

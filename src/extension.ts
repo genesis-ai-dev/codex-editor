@@ -23,14 +23,22 @@ import { syncUtils } from "./activationHelpers/contextAware/syncUtils";
 import { initializeStateStore } from "./stateStore";
 import { projectFileExists } from "./utils/fileUtils";
 import { registerCompletionsCodeLensProviders } from "./activationHelpers/contextAware/completionsCodeLensProviders";
-import * as path from 'path';
-import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from 'vscode-languageclient/node';
+import * as path from "path";
+import {
+    LanguageClient,
+    LanguageClientOptions,
+    ServerOptions,
+    TransportKind,
+} from "vscode-languageclient/node";
 import { createIndexWithContext } from "./activationHelpers/contextAware/miniIndex/indexes";
+import { CodexChunkEditorProvider } from "./providers/codexChunkEditorProvider/CodexChunkEditorProvider";
 
 let scmInterval: any; // Webpack & typescript for vscode are having issues
 
 // initial autoCommit config
-const configuration = vscode.workspace.getConfiguration("codex-editor-extension.scm");
+const configuration = vscode.workspace.getConfiguration(
+    "codex-editor-extension.scm",
+);
 let autoCommitEnabled = configuration.get<boolean>("autoCommit", true);
 
 let client: LanguageClient;
@@ -57,39 +65,49 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(ObsEditorProvider.register(context));
     context.subscriptions.push(providerRegistration);
     context.subscriptions.push(commandRegistration);
+    console.log("CodexChunkEditorProvider registered");
+    context.subscriptions.push(CodexChunkEditorProvider.register(context));
 
     // Set up the language client
-    const serverModule = context.asAbsolutePath(path.join('out', 'server.js'));
-    const debugOptions = { execArgv: ['--nolazy', '--inspect=6009'] };
+    const serverModule = context.asAbsolutePath(path.join("out", "server.js"));
+    const debugOptions = { execArgv: ["--nolazy", "--inspect=6009"] };
 
     const serverOptions: ServerOptions = {
         run: { module: serverModule, transport: TransportKind.ipc },
-        debug: { module: serverModule, transport: TransportKind.ipc, options: debugOptions }
+        debug: {
+            module: serverModule,
+            transport: TransportKind.ipc,
+            options: debugOptions,
+        },
     };
 
     const clientOptions: LanguageClientOptions = {
         documentSelector: [
-            { scheme: 'file', language: '*' },
-            { scheme: 'vscode-notebook-cell', language: '*' },
-            { notebook: '*', language: '*' }
+            { scheme: "file", language: "*" },
+            { scheme: "vscode-notebook-cell", language: "*" },
+            { notebook: "*", language: "*" },
         ],
         synchronize: {
-            fileEvents: vscode.workspace.createFileSystemWatcher('**/.clientrc')
-        }
+            fileEvents:
+                vscode.workspace.createFileSystemWatcher("**/.clientrc"),
+        },
     };
 
     client = new LanguageClient(
-        'scriptureLanguageServer',
-        'Scripture Language Server',
+        "scriptureLanguageServer",
+        "Scripture Language Server",
         serverOptions,
-        clientOptions
+        clientOptions,
     );
     // Start the client. This will also launch the server
-    client.start().then(() => {
-        context.subscriptions.push(client);
-    }).catch(error => {
-        console.error('Failed to start the client:', error);
-    });
+    client
+        .start()
+        .then(() => {
+            context.subscriptions.push(client);
+        })
+        .catch((error) => {
+            console.error("Failed to start the client:", error);
+        });
 
     await executeCommandsAfter();
     await startSyncLoop(context);
@@ -133,13 +151,26 @@ async function startSyncLoop(context: vscode.ExtensionContext) {
 
     const configChangeSubscription = vscode.workspace.onDidChangeConfiguration(
         (e) => {
-            if (e.affectsConfiguration("codex-editor-extension.scm.remoteUrl")) {
+            if (
+                e.affectsConfiguration("codex-editor-extension.scm.remoteUrl")
+            ) {
                 syncUtils.checkConfigRemoteAndUpdateIt();
             }
-            if (e.affectsConfiguration("codex-editor-extension.scm.autoCommit")) {
-                const updatedConfiguration = vscode.workspace.getConfiguration("codex-editor-extension.scm");
-                autoCommitEnabled = updatedConfiguration.get<boolean>("autoCommit", true);
-                vscode.window.showInformationMessage(`Auto-commit is now ${autoCommitEnabled ? 'enabled' : 'disabled'}.`);
+            if (
+                e.affectsConfiguration("codex-editor-extension.scm.autoCommit")
+            ) {
+                const updatedConfiguration = vscode.workspace.getConfiguration(
+                    "codex-editor-extension.scm",
+                );
+                autoCommitEnabled = updatedConfiguration.get<boolean>(
+                    "autoCommit",
+                    true,
+                );
+                vscode.window.showInformationMessage(
+                    `Auto-commit is now ${
+                        autoCommitEnabled ? "enabled" : "disabled"
+                    }.`,
+                );
 
                 if (autoCommitEnabled) {
                     startInterval();

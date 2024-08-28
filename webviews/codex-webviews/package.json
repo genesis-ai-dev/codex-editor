@@ -6,9 +6,10 @@
     "scripts": {
         "dev": "vite",
         "build:ParallelView": "cross-env APP_NAME=ParallelView vite build",
+        "build:CodexChunkEditor": "cross-env APP_NAME=CodexChunkEditor vite build",
         "build:SemanticView": "cross-env APP_NAME=SemanticView vite build",
         "build:TranslationNotesView": "cross-env APP_NAME=TranslationNotesView vite build",
-        "build:all": "npm run build:ParallelView && npm run build:TranslationNotesView && npm run build:SemanticView",
+        "build:all": "npm run build:ParallelView && npm run build:CodexChunkEditor && npm run build:SemanticView && npm run build:TranslationNotesView",
         "watch": "nodemon --watch src --ext ts,tsx --exec npm run build:all",
         "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
         "preview": "vite preview"
@@ -21,6 +22,7 @@
         "marked": "^12.0.0",
         "react": "^18.2.0",
         "react-dom": "^18.2.0",
+        "react-quill": "^2.0.0",
         "uuid": "^9.0.1"
     },
     "devDependencies": {

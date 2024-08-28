@@ -33,7 +33,9 @@
         "src/ParallelView/ParallelView.tsx",
         "src/ParallelView/index.tsx",
         "src/SemanticView/SemanticView.tsx",
-        "src/SemanticView/index.tsx"
+        "src/SemanticView/index.tsx",
+        "src/CodexChunkEditor/CodexChunkEditor.tsx",
+        "src/CodexChunkEditor/index.tsx"
     ],
     "references": [{ "path": "./tsconfig.node.json" }]
 }

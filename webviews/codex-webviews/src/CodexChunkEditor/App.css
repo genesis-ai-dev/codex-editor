@@ -1,0 +1,4 @@
+.ql-ai::after {
+    content: "🤖"; /* You can replace this with any other icon or emoji */
+    font-size: 18px;
+}
