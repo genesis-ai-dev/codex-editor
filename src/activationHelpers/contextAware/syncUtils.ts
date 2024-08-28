@@ -4,14 +4,14 @@ import { addRemote, checkConfigRemoteAndUpdateIt, stageAndCommit, sync } from ".
 export const syncUtils = {
     registerSyncCommands(context: vscode.ExtensionContext, syncStatus: any) { // FIXME: what type is sync status??
         context.subscriptions.push(
-            vscode.commands.registerCommand("codex-editor.scm.stageAndCommitAll", async () => {
+            vscode.commands.registerCommand("codex-editor-extension.scm.stageAndCommitAll", async () => {
                 await stageAndCommit();
                 await syncStatus();
             }),
         );
 
         context.subscriptions.push(
-            vscode.commands.registerCommand("codex-editor.scm.addRemote", async () => {
+            vscode.commands.registerCommand("codex-editor-extension.scm.addRemote", async () => {
                 const remoteUrl = await vscode.window.showInputBox({
                     prompt: "Enter the remote URL to add",
                     placeHolder: "Remote URL",
@@ -26,14 +26,14 @@ export const syncUtils = {
         );
 
         context.subscriptions.push(
-            vscode.commands.registerCommand("codex-editor.scm.sync", async () => {
+            vscode.commands.registerCommand("codex-editor-extension.scm.sync", async () => {
                 await sync();
                 await syncStatus();
             }),
         );
 
         context.subscriptions.push(
-            vscode.commands.registerCommand("codex-editor.scm.syncedNotification", async () => {
+            vscode.commands.registerCommand("codex-editor-extension.scm.syncedNotification", async () => {
                 vscode.window.showInformationMessage("Project is synced");
             }),
         );

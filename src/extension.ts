@@ -39,7 +39,7 @@ import { registerCompletionsCodeLensProviders } from "./activationHelpers/contex
 let scmInterval: any; // Webpack & typescript for vscode are having issues
 
 // initial autoCommit config
-const configuration = vscode.workspace.getConfiguration("codex-editor.scm");
+const configuration = vscode.workspace.getConfiguration("codex-editor-extension.scm");
 let autoCommitEnabled = configuration.get<boolean>("autoCommit", true);
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -106,11 +106,11 @@ async function startSyncLoop(context: vscode.ExtensionContext) {
 
     const configChangeSubscription = vscode.workspace.onDidChangeConfiguration(
         (e) => {
-            if (e.affectsConfiguration("codex-editor.scm.remoteUrl")) {
+            if (e.affectsConfiguration("codex-editor-extension.scm.remoteUrl")) {
                 syncUtils.checkConfigRemoteAndUpdateIt();
             }
-            if (e.affectsConfiguration("codex-editor.scm.autoCommit")) {
-                const updatedConfiguration = vscode.workspace.getConfiguration("codex-editor.scm");
+            if (e.affectsConfiguration("codex-editor-extension.scm.autoCommit")) {
+                const updatedConfiguration = vscode.workspace.getConfiguration("codex-editor-extension.scm");
                 autoCommitEnabled = updatedConfiguration.get<boolean>("autoCommit", true);
                 vscode.window.showInformationMessage(`Auto-commit is now ${autoCommitEnabled ? 'enabled' : 'disabled'}.`);
 

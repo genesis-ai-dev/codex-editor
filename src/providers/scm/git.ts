@@ -140,7 +140,7 @@ export const sync = async () => {
 };
 
 export const addRemote = async (url: string) => {
-    const configuration = vscode.workspace.getConfiguration("codex-editor.scm");
+    const configuration = vscode.workspace.getConfiguration("codex-editor-extension.scm");
     const remoteFromConfig = await configuration.get("remoteUrl");
 
     const gitApi: API = vscode.extensions
@@ -279,7 +279,7 @@ export const checkConfigRemoteAndUpdateIt = async () => {
     if (!(await projectFileExists())) {
         return;
     }
-    const configuration = vscode.workspace.getConfiguration("codex-editor.scm"); // FIXME: why is this empty
+    const configuration = vscode.workspace.getConfiguration("codex-editor-extension.scm"); // FIXME: why is this empty
     const remoteFromConfig = (await configuration.get("remoteUrl")) as string;
     const gitApi: API = vscode.extensions
         .getExtension("vscode.git")

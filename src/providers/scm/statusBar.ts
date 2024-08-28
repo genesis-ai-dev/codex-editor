@@ -15,7 +15,7 @@ export const registerScmStatusBar = (ctx: vscode.ExtensionContext) => {
     let syncInterval: NodeJS.Timeout | null = null;
 
     const syncStatus = async () => {
-        const config = vscode.workspace.getConfiguration('codex-editor.scm');
+        const config = vscode.workspace.getConfiguration('codex-editor-extension.scm');
         const autoCommit = config.get<boolean>('autoCommit', true);
 
         if (!autoCommit) {
@@ -31,7 +31,7 @@ export const registerScmStatusBar = (ctx: vscode.ExtensionContext) => {
         if (!(await hasRemote())) {
             scmStatusBar.text = "$(error) No cloud sync found";
             scmStatusBar.tooltip = "Click to add remote";
-            scmStatusBar.command = "codex-editor.scm.addRemote";
+            scmStatusBar.command = "codex-editor-extension.scm.addRemote";
             scmStatusBar.backgroundColor = new vscode.ThemeColor(
                 "statusBarItem.errorBackground",
             );
@@ -41,7 +41,7 @@ export const registerScmStatusBar = (ctx: vscode.ExtensionContext) => {
         if (await isRemoteDiff()) {
             scmStatusBar.text = "$(warning) Cloud sync pending";
             scmStatusBar.tooltip = "Click to sync to the cloud";
-            scmStatusBar.command = "codex-editor.scm.sync";
+            scmStatusBar.command = "codex-editor-extension.scm.sync";
             scmStatusBar.backgroundColor = new vscode.ThemeColor(
                 "statusBarItem.warningBackground",
             );
@@ -51,7 +51,7 @@ export const registerScmStatusBar = (ctx: vscode.ExtensionContext) => {
         if (await hasPendingChanges()) {
             scmStatusBar.text = "$(warning) local sync pending";
             scmStatusBar.tooltip = "Click to sync locally";
-            scmStatusBar.command = "codex-editor.scm.stageAndCommitAll";
+            scmStatusBar.command = "codex-editor-extension.scm.stageAndCommitAll";
             scmStatusBar.backgroundColor = new vscode.ThemeColor(
                 "statusBarItem.warningBackground",
             );
@@ -60,7 +60,7 @@ export const registerScmStatusBar = (ctx: vscode.ExtensionContext) => {
 
         scmStatusBar.text = "$(check) Synced";
         scmStatusBar.tooltip = "Synced";
-        scmStatusBar.command = "codex-editor.scm.syncedNotification";
+        scmStatusBar.command = "codex-editor-extension.scm.syncedNotification";
         scmStatusBar.backgroundColor = undefined;
     };
 
@@ -79,8 +79,8 @@ export const registerScmStatusBar = (ctx: vscode.ExtensionContext) => {
     };
 
     const handleConfigChange = (e: vscode.ConfigurationChangeEvent) => {
-        if (e.affectsConfiguration("codex-editor.scm.autoCommit")) {
-            const config = vscode.workspace.getConfiguration('codex-editor.scm');
+        if (e.affectsConfiguration("codex-editor-extension.scm.autoCommit")) {
+            const config = vscode.workspace.getConfiguration('codex-editor-extension.scm');
             const autoCommit = config.get<boolean>('autoCommit', true);
             if (autoCommit) {
                 startSyncInterval();
