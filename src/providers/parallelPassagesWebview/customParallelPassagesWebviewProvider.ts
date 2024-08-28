@@ -1,16 +1,12 @@
 import * as vscode from "vscode";
 import { jumpToCellInNotebook } from "../../utils";
-import { registerTextSelectionHandler, performSearch } from "../../handlers/textSelectionHandler";
-import { PythonMessenger } from "../../utils/pyglsMessenger";
-
-const pyMessenger: PythonMessenger = new PythonMessenger();
+import { registerTextSelectionHandler } from "../../handlers/textSelectionHandler";
 
 async function simpleOpen(uri: string) {
     try {
         const parsedUri = vscode.Uri.parse(uri);
         if (parsedUri.toString().includes(".codex")){
             jumpToCellInNotebook(uri.toString(),  0);
-
         }
         else {
             const document = await vscode.workspace.openTextDocument(parsedUri);
@@ -20,9 +16,6 @@ async function simpleOpen(uri: string) {
         console.error(`Failed to open file: ${uri}`, error);
     }
 }
-
-
-
 
 const loadWebviewHtml = (
     webviewView: vscode.WebviewView,
@@ -87,7 +80,7 @@ const loadWebviewHtml = (
     <link href="${styleVSCodeUri}" rel="stylesheet">
     <link href="${styleUri}" rel="stylesheet">
     <script nonce="${nonce}">
-      // const vsCodeApi = acquireVsCodeApi();
+      const vscode = acquireVsCodeApi();
       const apiBaseUrl = ${JSON.stringify("http://localhost:3002")}
     </script>
     </head>
@@ -102,48 +95,17 @@ const loadWebviewHtml = (
         async (message: any) => { // Changed the type to any to handle multiple message types
             switch (message.command) {
                 case "openFileAtLocation":
-                    // vscode.window.showInformationMessage(message.uri);
-                    simpleOpen(message.uri);//message.word);
-                    break;
-                case "applyEdit":
-                    await pyMessenger.applyEdit(message.uri, message.before, message.after);
-                    break;
-                case "smart_edit":
-                    try {
-                        const result = await pyMessenger.smartEdit(message.before, message.after, message.query);
-                        webviewView.webview.postMessage({
-                            command: "smart_edit_result",
-                            requestId: message.requestId,
-                            result: JSON.stringify(result)
-                        });
-                    } catch (error: any) {
-                        webviewView.webview.postMessage({
-                            command: "smart_edit_result",
-                            requestId: message.requestId,
-                            error: error.message
-                        });
-                    }
+                    simpleOpen(message.uri);
                     break;
                 case "search":
-                    if (message.database === 'resources') {
-                        
-                        const query = message.query;
-                        try {
-                            const data = await pyMessenger.searchResources(query, 10);
-
-                            webviewView.webview.postMessage({
-                                command: "resourceResults",
-                                data: data,
-                            });
-                        } catch (error) {
-                            console.error('Failed to search resources:', error);
-                        }
-                    } else if (message.database === "both") {
-                        performSearch(message.query, (data: JSON) => {
-                            webviewView.webview.postMessage({
-                                command: "searchResults",
-                                data: data,
-                            });
+                    if (message.database === "both") {
+                        const results = await vscode.commands.executeCommand('translators-copilot.searchTargetVersesByQuery', message.query);
+                        webviewView.webview.postMessage({
+                            command: "searchResults",
+                            data: {
+                                bibleResults: [],
+                                codexResults: results || []
+                            },
                         });
                     }
                     break;
@@ -154,43 +116,44 @@ const loadWebviewHtml = (
     );
 };
 
-export class CustomWebviewProvider {
-    _context: vscode.ExtensionContext;
-    selectionChangeListener: any;
-    constructor(context: vscode.ExtensionContext) {
-        this._context = context;
-    }
+export class CustomWebviewProvider implements vscode.WebviewViewProvider {
+    private _view?: vscode.WebviewView;
 
-    resolveWebviewView(webviewView: vscode.WebviewView) {
+    constructor(private readonly _context: vscode.ExtensionContext) {}
+
+    public resolveWebviewView(webviewView: vscode.WebviewView) {
+        this._view = webviewView;
         loadWebviewHtml(webviewView, this._context.extensionUri);
 
-        registerTextSelectionHandler(this._context, (data: JSON) => {
-            webviewView.webview.postMessage({
+        registerTextSelectionHandler(this._context, async (query: string) => {
+            const results = await vscode.commands.executeCommand('translators-copilot.searchTargetVersesByQuery', query);
+            console.log("Results: ", results);
+            if (typeof results === 'string') {
+                vscode.window.showInformationMessage(results);
+            } else {
+                vscode.window.showInformationMessage('Search completed');
+            }
+
+            this._view?.webview.postMessage({
                 command: "searchResults",
-                data: data,
+                data: {
+                    bibleResults: [],
+                    codexResults: results || []
+                },
             });
         });
-        if (webviewView.visible) {
-            // sendCommentsToWebview(webviewView);
-            // TODO: send verse parallels
-        }
     }
 }
 
 export function registerParallelViewWebviewProvider(
     context: vscode.ExtensionContext,
 ) {
-    const item = vscode.window.createStatusBarItem(
-        vscode.StatusBarAlignment.Right,
-    );
+    const provider = new CustomWebviewProvider(context);
 
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(
             "parallel-passages-sidebar",
-            new CustomWebviewProvider(context),
+            provider
         ),
     );
-
-    item.show();
 }
-

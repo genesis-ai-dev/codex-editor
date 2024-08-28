@@ -51,10 +51,7 @@ const extensionConfig = {
                     },
                     {
                         loader: "markdown-loader",
-                        options: {
-                            // Pass options to marked
-                            // See https://marked.js.org/using_advanced#options
-                        },
+                        options: {},
                     },
                 ],
             },
@@ -65,4 +62,39 @@ const extensionConfig = {
         level: "log", // enables logging required for problem matchers
     },
 };
-module.exports = [extensionConfig];
+const serverConfig = {
+    target: "node",
+    mode: "none",
+    entry: "./src/tsServer/server.ts",
+    output: {
+        path: path.resolve(__dirname, "out"),
+        filename: "server.js",
+        libraryTarget: "commonjs2",
+    },
+    externals: {
+        "vscode-languageserver": "commonjs vscode-languageserver",
+        "vscode-languageserver-textdocument": "commonjs vscode-languageserver-textdocument"
+    },
+    resolve: {
+        extensions: [".ts", ".js"],
+        alias: {
+            "@": path.resolve(__dirname, "src"),
+        },
+    },
+    module: {
+        rules: [
+            {
+                test: /\.ts$/,
+                exclude: /node_modules/,
+                use: [
+                    {
+                        loader: "ts-loader",
+                    },
+                ],
+            },
+        ],
+    },
+    devtool: "nosources-source-map",
+};
+
+module.exports = [extensionConfig, serverConfig];

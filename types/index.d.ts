@@ -119,9 +119,9 @@ type OBSRef = {
     paragraph: string;
 };
 
-// type Dictionary = {
-//     entries: DictionaryEntry[];
-// }
+type Dictionary = { // not sure why this was commented?
+    entries: DictionaryEntry[];
+}
 
 type DictionaryEntry = {
     id: string;

@@ -1,10 +1,10 @@
 import * as vscode from "vscode";
 import { extractVerseRefFromLine } from "../utils/verseRefUtils";
 import { initializeStateStore } from "../stateStore";
-import { PythonMessenger } from "../utils/pyglsMessenger";
+// import { PythonMessenger } from "../utils/pyglsMessenger";
 import { searchVerseRefPositionIndex } from "../commands/indexVrefsCommand";
 
-const pyMessenger: PythonMessenger = new PythonMessenger();
+// const pyMessenger: PythonMessenger = new PythonMessenger();
 
 export function registerTextSelectionHandler(
     context: vscode.ExtensionContext,
@@ -131,8 +131,8 @@ export async function performSearch(
 
         try {
             // vscode.window.showInformationMessage("Searching: "+ selectedText);
-            const result = await pyMessenger.detectAnomalies(selectedText, 10);
-            callback(result);
+            // const result = await pyMessenger.detectAnomalies(selectedText, 10);
+            callback('result'); // un quote this, its just to avoid errors rn
         } catch (error: unknown) {
             vscode.window.showErrorMessage(
                 "Error performing search for: " + selectedText + "\n" + error,

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ZeroDraftIndexRecord } from '../activationHelpers/contextAware/server/indexes/zeroDraftIndex';
+import { ZeroDraftIndexRecord } from '../activationHelpers/contextAware/miniIndex/indexes/zeroDraftIndex';
 import { verseRefRegex } from './verseRefUtils';
 
 export function zeroDraftDocumentLoader(document: vscode.TextDocument): ZeroDraftIndexRecord[] {

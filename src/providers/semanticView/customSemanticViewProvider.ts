@@ -1,10 +1,10 @@
 // TODO: Get rid of this for something better
 import * as vscode from "vscode";
 import { jumpToCellInNotebook } from "../../utils";
-import { PythonMessenger } from "../../utils/pyglsMessenger";
+// import { PythonMessenger } from "../../utils/pyglsMessenger";
 
 const abortController: AbortController | null = null;
-const pyMessenger: PythonMessenger = new PythonMessenger();
+// const pyMessenger: PythonMessenger = new PythonMessenger();
 
 interface OpenFileMessage {
     command: "openFileAtLocation";
@@ -109,11 +109,11 @@ const loadWebviewHtml = (
                 case "getSimilar":
                     try {
                         const word = message.word;
-                        const response = await pyMessenger.getMostSimilar("target", word);
+                        // const response = await pyMessenger.getMostSimilar("target", word);
                         
                         webviewView.webview.postMessage({
                             command: "similarWords",
-                            data: response,
+                            data: 'response',
                         });
                     } catch (error) {
                         console.error('Failed to get similar words:', error);
