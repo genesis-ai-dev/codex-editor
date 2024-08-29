@@ -166,6 +166,10 @@
         ],
         "commands": [
             {
+                "command": "codex-editor-extension.JOSH_COMMAND",
+                "title": "JOSH_COMMAND"
+            },
+            {
                 "command": "codex-editor-extension.pythonMessenger",
                 "title": "Execute Python Messenger Command"
             },

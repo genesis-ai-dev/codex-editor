@@ -2,7 +2,8 @@ import * as vscode from "vscode";
 import { llmCompletion } from "./llmCompletion";
 // import { getAiTranslation } from "./aiZeroDraftProvider";
 import { meshCompletion } from '../../utils/completionUtils';
-
+import { s2sCompletion } from "./s2sCompletion";
+import { extractVerseRefFromLine } from "../../utils/verseRefUtils";
 let shouldProvideCompletion = false;
 let isAutocompletingInProgress = false;
 let autocompleteCancellationTokenSource: vscode.CancellationTokenSource | undefined;
@@ -123,11 +124,30 @@ function cancelAutocompletion(message: string) {
 
 async function verseCompletion(document: vscode.TextDocument, position: vscode.Position, completionConfig: CompletionConfig, token: vscode.CancellationToken): Promise<vscode.InlineCompletionItem[]> {
     const completions: vscode.InlineCompletionItem[] = [];
-    const currentLineText = document.lineAt(position.line).text;
+    let currentLineText = document.lineAt(position.line).text;
+    const currentLineVref = extractVerseRefFromLine(currentLineText);
+    if (!currentLineVref) {
+        vscode.window.showErrorMessage("No verse reference found in current line");
+        return completions;
+    }
+    currentLineText = currentLineText.replace(currentLineVref, '').trim();
     const currentPosition = position.character;
 
-    const { completion, context } = await llmCompletion(document, position, completionConfig, token);
-    if (!completion) {
+    // TODO: add additional inline completions from Josh's endpoint
+    vscode.window.showInformationMessage(`Calling s2sCompletion with completion: ${currentLineVref} and language: ${completionConfig.mainChatLanguage} and book: ${completionConfig.sourceBookWhitelist}`);
+
+    const USE_S2S_COMPLETION_FLAG = false; // FIXME: JOSH - set this to true to use s2sCompletion via the autocomplete button
+    if (USE_S2S_COMPLETION_FLAG) {
+        const s2sCompletionValue = await s2sCompletion(completionConfig.mainChatLanguage, currentLineVref, currentLineText);
+        if (s2sCompletionValue) {
+            vscode.window.showInformationMessage(`s2sCompletion returned: ${s2sCompletionValue}`);
+            completions.push(new vscode.InlineCompletionItem(s2sCompletionValue, new vscode.Range(position.line, currentPosition, position.line, currentPosition)));
+        }
+    }
+
+    const { completion: llmCompletionResponse, context } = await llmCompletion(document, position, completionConfig, token);
+
+    if (!llmCompletionResponse) {
         vscode.window.showErrorMessage("No completion returned from LLM");
         return completions;
     }
@@ -136,8 +156,8 @@ async function verseCompletion(document: vscode.TextDocument, position: vscode.P
     // const completion = 'mock completion';
     // const context = { mock: true };
 
-    const meshedCompletion = meshCompletion(currentLineText.substring(0, currentPosition), completion);
-    const completionStart = currentPosition - meshedCompletion.length + completion.length;
+    const meshedCompletion = meshCompletion(currentLineText.substring(0, currentPosition), llmCompletionResponse);
+    const completionStart = currentPosition - meshedCompletion.length + llmCompletionResponse.length;
     const completionRange = new vscode.Range(position.line, completionStart, position.line, currentLineText.length);
 
     completions.push(new vscode.InlineCompletionItem(meshedCompletion, completionRange));
@@ -158,6 +178,12 @@ async function verseCompletion(document: vscode.TextDocument, position: vscode.P
 
     return completions;
 }
+
+vscode.commands.registerCommand("codex-editor-extension.JOSH_COMMAND", async () => {
+    vscode.window.showInformationMessage("JOSH_COMMAND");
+    const s2sCompletionValue = await s2sCompletion('eng', 'GEN 1:1', 'in the beginning God created');
+    vscode.window.showInformationMessage(`s2sCompletion returned: ${s2sCompletionValue}`);
+});
 
 export async function fetchCompletionConfig(): Promise<CompletionConfig> {
     try {

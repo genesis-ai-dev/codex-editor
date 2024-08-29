@@ -299,7 +299,7 @@ export async function initializeProject() {
         "scripture-explorer-activity-bar.refreshEntry",
     );
     await vscode.commands.executeCommand(
-        "codex-editor.setEditorFontToTargetLanguage",
+        "codex-editor-extension.setEditorFontToTargetLanguage",
     );
     await vscode.commands.executeCommand(
         "codex-editor-extension.downloadSourceTextBibles",
