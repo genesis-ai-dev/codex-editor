@@ -352,6 +352,11 @@
                 "command": "translators-copilot.insertZeroDraftsInCurrentEditor",
                 "title": "Insert Zero Drafts into Current Editor",
                 "category": "Translators Copilot"
+            },
+            {
+                "command": "codex-editor-extension.setEditorFontToTargetLanguage",
+                "title": "Set Editor Font to Target Language",
+                "category": "Codex Editor"
             }
         ],
         "notebooks": [

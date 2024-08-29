@@ -23,7 +23,7 @@ export async function registerCompletionsCodeLensProviders(context: vscode.Exten
         disposables.forEach((disposable) => context.subscriptions.push(disposable));
 
         const commandDisposable = vscode.commands.registerCommand(
-            "extension.triggerInlineCompletion",
+            "codex-editor-extension.triggerInlineCompletion",
             async () => {
                 await triggerInlineCompletion(statusBarItem);
             }

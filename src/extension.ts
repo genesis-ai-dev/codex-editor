@@ -25,6 +25,7 @@ import { projectFileExists } from "./utils/fileUtils";
 import { registerCompletionsCodeLensProviders } from "./activationHelpers/contextAware/completionsCodeLensProviders";
 import * as path from 'path';
 import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from 'vscode-languageclient/node';
+import { createIndexWithContext } from "./activationHelpers/contextAware/miniIndex/indexes";
 
 let scmInterval: any; // Webpack & typescript for vscode are having issues
 
@@ -42,6 +43,7 @@ export async function activate(context: vscode.ExtensionContext) {
     registerSourceCodeLens(context);
     registerCompletionsCodeLensProviders(context);
     registerTextSelectionHandler(context, () => undefined);
+    createIndexWithContext(context);
 
     const [, syncStatus] = registerScmStatusBar(context);
     syncUtils.registerSyncCommands(context, syncStatus);
@@ -106,7 +108,7 @@ async function executeCommandsAfter() {
 
     vscode.commands.executeCommand("workbench.action.focusAuxiliaryBar");
     vscode.commands.executeCommand(
-        "codex-editor.setEditorFontToTargetLanguage",
+        "codex-editor-extension.setEditorFontToTargetLanguage",
     );
 }
 

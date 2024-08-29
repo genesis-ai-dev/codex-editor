@@ -26,7 +26,7 @@ class VerseCompletionCodeLensProvider implements vscode.CodeLensProvider {
             const range = new vscode.Range(currentLine, 0, currentLine, match[0].length);
             const codeLens = new vscode.CodeLens(range, {
                 title: "📝Autocomplete",
-                command: "extension.triggerInlineCompletion",
+                command: "codex-editor-extension.triggerInlineCompletion",
                 arguments: []
             });
             codeLenses.push(codeLens);

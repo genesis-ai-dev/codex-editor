@@ -170,7 +170,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
     );
 
     vscode.commands.registerCommand(
-        "codex-editor.setEditorFontToTargetLanguage",
+        "codex-editor-extension.setEditorFontToTargetLanguage",
         await setTargetFont
     );
 
