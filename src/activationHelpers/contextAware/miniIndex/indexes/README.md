@@ -12,6 +12,8 @@ This index is used to store the translation pairs with some metadata. Note, this
 
 This index is used to store the zero draft data with some metadata, and these can be either imported in bulk and inserted into the Codex notebook files, or inserted one by one as inline completion options.
 
+Zero draft files need to be placed in the `files/zero_drafts` folder in the workspace.
+
 Here are example files for each of the supported formats for importing zero draft data (txt, jsonl, json, and tsv) into Codex.
 
 1. TXT Example (zero_draft_example.txt):
