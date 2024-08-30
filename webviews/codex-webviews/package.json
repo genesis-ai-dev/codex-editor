@@ -29,7 +29,6 @@
         "remark": "^15.0.1",
         "remark-html": "^16.0.1",
         "remark-stringify": "^11.0.0",
-        "turndown": "^7.2.0",
         "uuid": "^9.0.1"
     },
     "devDependencies": {
