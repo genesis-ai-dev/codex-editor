@@ -19,23 +19,14 @@
         "noUnusedLocals": true,
         "noUnusedParameters": true,
         "noFallthroughCasesInSwitch": true,
-        "noImplicitAny": true
+        "noImplicitAny": true,
+        "typeRoots": ["./node_modules/@types", "./src/types", "./src"]
     },
     "exclude": ["build"],
     "include": [
-        "src/*",
-        "../types/index.d.ts",
-        "src/ChatView/ChatView.tsx",
-        "src/ChatView/index.tsx",
-        "src/ScriptureViewer/ScriptureViewer.tsx",
-        "src/ScriptureViewer/index.tsx",
-        "src/CommentsView/CommentsView.tsx",
-        "src/ParallelView/ParallelView.tsx",
-        "src/ParallelView/index.tsx",
-        "src/SemanticView/SemanticView.tsx",
-        "src/SemanticView/index.tsx",
-        "src/CodexChunkEditor/CodexChunkEditor.tsx",
-        "src/CodexChunkEditor/index.tsx"
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "src/**/*.d.ts"
     ],
     "references": [{ "path": "./tsconfig.node.json" }]
 }

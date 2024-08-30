@@ -69,7 +69,14 @@ export class CodexChunkEditorProvider
 
         webviewPanel.webview.onDidReceiveMessage((e) => {
             switch (e.type) {
+                case "saveMarkdown":
+                    console.log("saveMarkdown message received", { e });
+                    // TODO: change this to update the document one vers at a time.
+                    // this.updateTextDocument(document, JSON.parse(e.content));
+                    return;
                 case "update":
+                    console.log("update message received", { e });
+                    // TODO: change this to update the document one vers at a time.
                     this.updateTextDocument(document, JSON.parse(e.content));
                     return;
                 case "getContent":

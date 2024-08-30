@@ -1,9 +1,15 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import ReactQuill from "react-quill";
-import "react-quill/dist/quill.snow.css";
+import { useState, useEffect } from "react";
+import Editor from "./Editor";
+// import ReactQuill from "react-quill";
+// import "react-quill/dist/quill.snow.css";
 declare function acquireVsCodeApi(): any;
 const vscode = acquireVsCodeApi();
 import * as vscodeTypes from "vscode";
+
+// TODO: add a language type for the translation unit heading aka the book names
+// TODO: stop user from closing current editor when they have unsaved changes
+// TODO: save each change to the verse metadata as "working copy"
+
 type CustomNotebook = vscodeTypes.NotebookCellData & {
     language: string;
 };
@@ -12,12 +18,18 @@ type CustomNotebookData = {
     metadata: vscodeTypes.NotebookData["metadata"];
     cells: CustomNotebook[];
 };
-
+interface ContentUpdate {
+    verseMarker?: string;
+    newContent?: string;
+}
 function CodexChunkEditor() {
     const [content, setContent] = useState<CustomNotebookData>(
         {} as CustomNotebookData,
     );
-    const quillRef = useRef<ReactQuill>(null);
+    const [contentBeingUpdated, setContentBeingUpdated] =
+        useState<ContentUpdate>({});
+
+    // const quillRef = useRef<ReactQuill>(null);
 
     useEffect(() => {
         const messageListener = (event: MessageEvent) => {
@@ -50,53 +62,53 @@ function CodexChunkEditor() {
     //     });
     // };
 
-    const handleAICompletion = useCallback(() => {
-        if (quillRef.current) {
-            const quill = quillRef.current.getEditor();
-            const range = quill.getSelection();
-            quill.on("text-change", (delta, oldDelta, source) => {
-                console.log({ delta, oldDelta, source });
-            });
-            console.log(range);
-            if (range) {
-                const text = quill.getText(0, range.index);
-                vscode.postMessage({ type: "aiCompletion", text });
-            }
-        }
-    }, []);
-    const handleVerseChange = (
-        verseMarker: string,
-        // cellIndex: number,
-        verseIndex: number,
-        newContent: string,
-        content: CustomNotebookData,
-    ) => {
-        // if (quillRef.current) {
-        //     const content = quillRef.current.getEditorContents();
-        //     console.log({ content });
-        // }
+    // const handleAICompletion = useCallback(() => {
+    //     if (quillRef.current) {
+    //         const quill = quillRef.current.getEditor();
+    //         const range = quill.getSelection();
+    //         quill.on("text-change", (delta, oldDelta, source) => {
+    //             console.log({ delta, oldDelta, source });
+    //         });
+    //         console.log(range);
+    //         if (range) {
+    //             const text = quill.getText(0, range.index);
+    //             vscode.postMessage({ type: "aiCompletion", text });
+    //         }
+    //     }
+    // }, []);
+    // const handleVerseChange = (
+    //     verseMarker: string,
+    //     // cellIndex: number,
+    //     verseIndex: number,
+    //     newContent: string,
+    //     content: CustomNotebookData,
+    // ) => {
+    //     // if (quillRef.current) {
+    //     //     const content = quillRef.current.getEditorContents();
+    //     //     console.log({ content });
+    //     // }
 
-        console.log({ newContent, content, verseIndex, verseMarker });
-        // const updatedContent = JSON.parse(JSON.stringify(content));
-        // const cellVerses = JSON.parse(updatedContent.cells[cellIndex].value);
-        // // cellVerses[verseIndex].content = newContent;
-        // updatedContent.cells[cellIndex].value = JSON.stringify(cellVerses);
+    //     console.log({ newContent, content, verseIndex, verseMarker });
+    //     // const updatedContent = JSON.parse(JSON.stringify(content));
+    //     // const cellVerses = JSON.parse(updatedContent.cells[cellIndex].value);
+    //     // // cellVerses[verseIndex].content = newContent;
+    //     // updatedContent.cells[cellIndex].value = JSON.stringify(cellVerses);
 
-        // vscode.postMessage({
-        //     type: "update",
-        //     content: JSON.stringify(updatedContent),
-        // });
-    };
+    //     // vscode.postMessage({
+    //     //     type: "update",
+    //     //     content: JSON.stringify(updatedContent),
+    //     // });
+    // };
 
-    useEffect(() => {
-        if (quillRef.current) {
-            const quill = quillRef.current.getEditor();
-            const toolbar = quill.getModule("toolbar");
-            toolbar.addHandler("ai", handleAICompletion);
-        }
-    }, [handleAICompletion]);
+    // useEffect(() => {
+    //     if (quillRef.current) {
+    //         const quill = quillRef.current.getEditor();
+    //         const toolbar = quill.getModule("toolbar");
+    //         toolbar.addHandler("ai", handleAICompletion);
+    //     }
+    // }, [handleAICompletion]);
 
-    console.log({ content });
+    // console.log({ content });
     const scriptureCells = content?.cells?.filter(
         (cell) => cell.language === "scripture",
     );
@@ -128,71 +140,148 @@ function CodexChunkEditor() {
     //     });
     // });
     console.log({ verseWithContent });
-    const CustomToolbar = () => (
-        <div id="toolbar">
-            <button className="ql-ai" onClick={handleAICompletion}>
-                ✨
-            </button>
-        </div>
-    );
+    // const CustomToolbar = () => (
+    //     <div id="toolbar">
+    //         <button className="ql-ai" onClick={handleAICompletion}>
+    //             ✨
+    //         </button>
+    //     </div>
+    // );
 
-    const modules = {
-        toolbar: {
-            container: "#toolbar",
-            handlers: {
-                handleAICompletion: handleAICompletion,
-            },
-        },
-    };
+    // const modules = {
+    //     toolbar: {
+    //         container: "#toolbar",
+    //         handlers: {
+    //             handleAICompletion: handleAICompletion,
+    //         },
+    //     },
+    // };
 
-    const formats = [
-        "header",
-        "font",
-        "size",
-        "bold",
-        "italic",
-        "underline",
-        "strike",
-        "blockquote",
-        "list",
-        "bullet",
-        "indent",
-        "link",
-        "image",
-        "color",
-    ];
+    // const formats = [
+    //     "header",
+    //     "font",
+    //     "size",
+    //     "bold",
+    //     "italic",
+    //     "underline",
+    //     "strike",
+    //     "blockquote",
+    //     "list",
+    //     "bullet",
+    //     "indent",
+    //     "link",
+    //     "image",
+    //     "color",
+    // ];
+    const translationUnits =
+        scriptureCells?.length > 0
+            ? processVerseContent(scriptureCells[0].value)
+            : [];
     return (
         <div>
-            {verseWithContent &&
-                verseWithContent?.map(
-                    ({ verseMarker, verseContent }, verseIndex) => (
-                        <div key={verseIndex}>
-                            <div key={`${verseIndex}`}>
-                                <h3>{verseMarker}</h3>
-                                <div className="text-editor">
-                                    <CustomToolbar />
-                                    <ReactQuill
-                                        key={`${verseIndex}-quill`}
-                                        ref={quillRef}
-                                        value={verseContent}
-                                        onChange={(newContent) =>
-                                            handleVerseChange(
-                                                verseMarker,
-                                                verseIndex,
-                                                // verseIndex,
-                                                newContent,
-                                                content,
-                                            )
-                                        }
-                                        theme="snow"
-                                        modules={modules}
-                                        formats={formats}
-                                    />
+            <p>
+                {translationUnits?.map(
+                    ({ verseMarker, verseContent }, verseIndex) => {
+                        if (verseMarker === contentBeingUpdated.verseMarker) {
+                            return (
+                                <div key={verseIndex}>
+                                    <div key={`${verseIndex}`}>
+                                        <h3>{verseMarker}</h3>
+                                        <div className="text-editor">
+                                            <Editor
+                                                key={`${verseIndex}-quill`}
+                                                value={verseContent}
+                                                onChange={({ markdown }) => {
+                                                    setContentBeingUpdated({
+                                                        verseMarker,
+                                                        newContent: markdown,
+                                                    });
+                                                    console.log({
+                                                        markdown,
+                                                    });
+                                                }}
+                                            />
+                                            <button
+                                                onClick={() =>
+                                                    vscode.postMessage({
+                                                        type: "update",
+                                                        content:
+                                                            JSON.stringify(
+                                                                contentBeingUpdated,
+                                                            ),
+                                                    })
+                                                }
+                                            >
+                                                Save
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
-                        </div>
-                    ),
+                            );
+                        } else if (verseContent.length > 0) {
+                            return (
+                                <>
+                                    {" "}
+                                    <sup style={{ marginRight: "0.1rem" }}>
+                                        {
+                                            verseMarker
+                                                .split(" ")[1]
+                                                .split(":")[1]
+                                        }
+                                    </sup>
+                                    <span
+                                        onClick={() => {
+                                            setContentBeingUpdated({
+                                                verseMarker,
+                                                newContent: verseContent,
+                                            });
+                                        }}
+                                        style={{
+                                            cursor: "pointer",
+                                            transition: "background-color 0.3s",
+                                        }}
+                                        onMouseEnter={(e) =>
+                                            (e.currentTarget.style.backgroundColor =
+                                                "#f0f0f0")
+                                        }
+                                        onMouseLeave={(e) =>
+                                            (e.currentTarget.style.backgroundColor =
+                                                "transparent")
+                                        }
+                                    >
+                                        {verseContent}
+                                    </span>
+                                </>
+                            );
+                        } else {
+                            return (
+                                <p
+                                    style={{
+                                        cursor: "pointer",
+                                        transition: "background-color 0.3s",
+                                    }}
+                                    onMouseEnter={(e) =>
+                                        (e.currentTarget.style.backgroundColor =
+                                            "#f0f0f0")
+                                    }
+                                    onMouseLeave={(e) =>
+                                        (e.currentTarget.style.backgroundColor =
+                                            "transparent")
+                                    }
+                                    onClick={() => {
+                                        setContentBeingUpdated({
+                                            verseMarker,
+                                            newContent: "",
+                                        });
+                                    }}
+                                >
+                                    {verseMarker}
+                                </p>
+                            );
+                        }
+                    },
                 )}
+            </p>
         </div>
     );
 }
