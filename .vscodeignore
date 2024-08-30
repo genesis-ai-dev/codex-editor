@@ -5,7 +5,7 @@
 # Allowlist what we need
 !out/**
 !assets/**
-!servers/**
+# !servers/**
 
 !webviews/codex-webviews/dist/**
 !webviews/obs/build/**
