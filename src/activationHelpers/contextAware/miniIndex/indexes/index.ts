@@ -228,7 +228,11 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     if (confirm !== 'Yes') return;
                 }
 
-                await insertDraftsIntoTargetNotebooks(selectedFile.detail, forceInsert === 'Yes');
+                await insertDraftsIntoTargetNotebooks({
+                    zeroDraftIndex,
+                    zeroDraftFilePath: selectedFile.detail,
+                    forceInsert: forceInsert === 'Yes'
+                });
             }
         }),
 
