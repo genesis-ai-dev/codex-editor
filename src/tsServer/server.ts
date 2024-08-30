@@ -35,7 +35,7 @@ connection.onInitialize((params: InitializeParams) => {
     diagnosticsProvider = new SpellCheckDiagnosticsProvider(spellChecker);
     codeActionProvider = new SpellCheckCodeActionProvider(spellChecker);
     completionItemProvider = new SpellCheckCompletionItemProvider(spellChecker);
-    
+
     if (workspaceFolder) {
         const fsPath = URI.parse(workspaceFolder).fsPath;
         console.log(`Creating WordSuggestionProvider with workspace folder: ${fsPath}`);
@@ -75,26 +75,26 @@ documents.onDidChangeContent(change => {
 connection.onCompletion((params: TextDocumentPositionParams) => {
     const document = documents.get(params.textDocument.uri);
     if (!document) return [];
-    
+
     // Create a dummy CancellationToken since we don't have one in this context
-    const dummyToken = { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) };
-    
+    const dummyToken = { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => { } }) };
+
     // Create a default CompletionContext
-    const defaultContext: CompletionContext = { 
+    const defaultContext: CompletionContext = {
         triggerKind: 1, // Invoked
-        triggerCharacter: undefined 
+        triggerCharacter: undefined
     };
 
     const spellCheckSuggestions = completionItemProvider.provideCompletionItems(
-        document, 
-        params.position, 
-        dummyToken, 
+        document,
+        params.position,
+        dummyToken,
         defaultContext
     );
     const wordSuggestions = wordSuggestionProvider.provideCompletionItems(
-        document, 
-        params.position, 
-        dummyToken, 
+        document,
+        params.position,
+        dummyToken,
         defaultContext
     );
     return [...spellCheckSuggestions, ...wordSuggestions];
@@ -103,7 +103,7 @@ connection.onCompletion((params: TextDocumentPositionParams) => {
 connection.onCodeAction((params: CodeActionParams) => {
     const document = documents.get(params.textDocument.uri);
     if (!document) return [];
-    
+
     return codeActionProvider.provideCodeActions(document, params.range, params.context);
 });
 
