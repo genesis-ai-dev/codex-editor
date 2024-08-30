@@ -69,9 +69,9 @@ type CommentPostMessages =
     | { command: "updateCommentThread"; commentThread: NotebookCommentThread }
     | { command: "deleteCommentThread"; commentThreadId: string }
     | {
-        command: "deleteComment";
-        args: { commentId: number; commentThreadId: string };
-    }
+          command: "deleteComment";
+          args: { commentId: number; commentThreadId: string };
+      }
     | { command: "getCurrentVerseRef" }
     | { command: "fetchComments" };
 interface SelectedTextDataWithContext {
@@ -89,11 +89,11 @@ type ChatPostMessages =
     | { command: "fetch"; messages: string }
     | { command: "notifyUserError"; message: string }
     | {
-        command: "updateMessageThread";
-        messages: ChatMessageWithContext[];
-        threadId: string;
-        threadTitle?: string;
-    }
+          command: "updateMessageThread";
+          messages: ChatMessageWithContext[];
+          threadId: string;
+          threadTitle?: string;
+      }
     | { command: "deleteThread"; threadId: string }
     | { command: "fetchThread" }
     | { command: "abort-fetch" }
@@ -119,20 +119,21 @@ type OBSRef = {
     paragraph: string;
 };
 
-type Dictionary = { // not sure why this was commented?
+type Dictionary = {
+    // not sure why this was commented?
     entries: DictionaryEntry[];
-}
+};
 
 type DictionaryEntry = {
     id: string;
     headWord: string;
     hash: string;
-}
+};
 
 type SpellCheckResult = {
     word: string;
     corrections: string[];
-}
+};
 
 type SpellCheckFunction = (word: string) => SpellCheckResult;
 
@@ -141,7 +142,7 @@ type SpellCheckDiagnostic = {
     message: string;
     severity: vscode.DiagnosticSeverity;
     source: string;
-}
+};
 
 type MiniSearchVerseResult = {
     book: string;
@@ -156,23 +157,35 @@ type MiniSearchVerseResult = {
     terms: string[];
     uri: string;
     vref: string;
-}
+};
 
 type MinimalVerseResult = {
-    vref: string,
-    content: string,
-    uri: string,
-    line: number,
-}
+    vref: string;
+    content: string;
+    uri: string;
+    line: number;
+};
 
 type TranslationPair = {
     vref: string;
     sourceVerse: MinimalVerseResult;
     targetVerse: MinimalVerseResult;
-}
+};
 
 type SourceVerseVersions = {
     vref: string;
     content: string;
     versions: string[];
-}
+};
+type EditorVerseContent = {
+    verseMarker: string;
+    content: string;
+};
+
+type EditorPostMessages =
+    | { command: "saveMarkdown"; content: EditorVerseContent }
+    | {
+          command: "updateMetadataWithUnsavedChanges";
+          content: EditorVerseContent;
+      }
+    | { command: "getContent" };

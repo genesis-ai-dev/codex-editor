@@ -5,6 +5,7 @@ import Editor from "./Editor";
 declare function acquireVsCodeApi(): any;
 const vscode = acquireVsCodeApi();
 import * as vscodeTypes from "vscode";
+import { EditorVerseContent, EditorPostMessages } from "../../../../types";
 
 // TODO: add a language type for the translation unit heading aka the book names
 // TODO: stop user from closing current editor when they have unsaved changes
@@ -18,16 +19,18 @@ type CustomNotebookData = {
     metadata: vscodeTypes.NotebookData["metadata"];
     cells: CustomNotebook[];
 };
-interface ContentUpdate {
-    verseMarker?: string;
-    newContent?: string;
-}
+
+// type ContentUpdate = {
+//     verseMarker: EditorVerseContent["verseMarker"];
+//     content: EditorVerseContent["content"];
+// };
+
 function CodexChunkEditor() {
     const [content, setContent] = useState<CustomNotebookData>(
         {} as CustomNotebookData,
     );
     const [contentBeingUpdated, setContentBeingUpdated] =
-        useState<ContentUpdate>({});
+        useState<EditorVerseContent>({} as EditorVerseContent);
 
     // const quillRef = useRef<ReactQuill>(null);
 
@@ -48,7 +51,9 @@ function CodexChunkEditor() {
         };
 
         window.addEventListener("message", messageListener);
-        vscode.postMessage({ type: "getContent" });
+        vscode.postMessage({
+            command: "getContent",
+        } as EditorPostMessages);
 
         return () => window.removeEventListener("message", messageListener);
     }, []);
@@ -194,7 +199,7 @@ function CodexChunkEditor() {
                                                 onChange={({ markdown }) => {
                                                     setContentBeingUpdated({
                                                         verseMarker,
-                                                        newContent: markdown,
+                                                        content: markdown,
                                                     });
                                                     console.log({
                                                         markdown,
@@ -202,15 +207,16 @@ function CodexChunkEditor() {
                                                 }}
                                             />
                                             <button
-                                                onClick={() =>
+                                                onClick={() => {
+                                                    console.log({
+                                                        contentBeingUpdated,
+                                                    });
                                                     vscode.postMessage({
-                                                        type: "update",
+                                                        command: "saveMarkdown",
                                                         content:
-                                                            JSON.stringify(
-                                                                contentBeingUpdated,
-                                                            ),
-                                                    })
-                                                }
+                                                            contentBeingUpdated,
+                                                    } as EditorPostMessages);
+                                                }}
                                             >
                                                 Save
                                             </button>
@@ -233,7 +239,7 @@ function CodexChunkEditor() {
                                         onClick={() => {
                                             setContentBeingUpdated({
                                                 verseMarker,
-                                                newContent: verseContent,
+                                                content: verseContent,
                                             });
                                         }}
                                         style={{
@@ -271,7 +277,7 @@ function CodexChunkEditor() {
                                     onClick={() => {
                                         setContentBeingUpdated({
                                             verseMarker,
-                                            newContent: "",
+                                            content: "",
                                         });
                                     }}
                                 >

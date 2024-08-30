@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { EditorPostMessages, EditorVerseContent } from "../../../types";
 
 function getNonce(): string {
     let text = "";
@@ -67,17 +68,18 @@ export class CodexChunkEditorProvider
             changeDocumentSubscription.dispose();
         });
 
-        webviewPanel.webview.onDidReceiveMessage((e) => {
-            switch (e.type) {
+        webviewPanel.webview.onDidReceiveMessage((e: EditorPostMessages) => {
+            switch (e.command) {
                 case "saveMarkdown":
                     console.log("saveMarkdown message received", { e });
                     // TODO: change this to update the document one vers at a time.
+                    this.updateTextDocument(document, e.content);
                     // this.updateTextDocument(document, JSON.parse(e.content));
                     return;
-                case "update":
+                case "updateMetadataWithUnsavedChanges":
                     console.log("update message received", { e });
                     // TODO: change this to update the document one vers at a time.
-                    this.updateTextDocument(document, JSON.parse(e.content));
+                    this.updateTextDocument(document, e.content);
                     return;
                 case "getContent":
                     updateWebview();
@@ -154,17 +156,22 @@ export class CodexChunkEditorProvider
     /**
      * Write out the json to a given document.
      */
-    private updateTextDocument(document: vscode.TextDocument, json: any) {
+    private updateTextDocument(
+        document: vscode.TextDocument,
+        content: EditorVerseContent,
+    ) {
         const edit = new vscode.WorkspaceEdit();
 
+        const currentContent = JSON.parse(document.getText());
+        console.log({ currentContent, content });
         // Just replace the entire document every time for this example extension.
         // A more complete extension should compute minimal edits instead.
-        edit.replace(
-            document.uri,
-            new vscode.Range(0, 0, document.lineCount, 0),
-            JSON.stringify(json, null, 2),
-        );
+        // edit.replace(
+        //     document.uri,
+        //     new vscode.Range(0, 0, document.lineCount, 0),
+        //     JSON.stringify(json, null, 2),
+        // );
 
-        return vscode.workspace.applyEdit(edit);
+        // return vscode.workspace.applyEdit(edit);
     }
 }
