@@ -1,5 +1,11 @@
 import * as vscode from "vscode";
-import { EditorPostMessages, EditorVerseContent } from "../../../types";
+import * as fs from "fs";
+import * as path from "path";
+import {
+    CustomNotebookData,
+    EditorPostMessages,
+    EditorVerseContent,
+} from "../../../types";
 
 function getNonce(): string {
     let text = "";
@@ -162,16 +168,73 @@ export class CodexChunkEditorProvider
     ) {
         const edit = new vscode.WorkspaceEdit();
 
-        const currentContent = JSON.parse(document.getText());
-        console.log({ currentContent, content });
+        const currentContent = JSON.parse(
+            document.getText(),
+        ) as CustomNotebookData;
+
+        const verseDataArray = this.getVerseDataArray(); // FIXME: Calculate the verse data array based on the content instead of using a static file. It will probably be more efficient.
+        const verseDataArrayIndex = verseDataArray.indexOf(content.verseMarker);
+        const nextVerseMarker = verseDataArray[verseDataArrayIndex + 1];
+
+        const indexOfCellToUpdate = currentContent.cells.findIndex((cell) =>
+            cell.value.includes(content.verseMarker),
+        );
+        if (indexOfCellToUpdate === -1) {
+            throw new Error("Could not find cell to update");
+        }
+        const cellToUpdate = currentContent.cells[indexOfCellToUpdate];
+
+        if (
+            content.verseMarker.split(":")[0] === nextVerseMarker.split(":")[0]
+        ) {
+            const currentValue = cellToUpdate.value;
+            const startIndex = currentValue.indexOf(content.verseMarker);
+            const endIndex = currentValue.indexOf(nextVerseMarker, startIndex);
+
+            if (startIndex !== -1 && endIndex !== -1) {
+                cellToUpdate.value =
+                    currentValue.substring(0, startIndex) +
+                    content.verseMarker +
+                    " " +
+                    content.content +
+                    currentValue.substring(endIndex);
+            } else {
+                console.error("Could not find verse markers in cell content");
+            }
+        } else {
+            cellToUpdate.value =
+                cellToUpdate.value.substring(
+                    0,
+                    cellToUpdate.value.indexOf(content.verseMarker) +
+                        content.verseMarker.length,
+                ) +
+                " " +
+                content.content;
+        }
+
+        console.log({ currentContent, content, verseDataArray });
         // Just replace the entire document every time for this example extension.
         // A more complete extension should compute minimal edits instead.
-        // edit.replace(
-        //     document.uri,
-        //     new vscode.Range(0, 0, document.lineCount, 0),
-        //     JSON.stringify(json, null, 2),
-        // );
+        edit.replace(
+            document.uri,
+            new vscode.Range(0, 0, document.lineCount, 0),
+            JSON.stringify(currentContent, null, 2),
+        );
 
-        // return vscode.workspace.applyEdit(edit);
+        return vscode.workspace.applyEdit(edit);
+    }
+
+    private getVerseDataArray(): string[] {
+        const filePath = path.join(
+            this.context.extensionPath,
+            "servers",
+            "files",
+            "versedata.txt",
+        );
+        const fileContent = fs.readFileSync(filePath, "utf-8");
+        return fileContent
+            .split("\n")
+            .map((line) => line.trim())
+            .filter((line) => line !== "");
     }
 }

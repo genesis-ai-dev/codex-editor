@@ -4,21 +4,15 @@ import Editor from "./Editor";
 // import "react-quill/dist/quill.snow.css";
 declare function acquireVsCodeApi(): any;
 const vscode = acquireVsCodeApi();
-import * as vscodeTypes from "vscode";
-import { EditorVerseContent, EditorPostMessages } from "../../../../types";
+import {
+    EditorVerseContent,
+    EditorPostMessages,
+    CustomNotebookData,
+} from "../../../../types";
 
 // TODO: add a language type for the translation unit heading aka the book names
 // TODO: stop user from closing current editor when they have unsaved changes
 // TODO: save each change to the verse metadata as "working copy"
-
-type CustomNotebook = vscodeTypes.NotebookCellData & {
-    language: string;
-};
-
-type CustomNotebookData = {
-    metadata: vscodeTypes.NotebookData["metadata"];
-    cells: CustomNotebook[];
-};
 
 // type ContentUpdate = {
 //     verseMarker: EditorVerseContent["verseMarker"];
@@ -119,7 +113,10 @@ function CodexChunkEditor() {
     );
     const processVerseContent = (cellContent: string) => {
         console.log({ cellContent });
-        const lines = cellContent.split("\n");
+        const lines = cellContent.split(
+            /(?<=^|\s)(?=[A-Z]{3} \d{1,3}:\d{1,3})/,
+        );
+        console.log({ lines });
         const processedLines = lines.map((line) => {
             const [book, chapterVerse, ...contentParts] = line.split(/\s+/);
             // const [chapter, verse] = chapterVerse.split(":");

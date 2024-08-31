@@ -189,3 +189,12 @@ type EditorPostMessages =
           content: EditorVerseContent;
       }
     | { command: "getContent" };
+
+type CustomNotebook = vscode.NotebookCellData & {
+    language: string;
+};
+
+type CustomNotebookData = {
+    metadata: vscode.NotebookData["metadata"];
+    cells: CustomNotebook[];
+};
