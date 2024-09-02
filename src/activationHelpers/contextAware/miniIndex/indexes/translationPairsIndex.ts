@@ -2,6 +2,8 @@ import MiniSearch from 'minisearch';
 import * as vscode from 'vscode';
 import { verseRefRegex } from '../../../../utils/verseRefUtils';
 import { StatusBarHandler } from '../statusBarHandler';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export interface minisearchDoc {
     id: string;
@@ -36,6 +38,8 @@ export async function createTranslationPairsIndex(context: vscode.ExtensionConte
 
         // Create a map of verse references to target verses
         const targetVerseMap = new Map<string, string>();
+        const completeDrafts: string[] = [];
+
         for (const file of targetBibleFiles) {
             const document = await vscode.workspace.openNotebookDocument(file);
             const cells = document.getCells();
@@ -48,10 +52,21 @@ export async function createTranslationPairsIndex(context: vscode.ExtensionConte
                         const verseContent = line.substring(match.index! + match[0].length).trim();
                         if (verseContent) {
                             targetVerseMap.set(vref, verseContent);
+                            completeDrafts.push(verseContent);
                         }
                     }
                 }
             }
+        }
+
+        // Write complete drafts to file
+        const completeDraftPath = path.join(workspaceFolder!, '.project', 'complete_drafts.txt');
+        try {
+            await fs.promises.mkdir(path.dirname(completeDraftPath), { recursive: true });
+            await fs.promises.writeFile(completeDraftPath, completeDrafts.join('\n'), 'utf8');
+            console.log(`Complete drafts written to ${completeDraftPath}`);
+        } catch (error) {
+            console.error(`Error writing complete drafts: ${error}`);
         }
 
         console.log('targetVerseMap:', targetVerseMap);

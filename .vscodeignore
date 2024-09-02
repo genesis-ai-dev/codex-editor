@@ -17,6 +17,8 @@
 !src/assets/vscode.css
 !**/*.svg
 !node_modules/@vscode/codicons/dist/**
+!node_modules/vscode-languageserver-textdocument
+!node_modules/vscode-uri
 
 !CHANGELOG.md
 !LICENSE
