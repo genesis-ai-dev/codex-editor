@@ -12,4 +12,13 @@ export function registerDictionarySummaryProvider(
             { webviewOptions: { retainContextWhenHidden: true } },
         ),
     );
+
+    // // Register a command that activates the sidebar view
+    // const command = vscode.commands.registerCommand("dictionaryTable.showDictionaryTable", () => {
+    //     vscode.commands.executeCommand('workbench.view.extension.dictionaryTable').then(() => {
+    //         // Optional: Additional logic to run after the view is revealed, if necessary
+    //     }, console.error);
+    // });
+
+    // context.subscriptions.push(command);
 }

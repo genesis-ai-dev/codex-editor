@@ -1,4 +1,5 @@
-export function cleanWord(word: string): string {
+export function cleanWord(word: string | undefined | null): string {
+    if (!word) return '';
     return word
         // Remove non-alphanumeric characters from start and end
         .replace(/^[^\p{L}\p{N}']+|[^\p{L}\p{N}']+$/gu, '')

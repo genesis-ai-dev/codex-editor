@@ -3,7 +3,6 @@ import * as vscode from 'vscode';
 import { StatusBarHandler } from '../statusBarHandler';
 import { zeroDraftDocumentLoader } from '../../../../utils/zeroDraftUtils';
 import { verseRefRegex } from '../../../../utils/verseRefUtils';
-import { loadIndexMetadata, saveIndexMetadata } from './index';
 
 export interface ZeroDraftIndexRecord {
     id: string;
@@ -20,17 +19,7 @@ export interface VerseWithMetadata {
     metadata?: { [key: string]: any };
 }
 
-interface IndexMetadata {
-    lastIndexed: number;
-    fileTimestamps: { [filePath: string]: number };
-}
-
-async function processZeroDraftFile(uri: vscode.Uri, zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>, metadata: IndexMetadata): Promise<number> {
-    const stats = await vscode.workspace.fs.stat(uri);
-    if (metadata.fileTimestamps[uri.fsPath] && stats.mtime <= metadata.fileTimestamps[uri.fsPath]) {
-        return 0; // File hasn't changed, skip processing
-    }
-
+async function processZeroDraftFile(uri: vscode.Uri, zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>): Promise<number> {
     const document = await vscode.workspace.openTextDocument(uri);
     const records = zeroDraftDocumentLoader(document);
 
@@ -68,7 +57,6 @@ async function processZeroDraftFile(uri: vscode.Uri, zeroDraftIndex: MiniSearch<
     }
 
     console.log(`Processed file ${uri.fsPath}, current document count: ${zeroDraftIndex.documentCount}`);
-    metadata.fileTimestamps[uri.fsPath] = stats.mtime;
     return recordsProcessed;
 }
 
@@ -79,7 +67,7 @@ export async function processZeroDraftFileWithoutIndexing(uri: vscode.Uri): Prom
     return records;
 }
 
-export async function createZeroDraftIndex(zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>, statusBarHandler: StatusBarHandler): Promise<void> {
+export async function createZeroDraftIndex(zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>, force: boolean = false): Promise<void> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
         console.error('No workspace folder found');
@@ -90,15 +78,13 @@ export async function createZeroDraftIndex(zeroDraftIndex: MiniSearch<ZeroDraftI
     const zeroDraftFiles = await vscode.workspace.findFiles(new vscode.RelativePattern(zeroDraftFolder, '*.{jsonl,json,tsv,txt}'));
     console.log('Found', zeroDraftFiles.length, 'Zero Draft files');
 
-    const metadata: IndexMetadata = await loadIndexMetadata("zeroDraftIndex") || { lastIndexed: 0, fileTimestamps: {} };
-
     let totalRecordsProcessed = 0;
 
     // Batch process files
     const batchSize = 10;
     for (let i = 0; i < zeroDraftFiles.length; i += batchSize) {
         const batch = zeroDraftFiles.slice(i, i + batchSize);
-        const results = await Promise.all(batch.map(file => processZeroDraftFile(file, zeroDraftIndex, metadata)));
+        const results = await Promise.all(batch.map(file => processZeroDraftFile(file, zeroDraftIndex)));
         totalRecordsProcessed += results.reduce((sum, count) => sum + count, 0);
     }
 
@@ -109,24 +95,19 @@ export async function createZeroDraftIndex(zeroDraftIndex: MiniSearch<ZeroDraftI
     const watcher = vscode.workspace.createFileSystemWatcher(
         new vscode.RelativePattern(zeroDraftFolder, '*.{jsonl,json,tsv,txt}')
     );
-
-    watcher.onDidChange(async (uri) => await updateIndex(uri, zeroDraftIndex, metadata));
-    watcher.onDidCreate(async (uri) => await updateIndex(uri, zeroDraftIndex, metadata));
-    watcher.onDidDelete(async (uri) => await removeFromIndex(uri, zeroDraftIndex, metadata));
+    watcher.onDidChange(async (uri) => await updateIndex(uri, zeroDraftIndex));
+    watcher.onDidCreate(async (uri) => await updateIndex(uri, zeroDraftIndex));
+    watcher.onDidDelete(async (uri) => await removeFromIndex(uri, zeroDraftIndex));
 
     console.log('Watching for changes to zero_draft directory in workspace');
-
-    // Save updated metadata
-    await saveIndexMetadata("zeroDraftIndex", metadata);
 }
 
-async function updateIndex(uri: vscode.Uri, zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>, metadata: IndexMetadata) {
-    await processZeroDraftFile(uri, zeroDraftIndex, metadata);
+async function updateIndex(uri: vscode.Uri, zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>, force: boolean = false) {
+    await processZeroDraftFile(uri, zeroDraftIndex);
     console.log(`Updated Zero Draft index for file: ${uri.fsPath}`);
-    await saveIndexMetadata("zeroDraftIndex", metadata);
 }
 
-async function removeFromIndex(uri: vscode.Uri, zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>, metadata: IndexMetadata) {
+async function removeFromIndex(uri: vscode.Uri, zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>) {
     const recordsToRemove = Array.from(zeroDraftIndex.search('*')).filter(
         record => record.verses.some((verse: VerseWithMetadata) => verse.source === uri.fsPath)
     );
@@ -136,8 +117,6 @@ async function removeFromIndex(uri: vscode.Uri, zeroDraftIndex: MiniSearch<ZeroD
     }
 
     console.log(`Removed records from Zero Draft index for file: ${uri.fsPath}`);
-    delete metadata.fileTimestamps[uri.fsPath];
-    await saveIndexMetadata("zeroDraftIndex", metadata);
 }
 
 // New function to get content options for a given vref
