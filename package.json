@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.0.45",
+    "version": "0.0.46",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -648,6 +648,12 @@
                         "type": "boolean",
                         "default": "false",
                         "description": "If activated, inline completion LLM prompts will be saved to the `copilot-messages.log` file in the project."
+                    },
+                    "translators-copilot.wordFrequencyThreshold": {
+                        "title": "Word Frequency Threshold",
+                        "type": "number",
+                        "default": 50,
+                        "description": "The minimum frequency of a word to be automatically added to the dictionary. Changing this value will trigger updates to the dictionary."
                     }
                 }
             }

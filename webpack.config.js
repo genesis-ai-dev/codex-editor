@@ -71,10 +71,6 @@ const serverConfig = {
         filename: "server.js",
         libraryTarget: "commonjs2",
     },
-    externals: {
-        "vscode-languageserver": "commonjs vscode-languageserver",
-        "vscode-languageserver-textdocument": "commonjs vscode-languageserver-textdocument"
-    },
     resolve: {
         extensions: [".ts", ".js"],
         alias: {
