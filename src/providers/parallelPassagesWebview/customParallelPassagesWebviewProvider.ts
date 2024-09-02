@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { jumpToCellInNotebook } from "../../utils";
-import { registerTextSelectionHandler } from "../../handlers/textSelectionHandler";
+import { TranslationPair } from "../../../types";
 
 async function simpleOpen(uri: string) {
     try {
@@ -80,7 +80,7 @@ const loadWebviewHtml = (
     <link href="${styleVSCodeUri}" rel="stylesheet">
     <link href="${styleUri}" rel="stylesheet">
     <script nonce="${nonce}">
-      const vscode = acquireVsCodeApi();
+    //   const vscode = acquireVsCodeApi();
       const apiBaseUrl = ${JSON.stringify("http://localhost:3002")}
     </script>
     </head>
@@ -99,14 +99,17 @@ const loadWebviewHtml = (
                     break;
                 case "search":
                     if (message.database === "both") {
-                        const results = await vscode.commands.executeCommand('translators-copilot.searchTargetVersesByQuery', message.query);
-                        webviewView.webview.postMessage({
-                            command: "searchResults",
-                            data: {
-                                bibleResults: [],
-                                codexResults: results || []
-                            },
-                        });
+                        try {
+                            const results = await vscode.commands.executeCommand<TranslationPair[]>('translators-copilot.searchParallelVerses', message.query);
+                            if (results) {
+                                webviewView.webview.postMessage({
+                                    command: "searchResults",
+                                    data: results,
+                                });
+                            }
+                        } catch (error) {
+                            console.error("Error searching parallel verses:", error);
+                        }
                     }
                     break;
                 default:
@@ -124,24 +127,6 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
     public resolveWebviewView(webviewView: vscode.WebviewView) {
         this._view = webviewView;
         loadWebviewHtml(webviewView, this._context.extensionUri);
-
-        registerTextSelectionHandler(this._context, async (query: string) => {
-            const results = await vscode.commands.executeCommand('translators-copilot.searchTargetVersesByQuery', query);
-            console.log("Results: ", results);
-            if (typeof results === 'string') {
-                vscode.window.showInformationMessage(results);
-            } else {
-                vscode.window.showInformationMessage('Search completed');
-            }
-
-            this._view?.webview.postMessage({
-                command: "searchResults",
-                data: {
-                    bibleResults: [],
-                    codexResults: results || []
-                },
-            });
-        });
     }
 }
 

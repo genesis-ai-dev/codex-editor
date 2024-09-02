@@ -13,7 +13,6 @@ import {
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { SpellChecker, SpellCheckDiagnosticsProvider, SpellCheckCodeActionProvider, SpellCheckCompletionItemProvider } from './spellCheck';
-// import { createIndexWithContext } from "./indexes"; TODO: Make sure this happens somewhere
 import { WordSuggestionProvider } from './forecasting';
 import { URI } from 'vscode-uri';
 
@@ -60,7 +59,7 @@ connection.onInitialize((params: InitializeParams) => {
             hoverProvider: true,
             documentSymbolProvider: true,
             executeCommandProvider: {
-                commands: ['spellcheck.addToDictionary', 'spellcheck.addMultipleWords']
+                commands: ['spellcheck.addToDictionary']
             }
         }
     };

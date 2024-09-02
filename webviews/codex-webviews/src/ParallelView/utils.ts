@@ -1,13 +1,15 @@
 import { Item, SearchResults } from './types';
 
 export const compareVerses = (searchResults: SearchResults): Item[] => {
+    if (searchResults.bibleResults.length === 0) {
+        return searchResults.codexResults;
+    }
     const combinedVerses = searchResults.bibleResults.map((bibleVerse) => {
         const codexVerse = searchResults.codexResults.find(
             (codexVerse) => codexVerse.ref === bibleVerse.ref
         );
         return {
             ...bibleVerse,
-            codexText: codexVerse ? codexVerse.text : undefined,
             codexUri: codexVerse ? codexVerse.uri : undefined,
         };
     });

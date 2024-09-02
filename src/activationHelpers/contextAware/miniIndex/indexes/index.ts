@@ -5,7 +5,7 @@ import { StatusBarHandler } from '../statusBarHandler';
 import { TranslationPair, SourceVerseVersions } from "../../../../../types";
 import { createTranslationPairsIndex } from "./translationPairsIndex";
 import { createSourceBibleIndex } from "./sourceBibleIndex";
-import { searchTargetVersesByQuery, getTranslationPairsFromSourceVerseQuery, getSourceVerseByVrefFromAllSourceVerses, getTargetVerseByVref, getTranslationPairFromProject, handleTextSelection } from "./search";
+import { searchTargetVersesByQuery, getTranslationPairsFromSourceVerseQuery, getSourceVerseByVrefFromAllSourceVerses, getTargetVerseByVref, getTranslationPairFromProject, handleTextSelection, searchParallelVerses } from "./search";
 import MiniSearch from "minisearch";
 import { createZeroDraftIndex, ZeroDraftIndexRecord, getContentOptionsForVref, insertDraftsIntoTargetNotebooks, insertDraftsInCurrentEditor, VerseWithMetadata } from "./zeroDraftIndex";
 
@@ -77,11 +77,18 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 if (!query) return; // User cancelled the input
                 showInfo = true;
             }
-            const results = await searchTargetVersesByQuery(translationPairsIndex, query);
-            if (showInfo) {
-                vscode.window.showInformationMessage(`Found ${results.length} results for query: ${query}`);
+            try {
+                const results = await searchTargetVersesByQuery(translationPairsIndex, query);
+                if (showInfo) {
+                    const resultsString = results.map(r => `${r.vref}: ${r.targetContent || 'undefined'}`).join('\n');
+                    vscode.window.showInformationMessage(`Found ${results.length} results for query: ${query}\n${resultsString}`);
+                }
+                return results;
+            } catch (error) {
+                console.error('Error searching target verses:', error);
+                vscode.window.showErrorMessage('Failed to search target verses. Check the logs for details.');
+                return [];
             }
-            return results;
         }),
         /** 
          * This `getTranslationPairsFromSourceVerseQuery` command uses the 
@@ -98,8 +105,9 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 showInfo = true;
             }
             const results = getTranslationPairsFromSourceVerseQuery(translationPairsIndex, query, k);
-            if (showInfo && results.length > 0) {
-                vscode.window.showInformationMessage(`Source verses for query: ${query}`);
+            if (showInfo) {
+                const resultsString = results.map(r => `${r.vref}: ${r.sourceVerse.content}`).join('\n');
+                vscode.window.showInformationMessage(`Found ${results.length} results for query: ${query}\n${resultsString}`);
             }
             return results;
         }),
@@ -248,6 +256,23 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             }
 
             await insertDraftsInCurrentEditor(zeroDraftIndex, forceInsert === 'Yes');
+        }),
+
+        vscode.commands.registerCommand('translators-copilot.searchParallelVerses', async (query?: string, k: number = 5, showInfo: boolean = false) => {
+            if (!query) {
+                query = await vscode.window.showInputBox({
+                    prompt: 'Enter a query to search parallel verses',
+                    placeHolder: 'e.g. love, faith, hope'
+                });
+                if (!query) return []; // User cancelled the input
+                showInfo = true;
+            }
+            const results = searchParallelVerses(translationPairsIndex, sourceBibleIndex, query, k);
+            if (showInfo) {
+                const resultsString = results.map(r => `${r.vref}: Source: ${r.sourceVerse.content}, Target: ${r.targetVerse.content}`).join('\n');
+                vscode.window.showInformationMessage(`Found ${results.length} parallel verses for query: ${query}\n${resultsString}`);
+            }
+            return results;
         })
     ]);
 
