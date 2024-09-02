@@ -105,7 +105,8 @@ type DictionaryPostMessages =
     | { command: "confirmRemove"; count: number }
     | { command: "updateEntryCount"; count: number }
     | { command: "removeConfirmed" }
-    | { command: "updateFrequentWords"; words: string[] };
+    | { command: "updateFrequentWords"; words: string[] }
+    | { command: "updateWordFrequencies"; wordFrequencies: { word: string, frequency: number }[] };
 
 type TranslationNotePostMessages =
     | { command: "update"; data: ScriptureTSV }

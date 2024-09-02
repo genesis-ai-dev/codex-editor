@@ -1,6 +1,6 @@
 "use strict";
 import * as vscode from "vscode";
-import { getWorkSpaceFolder } from "../../../../utils";
+import { getWorkSpaceFolder, getWorkSpaceUri } from "../../../../utils";
 import { StatusBarHandler } from '../statusBarHandler';
 import { createTranslationPairsIndex } from "./translationPairsIndex";
 import { createSourceBibleIndex } from "./sourceBibleIndex";
@@ -10,6 +10,73 @@ import { createZeroDraftIndex, ZeroDraftIndexRecord, getContentOptionsForVref, i
 import { initializeWordsIndex, getWordFrequencies, getWordsAboveThreshold, getWordFrequency } from "./wordsIndex";
 
 type WordFrequencyMap = Map<string, number>;
+
+export interface IndexMetadata {
+    lastIndexed: number;
+    fileTimestamps: { [filePath: string]: number };
+}
+
+export interface Manifest {
+    sourceBibleIndex: IndexMetadata;
+    translationPairsIndex: IndexMetadata;
+    zeroDraftIndex: IndexMetadata;
+    wordsIndex: IndexMetadata;
+}
+
+export async function loadIndexMetadata(indexName?: string): Promise<IndexMetadata | null> {
+    const workspaceUri = getWorkSpaceUri();
+    if (!workspaceUri) {
+        return null;
+    }
+    const metadataFilePath = vscode.Uri.joinPath(workspaceUri, '.project', `indicesManifest.json`);
+    try {
+        const document = await vscode.workspace.openTextDocument(metadataFilePath);
+        const content = document.getText();
+        const metadata = JSON.parse(content);
+        if (!indexName) {
+            return metadata;
+        }
+        if (!metadata[indexName]) {
+            return null;
+        }
+        return metadata[indexName];
+    } catch (error) {
+        console.log('Error loading index metadata:', error);
+        return null;
+    }
+}
+
+async function openIndicesManifest(): Promise<Manifest | null> {
+    const workspaceUri = getWorkSpaceUri();
+    if (!workspaceUri) {
+        return null;
+    }
+    const metadataFilePath = vscode.Uri.joinPath(workspaceUri, '.project', `indicesManifest.json`);
+    const document = await vscode.workspace.openTextDocument(metadataFilePath);
+    const content = document.getText();
+    return JSON.parse(content) as Manifest;
+}
+
+export async function saveIndexMetadata(indexName: "sourceBibleIndex" | "translationPairsIndex" | "zeroDraftIndex" | "wordsIndex", metadata: IndexMetadata): Promise<void> {
+    const workspaceUri = getWorkSpaceUri();
+    if (!workspaceUri) {
+        return;
+    }
+    const metadataFilePath = vscode.Uri.joinPath(workspaceUri, '.project', `indicesManifest.json`);
+    try {
+        const manifest = await openIndicesManifest();
+        if (manifest) {
+            manifest[indexName] = metadata;
+        }
+        const content = JSON.stringify(manifest, null, 2);
+        const edit = new vscode.WorkspaceEdit();
+        edit.createFile(metadataFilePath, { overwrite: true });
+        edit.insert(metadataFilePath, new vscode.Position(0, 0), content);
+        await vscode.workspace.applyEdit(edit);
+    } catch (error) {
+        console.error('Error saving index metadata:', error);
+    }
+}
 
 export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
@@ -57,7 +124,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             zeroDraftIndex?.removeAll();
             wordsIndex.clear();
             // Rebuild
-            await createTranslationPairsIndex(context, translationPairsIndex, workspaceFolder, statusBarHandler);
+            await createTranslationPairsIndex(context, translationPairsIndex, statusBarHandler);
             await createSourceBibleIndex(sourceBibleIndex, statusBarHandler);
             await createZeroDraftIndex(zeroDraftIndex, statusBarHandler);
             wordsIndex = await initializeWordsIndex(wordsIndex, workspaceFolder);

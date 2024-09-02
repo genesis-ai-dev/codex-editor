@@ -4,7 +4,8 @@ import { verseRefRegex } from '../../../../utils/verseRefUtils';
 import { StatusBarHandler } from '../statusBarHandler';
 import * as fs from 'fs';
 import * as path from 'path';
-
+import { loadIndexMetadata, saveIndexMetadata } from './index';
+import { getWorkSpaceFolder } from '../../../../utils';
 export interface minisearchDoc {
     id: string;
     vref: string;
@@ -17,21 +18,23 @@ export interface minisearchDoc {
     line: number;
 }
 
-export async function createTranslationPairsIndex(context: vscode.ExtensionContext, translationPairsIndex: MiniSearch<minisearchDoc>, workspaceFolder: string | undefined, statusBarHandler: StatusBarHandler): Promise<void> {
+interface IndexMetadata {
+    lastIndexed: number;
+    fileTimestamps: { [filePath: string]: number };
+}
 
+export async function createTranslationPairsIndex(context: vscode.ExtensionContext, translationPairsIndex: MiniSearch<minisearchDoc>, statusBarHandler: StatusBarHandler): Promise<void> {
+    const workspaceFolder = getWorkSpaceFolder();
     if (!workspaceFolder) {
         console.warn('Workspace folder not found for Translation Pairs Index. Returning empty index.');
         return;
     }
 
+    const metadata: IndexMetadata = await loadIndexMetadata("translationPairsIndex") || { lastIndexed: 0, fileTimestamps: {} };
 
     async function indexAllDocuments(): Promise<number> {
         console.log('Starting indexAllDocuments');
         let indexed = 0;
-        if (!workspaceFolder) {
-            vscode.window.showErrorMessage('Workspace folder not found.');
-            return indexed;
-        }
 
         const sourceBibleFiles = await vscode.workspace.findFiles('**/*.bible');
         const targetBibleFiles = await vscode.workspace.findFiles('**/*.codex');
@@ -40,46 +43,23 @@ export async function createTranslationPairsIndex(context: vscode.ExtensionConte
         const targetVerseMap = new Map<string, string>();
         const completeDrafts: string[] = [];
 
-        for (const file of targetBibleFiles) {
-            const document = await vscode.workspace.openNotebookDocument(file);
-            const cells = document.getCells();
-            for (const cell of cells) {
-                const lines = cell.document.getText().split('\n');
-                for (const line of lines) {
-                    const match = line.match(verseRefRegex);
-                    if (match) {
-                        const [vref] = match;
-                        const verseContent = line.substring(match.index! + match[0].length).trim();
-                        if (verseContent) {
-                            targetVerseMap.set(vref, verseContent);
-                            completeDrafts.push(verseContent);
-                        }
-                    }
-                }
-            }
+        // Batch process target files
+        const batchSize = 10;
+        for (let i = 0; i < targetBibleFiles.length; i += batchSize) {
+            const batch = targetBibleFiles.slice(i, i + batchSize);
+            await Promise.all(batch.map(file => processTargetFile(file, targetVerseMap, completeDrafts, metadata)));
         }
 
         // Write complete drafts to file
-        const completeDraftPath = path.join(workspaceFolder!, '.project', 'complete_drafts.txt');
-        try {
-            await fs.promises.mkdir(path.dirname(completeDraftPath), { recursive: true });
-            await fs.promises.writeFile(completeDraftPath, completeDrafts.join('\n'), 'utf8');
-            console.log(`Complete drafts written to ${completeDraftPath}`);
-        } catch (error) {
-            console.error(`Error writing complete drafts: ${error}`);
+        if (workspaceFolder) {
+            await writeCompleteDrafts(workspaceFolder, completeDrafts);
         }
 
-        console.log('targetVerseMap:', targetVerseMap);
-
-        // Index source verses only if they have a corresponding target verse
-        for (const file of sourceBibleFiles) {
-            try {
-                const document = await vscode.workspace.openTextDocument(file);
-                indexed += await indexDocument(document, targetVerseMap);
-            } catch (error) {
-                console.error(`Error indexing file ${file.fsPath}:`, error);
-                vscode.window.showErrorMessage(`Failed to index file: ${file.fsPath}`);
-            }
+        // Batch process source files
+        for (let i = 0; i < sourceBibleFiles.length; i += batchSize) {
+            const batch = sourceBibleFiles.slice(i, i + batchSize);
+            const results = await Promise.all(batch.map((fileUri: vscode.Uri) => indexDocument(fileUri, targetVerseMap, metadata)));
+            indexed += results.reduce((sum, count) => sum + count, 0);
         }
 
         console.log(`Total verses indexed: ${indexed}`);
@@ -87,8 +67,7 @@ export async function createTranslationPairsIndex(context: vscode.ExtensionConte
         return indexed;
     }
 
-    async function indexDocument(document: vscode.TextDocument, targetVerseMap: Map<string, string>): Promise<number> {
-        const uri = document.uri.toString();
+    async function indexDocument(documentUri: vscode.Uri, targetVerseMap: Map<string, string>, metadata: IndexMetadata): Promise<number> {
         let indexedCount = 0;
         const batchSize = 1000;
         let batch: minisearchDoc[] = [];
@@ -135,8 +114,10 @@ export async function createTranslationPairsIndex(context: vscode.ExtensionConte
             processBatchRecursively(currentBatch.filter((_, index) => index % 10 !== 0));
         };
 
-        const lines = document.getText().split('\n'); for (let i = 0; i < lines.length; i++) {
-            const indexedDoc = indexLine(lines[i], i, uri, targetVerseMap);
+        const document = await vscode.workspace.openTextDocument(documentUri);
+        const lines = document.getText().split('\n');
+        for (let i = 0; i < lines.length; i++) {
+            const indexedDoc = indexLine(lines[i], i, documentUri.toString(), targetVerseMap);
             if (indexedDoc) {
                 batch.push(indexedDoc);
                 if (batch.length >= batchSize) {
@@ -196,6 +177,42 @@ export async function createTranslationPairsIndex(context: vscode.ExtensionConte
         statusBarHandler.setIndexingComplete();
     }
 
+    async function processTargetFile(file: vscode.Uri, targetVerseMap: Map<string, string>, completeDrafts: string[], metadata: IndexMetadata): Promise<void> {
+        const stats = await vscode.workspace.fs.stat(file);
+        if (metadata.fileTimestamps[file.fsPath] && stats.mtime <= metadata.fileTimestamps[file.fsPath]) {
+            return; // File hasn't changed, skip processing
+        }
+
+        const document = await vscode.workspace.openNotebookDocument(file);
+        const cells = document.getCells();
+        for (const cell of cells) {
+            const lines = cell.document.getText().split('\n');
+            for (const line of lines) {
+                const match = line.match(verseRefRegex);
+                if (match) {
+                    const [vref] = match;
+                    const verseContent = line.substring(match.index! + match[0].length).trim();
+                    if (verseContent) {
+                        targetVerseMap.set(vref, verseContent);
+                        completeDrafts.push(verseContent);
+                    }
+                }
+            }
+        }
+
+        metadata.fileTimestamps[file.fsPath] = stats.mtime;
+    }
+
+    async function writeCompleteDrafts(workspaceFolder: string, completeDrafts: string[]): Promise<void> {
+        const completeDraftPath = path.join(workspaceFolder, '.project', 'complete_drafts.txt');
+        try {
+            await fs.promises.mkdir(path.dirname(completeDraftPath), { recursive: true });
+            await fs.promises.writeFile(completeDraftPath, completeDrafts.join('\n'), 'utf8');
+            console.log(`Complete drafts written to ${completeDraftPath}`);
+        } catch (error) {
+            console.error(`Error writing complete drafts: ${error}`);
+        }
+    }
 
     // Subscriptions
 
@@ -203,7 +220,7 @@ export async function createTranslationPairsIndex(context: vscode.ExtensionConte
         // vscode.workspace.onDidChangeTextDocument(debouncedUpdateIndex),
         vscode.workspace.onDidOpenTextDocument(async (doc) => {
             if (doc.languageId === 'scripture' || doc.fileName.endsWith('.codex')) {
-                await indexDocument(doc, new Map<string, string>());
+                await indexDocument(doc.uri, new Map<string, string>(), metadata);
             }
         })
     );
@@ -215,4 +232,7 @@ export async function createTranslationPairsIndex(context: vscode.ExtensionConte
         console.error('Error initializing indexing:', error);
         vscode.window.showErrorMessage('Failed to initialize indexing.');
     });
+
+    // Save updated metadata
+    await saveIndexMetadata("translationPairsIndex", metadata);
 }
