@@ -18,6 +18,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { URI } from 'vscode-uri';
 import { Connection } from 'vscode-languageserver/node';
+import { cleanWord } from '../utils/spellingUtils';
 
 export class SpellChecker {
     private dictionary: Dictionary | null = null;
@@ -79,11 +80,16 @@ export class SpellChecker {
         }
 
         const originalWord = word;
-        const cleanedWord = this.cleanWord(word);
+        const cleanedWord = cleanWord(word);
+        // const lowercaseWord = word.toLowerCase();
 
-        const isInDictionary = this.dictionary.entries.some(entry =>
-            this.cleanWord(entry.headWord) === cleanedWord
-        );
+        // Improved punctuation handling
+        // const wordWithoutPunctuation = lowercaseWord.replace(/[^\p{L}\p{N}'-]/gu, '');
+
+        const isInDictionary = this.dictionary.entries.some(entry => {
+            const entryWithoutPunctuation = entry.headWord.replace(/[^\p{L}\p{N}'-]/gu, '');
+            return entryWithoutPunctuation === cleanedWord;
+        });
 
         if (isInDictionary) {
             return { word: originalWord, corrections: [] };
@@ -94,22 +100,11 @@ export class SpellChecker {
         return { word: originalWord, corrections: suggestions };
     }
 
-    public cleanWord(word: string): string {
-        // Remove punctuation at the start and end of the word
-        const trimmedWord = word.replace(/^[^\p{L}\p{N}']+|[^\p{L}\p{N}']+$/gu, '');
-
-        // Replace multiple consecutive apostrophes with a single one
-        const singleApostropheWord = trimmedWord.replace(/''+/g, "'");
-
-        // Remove all remaining punctuation except internal apostrophes
-        return singleApostropheWord.replace(/(?<!\S)'|'(?!\S)|[^\p{L}\p{N}'\s]/gu, '').toLowerCase();
-    }
-
     private getSuggestions(word: string): string[] {
         return this.dictionary!.entries
             .map(entry => ({
                 word: entry.headWord,
-                distance: this.levenshteinDistance(word, this.cleanWord(entry.headWord))
+                distance: this.levenshteinDistance(word, entry.headWord)
             }))
             .sort((a, b) => a.distance - b.distance)
             .slice(0, 3)
@@ -144,29 +139,31 @@ export class SpellChecker {
     }
 
     async addToDictionary(word: string) {
-        const cleanedWord = this.cleanWord(word);
+        // Remove all punctuation except apostrophes and hyphens
+        word = cleanWord(word);
 
         if (!this.dictionary) {
             this.dictionary = { entries: [] };
         }
 
-        // Check if the word already exists in the dictionary
-        if (!this.dictionary.entries.some(entry => this.cleanWord(entry.headWord) === cleanedWord)) {
-            const newEntry: DictionaryEntry = {
-                id: this.generateUniqueId(),
-                headWord: cleanedWord,
-                hash: this.generateHash(cleanedWord)
-            };
-            this.dictionary.entries.push(newEntry);
+        if (this.dictionary.entries.some(entry => entry.headWord === word)) {
+            return;
+        }
 
-            try {
-                const serializedDictionary = JSON.stringify(this.dictionary, null, 2);
-                await fs.promises.writeFile(this.dictionaryPath, serializedDictionary);
-                // Reload the dictionary after adding a new word
-                await this.loadDictionary();
-            } catch (error) {
-                console.error('Error saving dictionary:', error);
-            }
+        const newEntry: DictionaryEntry = {
+            id: this.generateUniqueId(),
+            headWord: word,
+            hash: this.generateHash(word)
+        };
+        this.dictionary.entries.push(newEntry);
+
+        try {
+            const serializedDictionary = JSON.stringify(this.dictionary, null, 2);
+            await fs.promises.writeFile(this.dictionaryPath, serializedDictionary);
+            // Reload the dictionary after adding a new word
+            await this.loadDictionary();
+        } catch (error) {
+            console.error('Error saving dictionary:', error);
         }
     }
 
@@ -283,18 +280,17 @@ export class SpellCheckCodeActionProvider {
 
         diagnostics.forEach(diagnostic => {
             const word = document.getText(diagnostic.range);
+            const cleanedWord = cleanWord(word);
             if (diagnostic.source === 'Spell-Check') {
                 const spellCheckResult = this.spellChecker.spellCheck(word);
 
                 spellCheckResult.corrections.forEach((correction: string) => {
-                    const cleanedCorrection = this.spellChecker.cleanWord(correction);
-                    const cleanedWord = this.spellChecker.cleanWord(word);
                     const action: CodeAction = {
-                        title: `${cleanedWord} → ${cleanedCorrection}`,
+                        title: `${cleanedWord} → ${correction}`,
                         kind: CodeActionKind.QuickFix,
                         edit: {
                             changes: {
-                                [document.uri]: [TextEdit.replace(diagnostic.range, cleanedCorrection)]
+                                [document.uri]: [TextEdit.replace(diagnostic.range, correction)]
                             }
                         }
                     };
@@ -303,12 +299,12 @@ export class SpellCheckCodeActionProvider {
 
                 // Add to dictionary action
                 const addToDictionaryAction: CodeAction = {
-                    title: `Add '${this.spellChecker.cleanWord(word)}' to dictionary`,
+                    title: `Add '${cleanedWord}' to dictionary`,
                     kind: CodeActionKind.QuickFix,
                     command: {
                         title: 'Add to Dictionary',
                         command: 'spellcheck.addToDictionary',
-                        arguments: [word]
+                        arguments: [cleanedWord]
                     }
                 };
                 actions.push(addToDictionaryAction);
