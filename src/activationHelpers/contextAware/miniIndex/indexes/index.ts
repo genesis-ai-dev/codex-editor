@@ -62,7 +62,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             await createTranslationPairsIndex(context, translationPairsIndex, force || translationPairsIndex.documentCount === 0);
             await createSourceBibleIndex(sourceBibleIndex, force || sourceBibleIndex.documentCount === 0);
             await createZeroDraftIndex(zeroDraftIndex, force || zeroDraftIndex.documentCount === 0);
-            wordsIndex = await initializeWordsIndex(wordsIndex, workspaceFolder, force || wordsIndex.size === 0);
+            wordsIndex = await initializeWordsIndex(wordsIndex, workspaceFolder);
         } catch (error) {
             console.error('Error rebuilding full index:', error);
             vscode.window.showErrorMessage('Failed to rebuild full index. Check the logs for details.');
@@ -278,7 +278,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 const config = vscode.workspace.getConfiguration('translators-copilot');
                 const threshold = config.get<number>('wordFrequencyThreshold', 50);
                 if (wordsIndex.size === 0) {
-                    wordsIndex = await initializeWordsIndex(wordsIndex, workspaceFolder, statusBarHandler, true);
+                    wordsIndex = await initializeWordsIndex(wordsIndex, workspaceFolder);
                 }
                 const wordsAboveThreshold = getWordsAboveThreshold(wordsIndex, threshold);
                 vscode.window.showInformationMessage(`Words above threshold: ${wordsAboveThreshold}`);
