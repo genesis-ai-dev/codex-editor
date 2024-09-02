@@ -97,3 +97,7 @@ These examples demonstrate how the data can be structured in each of the support
 - TSV: Tabular format, easy to read and edit in spreadsheet applications, supports basic metadata.
 
 The current implementation in `zeroDraftIndex.ts` can handle all of these formats, parsing them into the `ZeroDraftIndexRecord` structure for indexing and searching.
+
+> Note: If there are duplicate verses in the zero draft file, the last occurrence of the verse will be used. E.g.,
+> MRK 1:1 Début de la Bonne Nouvelle de Jésus-Christ, le Fils de Dieu.
+> MRK 1:1 RYDER IS FORCE OVERWRITING THIS ONE <--- This one will be used

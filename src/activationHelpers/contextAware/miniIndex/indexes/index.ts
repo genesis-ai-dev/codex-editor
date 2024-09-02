@@ -205,7 +205,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             const zeroDraftFileOptions = zeroDraftFiles.map(file => ({
                 label: file.fsPath.split('/').pop() || '',
                 description: 'Select a zero draft file to insert into notebooks',
-                detail: file.fsPath
+                detail: file.path
             }));
 
             const selectedFile = await vscode.window.showQuickPick(
@@ -213,8 +213,10 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 { placeHolder: 'Select a zero draft file to insert into notebooks' }
             );
 
+            let forceInsert: string | undefined;
+
             if (selectedFile) {
-                const forceInsert = await vscode.window.showQuickPick(
+                forceInsert = await vscode.window.showQuickPick(
                     ['No', 'Yes'],
                     { placeHolder: 'Force insert and overwrite existing verse drafts?' }
                 );
@@ -225,11 +227,12 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                         { modal: true },
                         'Yes', 'No'
                     );
-                    if (confirm !== 'Yes') return;
+                    if (confirm !== 'Yes') {
+                        forceInsert = 'No';
+                    }
                 }
 
                 await insertDraftsIntoTargetNotebooks({
-                    zeroDraftIndex,
                     zeroDraftFilePath: selectedFile.detail,
                     forceInsert: forceInsert === 'Yes'
                 });

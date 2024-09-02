@@ -60,6 +60,13 @@ async function processZeroDraftFile(uri: vscode.Uri, zeroDraftIndex: MiniSearch<
     return recordsProcessed;
 }
 
+export async function processZeroDraftFileWithoutIndexing(uri: vscode.Uri): Promise<ZeroDraftIndexRecord[]> {
+    const document = await vscode.workspace.openTextDocument(uri);
+    const records = zeroDraftDocumentLoader(document);
+    console.log(`Processed file ${uri.fsPath}, current document count: ${records.length}`);
+    return records;
+}
+
 export async function createZeroDraftIndex(zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>, statusBarHandler: StatusBarHandler): Promise<void> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
@@ -126,65 +133,67 @@ export function getContentOptionsForVref(zeroDraftIndex: MiniSearch<ZeroDraftInd
 }
 
 export async function insertDraftsIntoTargetNotebooks({
-    zeroDraftIndex,
     zeroDraftFilePath,
     forceInsert = false
 }: {
-    zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>;
     zeroDraftFilePath: string; // which file to use
     forceInsert?: boolean;
 }): Promise<void> {
-    // FIXME: I still don't think this is working quite right. Needs to be tested.
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (!workspaceFolders) {
-        vscode.window.showErrorMessage('No workspace folder found');
-        return;
-    }
+    const notebookFiles = await vscode.workspace.findFiles('**/*.codex');
+    const relevantRecords = await processZeroDraftFileWithoutIndexing(vscode.Uri.file(zeroDraftFilePath));
 
     let insertedCount = 0;
     let skippedCount = 0;
 
-    // Get all records from the specified file
-    const relevantRecords = Array.from(zeroDraftIndex.search('*')).filter(
-        record => record.verses.some((verse: VerseWithMetadata) => verse.source === zeroDraftFilePath)
-    );
-
-    // Find all .codex files in the workspace
-    const notebookFiles = await vscode.workspace.findFiles('**/*.codex');
-
-    // Process each verse from the zero draft file
+    // Create a map for quick lookup of zero drafts grouped by book
+    const zeroDraftMap = new Map<string, Map<string, string>>();
     for (const record of relevantRecords) {
-        const vref = record.vref;
-        const zeroDraft = record.verses[0].content.trim();
+        const book = record.vref.split(' ')[0];
+        if (!zeroDraftMap.has(book)) {
+            zeroDraftMap.set(book, new Map());
+        }
+        zeroDraftMap.get(book)!.set(record.vref, record.verses[0].content.trim());
+    }
 
-        // Search for this verse reference in all notebook files
+    for (const [book, drafts] of zeroDraftMap.entries()) {
+        const notebookFiles = await vscode.workspace.findFiles(`**/${book}.codex`);
+        console.log(`Found ${drafts.size} verses for book ${book}`);
+
         for (const notebookFile of notebookFiles) {
             const notebook = await vscode.workspace.openNotebookDocument(notebookFile);
-            let modified = false;
+            const workspaceEdit = new vscode.WorkspaceEdit();
 
             for (let cellIndex = 0; cellIndex < notebook.cellCount; cellIndex++) {
                 const cell = notebook.cellAt(cellIndex);
                 if (cell.kind === vscode.NotebookCellKind.Code) {
                     const lines = cell.document.getText().split('\n');
                     const newLines: string[] = [];
+                    let cellModified = false;
 
-                    for (let i = 0; i < lines.length; i++) {
-                        const line = lines[i].trim();
-                        if (line.startsWith(vref)) {
-                            if (forceInsert || line === vref) {
-                                newLines.push(`${vref} ${zeroDraft}`);
-                                modified = true;
-                                insertedCount++;
+                    for (const line of lines) {
+                        const trimmedLine = line.trim();
+                        const match = trimmedLine.match(verseRefRegex);
+                        if (match) {
+                            const vref = match[0];
+                            const zeroDraft = drafts.get(vref);
+                            if (zeroDraft) {
+                                if (forceInsert || trimmedLine === vref) {
+                                    newLines.push(`${vref} ${zeroDraft}`);
+                                    cellModified = true;
+                                    insertedCount++;
+                                } else {
+                                    newLines.push(line);
+                                    skippedCount++;
+                                }
                             } else {
                                 newLines.push(line);
-                                skippedCount++;
                             }
                         } else {
                             newLines.push(line);
                         }
                     }
 
-                    if (modified) {
+                    if (cellModified) {
                         const updatedCell = new vscode.NotebookCellData(
                             vscode.NotebookCellKind.Code,
                             newLines.join('\n'),
@@ -196,12 +205,13 @@ export async function insertDraftsIntoTargetNotebooks({
                             new vscode.NotebookRange(cellIndex, cellIndex + 1),
                             [updatedCell]
                         );
-
-                        const workspaceEdit = new vscode.WorkspaceEdit();
                         workspaceEdit.set(notebook.uri, [notebookEdit]);
-                        await vscode.workspace.applyEdit(workspaceEdit);
                     }
                 }
+            }
+
+            if (insertedCount > 0) {
+                await vscode.workspace.applyEdit(workspaceEdit);
             }
         }
     }
