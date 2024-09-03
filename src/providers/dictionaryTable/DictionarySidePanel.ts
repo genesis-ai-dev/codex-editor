@@ -7,7 +7,8 @@ import { DictionaryPostMessages } from "../../../types";
 import path from "path";
 
 // Dictionary path constant
-const dictionaryPath = path.join('files', 'project.dictionary');
+
+const dictionaryPath = ".project/files/project.dictionary";
 
 export class DictionarySidePanel implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;

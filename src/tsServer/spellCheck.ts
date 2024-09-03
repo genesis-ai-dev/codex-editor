@@ -176,18 +176,6 @@ export class SpellChecker {
         return word.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0).toString();
     }
 
-    registerCommands(connection: Connection) {
-        connection.onExecuteCommand(async (params) => {
-            if (params.command === 'spellcheck.addToDictionary' && params.arguments) {
-                const word = params.arguments[0];
-                await this.addToDictionary(word);
-                // Notify the client that the dictionary has been updated
-                connection.sendNotification('spellcheck/dictionaryUpdated');
-            }
-        });
-    }
-}
-
 export class SpellCheckDiagnosticsProvider {
     private spellChecker: SpellChecker;
 

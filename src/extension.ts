@@ -26,7 +26,6 @@ import { projectFileExists } from "./utils/fileUtils";
 import { registerCompletionsCodeLensProviders } from "./activationHelpers/contextAware/completionsCodeLensProviders";
 import * as path from 'path';
 import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from 'vscode-languageclient/node';
-import { createIndexWithContext } from "./activationHelpers/contextAware/miniIndex/indexes";
 
 let scmInterval: any; // Webpack & typescript for vscode are having issues
 
@@ -88,6 +87,12 @@ export async function activate(context: vscode.ExtensionContext) {
     // Start the client. This will also launch the server
     client.start().then(() => {
         context.subscriptions.push(client);
+        // Register the server.getSimilarWords command
+        context.subscriptions.push(vscode.commands.registerCommand('server.getSimilarWords', async (word: string) => {
+            if (client) {
+                return client.sendRequest('server.getSimilarWords', [word]);
+            }
+        }));
     }).catch(error => {
         console.error('Failed to start the client:', error);
     });

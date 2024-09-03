@@ -43,11 +43,6 @@ connection.onInitialize((params: InitializeParams) => {
         console.warn('No workspace folder provided. WordSuggestionProvider not initialized.');
     }
 
-    // Initialize indexes
-    // createIndexWithContext(connection);
-
-    spellChecker.registerCommands(connection);
-
     const result: InitializeResult = {
         capabilities: {
             textDocumentSync: TextDocumentSyncKind.Incremental,
@@ -59,7 +54,7 @@ connection.onInitialize((params: InitializeParams) => {
             hoverProvider: true,
             documentSymbolProvider: true,
             executeCommandProvider: {
-                commands: ['spellcheck.addToDictionary']
+                commands: ['spellcheck.addToDictionary', 'server.getSimilarWords']
             }
         }
     };
@@ -107,6 +102,39 @@ connection.onCodeAction((params: CodeActionParams) => {
 });
 
 // TODO: Implement other handlers (hover, document symbols, etc.)
+
+// Add this new handler
+connection.onExecuteCommand(async (params) => {
+    console.log('Received execute command:', params.command);
+
+    if (params.command === 'spellcheck.addToDictionary' && params.arguments) {
+        const word = params.arguments[0];
+        await spellChecker.addToDictionary(word);
+        // Notify the client that the dictionary has been updated
+        connection.sendNotification('spellcheck/dictionaryUpdated');
+    }
+
+
+    if (params.command === 'server.getSimilarWords') {
+        console.log('Handling server.getSimilarWords command');
+        const [word] = params.arguments || [];
+        if (typeof word === 'string') {
+            try {
+                console.log(`Getting similar words for: ${word}`);
+                const similarWords = wordSuggestionProvider.getSimilarWords(word);
+                console.log('Similar words:', similarWords);
+                return similarWords;
+            } catch (error) {
+                console.error('Error getting similar words:', error);
+                return [];
+            }
+        } else {
+            console.error('Invalid arguments for server.getSimilarWords');
+            return [];
+        }
+    }
+    // ... other command handlers ...
+});
 
 documents.listen(connection);
 connection.listen();
