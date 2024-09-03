@@ -104,7 +104,9 @@ type DictionaryPostMessages =
     | { command: "updateData"; data: Dictionary }
     | { command: "confirmRemove"; count: number }
     | { command: "updateEntryCount"; count: number }
-    | { command: "removeConfirmed" };
+    | { command: "removeConfirmed" }
+    | { command: "updateFrequentWords"; words: string[] }
+    | { command: "updateWordFrequencies"; wordFrequencies: { [key: string]: number } };
 
 type TranslationNotePostMessages =
     | { command: "update"; data: ScriptureTSV }
@@ -117,11 +119,6 @@ type ScripturePostMessages =
 type OBSRef = {
     storyId: string;
     paragraph: string;
-};
-
-type Dictionary = {
-    // not sure why this was commented?
-    entries: DictionaryEntry[];
 };
 
 type DictionaryEntry = {

@@ -1,10 +1,9 @@
 import MiniSearch from 'minisearch';
 import * as vscode from 'vscode';
 import { verseRefRegex } from '../../../../utils/verseRefUtils';
-import { StatusBarHandler } from '../statusBarHandler';
 import { SourceVerseVersions } from "../../../../../types";
 
-export async function createSourceBibleIndex(sourceBibleIndex: MiniSearch<SourceVerseVersions>, statusBarHandler: StatusBarHandler): Promise<MiniSearch<SourceVerseVersions>> {
+export async function createSourceBibleIndex(sourceBibleIndex: MiniSearch<SourceVerseVersions>, force: boolean = false): Promise<MiniSearch<SourceVerseVersions>> {
     const sourceBibleFiles = await vscode.workspace.findFiles('**/*.bible');
     const verseMap = new Map<string, { content: string, versions: string[] }>();
 

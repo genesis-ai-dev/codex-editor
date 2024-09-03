@@ -18,20 +18,15 @@ import {
     onBoard,
     initializeProject,
 } from "./activationHelpers/contextUnaware/projectInitializers";
+import { createIndexWithContext } from "./activationHelpers/contextAware/miniIndex/indexes/index";
 import { initializeWebviews } from "./activationHelpers/contextAware/webviewInitializers";
 import { syncUtils } from "./activationHelpers/contextAware/syncUtils";
 import { initializeStateStore } from "./stateStore";
 import { projectFileExists } from "./utils/fileUtils";
 import { registerCompletionsCodeLensProviders } from "./activationHelpers/contextAware/completionsCodeLensProviders";
-import * as path from "path";
-import {
-    LanguageClient,
-    LanguageClientOptions,
-    ServerOptions,
-    TransportKind,
-} from "vscode-languageclient/node";
-import { createIndexWithContext } from "./activationHelpers/contextAware/miniIndex/indexes";
 import { CodexChunkEditorProvider } from "./providers/codexChunkEditorProvider/CodexChunkEditorProvider";
+import * as path from 'path';
+import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from 'vscode-languageclient/node';
 
 let scmInterval: any; // Webpack & typescript for vscode are having issues
 
@@ -100,18 +95,23 @@ export async function activate(context: vscode.ExtensionContext) {
         clientOptions,
     );
     // Start the client. This will also launch the server
-    client
-        .start()
-        .then(() => {
-            context.subscriptions.push(client);
-        })
-        .catch((error) => {
-            console.error("Failed to start the client:", error);
-        });
+    client.start().then(() => {
+        context.subscriptions.push(client);
+        // Register the server.getSimilarWords command
+        context.subscriptions.push(vscode.commands.registerCommand('server.getSimilarWords', async (word: string) => {
+            if (client) {
+                return client.sendRequest('server.getSimilarWords', [word]);
+            }
+        }));
+    }).catch(error => {
+        console.error('Failed to start the client:', error);
+    });
 
     await executeCommandsAfter();
     await startSyncLoop(context);
     await registerCommands(context);
+    await createIndexWithContext(context);
+
 }
 
 export function deactivate(): Thenable<void> | undefined {

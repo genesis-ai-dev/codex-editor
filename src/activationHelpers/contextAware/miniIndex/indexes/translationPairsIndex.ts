@@ -2,7 +2,9 @@ import MiniSearch from 'minisearch';
 import * as vscode from 'vscode';
 import { verseRefRegex } from '../../../../utils/verseRefUtils';
 import { StatusBarHandler } from '../statusBarHandler';
-
+import * as fs from 'fs';
+import * as path from 'path';
+import { getWorkSpaceFolder } from '../../../../utils';
 export interface minisearchDoc {
     id: string;
     vref: string;
@@ -15,15 +17,15 @@ export interface minisearchDoc {
     line: number;
 }
 
-export async function createTranslationPairsIndex(context: vscode.ExtensionContext, translationPairsIndex: MiniSearch<minisearchDoc>, workspaceFolder: string | undefined, statusBarHandler: StatusBarHandler): Promise<void> {
-
+export async function createTranslationPairsIndex(context: vscode.ExtensionContext, translationPairsIndex: MiniSearch<minisearchDoc>, force: boolean = false): Promise<void> {
+    const workspaceFolder = getWorkSpaceFolder();
     if (!workspaceFolder) {
         console.warn('Workspace folder not found for Translation Pairs Index. Returning empty index.');
         return;
     }
 
 
-    async function indexAllDocuments(): Promise<number> {
+    async function indexAllDocuments(force: boolean = false): Promise<number> {
         console.log('Starting indexAllDocuments');
         let indexed = 0;
         if (!workspaceFolder) {
@@ -36,6 +38,8 @@ export async function createTranslationPairsIndex(context: vscode.ExtensionConte
 
         // Create a map of verse references to target verses
         const targetVerseMap = new Map<string, string>();
+        const completeDrafts: string[] = [];
+
         for (const file of targetBibleFiles) {
             const document = await vscode.workspace.openNotebookDocument(file);
             const cells = document.getCells();
@@ -48,10 +52,21 @@ export async function createTranslationPairsIndex(context: vscode.ExtensionConte
                         const verseContent = line.substring(match.index! + match[0].length).trim();
                         if (verseContent) {
                             targetVerseMap.set(vref, verseContent);
+                            completeDrafts.push(verseContent);
                         }
                     }
                 }
             }
+        }
+
+        // Write complete drafts to file
+        const completeDraftPath = path.join(workspaceFolder!, '.project', 'complete_drafts.txt');
+        try {
+            await fs.promises.mkdir(path.dirname(completeDraftPath), { recursive: true });
+            await fs.promises.writeFile(completeDraftPath, completeDrafts.join('\n'), 'utf8');
+            console.log(`Complete drafts written to ${completeDraftPath}`);
+        } catch (error) {
+            console.error(`Error writing complete drafts: ${error}`);
         }
 
         console.log('targetVerseMap:', targetVerseMap);
@@ -164,7 +179,7 @@ export async function createTranslationPairsIndex(context: vscode.ExtensionConte
     async function initializeIndexing() {
         const startTime = Date.now();
         try {
-            await rebuildFullIndex();
+            await rebuildFullIndex(force);
         } catch (error) {
             console.error('Error during index initialization:', error);
             vscode.window.showErrorMessage('Failed to initialize indexing. Check the logs for details.');
@@ -175,10 +190,8 @@ export async function createTranslationPairsIndex(context: vscode.ExtensionConte
         }
     }
 
-    async function rebuildFullIndex() {
-        statusBarHandler.setIndexingActive();
-        await indexAllDocuments();
-        statusBarHandler.setIndexingComplete();
+    async function rebuildFullIndex(force: boolean = false) {
+        await indexAllDocuments(force);
     }
 
 
@@ -200,4 +213,7 @@ export async function createTranslationPairsIndex(context: vscode.ExtensionConte
         console.error('Error initializing indexing:', error);
         vscode.window.showErrorMessage('Failed to initialize indexing.');
     });
+
+    console.log('Translation pairs index created with', translationPairsIndex.documentCount, 'documents');
+    console.log('Sample document:', JSON.stringify(translationPairsIndex.search('*')[0], null, 2));
 }
