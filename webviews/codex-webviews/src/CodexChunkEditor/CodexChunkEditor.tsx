@@ -9,7 +9,8 @@ import {
     EditorPostMessages,
     CustomNotebookData,
 } from "../../../../types";
-
+import { markdownToHTML } from "../TranslationNotesView/utilities/markdownToHTML";
+// import { markdownToHtml } from "./Parser";
 // TODO: add a language type for the translation unit heading aka the book names
 // TODO: stop user from closing current editor when they have unsaved changes
 // TODO: save each change to the verse metadata as "working copy"
@@ -269,9 +270,12 @@ function CodexChunkEditor() {
                                             (e.currentTarget.style.backgroundColor =
                                                 "transparent")
                                         }
-                                    >
-                                        {verseContent}
-                                    </span>
+                                        dangerouslySetInnerHTML={{
+                                            __html: markdownToHTML(
+                                                verseContent,
+                                            ),
+                                        }}
+                                    />
                                 </>
                             );
                         } else {
