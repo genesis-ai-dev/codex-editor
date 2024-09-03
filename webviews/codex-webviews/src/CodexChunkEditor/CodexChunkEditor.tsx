@@ -175,6 +175,9 @@ function CodexChunkEditor() {
     //     "image",
     //     "color",
     // ];
+    const handleCloseEditor = () => {
+        setContentBeingUpdated({} as EditorVerseContent);
+    };
     const translationUnits =
         scriptureCells?.length > 0
             ? processVerseContent(scriptureCells[0].value)
@@ -188,7 +191,18 @@ function CodexChunkEditor() {
                             return (
                                 <div key={verseIndex}>
                                     <div key={`${verseIndex}`}>
-                                        <h3>{verseMarker}</h3>
+                                        <div
+                                            style={{
+                                                display: "flex",
+                                                flex: 1,
+                                                justifyContent: "space-between",
+                                            }}
+                                        >
+                                            <h3>{verseMarker}</h3>
+                                            <button onClick={handleCloseEditor}>
+                                                ❌
+                                            </button>
+                                        </div>
                                         <div className="text-editor">
                                             <Editor
                                                 key={`${verseIndex}-quill`}
@@ -208,11 +222,15 @@ function CodexChunkEditor() {
                                                     console.log({
                                                         contentBeingUpdated,
                                                     });
+
                                                     vscode.postMessage({
                                                         command: "saveMarkdown",
                                                         content:
                                                             contentBeingUpdated,
                                                     } as EditorPostMessages);
+
+                                                    // TODO: set a loading state until the message is processed and the content is saved
+                                                    handleCloseEditor();
                                                 }}
                                             >
                                                 Save
