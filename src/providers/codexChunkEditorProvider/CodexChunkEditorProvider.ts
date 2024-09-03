@@ -6,6 +6,7 @@ import {
     EditorPostMessages,
     EditorVerseContent,
 } from "../../../types";
+import { getUri } from "../translationNotes/utilities/getUri";
 
 function getNonce(): string {
     let text = "";
@@ -100,6 +101,12 @@ export class CodexChunkEditorProvider
      * Get the static html used for the editor webviews.
      */
     private getHtmlForWebview(webview: vscode.Webview): string {
+        const codiconsUri = getUri(webview, this.context.extensionUri, [
+            "node_modules",
+            "@vscode/codicons",
+            "dist",
+            "codicon.css",
+        ]);
         console.log("getHtmlForWebview");
         const scriptUri = webview.asWebviewUri(
             vscode.Uri.joinPath(
@@ -125,13 +132,14 @@ export class CodexChunkEditorProvider
 
         const nonce = getNonce();
 
-        return `<!DOCTYPE html>
+        return /*html*/ `<!DOCTYPE html>
             <html lang="en">
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
                 <link rel="stylesheet" type="text/css" href="${styleUri}">
+                <link href="${codiconsUri}" rel="stylesheet" />
                 <title>Codex Chunk Editor</title>
             </head>
             <body>
@@ -190,7 +198,7 @@ export class CodexChunkEditorProvider
             const currentValue = cellToUpdate.value;
             const startIndex = currentValue.indexOf(content.verseMarker);
             const endIndex = currentValue.indexOf(nextVerseMarker, startIndex);
-
+            console.log({ content });
             if (startIndex !== -1 && endIndex !== -1) {
                 cellToUpdate.value =
                     currentValue.substring(0, startIndex) +

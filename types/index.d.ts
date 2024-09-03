@@ -180,6 +180,7 @@ type SourceVerseVersions = {
 type EditorVerseContent = {
     verseMarker: string;
     content: string;
+    verseIndex: number;
 };
 
 type EditorPostMessages =

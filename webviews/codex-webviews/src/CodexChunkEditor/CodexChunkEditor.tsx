@@ -10,6 +10,7 @@ import {
     CustomNotebookData,
 } from "../../../../types";
 import { markdownToHTML } from "../TranslationNotesView/utilities/markdownToHTML";
+import CloseButtonWithConfirmation from "../components/CloseButtonWithConfirmation";
 // import { markdownToHtml } from "./Parser";
 // TODO: add a language type for the translation unit heading aka the book names
 // TODO: stop user from closing current editor when they have unsaved changes
@@ -27,6 +28,7 @@ function CodexChunkEditor() {
     const [contentBeingUpdated, setContentBeingUpdated] =
         useState<EditorVerseContent>({} as EditorVerseContent);
 
+    const [chapterIndex, setChapterIndex] = useState<number>(0);
     // const quillRef = useRef<ReactQuill>(null);
 
     useEffect(() => {
@@ -112,27 +114,38 @@ function CodexChunkEditor() {
     const scriptureCells = content?.cells?.filter(
         (cell) => cell.language === "scripture",
     );
+    const verseRefRegex = /(?<=^|\s)(?=[A-Z, 1-9]{3} \d{1,3}:\d{1,3})/;
     const processVerseContent = (cellContent: string) => {
         console.log({ cellContent });
-        const lines = cellContent.split(
-            /(?<=^|\s)(?=[A-Z]{3} \d{1,3}:\d{1,3})/,
-        );
+        const lines = cellContent.split(verseRefRegex);
         console.log({ lines });
-        const processedLines = lines.map((line) => {
-            const [book, chapterVerse, ...contentParts] = line.split(/\s+/);
-            // const [chapter, verse] = chapterVerse.split(":");
-            const verseMarker = `${book} ${chapterVerse}`;
-            return {
-                verseMarker,
-                verseContent: contentParts.join(" "),
-            };
-        });
-        console.log({ processedLines });
+        const processedLines = lines
+            .map((line) => {
+                const verseMarker = line.match(
+                    /(\b[A-Z, 1-9]{3}\s\d+:\d+\b)/,
+                )?.[0];
+                // console.log({ verseMarker });
+                if (verseMarker) {
+                    const lineWithoutVerseRefMarker = line
+                        .replace(`${verseMarker} `, "")
+                        .replace(`${verseMarker}\n`, "")
+                        .replace(`${verseMarker}`, "");
+
+                    return {
+                        verseMarker,
+                        verseContent: lineWithoutVerseRefMarker,
+                    };
+                }
+                return null;
+            })
+            .filter(Boolean);
         return processedLines;
     };
     const verseWithContent =
         scriptureCells?.length > 0
-            ? processVerseContent(scriptureCells[0].value)
+            ? processVerseContent(scriptureCells[0].value).filter(
+                  (value) => !!value,
+              )
             : [];
     // scriptureCells?.forEach((cell, cellIndex) => {
     //     verseContent.forEach((verse) => {
@@ -176,88 +189,191 @@ function CodexChunkEditor() {
     //     "image",
     //     "color",
     // ];
+    const translationUnits =
+        scriptureCells?.length > 0
+            ? processVerseContent(scriptureCells[chapterIndex].value).filter(
+                  (value) => !!value,
+              )
+            : [];
+    const unsavedChanges = !!(
+        contentBeingUpdated.content &&
+        contentBeingUpdated.content !==
+            translationUnits?.[contentBeingUpdated.verseIndex]?.verseContent
+    );
+
+    console.log({
+        unsavedChanges,
+        content:
+            translationUnits?.[contentBeingUpdated.verseIndex]?.verseContent,
+        contentBeingUpdated,
+    });
     const handleCloseEditor = () => {
         setContentBeingUpdated({} as EditorVerseContent);
     };
-    const translationUnits =
-        scriptureCells?.length > 0
-            ? processVerseContent(scriptureCells[0].value)
-            : [];
+
     return (
-        <div>
-            <p>
-                {translationUnits?.map(
-                    ({ verseMarker, verseContent }, verseIndex) => {
-                        if (verseMarker === contentBeingUpdated.verseMarker) {
-                            return (
-                                <div key={verseIndex}>
-                                    <div key={`${verseIndex}`}>
-                                        <div
-                                            style={{
-                                                display: "flex",
-                                                flex: 1,
-                                                justifyContent: "space-between",
-                                            }}
-                                        >
-                                            <h3>{verseMarker}</h3>
-                                            <button onClick={handleCloseEditor}>
-                                                ❌
-                                            </button>
-                                        </div>
-                                        <div className="text-editor">
-                                            <Editor
-                                                key={`${verseIndex}-quill`}
-                                                value={verseContent}
-                                                onChange={({ markdown }) => {
-                                                    setContentBeingUpdated({
-                                                        verseMarker,
-                                                        content: markdown,
-                                                    });
-                                                    console.log({
-                                                        markdown,
-                                                    });
-                                                }}
-                                            />
-                                            <button
-                                                onClick={() => {
-                                                    console.log({
-                                                        contentBeingUpdated,
-                                                    });
-
-                                                    vscode.postMessage({
-                                                        command: "saveMarkdown",
-                                                        content:
-                                                            contentBeingUpdated,
-                                                    } as EditorPostMessages);
-
-                                                    // TODO: set a loading state until the message is processed and the content is saved
-                                                    handleCloseEditor();
+        <div
+            style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+            }}
+        >
+            <h1>{translationUnits[0]?.verseMarker.split(":")[0]}</h1>
+            <div
+                style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    maxWidth: "30rem",
+                    width: "100%",
+                }}
+            >
+                <div
+                    style={{ display: "flex", justifyContent: "space-between" }}
+                >
+                    <button
+                        disabled={chapterIndex === 0 || unsavedChanges}
+                        onClick={() => {
+                            setChapterIndex(chapterIndex - 1);
+                        }}
+                    >
+                        ⬅
+                    </button>
+                    <button
+                        disabled={
+                            chapterIndex === scriptureCells?.length - 1 ||
+                            unsavedChanges
+                        }
+                        style={{
+                            transform: "rotate(180deg)",
+                        }}
+                        onClick={() => {
+                            setChapterIndex(chapterIndex + 1);
+                        }}
+                    >
+                        ⬅
+                    </button>
+                </div>
+                <p>
+                    {translationUnits?.map(
+                        ({ verseMarker, verseContent }, verseIndex) => {
+                            // console.log({ verseMarker, verseContent });
+                            if (
+                                verseMarker === contentBeingUpdated.verseMarker
+                            ) {
+                                return (
+                                    <div key={verseIndex}>
+                                        <div key={`${verseIndex}`}>
+                                            <div
+                                                style={{
+                                                    display: "flex",
+                                                    flex: 1,
+                                                    justifyContent:
+                                                        "space-between",
                                                 }}
                                             >
-                                                Save
-                                            </button>
+                                                <h3>{verseMarker}</h3>
+                                                {!unsavedChanges && (
+                                                    <button
+                                                        onClick={
+                                                            handleCloseEditor
+                                                        }
+                                                        disabled={
+                                                            unsavedChanges
+                                                        }
+                                                    >
+                                                        ❌
+                                                    </button>
+                                                )}
+                                                {unsavedChanges && (
+                                                    <CloseButtonWithConfirmation
+                                                        handleDeleteButtonClick={
+                                                            handleCloseEditor
+                                                        }
+                                                    />
+                                                )}
+                                            </div>
+                                            <div className="text-editor">
+                                                <Editor
+                                                    key={`${verseIndex}-quill`}
+                                                    value={verseContent}
+                                                    onChange={({
+                                                        markdown,
+                                                    }) => {
+                                                        setContentBeingUpdated({
+                                                            verseIndex,
+                                                            verseMarker,
+                                                            content: markdown,
+                                                        });
+                                                    }}
+                                                />
+                                                <button
+                                                    onClick={() => {
+                                                        vscode.postMessage({
+                                                            command:
+                                                                "saveMarkdown",
+                                                            content:
+                                                                contentBeingUpdated,
+                                                        } as EditorPostMessages);
+
+                                                        // TODO: set a loading state until the message is processed and the content is saved
+                                                        handleCloseEditor();
+                                                    }}
+                                                >
+                                                    Save
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            );
-                        } else if (verseContent.length > 0) {
-                            return (
-                                <>
-                                    {" "}
-                                    <sup style={{ marginRight: "0.1rem" }}>
-                                        {
-                                            verseMarker
-                                                .split(" ")[1]
-                                                .split(":")[1]
-                                        }
-                                    </sup>
-                                    <span
-                                        onClick={() => {
-                                            setContentBeingUpdated({
-                                                verseMarker,
-                                                content: verseContent,
-                                            });
-                                        }}
+                                );
+                            } else if (verseContent.length > 0) {
+                                return (
+                                    <>
+                                        {" "}
+                                        <sup style={{ marginRight: "0.1rem" }}>
+                                            {
+                                                verseMarker
+                                                    .split(" ")[1]
+                                                    .split(":")[1]
+                                            }
+                                        </sup>
+                                        <span
+                                            onClick={() => {
+                                                if (!unsavedChanges) {
+                                                    setContentBeingUpdated({
+                                                        verseMarker,
+                                                        content: verseContent,
+                                                        verseIndex,
+                                                    });
+                                                }
+                                            }}
+                                            style={{
+                                                cursor: !unsavedChanges
+                                                    ? "pointer"
+                                                    : "default",
+                                                transition: !unsavedChanges
+                                                    ? "none"
+                                                    : "background-color 0.3s",
+                                            }}
+                                            onMouseEnter={(e) =>
+                                                (e.currentTarget.style.backgroundColor =
+                                                    "#f0f0f0")
+                                            }
+                                            onMouseLeave={(e) =>
+                                                (e.currentTarget.style.backgroundColor =
+                                                    "transparent")
+                                            }
+                                            dangerouslySetInnerHTML={{
+                                                __html: markdownToHTML(
+                                                    verseContent,
+                                                ),
+                                            }}
+                                        />
+                                    </>
+                                );
+                            } else {
+                                return (
+                                    <p
                                         style={{
                                             cursor: "pointer",
                                             transition: "background-color 0.3s",
@@ -270,43 +386,22 @@ function CodexChunkEditor() {
                                             (e.currentTarget.style.backgroundColor =
                                                 "transparent")
                                         }
-                                        dangerouslySetInnerHTML={{
-                                            __html: markdownToHTML(
-                                                verseContent,
-                                            ),
+                                        onClick={() => {
+                                            setContentBeingUpdated({
+                                                verseMarker,
+                                                content: "",
+                                                verseIndex,
+                                            });
                                         }}
-                                    />
-                                </>
-                            );
-                        } else {
-                            return (
-                                <p
-                                    style={{
-                                        cursor: "pointer",
-                                        transition: "background-color 0.3s",
-                                    }}
-                                    onMouseEnter={(e) =>
-                                        (e.currentTarget.style.backgroundColor =
-                                            "#f0f0f0")
-                                    }
-                                    onMouseLeave={(e) =>
-                                        (e.currentTarget.style.backgroundColor =
-                                            "transparent")
-                                    }
-                                    onClick={() => {
-                                        setContentBeingUpdated({
-                                            verseMarker,
-                                            content: "",
-                                        });
-                                    }}
-                                >
-                                    {verseMarker}
-                                </p>
-                            );
-                        }
-                    },
-                )}
-            </p>
+                                    >
+                                        {verseMarker}
+                                    </p>
+                                );
+                            }
+                        },
+                    )}
+                </p>
+            </div>
         </div>
     );
 }
