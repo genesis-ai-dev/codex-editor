@@ -4,7 +4,7 @@ import { getWorkSpaceFolder } from "../../../../utils";
 import { StatusBarHandler } from '../statusBarHandler';
 import { createTranslationPairsIndex } from "./translationPairsIndex";
 import { createSourceBibleIndex } from "./sourceBibleIndex";
-import { searchTargetVersesByQuery, getTranslationPairsFromSourceVerseQuery, getSourceVerseByVrefFromAllSourceVerses, getTargetVerseByVref, getTranslationPairFromProject, handleTextSelection } from "./search";
+import { searchTargetVersesByQuery, getTranslationPairsFromSourceVerseQuery, getSourceVerseByVrefFromAllSourceVerses, getTargetVerseByVref, getTranslationPairFromProject, handleTextSelection, searchParallelVerses } from "./search";
 import MiniSearch from "minisearch";
 import { createZeroDraftIndex, ZeroDraftIndexRecord, getContentOptionsForVref, insertDraftsIntoTargetNotebooks, insertDraftsInCurrentEditor, VerseWithMetadata } from "./zeroDraftIndex";
 import { initializeWordsIndex, getWordFrequencies, getWordsAboveThreshold, getWordFrequency } from "./wordsIndex";
@@ -79,6 +79,103 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             vscode.workspace.onDidSaveTextDocument(async (document) => {
                 if (document.fileName.endsWith('.codex')) {
                     await rebuildIndexes();
+                }
+            }),
+            vscode.commands.registerCommand('translators-copilot.searchTargetVersesByQuery', async (query?: string, showInfo: boolean = false) => {
+                if (!query) {
+                    query = await vscode.window.showInputBox({
+                        prompt: 'Enter a query to search target verses',
+                        placeHolder: 'e.g. love, faith, hope'
+                    });
+                    if (!query) return; // User cancelled the input
+                    showInfo = true;
+                }
+                try {
+                    const results = await searchTargetVersesByQuery(translationPairsIndex, query);
+                    if (showInfo) {
+                        const resultsString = results.map(r => `${r.vref}: ${r.targetContent || 'undefined'}`).join('\n');
+                        vscode.window.showInformationMessage(`Found ${results.length} results for query: ${query}\n${resultsString}`);
+                    }
+                    return results;
+                } catch (error) {
+                    console.error('Error searching target verses:', error);
+                    vscode.window.showErrorMessage('Failed to search target verses. Check the logs for details.');
+                    return [];
+                }
+            }),
+            /** 
+             * This `getTranslationPairsFromSourceVerseQuery` command uses the 
+             * translation pair index to search for source verse. This ensures that 
+             * the source verses are paired up with populated target verses.
+             */
+            vscode.commands.registerCommand('translators-copilot.getTranslationPairsFromSourceVerseQuery', async (query?: string, k: number = 10, showInfo: boolean = false) => {
+                if (!query) {
+                    query = await vscode.window.showInputBox({
+                        prompt: 'Enter a query to search source verses',
+                        placeHolder: 'e.g. love, faith, hope'
+                    });
+                    if (!query) return []; // User cancelled the input
+                    showInfo = true;
+                }
+                const results = getTranslationPairsFromSourceVerseQuery(translationPairsIndex, query, k);
+                if (showInfo) {
+                    const resultsString = results.map(r => `${r.vref}: ${r.sourceVerse.content}`).join('\n');
+                    vscode.window.showInformationMessage(`Found ${results.length} results for query: ${query}\n${resultsString}`);
+                }
+                return results;
+            }),
+            /**
+             * This `getSourceVerseByVrefFromAllSourceVerses` command uses the source bible index to get a 
+             * source verse by verse reference. We need to use this index because the current
+             * verse being 'autocompleted' is probably not populated in the translation pairs
+             * index, because it hasn't been translated yet.
+             */
+            vscode.commands.registerCommand('translators-copilot.getSourceVerseByVrefFromAllSourceVerses', async (vref?: string, showInfo: boolean = false) => {
+                if (!vref) {
+                    vref = await vscode.window.showInputBox({
+                        prompt: 'Enter a verse reference',
+                        placeHolder: 'e.g. GEN 1:1'
+                    });
+                    if (!vref) return; // User cancelled the input
+                    showInfo = true;
+                }
+                const results = await getSourceVerseByVrefFromAllSourceVerses(sourceBibleIndex, vref);
+                if (showInfo && results) {
+                    vscode.window.showInformationMessage(`Source verse for ${vref}: ${results.content}`);
+                }
+                return results;
+            }),
+            vscode.commands.registerCommand('translators-copilot.getTargetVerseByVref', async (vref?: string, showInfo: boolean = false) => {
+                if (!vref) {
+                    vref = await vscode.window.showInputBox({
+                        prompt: 'Enter a verse reference',
+                        placeHolder: 'e.g. GEN 1:1'
+                    });
+                    if (!vref) return; // User cancelled the input
+                    showInfo = true;
+                }
+                const results = await getTargetVerseByVref(translationPairsIndex, vref);
+                if (showInfo && results) {
+                    vscode.window.showInformationMessage(`Target verse for ${vref}: ${results.targetContent}`);
+                }
+                return results;
+            }),
+            vscode.commands.registerCommand('translators-copilot.getTranslationPairFromProject', async (vref?: string, showInfo: boolean = false) => {
+                if (!vref) {
+                    vref = await vscode.window.showInputBox({
+                        prompt: 'Enter a verse reference',
+                        placeHolder: 'e.g. GEN 1:1'
+                    });
+                    if (!vref) return; // User cancelled the input
+                    showInfo = true;
+                }
+                const result = await getTranslationPairFromProject(translationPairsIndex, vref);
+                if (showInfo) {
+                    if (result) {
+                        vscode.window.showInformationMessage(`Translation pair for ${vref}: Source: ${result.sourceVerse.content}, Target: ${result.targetVerse.content}`);
+                    } else {
+                        vscode.window.showInformationMessage(`No translation pair found for ${vref}`);
+                    }
                 }
             }),
             vscode.commands.registerCommand('translators-copilot.searchTargetVersesByQuery', async (query?: string, showInfo: boolean = false) => {
@@ -269,6 +366,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
                 await insertDraftsInCurrentEditor(zeroDraftIndex, forceInsert === 'Yes');
             }),
+
             // get word frequencies
             vscode.commands.registerCommand('translators-copilot.getWordFrequencies', async (): Promise<Array<{ word: string, frequency: number }>> => {
                 vscode.window.showInformationMessage(`Getting word frequencies`);
@@ -283,6 +381,23 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 const wordsAboveThreshold = getWordsAboveThreshold(wordsIndex, threshold);
                 vscode.window.showInformationMessage(`Words above threshold: ${wordsAboveThreshold}`);
                 return wordsAboveThreshold;
+            }),
+
+            vscode.commands.registerCommand('translators-copilot.searchParallelVerses', async (query?: string, k: number = 5, showInfo: boolean = false) => {
+                if (!query) {
+                    query = await vscode.window.showInputBox({
+                        prompt: 'Enter a query to search parallel verses',
+                        placeHolder: 'e.g. love, faith, hope'
+                    });
+                    if (!query) return []; // User cancelled the input
+                    showInfo = true;
+                }
+                const results = searchParallelVerses(translationPairsIndex, sourceBibleIndex, query, k);
+                if (showInfo) {
+                    const resultsString = results.map(r => `${r.vref}: Source: ${r.sourceVerse.content}, Target: ${r.targetVerse.content}`).join('\n');
+                    vscode.window.showInformationMessage(`Found ${results.length} parallel verses for query: ${query}\n${resultsString}`);
+                }
+                return results;
             })
         ]);
 

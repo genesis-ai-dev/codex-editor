@@ -213,4 +213,7 @@ export async function createTranslationPairsIndex(context: vscode.ExtensionConte
         console.error('Error initializing indexing:', error);
         vscode.window.showErrorMessage('Failed to initialize indexing.');
     });
+
+    console.log('Translation pairs index created with', translationPairsIndex.documentCount, 'documents');
+    console.log('Sample document:', JSON.stringify(translationPairsIndex.search('*')[0], null, 2));
 }
