@@ -175,6 +175,7 @@ export class SpellChecker {
         // FIXME: this should be an image hash
         return word.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0).toString();
     }
+}
 
 export class SpellCheckDiagnosticsProvider {
     private spellChecker: SpellChecker;

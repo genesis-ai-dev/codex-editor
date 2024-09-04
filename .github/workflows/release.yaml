@@ -34,4 +34,4 @@ jobs:
 
     - name: Publish to OpenVSX
       run: |
-        npx ovsx publish -p ${{ secrets.OPENVSX_TOKEN }}
+        npx ovsx publish --no-dependencies -p ${{ secrets.OPENVSX_TOKEN }}

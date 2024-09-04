@@ -132,8 +132,8 @@ export function searchParallelVerses(translationPairsIndex: MiniSearch, sourceBi
         
         // Get source content from sourceBibleIndex
         const sourceResult = sourceBibleIndex.getStoredFields(result.vref);
-        const sourceContent = sourceResult ? sourceResult.content : '';
-
+        const sourceContent = sourceResult ? sourceResult.content as string : '';
+        
         return {
             vref: result.vref,
             sourceVerse: {
