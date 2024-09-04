@@ -204,6 +204,7 @@ export class CodexChunkEditorProvider
                     data.verseMarker +
                     " " +
                     data.content +
+                    `\n` +
                     currentValue.substring(endIndex);
             } else {
                 console.error("Could not find verse markers in cell content");

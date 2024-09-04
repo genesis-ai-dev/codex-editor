@@ -1,13 +1,10 @@
-import React from "react";
 import { useRef, useState } from "react";
 import ReactQuill from "react-quill";
-import { markdownToHtml, htmlToMarkdown } from "./Parser";
 
 import "react-quill/dist/quill.snow.css";
 
 export interface EditorContentChanged {
     html: string;
-    markdown: string;
 }
 
 export interface EditorProps {
@@ -24,18 +21,20 @@ const TOOLBAR_OPTIONS = [
 ];
 
 export default function Editor(props: EditorProps) {
-    const [value, setValue] = useState<string>(
-        markdownToHtml(props.value || ""),
-    );
+    const [value, setValue] = useState<string>(props.value || "");
     const reactQuillRef = useRef<ReactQuill>(null);
 
     const onChange = (content: string) => {
         setValue(content);
 
         if (props.onChange) {
+            // Parse the content and replace outer <p> with <span>
+            const parsedContent = content.replace(
+                /^<p>([\s\S]*)<\/p>$/,
+                "<span>$1</span>",
+            );
             props.onChange({
-                html: content,
-                markdown: htmlToMarkdown(content),
+                html: parsedContent,
             });
         }
     };
@@ -49,9 +48,6 @@ export default function Editor(props: EditorProps) {
                 toolbar: {
                     container: TOOLBAR_OPTIONS,
                 },
-                // "emoji-toolbar": true,
-                // "emoji-textarea": false,
-                // "emoji-shortname": true,
             }}
             value={value}
             onChange={onChange}
