@@ -1,0 +1,40 @@
+name: Release
+
+on:
+  push:
+    branches:
+    - feat/ci
+    - main
+
+env:
+  NODE_ENV: production
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v2
+      with:
+        node-version: '20'
+
+    - name: Update Publisher
+      run: jq '.publisher = "${{ github.repository_owner }}"' package.json > package.json.tmp && mv package.json.tmp package.json
+      if: ${{ github.repository_owner != 'genesis-ai-dev' }}
+    
+    - name: Update Version
+      run: |
+        current_version=$(jq -r '.version' package.json)
+        new_version=$(npx semver $current_version -i patch)
+        jq -r '.version = '\"${new_version}\"'' package.json > package.json.tmp && mv package.json.tmp package.json
+      
+    - name: Install dependencies
+      run: npx pnpm install
+
+    - name: Publish to OpenVSX
+      run: |
+        npx ovsx publish -p ${{ secrets.OPENVSX_TOKEN }}
