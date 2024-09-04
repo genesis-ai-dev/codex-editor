@@ -43,7 +43,6 @@ export async function activate(context: vscode.ExtensionContext) {
     registerSourceCodeLens(context);
     registerCompletionsCodeLensProviders(context);
     registerTextSelectionHandler(context, () => undefined);
-    createIndexWithContext(context);
 
     const [, syncStatus] = registerScmStatusBar(context);
     syncUtils.registerSyncCommands(context, syncStatus);

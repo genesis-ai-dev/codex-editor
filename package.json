@@ -23,20 +23,7 @@
     ],
     "main": "./out/extension.js",
     "contributes": {
-        "keybindings": [
-            {
-                "command": "pygls.server.add_dictionary",
-                "key": "ctrl+shift+a",
-                "mac": "cmd+shift+a",
-                "when": "editorTextFocus"
-            },
-            {
-                "command": "pygls.server.add_line_dictionary",
-                "key": "ctrl+shift+b",
-                "mac": "cmd+shift+b",
-                "when": "editorTextFocus"
-            }
-        ],
+        "keybindings": [],
         "viewsWelcome": [
             {
                 "view": "scripture-explorer-activity-bar",
@@ -240,26 +227,6 @@
                 "icon": "$(arrow-right)"
             },
             {
-                "command": "pygls.server.restart",
-                "title": "Restart Language Server",
-                "category": "pygls"
-            },
-            {
-                "command": "pygls.server.executeCommand",
-                "title": "Execute Command",
-                "category": "pygls"
-            },
-            {
-                "command": "pygls.server.EmbedDocument",
-                "title": "Embed Document",
-                "category": "pygls"
-            },
-            {
-                "command": "pygls.server.add_dictionary",
-                "title": "Add to Dictionary",
-                "category": "pygls"
-            },
-            {
                 "command": "dictionaryTable.showDictionaryTable",
                 "title": "Dictionary Table: Show"
             },
@@ -376,98 +343,7 @@
         ],
         "configuration": [
             {
-                "type": "object",
-                "title": "Server Configuration",
-                "properties": {
-                    "pygls.server.cwd": {
-                        "scope": "resource",
-                        "type": "string",
-                        "description": "The working directory from which to launch the server.",
-                        "markdownDescription": "The working directory from which to launch the server.\nIf blank, this will default to the `examples/servers` directory."
-                    },
-                    "pygls.server.relative_server_path": {
-                        "scope": "resource",
-                        "type": "string",
-                        "description": "The working directory from which to launch the server.",
-                        "markdownDescription": "The working directory from which to launch the server.\nIf blank, this will default to the `examples/servers` directory."
-                    },
-                    "pygls.server.workspace": {
-                        "scope": "resource",
-                        "type": "string",
-                        "description": "The workspace directory (for debugging)"
-                    },
-                    "pygls.server.debug": {
-                        "scope": "resource",
-                        "default": false,
-                        "type": "boolean",
-                        "description": "Enable debugging of the server process."
-                    },
-                    "pygls.server.debugHost": {
-                        "scope": "resource",
-                        "default": "localhost",
-                        "type": "string",
-                        "description": "The host on which the server process to debug is running."
-                    },
-                    "pygls.server.debugPort": {
-                        "scope": "resource",
-                        "default": 5678,
-                        "type": "integer",
-                        "description": "The port number on which the server process to debug is listening."
-                    },
-                    "pygls.server.launchScript": {
-                        "scope": "resource",
-                        "type": "string",
-                        "default": "server.py",
-                        "description": "The python script to run when launching the server.",
-                        "markdownDescription": "The python script to run when launching the server.\n Relative to #pygls.server.cwd#"
-                    },
-                    "pygls.server.pythonPath": {
-                        "scope": "resource",
-                        "type": "string",
-                        "default": "python3",
-                        "description": "The python interpreter to use to run the server.\nBy default, this extension will attempt to use the Python interpreter configured via the Python extension, setting this setting will override this behavior."
-                    },
-                    "pygls.trace.server": {
-                        "scope": "resource",
-                        "type": "string",
-                        "default": "off",
-                        "enum": [
-                            "off",
-                            "messages",
-                            "verbose"
-                        ],
-                        "description": "Controls if LSP messages send to/from the server should be logged.",
-                        "enumDescriptions": [
-                            "do not log any lsp messages",
-                            "log all lsp messages sent to/from the server",
-                            "log all lsp messages sent to/from the server, including their contents"
-                        ]
-                    }
-                }
-            },
-            {
-                "type": "object",
-                "title": "Client Configuration",
-                "properties": {
-                    "pygls.client.documentSelector": {
-                        "scope": "window",
-                        "type": "array",
-                        "items": {
-                            "type": "object"
-                        },
-                        "default": [
-                            {
-                                "scheme": "file",
-                                "language": "json"
-                            }
-                        ],
-                        "description": "The client uses this to decide which documents the server is able to help with.",
-                        "markdownDescription": "The client uses this to decide which documents the server is able to help with.\n See [DocumentSelector](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#documentFilter) in the LSP Specification for more details."
-                    }
-                }
-            },
-            {
-                "title": "Codex Editor - SCM",
+                "title": "Codex Editor: Cloud Sync",
                 "properties": {
                     "codex-editor-extension.scm.remoteUrl": {
                         "type": "string",
@@ -478,6 +354,19 @@
                         "type": "boolean",
                         "default": true,
                         "description": "Enable or disable auto-commit feature."
+                    },
+                    "codex-editor-extension.scm.autoSyncInterval": {
+                        "type": "string",
+                        "enum": [
+                            "Do not auto sync",
+                            "Every 1 minute",
+                            "Every 5 minutes",
+                            "Every 15 minutes",
+                            "Every hour",
+                            "Every day"
+                        ],
+                        "default": "Do not auto sync",
+                        "description": "Automatically Sync to Cloud every..."
                     }
                 }
             },
@@ -503,7 +392,7 @@
                         "title": "API Key",
                         "type": "string",
                         "default": "",
-                        "description": "Your own openai API key. Ignorable for local LLM."
+                        "description": "Your own OpenAI API key. Ignorable for local LLM."
                     },
                     "translators-copilot.max_tokens": {
                         "title": "Max Tokens",
@@ -611,7 +500,7 @@
                     "translators-copilot.additionalResourcesDirectory": {
                         "type": "string",
                         "default": "",
-                        "description": "The directory path containing additional resources for completion context. Will read all files in directory and put them in the context. No recources if path is invalid."
+                        "description": "The directory path containing additional resources for completion context. Will read all files in directory and put them in the context. No resources if path is invalid."
                     },
                     "translators-copilot.defaultsRecommended.llmEndpoint": {
                         "type": "string",
@@ -634,14 +523,10 @@
                         "description": "Model name selected for inference. Ignorable for local LLM."
                     },
                     "translators-copilot.defaultsRecommended.sourceBookWhitelist": {
+                        "title": "Source Book Whitelist",
                         "type": "string",
                         "default": "",
                         "description": "Limits context building to specified books. Leave empty to include all. We recommend to leave empty for best results."
-                    },
-                    "translators-copilot.defaultsRecommended.experimentalContextOmission": {
-                        "type": "boolean",
-                        "default": "false",
-                        "description": "Will omit reference to the Bible in the API request. This removes scripture biase."
                     },
                     "translators-copilot.debugMode": {
                         "title": "Debugging Mode",
