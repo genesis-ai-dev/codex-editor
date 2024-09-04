@@ -63,6 +63,9 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             await createSourceBibleIndex(sourceBibleIndex, force || sourceBibleIndex.documentCount === 0);
             await createZeroDraftIndex(zeroDraftIndex, force || zeroDraftIndex.documentCount === 0);
             wordsIndex = await initializeWordsIndex(wordsIndex, workspaceFolder);
+
+            // Update status bar with index counts
+            statusBarHandler.updateIndexCounts(translationPairsIndex.documentCount, sourceBibleIndex.documentCount);
         } catch (error) {
             console.error('Error rebuilding full index:', error);
             vscode.window.showErrorMessage('Failed to rebuild full index. Check the logs for details.');
