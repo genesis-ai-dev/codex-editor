@@ -57,7 +57,7 @@ export class CodexChunkEditorProvider
 
         const updateWebview = () => {
             const jsonContent = this.getDocumentAsJson(document);
-            console.log({ jsonContent, document });
+
             webviewPanel.webview.postMessage({
                 type: "update",
                 content: JSON.stringify(jsonContent),
@@ -107,7 +107,6 @@ export class CodexChunkEditorProvider
             "dist",
             "codicon.css",
         ]);
-        console.log("getHtmlForWebview");
         const scriptUri = webview.asWebviewUri(
             vscode.Uri.joinPath(
                 this.context.extensionUri,
@@ -172,7 +171,7 @@ export class CodexChunkEditorProvider
      */
     private updateTextDocument(
         document: vscode.TextDocument,
-        content: EditorVerseContent,
+        data: EditorVerseContent,
     ) {
         const edit = new vscode.WorkspaceEdit();
 
@@ -181,30 +180,30 @@ export class CodexChunkEditorProvider
         ) as CustomNotebookData;
 
         const verseDataArray = this.getVerseDataArray(); // FIXME: Calculate the verse data array based on the content instead of using a static file. It will probably be more efficient.
-        const verseDataArrayIndex = verseDataArray.indexOf(content.verseMarker);
+
+        const verseDataArrayIndex = verseDataArray.indexOf(data.verseMarker);
         const nextVerseMarker = verseDataArray[verseDataArrayIndex + 1];
 
         const indexOfCellToUpdate = currentContent.cells.findIndex((cell) =>
-            cell.value.includes(content.verseMarker),
+            cell.value.includes(data.verseMarker),
         );
+
         if (indexOfCellToUpdate === -1) {
             throw new Error("Could not find cell to update");
         }
         const cellToUpdate = currentContent.cells[indexOfCellToUpdate];
 
-        if (
-            content.verseMarker.split(":")[0] === nextVerseMarker.split(":")[0]
-        ) {
+        if (data.verseMarker.split(":")[0] === nextVerseMarker.split(":")[0]) {
             const currentValue = cellToUpdate.value;
-            const startIndex = currentValue.indexOf(content.verseMarker);
+            const startIndex = currentValue.indexOf(data.verseMarker);
             const endIndex = currentValue.indexOf(nextVerseMarker, startIndex);
-            console.log({ content });
+
             if (startIndex !== -1 && endIndex !== -1) {
                 cellToUpdate.value =
                     currentValue.substring(0, startIndex) +
-                    content.verseMarker +
+                    data.verseMarker +
                     " " +
-                    content.content +
+                    data.content +
                     currentValue.substring(endIndex);
             } else {
                 console.error("Could not find verse markers in cell content");
@@ -213,14 +212,13 @@ export class CodexChunkEditorProvider
             cellToUpdate.value =
                 cellToUpdate.value.substring(
                     0,
-                    cellToUpdate.value.indexOf(content.verseMarker) +
-                        content.verseMarker.length,
+                    cellToUpdate.value.indexOf(data.verseMarker) +
+                        data.verseMarker.length,
                 ) +
                 " " +
-                content.content;
+                data.content;
         }
 
-        console.log({ currentContent, content, verseDataArray });
         // Just replace the entire document every time for this example extension.
         // A more complete extension should compute minimal edits instead.
         edit.replace(
@@ -233,16 +231,28 @@ export class CodexChunkEditorProvider
     }
 
     private getVerseDataArray(): string[] {
-        const filePath = path.join(
-            this.context.extensionPath,
-            "servers",
-            "files",
-            "versedata.txt",
-        );
-        const fileContent = fs.readFileSync(filePath, "utf-8");
-        return fileContent
-            .split("\n")
-            .map((line) => line.trim())
-            .filter((line) => line !== "");
+        try {
+            const filePath = path.join(
+                this.context.extensionPath,
+                "src",
+                "tsServer",
+                "files",
+                "versedata.txt",
+            );
+            const fileContent = fs.readFileSync(filePath, "utf-8");
+            return fileContent
+                .split("\n")
+                .map((line) => line.trim())
+                .filter((line) => line !== "");
+        } catch (error) {
+            console.error(
+                "updateTextDocument Error reading verse data file:",
+                error,
+            );
+            vscode.window.showErrorMessage(
+                "Failed to read verse data file. Please check the file path and permissions.",
+            );
+            return [];
+        }
     }
 }
