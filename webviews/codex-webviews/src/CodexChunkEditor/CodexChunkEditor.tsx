@@ -14,7 +14,6 @@ import CloseButtonWithConfirmation from "../components/CloseButtonWithConfirmati
 // TODO: stop user from closing current editor when they have unsaved changes
 // TODO: save each change to the verse metadata as "working copy"
 
-
 function CodexChunkEditor() {
     const [content, setContent] = useState<CustomNotebookData>(
         {} as CustomNotebookData,
@@ -23,7 +22,6 @@ function CodexChunkEditor() {
         useState<EditorVerseContent>({} as EditorVerseContent);
 
     const [chapterIndex, setChapterIndex] = useState<number>(0);
-    
 
     useEffect(() => {
         const messageListener = (event: MessageEvent) => {
@@ -62,7 +60,7 @@ function CodexChunkEditor() {
                 const verseMarker = line.match(
                     /(\b[A-Z, 1-9]{3}\s\d+:\d+\b)/,
                 )?.[0];
-                
+
                 if (verseMarker) {
                     const lineWithoutVerseRefMarker = line
                         .replace(`${verseMarker} `, "")
@@ -88,8 +86,10 @@ function CodexChunkEditor() {
             : [];
     const unsavedChanges = !!(
         contentBeingUpdated.content &&
-        contentBeingUpdated.content !==
-            translationUnits?.[contentBeingUpdated.verseIndex]?.verseContent
+        contentBeingUpdated.content.replace(/\s/g, "") !==
+            translationUnits?.[
+                contentBeingUpdated.verseIndex
+            ]?.verseContent.replace(/\s/g, "")
     );
 
     console.log({
@@ -201,7 +201,12 @@ function CodexChunkEditor() {
                                                         setContentBeingUpdated({
                                                             verseIndex,
                                                             verseMarker,
-                                                            content: html,
+                                                            content:
+                                                                html.endsWith(
+                                                                    "\n",
+                                                                )
+                                                                    ? html
+                                                                    : `${html}\n`,
                                                         });
                                                     }}
                                                 />
@@ -243,6 +248,14 @@ function CodexChunkEditor() {
                                                         content: verseContent,
                                                         verseIndex,
                                                     });
+                                                    vscode.postMessage({
+                                                        command:
+                                                            "setCurrentIdToGlobalState",
+                                                        content: {
+                                                            currentLineId:
+                                                                verseMarker,
+                                                        },
+                                                    } as EditorPostMessages);
                                                 }
                                             }}
                                             style={{

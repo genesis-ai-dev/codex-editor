@@ -1,0 +1,114 @@
+/* In-text suggestion element */
+quill-spck-match {
+  border-bottom: #ff6a6a solid 3px;
+}
+quill-spck-match:hover {
+  background-color: #fdcccc;
+  cursor: pointer;
+}
+
+/* Popup */
+.quill-spck-match-popup {
+  isolation: isolate;
+
+  background-color: white;
+  border-radius: 7px;
+  border: 1px solid #dadce0;
+  box-shadow: 0 1px 3px 1px rgb(60 64 67 / 15%);
+  z-index: 1;
+  max-width: 400px;
+
+  font-family: -apple-system, BlinkMacSystemFont, 'Avenir Next', Avenir,
+    'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji',
+    'Segoe UI Emoji', 'Segoe UI Symbol';
+  font-size: 1rem;
+  color: white;
+  overflow: hidden;
+}
+
+.quill-spck-match-popup-actions {
+  display: flex;
+  flex-direction: row;
+  margin-right: 0.0625rem solid #313131;
+}
+
+.quill-spck-match-popup-action {
+  text-align: start;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  border-right: 1px solid #dadce0;
+  padding: 0.5rem;
+  background-color: white;
+  color: #3c4043;
+}
+.quill-spck-match-popup-action:hover {
+  background-color: #f1f3f4;
+}
+
+.quill-spck-match-popup-message {
+  font-size: 12px;
+  padding: 0.5rem;
+  color: #3c4043;
+}
+
+/* Arrow */
+.quill-spck-popup-arrow,
+.quill-spck-popup-arrow::before {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: inherit;
+}
+
+.quill-spck-popup-arrow {
+  visibility: hidden;
+}
+
+.quill-spck-popup-arrow::before {
+  visibility: visible;
+  content: '';
+  transform: rotate(45deg);
+  background: white;
+  border: 1px solid #dadce0;
+}
+quill-spck-popup[data-popper-placement^='top'] > .quill-spck-popup-arrow {
+  bottom: -4px;
+}
+
+quill-spck-popup[data-popper-placement^='bottom'] > .quill-spck-popup-arrow {
+  top: -4px;
+}
+
+quill-spck-popup[data-popper-placement^='left'] > .quill-spck-popup-arrow {
+  right: -4px;
+}
+
+quill-spck-popup[data-popper-placement^='right'] > .quill-spck-popup-arrow {
+  left: -4px;
+}
+
+/* Loading indicator in editor */
+.quill-spck-loading-indicator {
+  position: absolute;
+  bottom: 3px;
+  right: 3px;
+  z-index: 10;
+}
+.quill-spck-loading-indicator-spinner {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  border: 2px solid #ccc;
+  border-top-color: #39475c;
+  animation: quill-spck-loading-indicator-spin 1s linear infinite;
+}
+@keyframes quill-spck-loading-indicator-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}

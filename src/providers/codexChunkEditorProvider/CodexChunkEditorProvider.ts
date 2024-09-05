@@ -7,6 +7,7 @@ import {
     EditorVerseContent,
 } from "../../../types";
 import { getUri } from "../translationNotes/utilities/getUri";
+import { initializeStateStore } from "../../stateStore";
 
 function getNonce(): string {
     let text = "";
@@ -91,6 +92,18 @@ export class CodexChunkEditorProvider
                 case "getContent":
                     updateWebview();
                     return;
+                case "setCurrentIdToGlobalState":
+                    console.log("setVerseRef message received", { e });
+                    initializeStateStore().then(({ updateStoreState }) => {
+                        updateStoreState({
+                            key: "verseRef",
+                            value: {
+                                verseRef: e.content.currentLineId,
+                                uri: document.uri.toString(),
+                            },
+                        });
+                    });
+                    return;
             }
         });
 
@@ -136,7 +149,7 @@ export class CodexChunkEditorProvider
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src https://languagetool.org/api/; img-src ${webview.cspSource} https:; font-src ${webview.cspSource};">
                 <link rel="stylesheet" type="text/css" href="${styleUri}">
                 <link href="${codiconsUri}" rel="stylesheet" />
                 <title>Codex Chunk Editor</title>
@@ -204,7 +217,7 @@ export class CodexChunkEditorProvider
                     data.verseMarker +
                     " " +
                     data.content +
-                    `\n` +
+                    (data.content.endsWith("\n") ? "" : "\n") +
                     currentValue.substring(endIndex);
             } else {
                 console.error("Could not find verse markers in cell content");

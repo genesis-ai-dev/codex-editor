@@ -189,7 +189,11 @@ type EditorPostMessages =
           command: "updateMetadataWithUnsavedChanges";
           content: EditorVerseContent;
       }
-    | { command: "getContent" };
+    | { command: "getContent" }
+    | {
+          command: "setCurrentIdToGlobalState";
+          content: { currentLineId: string };
+      };
 
 type CustomNotebook = vscode.NotebookCellData & {
     language: string;
