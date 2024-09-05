@@ -8,6 +8,9 @@ interface WebviewHeaderProps {
 export const WebviewHeader: React.FC<WebviewHeaderProps> = ({
     title,
     children,
+}: {
+    title?: string;
+    children?: React.ReactNode;
 }) => (
     <div
         className="webview-header"
@@ -23,15 +26,17 @@ export const WebviewHeader: React.FC<WebviewHeaderProps> = ({
             color: "var(--vscode-sideBar-foreground)",
         }}
     >
-        <h2
-            style={{
-                margin: 0,
-                textTransform: "uppercase",
-                fontSize: "1rem",
-            }}
-        >
-            {title}
-        </h2>
+        {title && (
+            <h2
+                style={{
+                    margin: 0,
+                    textTransform: "uppercase",
+                    fontSize: "1rem",
+                }}
+            >
+                {title}
+            </h2>
+        )}
         {children}
     </div>
 );

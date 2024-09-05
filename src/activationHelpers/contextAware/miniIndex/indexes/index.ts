@@ -23,7 +23,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         vscode.window.showInformationMessage("Translators Copilot Server is disabled. Language server not activated.");
         return;
     }
-    vscode.window.showInformationMessage("Translators Copilot Server activated");
 
     const translationPairsIndex = new MiniSearch({
         fields: ['vref', 'book', 'chapter', 'sourceContent', 'targetContent'],

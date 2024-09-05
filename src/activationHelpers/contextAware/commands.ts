@@ -15,184 +15,149 @@ import {
 import { DownloadedResource } from "../../providers/obs/resources/types";
 import { translationAcademy } from "../../providers/translationAcademy/provider";
 import { downloadBible, initializeProject, setTargetFont } from "../contextUnaware/projectInitializers";
-import { ResourceProvider } from "../../providers/treeViews/resourceTreeViewProvider";
 
 import { CodexNotebookProvider } from "../../providers/treeViews/scriptureTreeViewProvider";
 import {
     getWorkSpaceFolder,
 } from "../../utils";
-// import { PythonMessenger } from "../../utils/pyglsMessenger";
-
-
 
 const ROOT_PATH = getWorkSpaceFolder();
-
-
 
 export async function registerCommands(context: vscode.ExtensionContext) {
 
     const scriptureTreeViewProvider = new CodexNotebookProvider(ROOT_PATH);
-    const resourceTreeViewProvider = new ResourceProvider(ROOT_PATH);
-    // const pythonMessenger = new PythonMessenger();
-
-    vscode.window.registerTreeDataProvider(
+    const scriptureExplorerTreeDataProvider = vscode.window.registerTreeDataProvider(
         "scripture-explorer-activity-bar",
-        scriptureTreeViewProvider,
+        scriptureTreeViewProvider
     );
 
-    vscode.commands.registerCommand(
+    const scriptureExplorerRefreshCommand = vscode.commands.registerCommand(
         "scripture-explorer-activity-bar.refreshEntry",
-        () => scriptureTreeViewProvider.refresh(),
-    );
-    // context.subscriptions.push(
-    //     vscode.commands.registerCommand(
-    //         "codex-editor-extension.pythonMessenger",
-    //         async (method: string, ...args: any[]) => {
-    //             if (method in pythonMessenger) {
-    //                 return await (pythonMessenger as any)[method](...args);
-    //             } else {
-    //                 throw new Error(`Method ${method} not found in PythonMessenger`);
-    //             }
-    //         }
-    //     )
-    // );
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "scripture-explorer-activity-bar.openChapter",
-            async (notebookPath: string, chapterIndex: number) => {
-                try {
-                    jumpToCellInNotebook(notebookPath, chapterIndex);
-                } catch (error) {
-                    vscode.window.showErrorMessage(
-                        `Failed to open chapter: ${error}`,
-                    );
-                }
-            },
-        ),
+        () => scriptureTreeViewProvider.refresh()
     );
 
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-editor-extension.indexVrefs",
-            indexVerseRefsInSourceText,
-        ),
+    const scriptureExplorerOpenChapterCommand = vscode.commands.registerCommand(
+        "scripture-explorer-activity-bar.openChapter",
+        async (notebookPath: string, chapterIndex: number) => {
+            try {
+                jumpToCellInNotebook(notebookPath, chapterIndex);
+            } catch (error) {
+                vscode.window.showErrorMessage(
+                    `Failed to open chapter: ${error}`
+                );
+            }
+        }
     );
 
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-editor-extension.openTnAcademy",
-            async (resource: DownloadedResource) => {
-                await translationAcademy(context, resource);
-            },
-        ),
+    const indexVrefsCommand = vscode.commands.registerCommand(
+        "codex-editor-extension.indexVrefs",
+        indexVerseRefsInSourceText
     );
 
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-editor-extension.searchIndex",
-            async () => {
-                const searchString = await vscode.window.showInputBox({
-                    prompt: "Enter the task number to check its status",
-                    placeHolder: "Task number",
-                });
-                if (searchString !== undefined) {
-                    searchVerseRefPositionIndex(searchString);
-                }
-            },
-        ),
+    const openTnAcademyCommand = vscode.commands.registerCommand(
+        "codex-editor-extension.openTnAcademy",
+        async (resource: DownloadedResource) => {
+            await translationAcademy(context, resource);
+        }
     );
 
-    // Register the Codex Notebook serializer for saving and loading .codex files
-    context.subscriptions.push(
-        vscode.workspace.registerNotebookSerializer(
-            NOTEBOOK_TYPE,
-            new CodexContentSerializer(),
-            { transientOutputs: true },
-        ),
-        new CodexKernel(),
+    const searchIndexCommand = vscode.commands.registerCommand(
+        "codex-editor-extension.searchIndex",
+        async () => {
+            const searchString = await vscode.window.showInputBox({
+                prompt: "Enter the task number to check its status",
+                placeHolder: "Task number",
+            });
+            if (searchString !== undefined) {
+                searchVerseRefPositionIndex(searchString);
+            }
+        }
     );
 
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-editor-extension.openChapter",
-            async (notebookPath: string, chapterIndex: number) => {
-                try {
-                    jumpToCellInNotebook(notebookPath, chapterIndex);
-                } catch (error) {
-                    console.error(`Failed to open chapter: ${error}`);
-                }
-            },
-        ),
+    const notebookSerializer = vscode.workspace.registerNotebookSerializer(
+        NOTEBOOK_TYPE,
+        new CodexContentSerializer(),
+        { transientOutputs: true }
     );
 
-    // Register a command called openChapter that opens a specific .codex notebook to a specific chapter
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-notebook-extension.openFile",
-            async (resourceUri: vscode.Uri) => {
-                try {
-                    const document =
-                        await vscode.workspace.openTextDocument(resourceUri);
-                    await vscode.window.showTextDocument(
-                        document,
-                        vscode.ViewColumn.Beside,
-                    );
-                } catch (error) {
-                    console.error(`Failed to open document: ${error}`);
-                }
-            },
-        ),
-    );
-    // Register extension commands
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-editor-extension.createCodexNotebook",
-            async () => {
-                // vscode.window.showInformationMessage("Creating Codex Notebook");
-                const doc = await createCodexNotebook();
-                await vscode.window.showNotebookDocument(doc);
-            },
-        ),
-    );
-    // context.subscriptions.push(
-    //     vscode.commands.registerCommand(
-    //         "codex-editor-extension.showSmartView",
-    //         async () => {
-    //             await vscode.workspace.open()
-    //         },
-    //     ),
-    // );
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-editor-extension.initializeNewProject",
-            await initializeProject,
-        ),
+    const codexKernel = new CodexKernel();
+
+    const openChapterCommand = vscode.commands.registerCommand(
+        "codex-editor-extension.openChapter",
+        async (notebookPath: string, chapterIndex: number) => {
+            try {
+                jumpToCellInNotebook(notebookPath, chapterIndex);
+            } catch (error) {
+                console.error(`Failed to open chapter: ${error}`);
+            }
+        }
     );
 
-    vscode.commands.registerCommand(
+    const openFileCommand = vscode.commands.registerCommand(
+        "codex-notebook-extension.openFile",
+        async (resourceUri: vscode.Uri) => {
+            try {
+                const document = await vscode.workspace.openTextDocument(resourceUri);
+                await vscode.window.showTextDocument(
+                    document,
+                    vscode.ViewColumn.Beside
+                );
+            } catch (error) {
+                console.error(`Failed to open document: ${error}`);
+            }
+        }
+    );
+
+    const createCodexNotebookCommand = vscode.commands.registerCommand(
+        "codex-editor-extension.createCodexNotebook",
+        async () => {
+            const doc = await createCodexNotebook();
+            await vscode.window.showNotebookDocument(doc);
+        }
+    );
+
+    const initializeNewProjectCommand = vscode.commands.registerCommand(
+        "codex-editor-extension.initializeNewProject",
+        await initializeProject
+    );
+
+    const setEditorFontCommand = vscode.commands.registerCommand(
         "codex-editor-extension.setEditorFontToTargetLanguage",
         await setTargetFont
     );
 
-    vscode.commands.registerCommand(
+    const downloadSourceTextBiblesCommand = vscode.commands.registerCommand(
         "codex-editor-extension.downloadSourceTextBibles",
         await downloadBible
     );
 
-    // ensureBibleDownload(); // TODO: This feels weird, are the commands registered only to be called by this function?
-    // Ryder: yeah this should only be called when initializing a new project
-    // which now happens in the project management extension
+    context.subscriptions.push(
+        scriptureExplorerTreeDataProvider,
+        scriptureExplorerRefreshCommand,
+        scriptureExplorerOpenChapterCommand,
+        indexVrefsCommand,
+        openTnAcademyCommand,
+        searchIndexCommand,
+        notebookSerializer,
+        codexKernel,
+        openChapterCommand,
+        openFileCommand,
+        createCodexNotebookCommand,
+        initializeNewProjectCommand,
+        setEditorFontCommand,
+        downloadSourceTextBiblesCommand
+    );
+
+    ensureBibleDownload();
 }
 
 async function ensureBibleDownload() {
-    // vscode.window.showInformationMessage(
-    //     "Ensuring Source Bible is downloaded...",
-    // );
+    // We use a source Bible for various functions, so we need to ensure at least one is downloaded.
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (workspaceFolders) {
         const workspaceRoot = workspaceFolders[0].uri.fsPath;
         const bibleFiles = await vscode.workspace.findFiles(
-            new vscode.RelativePattern(workspaceRoot, "**/*.bible"),
+            new vscode.RelativePattern(workspaceRoot, ".project/**/*.bible"),
             "**/node_modules/**",
             1,
         );
@@ -200,10 +165,6 @@ async function ensureBibleDownload() {
             vscode.commands.executeCommand(
                 "codex-editor-extension.downloadSourceTextBibles",
             );
-        } else {
-            // vscode.window.showInformationMessage(
-            //     "Bible files already exist in the workspace.",
-            // );
         }
     }
 }

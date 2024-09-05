@@ -9,7 +9,6 @@ let statusBarItem: vscode.StatusBarItem;
 
 export async function registerCompletionsCodeLensProviders(context: vscode.ExtensionContext) {
     try {
-        vscode.window.showInformationMessage("Translators Copilot is now active!");
 
         statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
         context.subscriptions.push(statusBarItem);

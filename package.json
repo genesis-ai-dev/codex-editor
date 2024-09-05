@@ -23,7 +23,13 @@
     ],
     "main": "./out/extension.js",
     "contributes": {
-        "keybindings": [],
+        "keybindings": [
+            {
+                "command": "extension.triggerInlineCompletion",
+                "key": "alt+z",
+                "when": "editorTextFocus && !inputDisabled"
+              }
+        ],
         "viewsWelcome": [
             {
                 "view": "scripture-explorer-activity-bar",
@@ -76,6 +82,24 @@
                     "icon": "$(unfold)",
                     "contextualTitle": "Semantic View"
                 }
+            ],
+            "genesis-translator-sidebar-view": [
+                {
+                    "type": "webview",
+                    "id": "genesis-translator-sidebar",
+                    "name": "Translator's Copilot",
+                    "icon": "$(comment-discussion)",
+                    "contextualTitle": "Translator's Copilot"
+                }
+            ],
+            "comments-sidebar-view": [
+                {
+                    "type": "webview",
+                    "id": "comments-sidebar",
+                    "name": "Comments",
+                    "icon": "$(note)",
+                    "contextualTitle": "Comments"
+                }
             ]
         },
         "viewsContainers": {
@@ -99,6 +123,16 @@
                     "id": "dictionary-summary",
                     "title": "Dictionary Summary",
                     "icon": "$(notebook)"
+                },
+                {
+                    "id": "genesis-translator-sidebar-view",
+                    "title": "Translator's Copilot",
+                    "icon": "$(comment-discussion)"
+                },
+                {
+                    "id": "comments-sidebar-view",
+                    "title": "Comments",
+                    "icon": "$(note)"
                 }
             ]
         },
@@ -145,6 +179,130 @@
                 }
             ]
         },
+        "walkthroughs": [
+            {
+                "id": "setupLocalLLM",
+                "title": "Set up Local/Offline Translator's Copilot",
+                "description": "A simple walkthrough to help you set up a large language model on your device to benefit from the Copilot feature.",
+                "steps": [
+                    {
+                        "id": "downloadLMStudio",
+                        "title": "Download LM Studio",
+                        "description": "Download LM Studio to get a local LLM running to power your Translator's Copilot.\n\n[Download LM Studio](https://lmstudio.ai)",
+                        "media": {
+                            "image": "./src/media/lmstudio.gif",
+                            "altText": "LM Studio"
+                        }
+                    },
+                    {
+                        "id": "downloadModel",
+                        "title": "Download Model",
+                        "media": {
+                            "image": "./src/media/download-model.png",
+                            "altText": "Download Model"
+                        },
+                        "description": "Download the model you want to use for your Copilot. Not sure which one to try? Try searching LM Studio for `TheBloke/neural-chat-7B-v3-1-GGUF` (note the specific file you want is the `neural-chat-7b-v3-1.Q4_K_S.gguf` variant)."
+                    },
+                    {
+                        "id": "loadModel",
+                        "title": "Initialize Downloaded Model",
+                        "media": {
+                            "image": "./src/media/load-model.png",
+                            "altText": "Load Model"
+                        },
+                        "description": "Load the model you want to use for your Copilot. Click on the model dropdown at the top-center of the LM Studio screen, then select the model you downloaded (e.g., `neural-chat-7b-v3-1.Q4_K_S.gguf`)."
+                    },
+                    {
+                        "id": "startLocalServer",
+                        "title": "Start AI Model",
+                        "media": {
+                            "image": "./src/media/start-server.png",
+                            "altText": "Start AI Model"
+                        },
+                        "description": "Make the AI model you downloaded accessible by the Translator's Copilot by clicking on the green play 'Start Server' button in LM Studio."
+                    },
+                    {
+                        "id": "setMainChatLanguage",
+                        "title": "Set Main Chat Language",
+                        "media": {
+                            "image": "./src/media/set-main-chat-language.png",
+                            "altText": "Set Main Chat Language"
+                        },
+                        "description": "Set your main chat language (also accessible in the Translator's Copilot settings).\n\n[Set Chat Language](command:translators-copilot.setMainChatLanguage)"
+                    },
+                    {
+                        "id": "tryChatting",
+                        "title": "Try Chatting with the Translator's Copilot",
+                        "media": {
+                            "image": "./src/media/try-chatting.png",
+                            "altText": "Try Chatting"
+                        },
+                        "description": "Try chatting with the Translator's Copilot by clicking on the chat button in the sidebar, then clicking on the 'Chat' button in the top-right of the chat window."
+                    },
+                    {
+                        "id": "tryInlineCompletions",
+                        "title": "Try Inline Completions",
+                        "media": {
+                            "image": "./src/media/inline-completions.gif",
+                            "altText": "Try Inline Completions"
+                        },
+                        "description": "Try inline completions with the Translator's Copilot by clicking on the chat button in the sidebar, then clicking on the 'Chat' button in the top-right of the chat window."
+                    }
+                ]
+            },
+            {
+                "id": "setupOpenAILLM",
+                "title": "Set up OpenAI Translator's Copilot",
+                "description": "A simple walkthrough to help you set up a large language model on your device to benefit from the Copilot feature.",
+                "steps": [
+                    {
+                        "id": "getAPIKey",
+                        "title": "Get OpenAI API Key",
+                        "description": "Get your OpenAI API key from the OpenAI website.\n\n[Get OpenAI API Key](https://platform.openai.com/signup)",
+                        "media": {
+                            "image": "./src/media/openai-api-key.png",
+                            "altText": "OpenAI API Key"
+                        }
+                    },
+                    {
+                        "id": "setAPIKey",
+                        "title": "Set OpenAI API Key",
+                        "media": {
+                            "image": "./src/media/set-api-key.png",
+                            "altText": "Set API Key"
+                        },
+                        "description": "Set your OpenAI API key in the Translator's Copilot settings.\n\n[Set API Key](command:translators-copilot.setLLMApiKey)"
+                    },
+                    {
+                        "id": "setMainChatLanguage",
+                        "title": "Set Main Chat Language",
+                        "media": {
+                            "image": "./src/media/set-main-chat-language.png",
+                            "altText": "Set Main Chat Language"
+                        },
+                        "description": "Set your main chat language (also accessible in the Translator's Copilot settings).\n\n[Set Chat Language](command:translators-copilot.setMainChatLanguage)"
+                    },
+                    {
+                        "id": "tryChatting",
+                        "title": "Try Chatting with the Translator's Copilot",
+                        "media": {
+                            "image": "./src/media/try-chatting.png",
+                            "altText": "Try Chatting"
+                        },
+                        "description": "Try chatting with the Translator's Copilot by clicking on the chat button in the sidebar, then clicking on the 'Chat' button in the top-right of the chat window."
+                    },
+                    {
+                        "id": "tryInlineCompletions",
+                        "title": "Try Inline Completions",
+                        "media": {
+                            "image": "./src/media/inline-completions.gif",
+                            "altText": "Try Inline Completions"
+                        },
+                        "description": "Try inline completions with the Translator's Copilot by clicking on the chat button in the sidebar, then clicking on the 'Chat' button in the top-right of the chat window."
+                    }
+                ]
+            }
+        ],
         "submenus": [
             {
                 "id": "translators-copilot",
@@ -155,10 +313,6 @@
             {
                 "command": "codex-editor-extension.JOSH_COMMAND",
                 "title": "JOSH_COMMAND"
-            },
-            {
-                "command": "codex-editor-extension.pythonMessenger",
-                "title": "Execute Python Messenger Command"
             },
             {
                 "command": "codex-editor-extension.triggerInlineCompletion",
@@ -502,12 +656,12 @@
                         "default": "",
                         "description": "The directory path containing additional resources for completion context. Will read all files in directory and put them in the context. No resources if path is invalid."
                     },
-                    "translators-copilot.defaultsRecommended.llmEndpoint": {
+                    "translators-copilot.llmEndpoint": {
                         "type": "string",
                         "default": "https://api.openai.com/v1",
                         "description": "The endpoint for the completion API. Currently only supports OpenAI API."
                     },
-                    "translators-copilot.defaultsRecommended.model": {
+                    "translators-copilot.model": {
                         "title": "LLM Model",
                         "type": "string",
                         "enum": [
@@ -522,7 +676,7 @@
                         "default": "gpt-4o-mini",
                         "description": "Model name selected for inference. Ignorable for local LLM."
                     },
-                    "translators-copilot.defaultsRecommended.sourceBookWhitelist": {
+                    "translators-copilot.sourceBookWhitelist": {
                         "title": "Source Book Whitelist",
                         "type": "string",
                         "default": "",
