@@ -1,7 +1,7 @@
 import React from "react";
 
 interface WebviewHeaderProps {
-    title: string;
+    title?: string;
     children?: React.ReactNode;
 }
 
