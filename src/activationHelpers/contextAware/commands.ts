@@ -20,6 +20,7 @@ import { CodexNotebookProvider } from "../../providers/treeViews/scriptureTreeVi
 import {
     getWorkSpaceFolder,
 } from "../../utils";
+import { getRecordById as getBibleDataRecordById } from "./sourceData";
 
 const ROOT_PATH = getWorkSpaceFolder();
 
@@ -131,6 +132,29 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         await downloadBible
     );
 
+    const getRecordByIdCommand = vscode.commands.registerCommand(
+        "codex-editor-extension.getRecordById",
+        async (id: string | undefined) => {
+            if (!id) {
+                id = await vscode.window.showInputBox({
+                    prompt: "Enter the ID of the record to get",
+                    placeHolder: "Record ID",
+                    value: "John 3:16"
+                }).then(async (id) => {
+                    if (id) {
+                        const record = await getBibleDataRecordById(id);
+                        console.log(record);
+                        return record;
+                    }
+                    return undefined;
+                });
+            }
+            const record = id ? await getBibleDataRecordById(id) : undefined;
+            console.log(record);
+            return record;
+        }
+    );
+
     context.subscriptions.push(
         scriptureExplorerTreeDataProvider,
         scriptureExplorerRefreshCommand,
@@ -145,7 +169,8 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         createCodexNotebookCommand,
         initializeNewProjectCommand,
         setEditorFontCommand,
-        downloadSourceTextBiblesCommand
+        downloadSourceTextBiblesCommand,
+        getRecordByIdCommand
     );
 
     ensureBibleDownload();

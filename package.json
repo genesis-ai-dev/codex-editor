@@ -482,6 +482,11 @@
                 "command": "codex-editor-extension.setEditorFontToTargetLanguage",
                 "title": "Set Editor Font to Target Language",
                 "category": "Codex Editor"
+            },
+            {
+                "command": "codex-editor-extension.getRecordById",
+                "title": "Get Record by ID",
+                "category": "Codex Editor"
             }
         ],
         "notebooks": [

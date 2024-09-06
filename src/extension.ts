@@ -26,6 +26,7 @@ import { projectFileExists } from "./utils/fileUtils";
 import { registerCompletionsCodeLensProviders } from "./activationHelpers/contextAware/completionsCodeLensProviders";
 import * as path from 'path';
 import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from 'vscode-languageclient/node';
+import { initializeBibleData } from "./activationHelpers/contextAware/sourceData";
 
 let scmInterval: any; // Webpack & typescript for vscode are having issues
 
@@ -100,6 +101,7 @@ export async function activate(context: vscode.ExtensionContext) {
     await startSyncLoop(context);
     await registerCommands(context);
     await createIndexWithContext(context);
+    await initializeBibleData(context);
 
 }
 
