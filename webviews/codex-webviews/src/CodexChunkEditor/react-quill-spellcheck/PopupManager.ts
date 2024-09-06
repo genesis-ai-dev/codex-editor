@@ -1,54 +1,102 @@
 import { createPopper } from "@popperjs/core";
+// import html from "nanohtml/lib/browser";
+import { QuillSpellChecker } from ".";
 import { MatchesEntity } from "./types";
 
-export function createPopupManager(parent: any) {
-    let openPopup: HTMLElement | undefined;
-    let currentSuggestionElement: HTMLElement | undefined;
+/**
+ * Manager for popups.
+ *
+ * This handles opening and closing suggestion popups in the editor
+ * when a suggestion is selected.
+ */
+export default class PopupManager {
+    private openPopup?: HTMLElement;
+    private currentSuggestionElement?: HTMLElement;
+    private eventListenerAdded: boolean = false;
 
-    function closePopup() {
-        if (openPopup) {
-            openPopup.remove();
-            openPopup = undefined;
-        }
-        currentSuggestionElement = undefined;
+    constructor(private readonly parent: QuillSpellChecker) {
+        this.closePopup = this.closePopup.bind(this);
+        // Remove the immediate call to addEventHandler
+        // this.addEventHandler();
     }
 
-    function handleSuggestionClick(suggestion: HTMLElement) {
+    public initialize() {
+        if (!this.eventListenerAdded && this.parent.quill && this.parent.quill.root) {
+            this.addEventHandler();
+            this.eventListenerAdded = true;
+        }
+    }
+
+    private addEventHandler() {
+        console.log("addEventHandler", { parent: this.parent });
+        if (!this.parent.quill || !this.parent.quill.root) {
+            console.warn("Quill instance or its root is not available yet");
+            return;
+        }
+
+        this.findRoot(this.parent.quill.root).addEventListener("click", (e) => {
+            const target = e.target as HTMLElement;
+            if (target.tagName === "QUILL-SPCK-MATCH") {
+                this.handleSuggestionClick(target);
+            } else if (this.openPopup && !this.openPopup?.contains(target)) {
+                this.closePopup();
+            }
+        });
+
+        window.addEventListener("resize", () => {
+            if (this.currentSuggestionElement) {
+                this.handleSuggestionClick(this.currentSuggestionElement);
+            }
+        });
+    }
+
+    private closePopup() {
+        if (this.openPopup) {
+            this.openPopup.remove();
+            this.openPopup = undefined;
+        }
+        this.currentSuggestionElement = undefined;
+    }
+
+    private handleSuggestionClick(suggestion: HTMLElement) {
         const offset = parseInt(suggestion.getAttribute("data-offset") || "0");
         const length = parseInt(suggestion.getAttribute("data-length") || "0");
         const id = suggestion?.id?.replace("match-", "");
-        const rule = parent.matches.find(
-            (r: MatchesEntity) =>
-                r.offset === offset && r.length === length && r.id === id,
+        const rule = this.parent.matches.find(
+            (r) => r.offset === offset && r.length === length && r.id === id,
         );
         if (!rule) {
             return;
         }
-        createSuggestionPopup(rule, suggestion);
+        this.createSuggestionPopup(rule, suggestion);
     }
 
-    function createSuggestionPopup(
+    private createSuggestionPopup(
         match: MatchesEntity,
         suggestion: HTMLElement,
     ) {
-        if (openPopup) {
-            closePopup();
+        if (this.openPopup) {
+            this.closePopup();
         }
-        currentSuggestionElement = suggestion;
+        this.currentSuggestionElement = suggestion;
 
         const applySuggestion = (replacement: string) => {
-            parent.preventLoop();
-            parent.quill.setSelection(match.offset, match.length, "silent");
-            parent.quill.deleteText(match.offset, match.length, "silent");
-            parent.quill.insertText(match.offset, replacement, "silent");
-            // @ts-expect-error: this exists but is not typed according to the original author
-            parent.quill.setSelection(
+            this.parent.preventLoop();
+            this.parent.quill.setSelection(
+                match.offset,
+                match.length,
+                "silent",
+            );
+            this.parent.quill.deleteText(match.offset, match.length, "silent");
+            this.parent.quill.insertText(match.offset, replacement, "silent");
+            // @ts-ignore
+            this.parent.quill.setSelection(
                 match.offset + replacement.length,
                 "silent",
             );
-            parent.boxes.removeCurrentSuggestionBox(match, replacement);
+            this.parent.boxes.removeCurrentSuggestionBox(match, replacement);
 
-            closePopup();
+            this.closePopup();
         };
 
         const popup = document.createElement("quill-spck-popup");
@@ -57,8 +105,8 @@ export function createPopupManager(parent: any) {
         const popupContent = document.createElement("div");
         popupContent.className = "quill-spck-match-popup";
 
-        const actionsContainer = document.createElement("div");
-        actionsContainer.className = "quill-spck-match-popup-actions";
+        const actionsDiv = document.createElement("div");
+        actionsDiv.className = "quill-spck-match-popup-actions";
 
         match.replacements?.slice(0, 3).forEach((replacement) => {
             const button = document.createElement("button");
@@ -66,10 +114,10 @@ export function createPopupManager(parent: any) {
             button.setAttribute("data-replacement", replacement.value);
             button.textContent = replacement.value;
             button.onclick = () => applySuggestion(replacement.value);
-            actionsContainer.appendChild(button);
+            actionsDiv.appendChild(button);
         });
 
-        popupContent.appendChild(actionsContainer);
+        popupContent.appendChild(actionsDiv);
         popup.appendChild(popupContent);
 
         document.body.appendChild(popup);
@@ -86,42 +134,14 @@ export function createPopupManager(parent: any) {
             ],
         });
 
-        openPopup = popup;
+        this.openPopup = popup;
     }
 
-    function findRoot(element: HTMLElement): HTMLElement {
+    private findRoot(element: HTMLElement): HTMLElement {
         let currentElement = element;
         while (currentElement.parentNode) {
             currentElement = currentElement.parentNode as HTMLElement;
         }
         return currentElement;
     }
-
-    function addEventHandler() {
-        if (parent.quill && parent.quill.root) {
-            findRoot(parent.quill.root).addEventListener("click", (e) => {
-                const target = e.target as HTMLElement;
-                if (target.tagName === "QUILL-SPCK-MATCH") {
-                    handleSuggestionClick(target);
-                } else if (openPopup && !openPopup?.contains(target)) {
-                    closePopup();
-                }
-            });
-        } else {
-            console.warn("Quill editor or its root is not available");
-        }
-
-        window.addEventListener("resize", () => {
-            if (currentSuggestionElement) {
-                handleSuggestionClick(currentSuggestionElement);
-            }
-        });
-    }
-
-    addEventHandler();
-
-    return {
-        closePopup,
-        handleSuggestionClick,
-    };
 }
