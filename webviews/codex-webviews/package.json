@@ -21,6 +21,8 @@
         "dompurify": "^3.0.9",
         "framer-motion": "^11.0.15",
         "marked": "^12.0.0",
+        "quill": "^2.0.2",
+        "quill-delta": "^5.1.0",
         "quilljs-markdown": "^1.2.0",
         "react": "^18.2.0",
         "react-dom": "^18.2.0",

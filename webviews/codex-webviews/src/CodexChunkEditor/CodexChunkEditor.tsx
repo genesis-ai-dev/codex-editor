@@ -14,6 +14,11 @@ import CloseButtonWithConfirmation from "../components/CloseButtonWithConfirmati
 // TODO: stop user from closing current editor when they have unsaved changes
 // TODO: save each change to the verse metadata as "working copy"
 
+// NOTE: for footnotes, we could insert <a href="#fn1" id="fnref1" />, and then
+// the content of the footnote could be stored in the metadata of the notebook cell
+// This implies a fundamental distinction between "TEXTUAL" and "PARATEXTUAL" content
+// 
+
 function CodexChunkEditor() {
     const [content, setContent] = useState<CustomNotebookData>(
         {} as CustomNotebookData,

@@ -1,9 +1,12 @@
 import { useRef, useState } from "react";
-import ReactQuill, { Quill } from "react-quill";
+// import ReactQuill, { Quill } from "react-quill";
+import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
-import registerQuillSpellChecker, { getCleanedHtml } from "./react-quill-spellcheck";
+import registerQuillSpellChecker, {
+    getCleanedHtml,
+} from "./react-quill-spellcheck";
 // import "react-quill-spell-checker/dist/styles.css";
-registerQuillSpellChecker(Quill);
+// registerQuillSpellChecker(Quill);
 export interface EditorContentChanged {
     html: string;
 }
@@ -19,7 +22,7 @@ const TOOLBAR_OPTIONS = [
     [{ list: "ordered" }, { list: "bullet" }],
     [{ indent: "-1" }, { indent: "+1" }],
     ["clean"],
-    ["spellcheck"], // Add spellcheck button to toolbar
+    // ["spellcheck"], // Add spellcheck button to toolbar
 ];
 
 // Custom dictionary (example words)
@@ -108,39 +111,39 @@ export default function Editor(props: EditorProps) {
                     container: TOOLBAR_OPTIONS,
                 },
                 // spellChecker: quillSpellCheckerParams,
-                spellChecker: {
-                    // dictionaries: ["en-US"],
-                    // customDictionaries: [customDictionary],
-                    // misspelledWordClass: "misspelled-word",
-                    // api: {
-                    // url: "http://google.com/api/v2/check",
-                    //     body: (text: string) => {
-                    //         console.log("text in body", { text });
-                    //         // const body: any = {
-                    //         //     text,
-                    //         //     language: "auto",
-                    //         // };
-                    //         // return Object.keys(body)
-                    //         //     .map(
-                    //         //         (key) =>
-                    //         //             `${key}=${encodeURIComponent(
-                    //         //                 body[key],
-                    //         //             )}`,
-                    //         //     )
-                    //         //     .join("&");
-                    //     },
-                    //     headers: {
-                    //         "Content-Type": "application/x-www-form-urlencoded",
-                    //     },
-                    //     method: "POST",
-                    //     mode: "cors",
-                    //     // mapResponse: async (response: any) => {
-                    //     //     const data = await response.json();
-                    //     //     console.log("mapResponse data", { data });
-                    //     //     return data;
-                    //     // },
-                    // },
-                },
+                // spellChecker: {
+                // dictionaries: ["en-US"],
+                // customDictionaries: [customDictionary],
+                // misspelledWordClass: "misspelled-word",
+                // api: {
+                // url: "http://google.com/api/v2/check",
+                //     body: (text: string) => {
+                //         console.log("text in body", { text });
+                //         // const body: any = {
+                //         //     text,
+                //         //     language: "auto",
+                //         // };
+                //         // return Object.keys(body)
+                //         //     .map(
+                //         //         (key) =>
+                //         //             `${key}=${encodeURIComponent(
+                //         //                 body[key],
+                //         //             )}`,
+                //         //     )
+                //         //     .join("&");
+                //     },
+                //     headers: {
+                //         "Content-Type": "application/x-www-form-urlencoded",
+                //     },
+                //     method: "POST",
+                //     mode: "cors",
+                //     // mapResponse: async (response: any) => {
+                //     //     const data = await response.json();
+                //     //     console.log("mapResponse data", { data });
+                //     //     return data;
+                //     // },
+                // },
+                // },
             }}
             value={value}
             onChange={onChange}
