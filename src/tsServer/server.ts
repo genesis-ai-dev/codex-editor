@@ -9,7 +9,9 @@ import {
     CodeActionParams,
     PublishDiagnosticsParams,
     CompletionContext,
-    Connection
+    Connection,
+    Hover,
+    DocumentSymbol
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { SpellChecker, SpellCheckDiagnosticsProvider, SpellCheckCodeActionProvider, SpellCheckCompletionItemProvider } from './spellCheck';
@@ -134,6 +136,16 @@ connection.onExecuteCommand(async (params) => {
         }
     }
     // ... other command handlers ...
+});
+
+connection.onHover((params: TextDocumentPositionParams): Hover | null => {
+    // For now, return null to indicate no hover information
+    return null;
+});
+
+connection.onDocumentSymbol((params): DocumentSymbol[] => {
+    // For now, return an empty array to indicate no document symbols
+    return [];
 });
 
 documents.listen(connection);
