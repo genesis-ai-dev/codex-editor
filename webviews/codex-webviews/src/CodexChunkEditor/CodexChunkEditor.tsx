@@ -153,7 +153,7 @@ function CodexChunkEditor() {
                 <p>
                     {translationUnits?.map(
                         ({ verseMarker, verseContent }, verseIndex) => {
-                            // console.log({ verseMarker, verseContent });
+                            console.log({ verseMarker, verseContent });
                             if (
                                 verseMarker === contentBeingUpdated.verseMarker
                             ) {
@@ -191,6 +191,7 @@ function CodexChunkEditor() {
                                             </div>
                                             <div className="text-editor">
                                                 <Editor
+                                                    // vscode={vscode}
                                                     key={`${verseIndex}-quill`}
                                                     value={verseContent}
                                                     onChange={({

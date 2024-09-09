@@ -14,14 +14,21 @@ export default class PopupManager {
     private currentSuggestionElement?: HTMLElement;
     private eventListenerAdded: boolean = false;
 
-    constructor(private readonly parent: QuillSpellChecker) {
+    constructor(
+        private readonly parent: QuillSpellChecker,
+        // private readonly vscodeApi: any,
+    ) {
         this.closePopup = this.closePopup.bind(this);
         // Remove the immediate call to addEventHandler
         // this.addEventHandler();
     }
 
     public initialize() {
-        if (!this.eventListenerAdded && this.parent.quill && this.parent.quill.root) {
+        if (
+            !this.eventListenerAdded &&
+            this.parent.quill &&
+            this.parent.quill.root
+        ) {
             this.addEventHandler();
             this.eventListenerAdded = true;
         }
@@ -89,7 +96,7 @@ export default class PopupManager {
             );
             this.parent.quill.deleteText(match.offset, match.length, "silent");
             this.parent.quill.insertText(match.offset, replacement, "silent");
-            // @ts-ignore
+            // @ts-expect-error: quill.setSelection is not typed
             this.parent.quill.setSelection(
                 match.offset + replacement.length,
                 "silent",
@@ -116,6 +123,17 @@ export default class PopupManager {
             button.onclick = () => applySuggestion(replacement.value);
             actionsDiv.appendChild(button);
         });
+
+        const button = document.createElement("button");
+        button.className = "quill-spck-match-popup-action";
+        // button.setAttribute("data-replacement", replacement.value);
+        button.textContent = "Add to dictionary";
+        button.onclick = () => console.log("add to dictionary");
+        // this.vscodeApi.postMessage({
+        //     command: "addToDictionary",
+        //     text: match.text,
+        // });
+        actionsDiv.appendChild(button);
 
         popupContent.appendChild(actionsDiv);
         popup.appendChild(popupContent);

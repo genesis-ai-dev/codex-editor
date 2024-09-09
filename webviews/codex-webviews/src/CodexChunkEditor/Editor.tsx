@@ -111,39 +111,81 @@ export default function Editor(props: EditorProps) {
                     container: TOOLBAR_OPTIONS,
                 },
                 // spellChecker: quillSpellCheckerParams,
-                // spellChecker: {
-                // dictionaries: ["en-US"],
-                // customDictionaries: [customDictionary],
-                // misspelledWordClass: "misspelled-word",
-                // api: {
-                // url: "http://google.com/api/v2/check",
-                //     body: (text: string) => {
-                //         console.log("text in body", { text });
-                //         // const body: any = {
-                //         //     text,
-                //         //     language: "auto",
-                //         // };
-                //         // return Object.keys(body)
-                //         //     .map(
-                //         //         (key) =>
-                //         //             `${key}=${encodeURIComponent(
-                //         //                 body[key],
-                //         //             )}`,
-                //         //     )
-                //         //     .join("&");
-                //     },
-                //     headers: {
-                //         "Content-Type": "application/x-www-form-urlencoded",
-                //     },
-                //     method: "POST",
-                //     mode: "cors",
-                //     // mapResponse: async (response: any) => {
-                //     //     const data = await response.json();
-                //     //     console.log("mapResponse data", { data });
-                //     //     return data;
-                //     // },
-                // },
-                // },
+                spellChecker: {
+                    // api: {
+                    //     url: "https://languagetool.org/api/v2/check",
+                    //     body: (text: string) => {
+                    //         console.log(
+                    //             "spell-checker-debug: QuillSpellChecker body",
+                    //             {
+                    //                 text,
+                    //             },
+                    //         );
+                    //         const body: any = {
+                    //             text,
+                    //             language: "auto",
+                    //         };
+                    //         return Object.keys(body)
+                    //             .map(
+                    //                 (key) =>
+                    //                     `${key}=${encodeURIComponent(
+                    //                         body[key],
+                    //                     )}`,
+                    //             )
+                    //             .join("&");
+                    //     },
+                    //     headers: {
+                    //         "Content-Type": "application/x-www-form-urlencoded",
+                    //     },
+                    //     method: "POST",
+                    //     mode: "cors",
+                    //     mapResponse: async (response: any) => {
+                    //         console.log("spell-checker-debug: mapResponse", {
+                    //             response,
+                    //         });
+                    //         const json = await response.json();
+                    //         console.log(
+                    //             "spell-checker-debug: mapResponse json",
+                    //             { json },
+                    //         );
+                    //         return json;
+                    //     },
+                    // },
+                    // disableNativeSpellcheck: true,
+                    // cooldownTime: 3000,
+                    // showLoadingIndicator: false,
+                    // dictionaries: ["en-US"],
+                    // customDictionaries: [customDictionary],
+                    // misspelledWordClass: "misspelled-word",
+                    // api: {
+                    //     // url: "http://google.com/api/v2/check",
+                    //     // body: (text: string) => {
+                    //     //     console.log("text in body", { text });
+                    //     //     // const body: any = {
+                    //     //     //     text,
+                    //     //     //     language: "auto",
+                    //     //     // };
+                    //     //     // return Object.keys(body)
+                    //     //     //     .map(
+                    //     //     //         (key) =>
+                    //     //     //             `${key}=${encodeURIComponent(
+                    //     //     //                 body[key],
+                    //     //     //             )}`,
+                    //     //     //     )
+                    //     //     //     .join("&");
+                    //     // },
+                    //     //     headers: {
+                    //     //         "Content-Type": "application/x-www-form-urlencoded",
+                    //     //     },
+                    //     //     method: "POST",
+                    //     //     mode: "cors",
+                    //     //     // mapResponse: async (response: any) => {
+                    //     //     //     const data = await response.json();
+                    //     //     //     console.log("mapResponse data", { data });
+                    //     //     //     return data;
+                    //     //     // },
+                    // },
+                },
             }}
             value={value}
             onChange={onChange}
