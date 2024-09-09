@@ -487,6 +487,11 @@
                 "command": "codex-editor-extension.getRecordById",
                 "title": "Get Record by ID",
                 "category": "Codex Editor"
+            },
+            {
+                "command": "codex-editor-extension.exportCodexContent",
+                "title": "Export Codex Translation as Plain Text",
+                "category": "Codex Editor"
             }
         ],
         "notebooks": [

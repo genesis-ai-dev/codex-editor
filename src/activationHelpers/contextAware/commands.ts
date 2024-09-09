@@ -21,6 +21,7 @@ import {
     getWorkSpaceFolder,
 } from "../../utils";
 import { getRecordById as getBibleDataRecordById } from "./sourceData";
+import { exportCodexContent } from "../../commands/exportHandler";
 
 const ROOT_PATH = getWorkSpaceFolder();
 
@@ -127,6 +128,9 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         await setTargetFont
     );
 
+    const exportCodexContentCommand = vscode.commands.registerCommand('codex-editor-extension.exportCodexContent', exportCodexContent);
+    context.subscriptions.push(exportCodexContentCommand);
+
     const downloadSourceTextBiblesCommand = vscode.commands.registerCommand(
         "codex-editor-extension.downloadSourceTextBibles",
         await downloadBible
@@ -170,7 +174,8 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         initializeNewProjectCommand,
         setEditorFontCommand,
         downloadSourceTextBiblesCommand,
-        getRecordByIdCommand
+        getRecordByIdCommand,
+        exportCodexContentCommand
     );
 
     ensureBibleDownload();
