@@ -20,7 +20,7 @@ import { CodexNotebookProvider } from "../../providers/treeViews/scriptureTreeVi
 import {
     getWorkSpaceFolder,
 } from "../../utils";
-import { getRecordById as getBibleDataRecordById } from "./sourceData";
+import { getBibleDataRecordById as getBibleDataRecordById } from "./sourceData";
 import { exportCodexContent } from "../../commands/exportHandler";
 
 const ROOT_PATH = getWorkSpaceFolder();
@@ -136,26 +136,27 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         await downloadBible
     );
 
-    const getRecordByIdCommand = vscode.commands.registerCommand(
-        "codex-editor-extension.getRecordById",
-        async (id: string | undefined) => {
-            if (!id) {
-                id = await vscode.window.showInputBox({
-                    prompt: "Enter the ID of the record to get",
-                    placeHolder: "Record ID",
-                    value: "John 3:16"
-                }).then(async (id) => {
-                    if (id) {
-                        const record = await getBibleDataRecordById(id);
-                        console.log(record);
-                        return record;
-                    }
-                    return undefined;
-                });
+    const getBibleDataRecordByIdCommand = vscode.commands.registerCommand(
+        "codex-editor-extension.getBibleDataRecordById",
+        async () => {
+            const id = await vscode.window.showInputBox({
+                prompt: "Enter the ID of the Bible data record to get",
+                placeHolder: "Record ID",
+                value: "JHN 3:16"
+            });
+
+            if (id) {
+                const result = await getBibleDataRecordById(id);
+                if (result) {
+                    const { record, prose } = result;
+                    console.log('Record:', { record, prose });
+                    vscode.window.showInformationMessage(`Found record in category: ${prose}`);
+                } else {
+                    vscode.window.showWarningMessage(`No record found for ID: ${id}`);
+                }
+            } else {
+                vscode.window.showWarningMessage('No ID provided');
             }
-            const record = id ? await getBibleDataRecordById(id) : undefined;
-            console.log(record);
-            return record;
         }
     );
 
@@ -174,7 +175,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         initializeNewProjectCommand,
         setEditorFontCommand,
         downloadSourceTextBiblesCommand,
-        getRecordByIdCommand,
+        getBibleDataRecordByIdCommand,
         exportCodexContentCommand
     );
 

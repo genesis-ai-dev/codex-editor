@@ -4,7 +4,6 @@ import { getNonce } from "./utilities/getNonce";
 import { FileHandler } from './utilities/FileHandler';
 import { Dictionary } from "codex-types";
 import { DictionaryPostMessages } from "../../../types";
-import path from "path";
 
 // Dictionary path constant
 
