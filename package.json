@@ -28,12 +28,16 @@
                 "command": "extension.triggerInlineCompletion",
                 "key": "alt+z",
                 "when": "editorTextFocus && !inputDisabled"
-              }
+            }
         ],
         "viewsWelcome": [
             {
                 "view": "scripture-explorer-activity-bar",
                 "contents": "Welcome to the Codex Scripture Editor! Please setup a new translation project by using the form below."
+            },
+            {
+                "view": "dictionary-summary-panel",
+                "contents": "\n[Open Dictionary Table](command:dictionaryTable.showDictionaryTable)"
             }
         ],
         "notebookEditorDecorations": [
@@ -70,7 +74,7 @@
             "dictionary-summary": [
                 {
                     "type": "webview",
-                    "id": "dictionary-side-panel",
+                    "id": "dictionary-summary-panel",
                     "name": "Dictionary Table",
                     "icon": "$(notebook)",
                     "contextualTitle": "Dictionary Table"
