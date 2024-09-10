@@ -1,9 +1,14 @@
+import React from "react";
 import { useState, useEffect } from "react";
 import Editor from "./Editor";
 // import ReactQuill from "react-quill";
 // import "react-quill/dist/quill.snow.css";
 declare function acquireVsCodeApi(): any;
 const vscode = acquireVsCodeApi();
+
+// make vscode available globally
+(window as any).vscodeApi = vscode;
+
 import {
     EditorVerseContent,
     EditorPostMessages,
@@ -14,15 +19,12 @@ import CloseButtonWithConfirmation from "../components/CloseButtonWithConfirmati
 // TODO: stop user from closing current editor when they have unsaved changes
 // TODO: save each change to the verse metadata as "working copy"
 
-// NOTE: for footnotes, we could insert <a href="#fn1" id="fnref1" />, and then
-// the content of the footnote could be stored in the metadata of the notebook cell
-// This implies a fundamental distinction between "TEXTUAL" and "PARATEXTUAL" content
-// 
-
-function CodexChunkEditor() {
+const CodexChunkEditor: React.FC = () => {
     const [content, setContent] = useState<CustomNotebookData>(
         {} as CustomNotebookData,
     );
+    const [spellCheckResponse, setSpellCheckResponse] =
+        useState<CustomNotebookData>({} as CustomNotebookData);
     const [contentBeingUpdated, setContentBeingUpdated] =
         useState<EditorVerseContent>({} as EditorVerseContent);
 
@@ -37,6 +39,15 @@ function CodexChunkEditor() {
                     try {
                         const jsonContent = JSON.parse(message.content);
                         setContent(jsonContent);
+                    } catch (error) {
+                        console.error("Failed to parse JSON content:", error);
+                    }
+                    break;
+                case "spellCheckResponse":
+                    try {
+                        console.log({ message });
+
+                        setSpellCheckResponse(message.content);
                     } catch (error) {
                         console.error("Failed to parse JSON content:", error);
                     }
@@ -194,6 +205,9 @@ function CodexChunkEditor() {
                                                     // vscode={vscode}
                                                     key={`${verseIndex}-quill`}
                                                     value={verseContent}
+                                                    spellCheckResponse={
+                                                        spellCheckResponse
+                                                    }
                                                     onChange={({
                                                         html,
                                                         // markdown,
@@ -319,6 +333,6 @@ function CodexChunkEditor() {
             </div>
         </div>
     );
-}
+};
 
 export default CodexChunkEditor;

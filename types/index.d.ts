@@ -184,6 +184,8 @@ type EditorVerseContent = {
 };
 
 type EditorPostMessages =
+    | { command: "spellCheck"; content: EditorVerseContent }
+    | { command: "addWord"; text: string }
     | { command: "saveMarkdown"; content: EditorVerseContent }
     | {
           command: "updateMetadataWithUnsavedChanges";

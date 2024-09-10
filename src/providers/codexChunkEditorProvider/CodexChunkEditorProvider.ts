@@ -76,36 +76,64 @@ export class CodexChunkEditorProvider
             changeDocumentSubscription.dispose();
         });
 
-        webviewPanel.webview.onDidReceiveMessage((e: EditorPostMessages) => {
-            switch (e.command) {
-                case "saveMarkdown":
-                    console.log("saveMarkdown message received", { e });
-                    // TODO: change this to update the document one vers at a time.
-                    this.updateTextDocument(document, e.content);
-                    // this.updateTextDocument(document, JSON.parse(e.content));
-                    return;
-                case "updateMetadataWithUnsavedChanges":
-                    console.log("update message received", { e });
-                    // TODO: change this to update the document one vers at a time.
-                    this.updateTextDocument(document, e.content);
-                    return;
-                case "getContent":
-                    updateWebview();
-                    return;
-                case "setCurrentIdToGlobalState":
-                    console.log("setVerseRef message received", { e });
-                    initializeStateStore().then(({ updateStoreState }) => {
-                        updateStoreState({
-                            key: "verseRef",
-                            value: {
-                                verseRef: e.content.currentLineId,
-                                uri: document.uri.toString(),
-                            },
+        webviewPanel.webview.onDidReceiveMessage(
+            async (e: EditorPostMessages) => {
+                switch (e.command) {
+                    case "addWord": {
+                        console.log("addWord message received", { e });
+                        await vscode.commands.executeCommand(
+                            "spellcheck.addWord",
+                            e.text,
+                        );
+                        // webviewPanel.webview.postMessage({
+                        //     type: "spellCheckResponse",
+                        //     content: response,
+                        // });
+                        // console.log("spellCheck response", { response });
+                        return;
+                    }
+                    case "spellCheck": {
+                        console.log("spellCheck message received", { e });
+                        const response = await vscode.commands.executeCommand(
+                            "spellcheck.checkText",
+                            e.content.content,
+                        );
+                        webviewPanel.webview.postMessage({
+                            type: "spellCheckResponse",
+                            content: response,
                         });
-                    });
-                    return;
-            }
-        });
+                        console.log("spellCheck response", { response });
+                        return;
+                    }
+                    case "saveMarkdown":
+                        console.log("saveMarkdown message received", { e });
+                        // TODO: change this to update the document one vers at a time.
+                        this.updateTextDocument(document, e.content);
+                        // this.updateTextDocument(document, JSON.parse(e.content));
+                        return;
+                    case "updateMetadataWithUnsavedChanges":
+                        console.log("update message received", { e });
+                        // TODO: change this to update the document one vers at a time.
+                        this.updateTextDocument(document, e.content);
+                        return;
+                    case "getContent":
+                        updateWebview();
+                        return;
+                    case "setCurrentIdToGlobalState":
+                        console.log("setVerseRef message received", { e });
+                        initializeStateStore().then(({ updateStoreState }) => {
+                            updateStoreState({
+                                key: "verseRef",
+                                value: {
+                                    verseRef: e.content.currentLineId,
+                                    uri: document.uri.toString(),
+                                },
+                            });
+                        });
+                        return;
+                }
+            },
+        );
 
         updateWebview();
     }

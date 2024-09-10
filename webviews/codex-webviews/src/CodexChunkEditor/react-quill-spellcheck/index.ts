@@ -6,6 +6,7 @@ import "./QuillSpellChecker.css";
 import createSuggestionBlotForQuillInstance from "./SuggestionBlot";
 import { SuggestionBoxes } from "./SuggestionBoxes";
 import { MatchesEntity, SpellCheckerApi } from "./types";
+import { EditorPostMessages } from "../../../../../types";
 
 export type QuillSpellCheckerParams = {
     disableNativeSpellcheck: boolean;
@@ -19,43 +20,11 @@ export type QuillSpellCheckerParams = {
  * using the SpellChecker API.
  */
 export class QuillSpellChecker {
-    static DEFAULTS: QuillSpellCheckerParams = {
-        api: {
-            url: "https://languagetool.org/api/v2/check",
-            body: (text: string) => {
-                console.log("spell-checker-debug: QuillSpellChecker body", {
-                    text,
-                });
-                const body = <any>{
-                    text,
-                    language: "auto",
-                };
-                return Object.keys(body)
-                    .map((key) => `${key}=${encodeURIComponent(body[key])}`)
-                    .join("&");
-            },
-            headers: {
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
-            method: "POST",
-            mode: "cors",
-            mapResponse: async (response) => {
-                console.log("spell-checker-debug: mapResponse", { response });
-                const json = await response.json();
-                console.log("spell-checker-debug: mapResponse json", { json });
-                return json;
-            },
-        },
-        disableNativeSpellcheck: true,
-        cooldownTime: 3000,
-        showLoadingIndicator: false,
-    };
-
     protected typingCooldown?: number; // Change from NodeJS.Timeout
     protected loopPreventionCooldown?: number; // Change from NodeJS.Timeout
 
     // Dependencies
-    protected popups = new PopupManager(this /* this.vscodeApi */);
+    protected popups = new PopupManager(this);
     // protected loader = new LoadingIndicator(this);
 
     public boxes = new SuggestionBoxes(this);
@@ -72,7 +41,6 @@ export class QuillSpellChecker {
     constructor(
         public quill: Quill,
         public params: QuillSpellCheckerParams,
-        // private vscodeApi: any,
     ) {
         console.log("spell-checker-debug: QuillSpellChecker constructor", {
             quill,
@@ -153,6 +121,14 @@ export class QuillSpellChecker {
 
         this.checkSpelling();
         this.disableNativeSpellcheckIfSet();
+
+        // Example of using the VSCode API
+        // if (window.vscodeApi) {
+        //     window.vscodeApi.postMessage({
+        //         type: "log",
+        //         message: "QuillSpellChecker initialized",
+        //     });
+        // }
     }
 
     public updateMatches(matches: MatchesEntity[]) {
@@ -170,7 +146,6 @@ export class QuillSpellChecker {
             this.quill.setSelection(match.offset, match.length, "silent");
             this.quill.deleteText(match.offset, match.length, "silent");
             this.quill.insertText(match.offset, replacement, "silent");
-            // @ts-expect-error: quill.setSelection is not typed
             this.quill.setSelection(
                 match.offset + replacement.length,
                 "silent",
@@ -234,10 +209,10 @@ export class QuillSpellChecker {
         }
         this.boxes.removeSuggestionBoxes();
         // this.loader.startLoading();
-        const json = await this.getSpellCheckerResults(text);
-
-        if (json && json.matches && json.matches.length > 0) {
-            this.matches = json.matches
+        const results = await this.getSpellCheckerResults(text);
+        console.log("spell-checker-debug: checkSpelling json", { results });
+        if (results && results.length > 0) {
+            this.matches = results
                 .filter(
                     (match) =>
                         match.replacements && match.replacements.length > 0,
@@ -257,14 +232,55 @@ export class QuillSpellChecker {
         this.onRequestComplete();
     }
 
-    private async getSpellCheckerResults(text: string) {
+    private async getSpellCheckerResults(
+        text: string,
+    ): Promise<MatchesEntity[] | null> {
         console.log("spell-checker-debug: getSpellCheckerResults", { text });
         try {
-            const response = await fetch(this.params.api.url, {
-                ...this.params.api,
-                body: this.params.api.body(text),
-            });
-            return this.params.api.mapResponse(response);
+            if (window.vscodeApi) {
+                // Use VSCode API to make the request
+                return new Promise((resolve, reject) => {
+                    const messageListener = (event: MessageEvent) => {
+                        const message = event.data;
+                        if (message.type === "spellCheckResponse") {
+                            window.removeEventListener(
+                                "message",
+                                messageListener,
+                            );
+                            console.log(
+                                "spell-checker-debug: spellCheckResponse",
+                                message.content,
+                            );
+                            const response: MatchesEntity[] = message.content;
+
+                            resolve(response);
+                        }
+                    };
+
+                    window.addEventListener("message", messageListener);
+
+                    window.vscodeApi.postMessage({
+                        command: "spellCheck",
+                        content: {
+                            content: text,
+                        },
+                    } as EditorPostMessages);
+
+                    // Set a timeout in case we don't receive a response
+                    setTimeout(() => {
+                        window.removeEventListener("message", messageListener);
+                        reject(new Error("Spell check request timed out"));
+                    }, 5000); // 5 second timeout
+                });
+            } else {
+                // Fallback to original implementation if VSCode API is not available
+                // const response = await fetch(this.params.api.url, {
+                //     ...this.params.api,
+                //     body: this.params.api.body(text),
+                // });
+                // return this.params.api.mapResponse(response);
+                return null;
+            }
         } catch (e) {
             console.error(
                 "spell-checker-debug: getSpellCheckerResults error",
@@ -301,13 +317,26 @@ export class QuillSpellChecker {
  *
  * @param Quill Quill static instance.
  */
-export default function registerQuillSpellChecker(Quill: any) {
-    console.log("spell-checker-debug: registerQuillSpellChecker", { Quill });
+export default function registerQuillSpellChecker(Quill: any, vscodeApi: any) {
+    console.log("spell-checker-debug: registerQuillSpellChecker", {
+        Quill,
+        vscodeApi,
+    });
+
+    // Store the VSCode API in the global variable
+    window.vscodeApi = vscodeApi;
+
     Quill.register({
         "modules/spellChecker": QuillSpellChecker,
         "formats/spck-match": createSuggestionBlotForQuillInstance(Quill),
-        // "modules/clipboard": PlainClipboard,
     });
 }
 
 export { getCleanedHtml, removeSuggestionBoxes } from "./SuggestionBoxes";
+
+// Declare a global variable to store the VSCode API
+declare global {
+    interface Window {
+        vscodeApi: any;
+    }
+}

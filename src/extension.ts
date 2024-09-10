@@ -123,6 +123,30 @@ export async function activate(context: vscode.ExtensionContext) {
             console.error("Failed to start the client:", error);
         });
 
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "spellcheck.checkText",
+            async (text: string) => {
+                if (client) {
+                    return client.sendRequest("spellcheck/check", { text });
+                }
+            },
+        ),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "spellcheck.addWord",
+            async (word: string) => {
+                console.log("spellcheck.addWord", { word });
+                if (client) {
+                    console.log("sending request inside addWord");
+                    return client.sendRequest("spellcheck/addWord", { word });
+                }
+            },
+        ),
+    );
+
     await executeCommandsAfter();
     await startSyncLoop(context);
     await registerCommands(context);

@@ -14,10 +14,7 @@ export default class PopupManager {
     private currentSuggestionElement?: HTMLElement;
     private eventListenerAdded: boolean = false;
 
-    constructor(
-        private readonly parent: QuillSpellChecker,
-        // private readonly vscodeApi: any,
-    ) {
+    constructor(private readonly parent: QuillSpellChecker) {
         this.closePopup = this.closePopup.bind(this);
         // Remove the immediate call to addEventHandler
         // this.addEventHandler();
@@ -96,7 +93,6 @@ export default class PopupManager {
             );
             this.parent.quill.deleteText(match.offset, match.length, "silent");
             this.parent.quill.insertText(match.offset, replacement, "silent");
-            // @ts-expect-error: quill.setSelection is not typed
             this.parent.quill.setSelection(
                 match.offset + replacement.length,
                 "silent",
@@ -128,11 +124,25 @@ export default class PopupManager {
         button.className = "quill-spck-match-popup-action";
         // button.setAttribute("data-replacement", replacement.value);
         button.textContent = "Add to dictionary";
-        button.onclick = () => console.log("add to dictionary");
-        // this.vscodeApi.postMessage({
-        //     command: "addToDictionary",
-        //     text: match.text,
-        // });
+        button.onclick = () => {
+            console.log(
+                "add to dictionary spellcheck.addWord",
+                window.vscodeApi,
+            );
+            try {
+                window.vscodeApi.postMessage({
+                    command: "addWord",
+                    text: match.text,
+                });
+            } catch (error) {
+                console.error(
+                    "spellcheck.addWord Error adding word to dictionary:",
+                    error,
+                );
+                // Optionally, you could show an error message to the user here
+            }
+        };
+
         actionsDiv.appendChild(button);
 
         popupContent.appendChild(actionsDiv);

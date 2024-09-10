@@ -1,12 +1,16 @@
-import { useRef, useState } from "react";
-// import ReactQuill, { Quill } from "react-quill";
-import ReactQuill from "react-quill";
+import { useRef, useState, useEffect } from "react";
+import ReactQuill, { Quill } from "react-quill";
 import "react-quill/dist/quill.snow.css";
 import registerQuillSpellChecker, {
     getCleanedHtml,
 } from "./react-quill-spellcheck";
-// import "react-quill-spell-checker/dist/styles.css";
-// registerQuillSpellChecker(Quill);
+
+// Assuming you have access to the VSCode API here
+const vscode: any = (window as any).vscodeApi;
+
+// Register the QuillSpellChecker with the VSCode API
+registerQuillSpellChecker(Quill, vscode);
+
 export interface EditorContentChanged {
     html: string;
 }
@@ -14,6 +18,7 @@ export interface EditorContentChanged {
 export interface EditorProps {
     value?: string;
     onChange?: (changes: EditorContentChanged) => void;
+    spellCheckResponse?: any;
 }
 
 const TOOLBAR_OPTIONS = [
@@ -26,7 +31,7 @@ const TOOLBAR_OPTIONS = [
 ];
 
 // Custom dictionary (example words)
-const customDictionary = ["codex", "vscode", "webview", "languagetool"];
+// const customDictionary = ["codex", "vscode", "webview", "languagetool"];
 
 export default function Editor(props: EditorProps) {
     const revertedValue = props.value
@@ -35,6 +40,13 @@ export default function Editor(props: EditorProps) {
 
     const [value, setValue] = useState<string>(revertedValue || "");
     const reactQuillRef = useRef<ReactQuill>(null);
+
+    useEffect(() => {
+        // Register the QuillSpellChecker with the VSCode API
+        if ((window as any).vscodeApi) {
+            registerQuillSpellChecker(Quill, (window as any).vscodeApi);
+        }
+    }, []);
 
     const onChange = (content: string) => {
         setValue(content);
@@ -64,22 +76,22 @@ export default function Editor(props: EditorProps) {
             });
         }
     };
-    const addDisabledCategoriesOnBody = (text: string) => {
-        console.log("text in addDisabledCategoriesOnBody", text);
-        const body = {
-            text,
-            language: "auto",
-            disabledCategories: "FORMAL_SPEECH",
-        };
-        return Object.keys(body)
-            .map(
-                (key) =>
-                    `${key}=${encodeURIComponent(
-                        body[key as keyof typeof body],
-                    )}`,
-            )
-            .join("&");
-    };
+    // const addDisabledCategoriesOnBody = (text: string) => {
+    //     console.log("text in addDisabledCategoriesOnBody", text);
+    //     const body = {
+    //         text,
+    //         language: "auto",
+    //         disabledCategories: "FORMAL_SPEECH",
+    //     };
+    //     return Object.keys(body)
+    //         .map(
+    //             (key) =>
+    //                 `${key}=${encodeURIComponent(
+    //                     body[key as keyof typeof body],
+    //                 )}`,
+    //         )
+    //         .join("&");
+    // };
 
     // console.log("value", { value });
     // const quillSpellCheckerParams: QuillSpellCheckerParams = {
