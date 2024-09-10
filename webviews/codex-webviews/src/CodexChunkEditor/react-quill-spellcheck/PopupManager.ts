@@ -123,7 +123,7 @@ export default class PopupManager {
         const button = document.createElement("button");
         button.className = "quill-spck-match-popup-action";
         // button.setAttribute("data-replacement", replacement.value);
-        button.textContent = "Add to dictionary";
+        button.textContent = `${match.text} → 📖`;
         button.onclick = () => {
             console.log(
                 "add to dictionary spellcheck.addWord",
@@ -134,6 +134,8 @@ export default class PopupManager {
                     command: "addWord",
                     text: match.text,
                 });
+
+                this.closePopup();
             } catch (error) {
                 console.error(
                     "spellcheck.addWord Error adding word to dictionary:",
