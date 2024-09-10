@@ -4,11 +4,10 @@ import { getNonce } from "./utilities/getNonce";
 import { FileHandler } from './utilities/FileHandler';
 import { Dictionary } from "codex-types";
 import { DictionaryPostMessages } from "../../../types";
-import path from "path";
 
 // Dictionary path constant
 
-const dictionaryPath = ".project/files/project.dictionary";
+const dictionaryPath = "files/project.dictionary";
 
 export class DictionarySidePanel implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;

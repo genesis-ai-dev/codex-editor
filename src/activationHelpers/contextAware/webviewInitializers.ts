@@ -6,11 +6,14 @@ import { registerParallelViewWebviewProvider } from "../../providers/parallelPas
 import { registerSemanticViewProvider } from "../../providers/semanticView/customSemanticViewProvider";
 import { registerDictionaryTableProvider } from "../../providers/dictionaryTable/dictionaryTableProvider";
 import { registerDictionarySummaryProvider } from "../../providers/dictionaryTable/dictionarySummaryProvider";
-
+import { registerChatProvider } from "../../providers/chat/customChatWebviewProvider";
+import { registerCommentsWebviewProvider } from "../../providers/commentsWebview/customCommentsWebviewProvider";
 
 export async function initializeWebviews(context: vscode.ExtensionContext){
     registerParallelViewWebviewProvider(context);
     registerSemanticViewProvider(context);
     registerDictionaryTableProvider(context);
     registerDictionarySummaryProvider(context);
+    registerChatProvider(context);
+    registerCommentsWebviewProvider(context);
 }

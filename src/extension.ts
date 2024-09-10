@@ -33,6 +33,8 @@ import {
     TransportKind,
 } from "vscode-languageclient/node";
 
+import { initializeBibleData } from "./activationHelpers/contextAware/sourceData";
+
 let scmInterval: any; // Webpack & typescript for vscode are having issues
 
 // initial autoCommit config
@@ -51,7 +53,6 @@ export async function activate(context: vscode.ExtensionContext) {
     registerSourceCodeLens(context);
     registerCompletionsCodeLensProviders(context);
     registerTextSelectionHandler(context, () => undefined);
-    createIndexWithContext(context);
 
     const [, syncStatus] = registerScmStatusBar(context);
     syncUtils.registerSyncCommands(context, syncStatus);
@@ -151,6 +152,7 @@ export async function activate(context: vscode.ExtensionContext) {
     await startSyncLoop(context);
     await registerCommands(context);
     await createIndexWithContext(context);
+    await initializeBibleData(context);
 }
 
 export function deactivate(): Thenable<void> | undefined {

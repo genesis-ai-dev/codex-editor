@@ -24,6 +24,8 @@ const PATHS_TO_POPULATE = [
     // "metadata.json", // This is where we store the project metadata in scripture burrito format, but we create this using the project initialization command
     { filePath: "files/" }, // This is where we store the project files, including project.dictionary and embedding dbs
     { filePath: "files/target/" }, // This is where we store the drafted scripture in particular as .codex files
+    { filePath: ".project/sourceTextBibles/" }, // This is where we store the source text bibles
+    { filePath: ".project/targetTextBibles/" }, // This is where we store the target text bibles
     { filePath: "files/project.dictionary", defaultContent: "" }, // This is where we store the project dictionary
     { filePath: "comments.json", defaultContent: "" }, // This is where we store the VS Code comments api comments, such as on .bible files
     { filePath: "file-comments.json", defaultContent: "[]" }, // We can't use the VS Code comments api for notebooks (.codex files), so a second files avoids overwriting conflicts

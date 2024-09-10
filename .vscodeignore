@@ -15,6 +15,7 @@
 
 !src/assets/reset.css
 !src/assets/vscode.css
+!src/assets/bible_data.json.gz
 !**/*.svg
 !node_modules/@vscode/codicons/dist/**
 !node_modules/vscode-languageserver-textdocument
