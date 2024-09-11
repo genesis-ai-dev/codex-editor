@@ -37,7 +37,6 @@ export const ChatInputTextForm: React.FC<CommentTextFormProps> = ({
         e.preventDefault();
         const formData = new FormData(e.target as HTMLFormElement);
         const formValue = formData.get('chatInput') as string;
-        console.log('Form submitted with value:', formValue);
         handleSubmit(formValue);
         (e.target as HTMLFormElement).reset();
       }}
@@ -84,13 +83,13 @@ export const ChatInputTextForm: React.FC<CommentTextFormProps> = ({
           paddingBottom: '0.5em',
         }}
       >
-        <VSCodeButton
+        {/* <VSCodeButton
           appearance="icon"
           aria-label="Attach"
           onClick={() => console.log('Attach clicked')}
         >
           <i className="codicon codicon-add"></i>
-        </VSCodeButton>
+        </VSCodeButton> */}
         <VSCodeTextField
           name="chatInput"
           placeholder="Type a message..."
@@ -103,13 +102,13 @@ export const ChatInputTextForm: React.FC<CommentTextFormProps> = ({
         <VSCodeButton appearance="icon" type="submit">
           <i className="codicon codicon-send"></i>
         </VSCodeButton>
-        <VSCodeButton
+        {/* <VSCodeButton
           appearance="icon"
           aria-label="Record"
           onClick={() => console.log('Record clicked')}
         >
           <i className="codicon codicon-mic"></i>
-        </VSCodeButton>
+        </VSCodeButton> */}
       </div>
     </form>
   );

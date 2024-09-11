@@ -188,7 +188,6 @@ export async function initializeBibleData(context: vscode.ExtensionContext) {
             }
         }
         console.log('Bible data loaded successfully!', { bibleDataIdIndex });
-        vscode.window.showInformationMessage('Bible data loaded successfully!');
     } catch (error) {
         vscode.window.showErrorMessage(`Failed to load Bible data: ${error}`);
     }
@@ -382,8 +381,6 @@ export async function generateVerseContext(vref: string): Promise<TheographicBib
     const placeIdsInVerse = placesCount > 0 ? verse.fields.places || [] : [];
     const eventsDescribedInVerse = eventsDescribed || '';
     const eventIdsInVerse = timeline || [];
-
-    console.log('DEBUG', { peopleIdsInVerse, placeIdsInVerse, eventIdsInVerse });
 
     const fetchAndProcessRecords = async <T>(ids: string[], renderFunction: (record: T) => string): Promise<string[]> => {
         try {

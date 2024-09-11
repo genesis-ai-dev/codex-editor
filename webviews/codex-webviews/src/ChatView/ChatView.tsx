@@ -54,7 +54,6 @@ function messageWithContext({
 
     content += `\n\n### User's message: ${userPrompt}`;
 
-    console.log("content", { content });
     return {
         // FIXME: since we're passing in the conversation history, should we be using a completions endpoint rather than a chat one?
         role: "user",
@@ -101,44 +100,6 @@ function App() {
 
     const SHOW_SENDER_ROLE_LABELS = false;
 
-    async function fetchContextItems(query: string): Promise<string[]> {
-        // try {
-        //   // FIXME: finish implementing this function.
-        //   // The Flask server is either crashing or not starting sometimes
-        //   // and we need a more graceful way to handle using context items.
-
-        //   // Also, need to truncate retrieved items to reasonable length based on count
-        //   // and length of the items.
-        //   const response = await fetch(
-        //     `${FLASK_ENDPOINT}/search?db_name=.codex&query=${encodeURIComponent(
-        //       query,
-        //     )}`,
-        //   );
-        //   if (!response.ok) {
-        //     throw new Error(`Server error: ${response.status}`);
-        //   }
-        //   const data = await response.json();
-        //   if (!Array.isArray(data) || data.length === 0) {
-        //     return [];
-        //   }
-        //   return data.map(
-        //     (item) => `${item.book} ${item.chapter}:${item.verse} - ${item.text}`,
-        //   );
-        // } catch (error) {
-        //   console.error('Failed to fetch context items due to an error:', error);
-        //   vscode.postMessage({
-        //     command: 'notifyUserError',
-        //     message: `Failed to fetch context items due to an error: ${
-        //       (error as Error).message
-        //     }`,
-        //   } as ChatPostMessages);
-        //   return [];
-        // }
-        console.log("fetchContextItems", query); // FIXME: remove this - just for using the argument
-        // return currentVerseNotes ? [currentVerseNotes] : [];
-        return [];
-    }
-
     function formatMessageLogToString(
         messages: ChatMessageWithContext[],
     ): string {
@@ -181,10 +142,6 @@ function App() {
 
     async function handleSubmit(submittedMessageValue: string) {
         try {
-            const contextItemsFromServer = await fetchContextItems(
-                submittedMessageValue,
-            );
-            setContextItems(contextItemsFromServer);
             getResponseToUserNewMessage(submittedMessageValue);
             setSelectedTextContext("");
             setCurrentlyActiveVref("");
@@ -253,10 +210,6 @@ function App() {
                 case "select":
                     // FIXME: this is being invoked every time a new token is rendered
                     if (message.textDataWithContext) {
-                        console.log(
-                            "Received a select command in ChatView",
-                            message,
-                        );
                         const {
                             completeLineContent,
                             selectedText,
@@ -284,10 +237,6 @@ function App() {
                                     note !== "" && !/^[^\n]*\.json$/.test(note), // FIXME: we should simply avoid passing in the URI to the .json file in the first place
                             ) ?? [];
 
-                        console.log(
-                            "verseGraphData in ChatView",
-                            verseGraphData,
-                        );
                         verseNotesArray.push(JSON.stringify(verseGraphData)); // Here we're adding the verse graph data to the verse notes array
                         setContextItems(verseNotesArray);
                         // }
@@ -405,10 +354,6 @@ function App() {
                             value={currentMessageThreadId}
                             // disabled={!selectedBook}
                             onInput={(e: any) => {
-                                console.log({ e });
-                                console.log(
-                                    (e.target as HTMLSelectElement).value,
-                                );
                                 setCurrentMessageThreadId(
                                     (e.target as HTMLSelectElement).value,
                                 );

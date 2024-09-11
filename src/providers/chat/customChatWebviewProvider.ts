@@ -26,9 +26,7 @@ let VerseReader: VerseDataReader | null = null;
 let abortController: AbortController | null = null;
 
 const sendChatThreadToWebview = async (webviewView: vscode.WebviewView) => {
-  console.log("sendCommentsToWebview was called");
   const workspaceFolders = vscode.workspace.workspaceFolders;
-  console.log({ workspaceFolders });
   const filePath = workspaceFolders
     ? vscode.Uri.joinPath(workspaceFolders[0].uri, "chat-threads.json").fsPath // fix this so it is a diffent note book
     : "";
@@ -195,7 +193,6 @@ const processFetchResponse = async (
   }
 
   if (buffer.trim()) {
-    console.log({ buffer });
     try {
       const parsedLine = JSON.parse(buffer.trim().replace(/^data: /, ""));
       await webviewView.webview.postMessage({
@@ -242,7 +239,6 @@ export class CustomWebviewProvider {
     }
     let verseNotes = null;
     if (vrefAtStartOfLine) {
-      console.log("vrefAtStartOfLine", vrefAtStartOfLine);
       const [book, verse] = vrefAtStartOfLine.split(" ");
       if (VerseReader) {
         verseNotes = VerseReader.getVerseData(book, verse);
@@ -251,7 +247,6 @@ export class CustomWebviewProvider {
       }
       try {
         verseGraphData = await vscode.commands.executeCommand('codex-editor-extension.getContextDataFromVref', vrefAtStartOfLine);
-        console.log("verseGraphData in customChatWebviewProvider", verseGraphData);
       } catch (error) {
         console.error("Error getting verse graph data:", error);
       }
@@ -267,7 +262,6 @@ export class CustomWebviewProvider {
         verseGraphData,
       },
     };
-    console.log('in customChatWebviewProvider', message);
     webviewView.webview.postMessage(message);
   }
 
@@ -355,8 +349,6 @@ export class CustomWebviewProvider {
                   messages[0].content += `${accessibilityNote}`;
                 }
               }
-
-              console.log({ messages });
 
               const data = {
                 max_tokens: maxTokens,
@@ -462,7 +454,6 @@ export class CustomWebviewProvider {
               break;
             }
             case 'openContextItem': {
-              console.log('openContextItem', message);
               const vrefRegex = /[a-zA-Z]+\s+\d+:\d+/;
               const vref = message.text.match(vrefRegex)?.[0];
               if (vref) {

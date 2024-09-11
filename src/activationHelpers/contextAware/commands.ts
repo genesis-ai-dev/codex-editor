@@ -150,7 +150,6 @@ export async function registerCommands(context: vscode.ExtensionContext) {
             result = await getBibleDataRecordById(id);
             if (result) {
                 const { record } = result;
-                console.log('Record:', { record });
                 vscode.window.showInformationMessage(`Found record in category: ${record}`);
             } else {
                 vscode.window.showWarningMessage(`No record found for ID: ${id}`);
@@ -162,10 +161,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
     const getContextDataFromVrefCommand = vscode.commands.registerCommand(
         "codex-editor-extension.getContextDataFromVref",
         async (vref: string): Promise<TheographicBibleDataRecord> => {
-            const result = await generateVerseContext(vref);
-            console.log('Result of codex-editor-extension.getContextDataFromVref command:', { result });
-            vscode.window.showInformationMessage(`Found record in category: ${JSON.stringify(result)}`);
-            return result;
+            return await generateVerseContext(vref);
         }
     );
 
@@ -185,7 +181,8 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         setEditorFontCommand,
         downloadSourceTextBiblesCommand,
         getBibleDataRecordByIdCommand,
-        exportCodexContentCommand
+        exportCodexContentCommand,
+        getContextDataFromVrefCommand
     );
 
     ensureBibleDownload();
