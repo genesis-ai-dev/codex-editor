@@ -56,31 +56,31 @@ export class QuillSpellChecker {
         // FIXME: I commented out the below code because it was causing the text to not be inserted into the editor properly. It was part of the original spellchecker implementation. So, I commented it out for now while I figure out why it was ever needed and if we need it.
 
         // not allow the insertion of images and texts with formatting
-        quill.clipboard.addMatcher(Node.ELEMENT_NODE, function (node) {
-            const plaintext = node.textContent || "";
-            console.log("spell-checker-debug: clipboard matcher", {
-                plaintext,
-            });
-            const Delta = Quill.import("delta");
-            return new Delta().insert(plaintext);
-        });
+        // quill.clipboard.addMatcher(Node.ELEMENT_NODE, function (node) {
+        //     const plaintext = node.textContent || "";
+        //     console.log("spell-checker-debug: clipboard matcher", {
+        //         plaintext,
+        //     });
+        //     const Delta = Quill.import("delta");
+        //     return new Delta().insert(plaintext);
+        // });
 
-        // break line using enter and
-        // do not allow the insertion of <> characters
-        this.quill.root.addEventListener("keydown", (event) => {
-            console.log("spell-checker-debug: keydown event", {
-                key: event.key,
-            });
-            if (event.key === "Enter") {
-                const selectionIndex = quill.getSelection()?.index;
-                if (typeof selectionIndex !== "undefined") {
-                    quill.insertText(selectionIndex, "\n");
-                    event.preventDefault();
-                }
-            } else if (event.key === "<" || event.key === ">") {
-                event.preventDefault();
-            }
-        });
+        // // break line using enter and
+        // // do not allow the insertion of <> characters
+        // this.quill.root.addEventListener("keydown", (event) => {
+        //     console.log("spell-checker-debug: keydown event", {
+        //         key: event.key,
+        //     });
+        //     if (event.key === "Enter") {
+        //         const selectionIndex = quill.getSelection()?.index;
+        //         if (typeof selectionIndex !== "undefined") {
+        //             quill.insertText(selectionIndex, "\n");
+        //             event.preventDefault();
+        //         }
+        //     } else if (event.key === "<" || event.key === ">") {
+        //         event.preventDefault();
+        //     }
+        // });
 
         // copy plain text to clipboard
         this.quill.root.addEventListener("copy", (event: any) => {

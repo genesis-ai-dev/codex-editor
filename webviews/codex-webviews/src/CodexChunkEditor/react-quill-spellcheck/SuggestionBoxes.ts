@@ -10,10 +10,7 @@ import { MatchesEntity } from "./types";
  * @returns Cleaned text
  */
 export function getCleanedHtml(html: string) {
-    return html.replace(
-        /<quill-spck-match .*>(.*)?<\/quill-spck-match>/g,
-        "$1",
-    );
+    return html.replace(/<quill-spck-match .*?>|<\/quill-spck-match>/g, "");
 }
 
 /**
