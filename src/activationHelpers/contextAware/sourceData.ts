@@ -224,13 +224,13 @@ const getLinkedBibleDataRecords = (vref: string): { category: string; record: an
 };
 
 
-export async function getBibleDataRecordById(id: string): Promise<{ record: any, prose: string } | null> {
+export async function getBibleDataRecordById(id: string): Promise<{ record: any, /* prose: string */ } | null> {
     if (!bibleDataIdIndex) {
         throw new Error('Bible data not loaded');
     }
     const record = bibleDataIdIndex.get(id) || null;
-    const prose = generateVerseContext(id, bibleDataIdIndex);
-    return { record, prose };
+    // const prose = generateVerseContext(id, bibleDataIdIndex);
+    return { record };
 }
 
 
@@ -250,43 +250,38 @@ export async function getBibleDataRecordById(id: string): Promise<{ record: any,
  * @param linkedRecords An object containing linked records (events, people, places, etc.)
  * @returns A string of formatted prose describing the verse and its context
  */
-function renderVerseAsProse(verse: Verse, linkedRecords: Record<string, any>): string {
-    let prose = `Verse: ${verse.fields.verseText}\n\n`;
+// function renderVerseAsProse(verse: Verse, linkedRecords: Record<string, any>): string {
+//     let prose = `Verse: ${verse.fields.verseText}\n\n`;
 
-    prose += renderEventsDescribed(verse);
-    prose += renderTimelineEvents(verse, linkedRecords);
-    prose += renderPlacesInVerse(verse, linkedRecords);
+//     prose += renderEventsDescribed(verse);
+//     prose += renderEventDetails(event);
+//     prose += renderPlacesInVerse(verse, linkedRecords);
 
-    return prose;
-}
+//     return prose;
+// }
 
 function renderEventsDescribed(verse: Verse): string {
     if (!verse.fields.eventsDescribed) return '';
     return `Events described in this verse:\n- ${verse.fields.eventsDescribed}\n\n`;
 }
 
-function renderTimelineEvents(verse: Verse, linkedRecords: Record<string, any>): string {
-    if (!verse.fields.timeline || verse.fields.timeline.length === 0) return '';
+function renderEventDetails(event: Event): string {
+    if (!event || !bibleDataIdIndex) return '';
 
-    let prose = 'Timeline in this verse:\n';
-    for (const eventId of verse.fields.timeline) {
-        const event = linkedRecords[eventId] as Event;
-        if (!event) continue;
+    let prose = `Details of the event: ${event.fields.title}\n`;
 
-        prose += `- ${event.fields.title} (Duration: ${event.fields.duration})\n`;
-        prose += renderEventDetails(event, linkedRecords);
+    if (event.fields.startDate) {
+        prose += `  - Start Date: ${event.fields.startDate}\n`;
     }
-    return prose + '\n';
-}
-
-function renderEventDetails(event: Event, linkedRecords: Record<string, any>): string {
-    let prose = '';
+    if (event.fields.duration) {
+        prose += `  - Duration: ${event.fields.duration}\n`;
+    }
 
     // Render participants
     if (event.fields.participants && event.fields.participants.length > 0) {
         prose += '  Participants:\n';
         for (const participantId of event.fields.participants) {
-            const participant = linkedRecords[participantId] as Person;
+            const participant = bibleDataIdIndex.get(participantId)?.record as Person;
             if (participant) {
                 prose += `  - ${participant.fields.displayTitle}\n`;
             }
@@ -297,7 +292,7 @@ function renderEventDetails(event: Event, linkedRecords: Record<string, any>): s
     if (event.fields.locations && event.fields.locations.length > 0) {
         prose += '  Locations:\n';
         for (const locationId of event.fields.locations) {
-            const location = linkedRecords[locationId] as Place;
+            const location = bibleDataIdIndex.get(locationId)?.record as Place;
             if (location) {
                 prose += `  - ${location.fields.displayTitle}\n`;
             }
@@ -312,40 +307,107 @@ function renderEventDetails(event: Event, linkedRecords: Record<string, any>): s
     return prose;
 }
 
-function renderPlacesInVerse(verse: Verse, linkedRecords: Record<string, any>): string {
-    if (!verse.fields.placesCount || verse.fields.placesCount === 0) return '';
+function renderPersonInVerse(person: Person): string {
+    if (!person) return '';
 
-    let prose = 'Places mentioned in this verse:\n';
-    for (const placeId of verse.fields.places) {
-        const place = linkedRecords[placeId] as Place;
-        if (!place) continue;
+    let prose = `- ${person.fields.displayTitle || person.fields.name} (${person.fields.gender})`;
 
-        prose += `- ${place.fields.displayTitle} (${place.fields.featureType}`;
-        if (place.fields.featureSubType) {
-            prose += ` - ${place.fields.featureSubType}`;
-        }
-        prose += ')\n';
+    const yearStart = person.fields.birthYear || person.fields.minYear || null;
+    const yearEnd = person.fields.deathYear || person.fields.maxYear || null;
 
-        if (place.fields.comment) {
-            prose += `  Comment: ${place.fields.comment}\n`;
-        }
+    if (yearStart) {
+        prose += ` ${yearStart}`;
     }
-    return prose + '\n';
+    if (person.fields.birthPlace) {
+        prose += ` in ${person.fields.birthPlace}`;
+    }
+    if (yearEnd) {
+        prose += ` – ${yearEnd}`;
+    }
+    if (person.fields.deathPlace) {
+        prose += ` in ${person.fields.deathPlace}`;
+    }
+
+    return prose;
+}
+
+
+function renderPlaceInVerse(place: Place): string {
+    let prose = '';
+    if (!place) return prose;
+
+    prose += `- ${place.fields.displayTitle} (${place.fields.featureType}`;
+    if (place.fields.featureSubType) {
+        prose += ` (${place.fields.featureSubType})`;
+    }
+    prose += ')\n';
+
+    if (place.fields.comment) {
+        prose += `  Comment: ${place.fields.comment}\n`;
+    }
+    return prose;
 }
 
 // Additional functions can be added here for rendering other types of data
 // such as people, people groups, periods, etc., as needed.
 
+
+export interface TheographicBibleDataRecord {
+    verse: Verse | null;
+    people: string[];
+    places: string[];
+    events: string[];
+    eventsDescribed: string;
+}
 /**
  * Main function to generate prose for a given verse reference
  * @param vref The verse reference (e.g., "ACT 2:10")
  * @param bibleDataIdIndex The index of the Bible data object
  * @returns A string of formatted prose describing the verse and its context
  */
-export function generateVerseContext(vref: string, bibleDataIdIndex: Map<string, { category: string; record: any }>): string {
-    const verse = bibleDataIdIndex.get(vref);
-    if (!verse) return `No data found for verse ${vref}`;
+export async function generateVerseContext(vref: string): Promise<TheographicBibleDataRecord> {
+    const verseRecord = bibleDataIdIndex?.get(vref);
+    const verse = verseRecord?.record as Verse;
+    if (!verse || !bibleDataIdIndex) return {
+        verse: null,
+        people: [],
+        places: [],
+        events: [],
+        eventsDescribed: '',
+    };
 
-    const linkedRecords = getLinkedBibleDataRecords(vref);
-    return renderVerseAsProse(verse.record, linkedRecords);
+    const { peopleCount, people, placesCount, places, timeline, eventsDescribed } = verse.fields;
+
+    const peopleIdsInVerse = peopleCount > 0 ? verse.fields.people || [] : [];
+    const placeIdsInVerse = placesCount > 0 ? verse.fields.places || [] : [];
+    const eventsDescribedInVerse = eventsDescribed || '';
+    const eventIdsInVerse = timeline || [];
+
+    console.log('DEBUG', { peopleIdsInVerse, placeIdsInVerse, eventIdsInVerse });
+
+    const fetchAndProcessRecords = async <T>(ids: string[], renderFunction: (record: T) => string): Promise<string[]> => {
+        try {
+            const records = await Promise.all(ids.map(id => getBibleDataRecordById(id)));
+            return records
+                .filter((record): record is { record: T } => record !== null && record !== undefined)
+                .map(({ record }) => renderFunction(record as T));
+        } catch (error) {
+            console.error(`Error fetching records: ${error}`);
+            return [];
+        }
+    };
+
+    const [peopleStrings, placesStrings, eventsStrings] = await Promise.all([
+        fetchAndProcessRecords<Person>(peopleIdsInVerse, renderPersonInVerse),
+        fetchAndProcessRecords<Place>(placeIdsInVerse, renderPlaceInVerse),
+        fetchAndProcessRecords<Event>(eventIdsInVerse, renderEventDetails)
+    ]);
+
+    return {
+        verse,
+        people: peopleStrings,
+        places: placesStrings,
+        events: eventsStrings,
+        eventsDescribed: eventsDescribedInVerse,
+    };
 }

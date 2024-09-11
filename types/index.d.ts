@@ -81,6 +81,7 @@ interface SelectedTextDataWithContext {
     vrefAtStartOfLine: string | null;
     selectedText: string | null;
     verseNotes: string | null;
+    verseGraphData: any;
 }
 
 type ChatPostMessages =
@@ -100,7 +101,8 @@ type ChatPostMessages =
     | { command: "fetchThread" }
     | { command: "abort-fetch" }
     | { command: "openSettings" }
-    | { command: "openContextItem"; text: string };
+    | { command: "openContextItem"; text: string }
+    | { command: "verseGraphData"; data: string[] };
 
 type DictionaryPostMessages =
     | { command: "sendData"; data: Dictionary }

@@ -20,7 +20,7 @@ import { CodexNotebookProvider } from "../../providers/treeViews/scriptureTreeVi
 import {
     getWorkSpaceFolder,
 } from "../../utils";
-import { getBibleDataRecordById as getBibleDataRecordById } from "./sourceData";
+import { generateVerseContext, getBibleDataRecordById as getBibleDataRecordById, TheographicBibleDataRecord, Verse } from "./sourceData";
 import { exportCodexContent } from "../../commands/exportHandler";
 
 const ROOT_PATH = getWorkSpaceFolder();
@@ -138,25 +138,34 @@ export async function registerCommands(context: vscode.ExtensionContext) {
 
     const getBibleDataRecordByIdCommand = vscode.commands.registerCommand(
         "codex-editor-extension.getBibleDataRecordById",
-        async () => {
-            const id = await vscode.window.showInputBox({
-                prompt: "Enter the ID of the Bible data record to get",
-                placeHolder: "Record ID",
-                value: "JHN 3:16"
-            });
-
-            if (id) {
-                const result = await getBibleDataRecordById(id);
-                if (result) {
-                    const { record, prose } = result;
-                    console.log('Record:', { record, prose });
-                    vscode.window.showInformationMessage(`Found record in category: ${prose}`);
-                } else {
-                    vscode.window.showWarningMessage(`No record found for ID: ${id}`);
-                }
-            } else {
-                vscode.window.showWarningMessage('No ID provided');
+        async (passedId: string) => {
+            let result = null;
+            let id = passedId;
+            if (!id) {
+                id = await vscode.window.showInputBox({
+                    prompt: "Enter the ID of the Bible data record to get",
+                    placeHolder: "Record ID",
+                }) || "";
             }
+            result = await getBibleDataRecordById(id);
+            if (result) {
+                const { record } = result;
+                console.log('Record:', { record });
+                vscode.window.showInformationMessage(`Found record in category: ${record}`);
+            } else {
+                vscode.window.showWarningMessage(`No record found for ID: ${id}`);
+            }
+            return result;
+        }
+    );
+
+    const getContextDataFromVrefCommand = vscode.commands.registerCommand(
+        "codex-editor-extension.getContextDataFromVref",
+        async (vref: string): Promise<TheographicBibleDataRecord> => {
+            const result = await generateVerseContext(vref);
+            console.log('Result of codex-editor-extension.getContextDataFromVref command:', { result });
+            vscode.window.showInformationMessage(`Found record in category: ${JSON.stringify(result)}`);
+            return result;
         }
     );
 

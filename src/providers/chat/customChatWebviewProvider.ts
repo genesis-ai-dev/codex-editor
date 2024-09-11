@@ -12,6 +12,7 @@ import {
   writeSerializedData,
 } from "../../utils/fileUtils";
 import { VerseDataReader } from "../../utils/chatContext";
+import { getBibleDataRecordById, TheographicBibleDataRecord } from "../../activationHelpers/contextAware/sourceData";
 
 
 const config = vscode.workspace.getConfiguration("translators-copilot");
@@ -217,7 +218,7 @@ export class CustomWebviewProvider {
     this._extensionUri = extensionUri;
   }
 
-  sendSelectMessage(
+  async sendSelectMessage(
     webviewView: vscode.WebviewView,
     selectedText: SelectedTextDataWithContext
   ) {
@@ -233,6 +234,7 @@ export class CustomWebviewProvider {
         */
     const { selection, completeLineContent, vrefAtStartOfLine } = selectedText;
     let selectedTextToSend = selection;
+    let verseGraphData: TheographicBibleDataRecord | null = null;
 
     // Shorten the length of selectedText
     if (selection.length > maxLength - 100) {
@@ -240,11 +242,18 @@ export class CustomWebviewProvider {
     }
     let verseNotes = null;
     if (vrefAtStartOfLine) {
+      console.log("vrefAtStartOfLine", vrefAtStartOfLine);
       const [book, verse] = vrefAtStartOfLine.split(" ");
       if (VerseReader) {
         verseNotes = VerseReader.getVerseData(book, verse);
       } else {
         console.error("VerseReader is not available");
+      }
+      try {
+        verseGraphData = await vscode.commands.executeCommand('codex-editor-extension.getContextDataFromVref', vrefAtStartOfLine);
+        console.log("verseGraphData in customChatWebviewProvider", verseGraphData);
+      } catch (error) {
+        console.error("Error getting verse graph data:", error);
       }
     }
 
@@ -255,18 +264,19 @@ export class CustomWebviewProvider {
         completeLineContent,
         vrefAtStartOfLine,
         verseNotes, // This should work, but doesn't, to pass the data to the webview.
+        verseGraphData,
       },
     };
     console.log('in customChatWebviewProvider', message);
     webviewView.webview.postMessage(message);
   }
 
-  saveSelectionChanges(webviewView: vscode.WebviewView) {
+  async saveSelectionChanges(webviewView: vscode.WebviewView) {
     // FIXME: let's get rid of this function and use global state via textSelectionHandler.ts
     const activeEditor = vscode.window.activeTextEditor;
     if (activeEditor) {
       this.selectionChangeListener =
-        vscode.window.onDidChangeTextEditorSelection((e) => {
+        vscode.window.onDidChangeTextEditorSelection(async (e) => {
           if (e.textEditor === activeEditor) {
             const selectedTextDataToAddToChat: SelectedTextDataWithContext = {
               selection: activeEditor.document.getText(e.selections[0]),
@@ -274,6 +284,7 @@ export class CustomWebviewProvider {
               vrefAtStartOfLine: null,
               selectedText: "placeHolder test",
               verseNotes: null,
+              verseGraphData: null,
             };
 
             // const selectedText = activeEditor.document.getText(e.selections[0]);
@@ -288,7 +299,7 @@ export class CustomWebviewProvider {
               selectedTextDataToAddToChat.vrefAtStartOfLine = vrefAtStartOfLine;
             }
 
-            this.sendSelectMessage(webviewView, selectedTextDataToAddToChat);
+            await this.sendSelectMessage(webviewView, selectedTextDataToAddToChat);
           }
         });
     }

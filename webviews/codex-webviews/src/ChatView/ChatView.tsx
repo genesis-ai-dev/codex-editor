@@ -54,6 +54,7 @@ function messageWithContext({
 
     content += `\n\n### User's message: ${userPrompt}`;
 
+    console.log("content", { content });
     return {
         // FIXME: since we're passing in the conversation history, should we be using a completions endpoint rather than a chat one?
         role: "user",
@@ -194,7 +195,9 @@ function App() {
             );
             vscode.postMessage({
                 command: "error",
-                message: `Failed to fetch context items. ${JSON.stringify(error)}`,
+                message: `Failed to fetch context items. ${JSON.stringify(
+                    error,
+                )}`,
                 messages: [],
             } as unknown as ChatPostMessages);
         }
@@ -259,6 +262,7 @@ function App() {
                             selectedText,
                             vrefAtStartOfLine,
                             verseNotes,
+                            verseGraphData,
                         } = message.textDataWithContext;
 
                         const strippedCompleteLineContent = vrefAtStartOfLine
@@ -273,13 +277,19 @@ function App() {
                                 : `${strippedCompleteLineContent} (${vrefAtStartOfLine})`;
                         // if (verseNotes !== null) {
                         // setCurrentVerseNotes(verseNotes ?? '');
-                        setContextItems(
+                        const verseNotesArray =
                             verseNotes?.split("\n\n").filter(
                                 // Let's filter out empty notes and notes that are URIs to .json files
                                 (note) =>
                                     note !== "" && !/^[^\n]*\.json$/.test(note), // FIXME: we should simply avoid passing in the URI to the .json file in the first place
-                            ) ?? [],
+                            ) ?? [];
+
+                        console.log(
+                            "verseGraphData in ChatView",
+                            verseGraphData,
                         );
+                        verseNotesArray.push(JSON.stringify(verseGraphData)); // Here we're adding the verse graph data to the verse notes array
+                        setContextItems(verseNotesArray);
                         // }
                         setSelectedTextContext(selectedTextContextString);
                         setCurrentlyActiveVref(vrefAtStartOfLine ?? "");
