@@ -222,11 +222,11 @@ export class CodexChunkEditorProvider
 
         const verseDataArray = this.getVerseDataArray(); // FIXME: Calculate the verse data array based on the content instead of using a static file. It will probably be more efficient.
 
-        const verseDataArrayIndex = verseDataArray.indexOf(data.verseMarker);
+        const verseDataArrayIndex = verseDataArray.indexOf(data.verseMarkers[0]);
         const nextVerseMarker = verseDataArray[verseDataArrayIndex + 1];
 
         const indexOfCellToUpdate = currentContent.cells.findIndex((cell) =>
-            cell.value.includes(data.verseMarker),
+            cell.value.includes(data.verseMarkers[0]),
         );
 
         if (indexOfCellToUpdate === -1) {
@@ -234,15 +234,15 @@ export class CodexChunkEditorProvider
         }
         const cellToUpdate = currentContent.cells[indexOfCellToUpdate];
 
-        if (data.verseMarker.split(":")[0] === nextVerseMarker.split(":")[0]) {
+        if (data.verseMarkers[0].split(":")[0] === nextVerseMarker.split(":")[0]) {
             const currentValue = cellToUpdate.value;
-            const startIndex = currentValue.indexOf(data.verseMarker);
+            const startIndex = currentValue.indexOf(data.verseMarkers[0]);
             const endIndex = currentValue.indexOf(nextVerseMarker, startIndex);
 
             if (startIndex !== -1 && endIndex !== -1) {
                 cellToUpdate.value =
                     currentValue.substring(0, startIndex) +
-                    data.verseMarker +
+                    data.verseMarkers[0] +
                     " " +
                     data.content +
                     (data.content.endsWith("\n") ? "" : "\n") +
@@ -254,8 +254,8 @@ export class CodexChunkEditorProvider
             cellToUpdate.value =
                 cellToUpdate.value.substring(
                     0,
-                    cellToUpdate.value.indexOf(data.verseMarker) +
-                        data.verseMarker.length,
+                        cellToUpdate.value.indexOf(data.verseMarkers[0]) +
+                        data.verseMarkers[0].length,
                 ) +
                 " " +
                 data.content;

@@ -53,6 +53,8 @@ export class QuillSpellChecker {
             return;
         }
 
+        // FIXME: I commented out the below code because it was causing the text to not be inserted into the editor properly. It was part of the original spellchecker implementation. So, I commented it out for now while I figure out why it was ever needed and if we need it.
+
         // not allow the insertion of images and texts with formatting
         // quill.clipboard.addMatcher(Node.ELEMENT_NODE, function (node) {
         //     const plaintext = node.textContent || "";
@@ -121,14 +123,6 @@ export class QuillSpellChecker {
 
         this.checkSpelling();
         this.disableNativeSpellcheckIfSet();
-
-        // Example of using the VSCode API
-        // if (window.vscodeApi) {
-        //     window.vscodeApi.postMessage({
-        //         type: "log",
-        //         message: "QuillSpellChecker initialized",
-        //     });
-        // }
     }
 
     public updateMatches(matches: MatchesEntity[]) {

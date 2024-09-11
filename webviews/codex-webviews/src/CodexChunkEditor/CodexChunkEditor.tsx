@@ -15,6 +15,7 @@ import {
     CustomNotebookData,
 } from "../../../../types";
 import CloseButtonWithConfirmation from "../components/CloseButtonWithConfirmation";
+import { getCleanedHtml } from "./react-quill-spellcheck";
 // TODO: add a language type for the translation unit heading aka the book names
 // TODO: stop user from closing current editor when they have unsaved changes
 // TODO: save each change to the verse metadata as "working copy"
@@ -71,7 +72,10 @@ const CodexChunkEditor: React.FC = () => {
         console.log({ cellContent });
         const lines = cellContent.split(verseRefRegex);
         console.log({ lines });
-        const processedLines = lines
+        const processedLines: {
+            verseMarkers: string[];
+            verseContent: string;
+        }[] = lines
             .map((line) => {
                 const verseMarker = line.match(
                     /(\b[A-Z, 1-9]{3}\s\d+:\d+\b)/,
@@ -84,13 +88,13 @@ const CodexChunkEditor: React.FC = () => {
                         .replace(`${verseMarker}`, "");
 
                     return {
-                        verseMarker,
+                        verseMarkers: [verseMarker],
                         verseContent: lineWithoutVerseRefMarker,
                     };
                 }
                 return null;
             })
-            .filter(Boolean);
+            .filter((line) => line !== null);
         return processedLines;
     };
 
@@ -102,7 +106,8 @@ const CodexChunkEditor: React.FC = () => {
             : [];
     const unsavedChanges = !!(
         contentBeingUpdated.content &&
-        contentBeingUpdated.content.replace(/\s/g, "") !==
+        getCleanedHtml(contentBeingUpdated.content) &&
+        getCleanedHtml(contentBeingUpdated.content).replace(/\s/g, "") !==
             translationUnits?.[
                 contentBeingUpdated.verseIndex
             ]?.verseContent.replace(/\s/g, "")
@@ -120,7 +125,7 @@ const CodexChunkEditor: React.FC = () => {
                 alignItems: "center",
             }}
         >
-            <h1>{translationUnits[0]?.verseMarker.split(":")[0]}</h1>
+            <h1>{translationUnits[0]?.verseMarkers[0].split(":")[0]}</h1>
             <div
                 style={{
                     display: "flex",
@@ -157,9 +162,11 @@ const CodexChunkEditor: React.FC = () => {
                 </div>
                 <p>
                     {translationUnits?.map(
-                        ({ verseMarker, verseContent }, verseIndex) => {
+                        ({ verseMarkers, verseContent }, verseIndex) => {
+                            const verseMarker = verseMarkers?.join(" ");
                             if (
-                                verseMarker === contentBeingUpdated.verseMarker
+                                verseMarker ===
+                                contentBeingUpdated.verseMarkers?.join(" ")
                             ) {
                                 return (
                                     <div key={verseIndex}>
@@ -213,7 +220,7 @@ const CodexChunkEditor: React.FC = () => {
                                                         });
                                                         setContentBeingUpdated({
                                                             verseIndex,
-                                                            verseMarker,
+                                                            verseMarkers,
                                                             content:
                                                                 html.endsWith(
                                                                     "\n",
@@ -257,7 +264,7 @@ const CodexChunkEditor: React.FC = () => {
                                             onClick={() => {
                                                 if (!unsavedChanges) {
                                                     setContentBeingUpdated({
-                                                        verseMarker,
+                                                        verseMarkers,
                                                         content: verseContent,
                                                         verseIndex,
                                                     });
@@ -310,7 +317,7 @@ const CodexChunkEditor: React.FC = () => {
                                         }
                                         onClick={() => {
                                             setContentBeingUpdated({
-                                                verseMarker,
+                                                verseMarkers,
                                                 content: "",
                                                 verseIndex,
                                             });

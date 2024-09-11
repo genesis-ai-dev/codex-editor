@@ -181,7 +181,7 @@ type SourceVerseVersions = {
     versions: string[];
 };
 type EditorVerseContent = {
-    verseMarker: string;
+    verseMarkers: string[];
     content: string;
     verseIndex: number;
 };
