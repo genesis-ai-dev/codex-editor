@@ -8,6 +8,14 @@ import { SuggestionBoxes } from "./SuggestionBoxes";
 import { MatchesEntity, SpellCheckerApi } from "./types";
 import { EditorPostMessages } from "../../../../../types";
 
+// Define the debug function
+let DEBUG_MODE = false;
+function debug(...args: any[]) {
+    if (DEBUG_MODE) {
+        console.log(...args);
+    }
+}
+
 export type QuillSpellCheckerParams = {
     disableNativeSpellcheck: boolean;
     cooldownTime: number;
@@ -42,7 +50,7 @@ export class QuillSpellChecker {
         public quill: Quill,
         public params: QuillSpellCheckerParams,
     ) {
-        console.log("spell-checker-debug: QuillSpellChecker constructor", {
+        debug("spell-checker-debug: QuillSpellChecker constructor", {
             quill,
             params,
         });
@@ -58,7 +66,7 @@ export class QuillSpellChecker {
         // not allow the insertion of images and texts with formatting
         // quill.clipboard.addMatcher(Node.ELEMENT_NODE, function (node) {
         //     const plaintext = node.textContent || "";
-        //     console.log("spell-checker-debug: clipboard matcher", {
+        //     debug("spell-checker-debug: clipboard matcher", {
         //         plaintext,
         //     });
         //     const Delta = Quill.import("delta");
@@ -68,7 +76,7 @@ export class QuillSpellChecker {
         // // break line using enter and
         // // do not allow the insertion of <> characters
         // this.quill.root.addEventListener("keydown", (event) => {
-        //     console.log("spell-checker-debug: keydown event", {
+        //     debug("spell-checker-debug: keydown event", {
         //         key: event.key,
         //     });
         //     if (event.key === "Enter") {
@@ -86,20 +94,20 @@ export class QuillSpellChecker {
         this.quill.root.addEventListener("copy", (event: any) => {
             const range = this.quill.getSelection();
             const text = this.quill.getText(range?.index, range?.length);
-            console.log("spell-checker-debug: copy event", { text });
+            debug("spell-checker-debug: copy event", { text });
             event.clipboardData.setData("text/plain", text);
             event.preventDefault();
         });
 
         this.quill.on("text-change", (delta, oldDelta, source) => {
-            console.log("spell-checker-debug: text-change event", {
+            debug("spell-checker-debug: text-change event", {
                 delta,
                 oldDelta,
                 source,
             });
             if (source === "user") {
                 const content = this.quill.getText();
-                console.log("spell-checker-debug: text-change content", {
+                debug("spell-checker-debug: text-change content", {
                     content,
                 });
                 if (specialCharacters.test(content)) {
@@ -114,7 +122,7 @@ export class QuillSpellChecker {
 
         // Initialize the PopupManager after Quill is set up
         this.quill.on("editor-change", (eventName, ...args) => {
-            console.log("spell-checker-debug: editor-change event", {
+            debug("spell-checker-debug: editor-change event", {
                 eventName,
                 args,
             });
@@ -126,14 +134,14 @@ export class QuillSpellChecker {
     }
 
     public updateMatches(matches: MatchesEntity[]) {
-        console.log("spell-checker-debug: updateMatches", { matches });
+        debug("spell-checker-debug: updateMatches", { matches });
         this.boxes.removeSuggestionBoxes();
         this.matches = matches;
         this.boxes.addSuggestionBoxes();
     }
 
     public acceptMatch(id: MatchesEntity["id"]) {
-        console.log("spell-checker-debug: acceptMatch", { id });
+        debug("spell-checker-debug: acceptMatch", { id });
         const match = this.matches.find((match) => match.id === id);
         if (match && match.replacements && match.replacements?.length > 0) {
             const replacement = match.replacements[0].value;
@@ -149,7 +157,7 @@ export class QuillSpellChecker {
     }
 
     public ignoreMatch(id: MatchesEntity["id"]) {
-        console.log("spell-checker-debug: ignoreMatch", { id });
+        debug("spell-checker-debug: ignoreMatch", { id });
         const match = this.matches.find((match) => match.id === id);
         if (match) {
             this.boxes.removeCurrentSuggestionBox(match, match?.text);
@@ -157,7 +165,7 @@ export class QuillSpellChecker {
     }
 
     public showMatches(show: boolean = true) {
-        console.log("spell-checker-debug: showMatches", { show });
+        debug("spell-checker-debug: showMatches", { show });
         if (show) {
             this.boxes.addSuggestionBoxes();
         } else {
@@ -166,14 +174,14 @@ export class QuillSpellChecker {
     }
 
     private disableNativeSpellcheckIfSet() {
-        console.log("spell-checker-debug: disableNativeSpellcheckIfSet");
+        debug("spell-checker-debug: disableNativeSpellcheckIfSet");
         if (this.params.disableNativeSpellcheck) {
             this.quill.root.setAttribute("spellcheck", "false");
         }
     }
 
     private onTextChange() {
-        console.log("spell-checker-debug: onTextChange");
+        debug("spell-checker-debug: onTextChange");
         if (this.loopPreventionCooldown) return;
         if (this.typingCooldown) {
             clearTimeout(this.typingCooldown);
@@ -184,18 +192,18 @@ export class QuillSpellChecker {
     }
 
     public setOnRequestComplete(callback: () => void) {
-        console.log("spell-checker-debug: setOnRequestComplete");
+        debug("spell-checker-debug: setOnRequestComplete");
         this.onRequestComplete = callback;
     }
 
     public async checkSpelling() {
-        console.log("spell-checker-debug: checkSpelling");
+        debug("spell-checker-debug: checkSpelling");
         if (document.querySelector("spck-toolbar")) {
             return;
         }
 
         const text = this.quill.getText();
-        console.log("spell-checker-debug: checkSpelling text", { text });
+        debug("spell-checker-debug: checkSpelling text", { text });
 
         if (!text.replace(/[\n\t\r]/g, "").trim()) {
             return;
@@ -203,7 +211,7 @@ export class QuillSpellChecker {
         this.boxes.removeSuggestionBoxes();
         // this.loader.startLoading();
         const results = await this.getSpellCheckerResults(text);
-        console.log("spell-checker-debug: checkSpelling json", { results });
+        debug("spell-checker-debug: checkSpelling json", { results });
         if (results && results.length > 0) {
             this.matches = results
                 .filter(
@@ -214,7 +222,7 @@ export class QuillSpellChecker {
                     ...match,
                     id: index.toString(),
                 }));
-            console.log("spell-checker-debug: checkSpelling matches", {
+            debug("spell-checker-debug: checkSpelling matches", {
                 matches: this.matches,
             });
             this.boxes.addSuggestionBoxes();
@@ -228,7 +236,7 @@ export class QuillSpellChecker {
     private async getSpellCheckerResults(
         text: string,
     ): Promise<MatchesEntity[] | null> {
-        console.log("spell-checker-debug: getSpellCheckerResults", { text });
+        debug("spell-checker-debug: getSpellCheckerResults", { text });
         try {
             if (window.vscodeApi) {
                 // Use VSCode API to make the request
@@ -240,7 +248,7 @@ export class QuillSpellChecker {
                                 "message",
                                 messageListener,
                             );
-                            console.log(
+                            debug(
                                 "spell-checker-debug: spellCheckResponse",
                                 message.content,
                             );
@@ -278,7 +286,7 @@ export class QuillSpellChecker {
     }
 
     public preventLoop() {
-        console.log("spell-checker-debug: preventLoop");
+        debug("spell-checker-debug: preventLoop");
         if (this.loopPreventionCooldown) {
             clearTimeout(this.loopPreventionCooldown);
         }
@@ -305,7 +313,7 @@ export class QuillSpellChecker {
  * @param Quill Quill static instance.
  */
 export default function registerQuillSpellChecker(Quill: any, vscodeApi: any) {
-    console.log("spell-checker-debug: registerQuillSpellChecker", {
+    debug("spell-checker-debug: registerQuillSpellChecker", {
         Quill,
         vscodeApi,
     });

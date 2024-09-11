@@ -69,9 +69,9 @@ const CodexChunkEditor: React.FC = () => {
     );
     const verseRefRegex = /(?<=^|\s)(?=[A-Z, 1-9]{3} \d{1,3}:\d{1,3})/;
     const processVerseContent = (cellContent: string) => {
-        console.log({ cellContent });
+        // console.log({ cellContent });
         const lines = cellContent.split(verseRefRegex);
-        console.log({ lines });
+        // console.log({ lines });
         const processedLines: {
             verseMarkers: string[];
             verseContent: string;
