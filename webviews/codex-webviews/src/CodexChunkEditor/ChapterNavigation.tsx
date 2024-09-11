@@ -18,14 +18,15 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
             disabled={chapterIndex === 0 || unsavedChanges}
             onClick={() => setChapterIndex(chapterIndex - 1)}
         >
-            ⬅
+            <i className="codicon codicon-chevron-left"></i>
         </button>
         <button
-            disabled={chapterIndex === scriptureCellsLength - 1 || unsavedChanges}
-            style={{ transform: "rotate(180deg)" }}
+            disabled={
+                chapterIndex === scriptureCellsLength - 1 || unsavedChanges
+            }
             onClick={() => setChapterIndex(chapterIndex + 1)}
         >
-            ⬅
+            <i className="codicon codicon-chevron-right"></i>
         </button>
     </div>
 );

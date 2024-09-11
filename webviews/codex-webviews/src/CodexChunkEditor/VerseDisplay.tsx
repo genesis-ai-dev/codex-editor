@@ -1,5 +1,6 @@
 import React from "react";
 import { EditorVerseContent, EditorPostMessages } from "../../../../types";
+import { HACKY_removeContiguousSpans } from "./utils";
 
 interface VerseDisplayProps {
     verseMarker: string;
@@ -31,7 +32,9 @@ const VerseDisplay: React.FC<VerseDisplayProps> = ({
     return (
         <span className="verse-display" onClick={handleVerseClick}>
             <sup>{verseMarker.split(" ")[1].split(":")[1]}</sup>
-            <span dangerouslySetInnerHTML={{ __html: verseContent }} />
+            <span
+                dangerouslySetInnerHTML={{ __html: HACKY_removeContiguousSpans(verseContent) }}
+            />
         </span>
     );
 };

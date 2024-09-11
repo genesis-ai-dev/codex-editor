@@ -24,7 +24,7 @@ import { syncUtils } from "./activationHelpers/contextAware/syncUtils";
 import { initializeStateStore } from "./stateStore";
 import { projectFileExists } from "./utils/fileUtils";
 import { registerCompletionsCodeLensProviders } from "./activationHelpers/contextAware/completionsCodeLensProviders";
-import { CodexChunkEditorProvider } from "./providers/codexChunkEditorProvider/CodexChunkEditorProvider";
+import { CodexChunkEditorProvider } from "./providers/codexChunkEditorProvider/codexChunkEditorProvider";
 import * as path from "path";
 import {
     LanguageClient,

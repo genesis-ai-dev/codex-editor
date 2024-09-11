@@ -20,8 +20,7 @@ function getNonce(): string {
 }
 
 export class CodexChunkEditorProvider
-    implements vscode.CustomTextEditorProvider
-{
+    implements vscode.CustomTextEditorProvider {
     public static register(
         context: vscode.ExtensionContext,
     ): vscode.Disposable {
@@ -36,7 +35,7 @@ export class CodexChunkEditorProvider
 
     private static readonly viewType = "codex.chunkEditor";
 
-    constructor(private readonly context: vscode.ExtensionContext) {}
+    constructor(private readonly context: vscode.ExtensionContext) { }
 
     /**
      * Called when our custom editor is opened.
@@ -142,12 +141,21 @@ export class CodexChunkEditorProvider
      * Get the static html used for the editor webviews.
      */
     private getHtmlForWebview(webview: vscode.Webview): string {
-        const codiconsUri = getUri(webview, this.context.extensionUri, [
-            "node_modules",
-            "@vscode/codicons",
-            "dist",
-            "codicon.css",
-        ]);
+        const styleResetUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(this.context.extensionUri, "src", "media", "reset.css")
+        );
+        const styleVSCodeUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(this.context.extensionUri, "src", "media", "vscode.css")
+        );
+        const codiconsUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(
+                this.context.extensionUri,
+                "node_modules",
+                "@vscode/codicons",
+                "dist",
+                "codicon.css"
+            )
+        );
         const scriptUri = webview.asWebviewUri(
             vscode.Uri.joinPath(
                 this.context.extensionUri,
@@ -156,18 +164,7 @@ export class CodexChunkEditorProvider
                 "dist",
                 "CodexChunkEditor",
                 "index.js",
-            ),
-        );
-
-        const styleUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(
-                this.context.extensionUri,
-                "webviews",
-                "codex-webviews",
-                "dist",
-                "CodexChunkEditor",
-                "index.css",
-            ),
+            )
         );
 
         const nonce = getNonce();
@@ -178,8 +175,9 @@ export class CodexChunkEditorProvider
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src https://languagetool.org/api/; img-src ${webview.cspSource} https:; font-src ${webview.cspSource};">
-                <link rel="stylesheet" type="text/css" href="${styleUri}">
-                <link href="${codiconsUri}" rel="stylesheet" />
+                <link href="${styleResetUri}" rel="stylesheet" nonce="${nonce}">
+                <link href="${styleVSCodeUri}" rel="stylesheet" nonce="${nonce}">
+                <link href="${codiconsUri}" rel="stylesheet" nonce="${nonce}" />
                 <title>Codex Chunk Editor</title>
             </head>
             <body>
@@ -254,8 +252,8 @@ export class CodexChunkEditorProvider
             cellToUpdate.value =
                 cellToUpdate.value.substring(
                     0,
-                        cellToUpdate.value.indexOf(data.verseMarkers[0]) +
-                        data.verseMarkers[0].length,
+                    cellToUpdate.value.indexOf(data.verseMarkers[0]) +
+                    data.verseMarkers[0].length,
                 ) +
                 " " +
                 data.content;

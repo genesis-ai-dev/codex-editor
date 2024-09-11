@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import "@vscode/codicons/dist/codicon.css"; // Import codicons
 
 const DeleteButtonWithConfirmation: React.FC<{
     handleDeleteButtonClick: () => void;
@@ -22,18 +22,14 @@ const DeleteButtonWithConfirmation: React.FC<{
     return (
         <div style={{ display: "flex", gap: "10px" }}>
             {!showConfirmation ? (
-                <VSCodeButton
+                <button
                     aria-label="Delete"
-                    appearance="icon"
                     title="Delete"
                     onClick={handleDelete}
-                    style={{
-                        backgroundColor: "var(--vscode-button-background)",
-                        color: "var(--vscode-button-foreground)",
-                    }}
+                    className="vscode-button"
                 >
-                    <i className="codicon codicon-trash"></i>
-                </VSCodeButton>
+                    <i className="codicon codicon-close"></i>
+                </button>
             ) : (
                 <div
                     style={{
@@ -43,32 +39,23 @@ const DeleteButtonWithConfirmation: React.FC<{
                         gap: "10px",
                     }}
                 >
-                    <VSCodeButton
+                    <button
                         aria-label="Confirm Delete"
-                        appearance="icon"
                         title="Confirm Delete"
                         onClick={confirmDelete}
-                        style={{
-                            color: "var(--vscode-button-foreground)",
-                            backgroundColor:
-                                "var(--vscode-symbolIcon-eventForeground)",
-                        }}
+                        className="vscode-button"
                     >
                         <i className="codicon codicon-check"></i>
                         <i className="codicon codicon-trash"></i>
-                    </VSCodeButton>
-                    <VSCodeButton
+                    </button>
+                    <button
                         aria-label="Cancel Delete"
-                        appearance="icon"
                         title="Cancel Delete"
                         onClick={cancelDelete}
-                        style={{
-                            backgroundColor: "var(--vscode-errorForeground)",
-                            color: "var(--vscode-editor-background)",
-                        }}
+                        className="vscode-button"
                     >
                         <i className="codicon codicon-close"></i>
-                    </VSCodeButton>
+                    </button>
                 </div>
             )}
         </div>

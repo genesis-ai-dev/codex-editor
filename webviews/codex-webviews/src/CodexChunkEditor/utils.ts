@@ -19,3 +19,7 @@ export const processVerseContent = (cellContent: string) => {
         })
         .filter((line) => line !== null);
 };
+
+export const HACKY_removeContiguousSpans = (html: string) => {
+    return html.replace(/<\/span><span>/g, '');
+};

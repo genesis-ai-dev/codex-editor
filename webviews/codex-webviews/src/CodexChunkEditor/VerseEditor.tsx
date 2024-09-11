@@ -10,7 +10,9 @@ interface VerseEditorProps {
     verseIndex: number;
     spellCheckResponse: CustomNotebookData;
     contentBeingUpdated: EditorVerseContent;
-    setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorVerseContent>>;
+    setContentBeingUpdated: React.Dispatch<
+        React.SetStateAction<EditorVerseContent>
+    >;
     handleCloseEditor: () => void;
     handleSaveMarkdown: () => void;
 }
@@ -36,12 +38,32 @@ const VerseEditor: React.FC<VerseEditorProps> = ({
         <div className="verse-editor">
             <div className="verse-header">
                 <h3>{verseMarker}</h3>
-                {!unsavedChanges ? (
-                    <button onClick={handleCloseEditor} disabled={unsavedChanges}>
-                        ❌
-                    </button>
+                {unsavedChanges ? (
+                    <div
+                        style={{
+                            display: "flex",
+                            flexDirection: "row",
+                            gap: "0.5rem",
+                        }}
+                    >
+                        <button
+                            onClick={handleSaveMarkdown}
+                            className="vscode-button-confirm"
+                        >
+                            <i className="codicon codicon-save"></i>
+                        </button>
+                        <CloseButtonWithConfirmation
+                            handleDeleteButtonClick={handleCloseEditor}
+                        />
+                    </div>
                 ) : (
-                    <CloseButtonWithConfirmation handleDeleteButtonClick={handleCloseEditor} />
+                    <button
+                        onClick={handleCloseEditor}
+                        disabled={unsavedChanges}
+                        className="vscode-button"
+                    >
+                        <i className="codicon codicon-close"></i>
+                    </button>
                 )}
             </div>
             <div className="text-editor">
@@ -57,7 +79,6 @@ const VerseEditor: React.FC<VerseEditorProps> = ({
                         });
                     }}
                 />
-                <button onClick={handleSaveMarkdown}>Save</button>
             </div>
         </div>
     );

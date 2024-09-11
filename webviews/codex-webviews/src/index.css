@@ -65,3 +65,139 @@ button:focus-visible {
         background-color: #f9f9f9;
     }
 } */
+
+.ql-ai::after {
+    content: "✨";
+    font-size: 18px;
+}
+
+.codex-chunk-editor {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+.editor-container {
+    display: flex;
+    flex-direction: column;
+    max-width: 40rem;
+    width: 100%;
+}
+
+.chapter-navigation {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+}
+
+.chapter-navigation > button {
+    background-color: #f0f0f0;
+    border: none;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    border-radius: 0.25rem;
+    transition: background-color 0.3s ease;
+}
+
+.chapter-navigation > button:hover {
+    background-color: #e0e0e0;
+}
+
+.chapter-navigation > button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* VerseList styles */
+.verse-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+/* VerseGroup styles */
+.verse-group {
+    display: inline;
+    background-color: #f9f9f9;
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+}
+
+/* VerseDisplay styles */
+.verse-display {
+    display: inline;
+    padding: 0.25rem 0;
+}
+
+.verse-display:hover {
+    background-color: #f0f0f0;
+}
+
+.verse-display sup {
+    font-size: 0.75em;
+    margin-right: 0.25rem;
+    color: #666;
+}
+
+/* VerseEditor styles */
+.verse-editor {
+    border: 1px solid #ccc;
+    border-radius: 0.25rem;
+    padding: 1rem;
+    background-color: #f9f9f9;
+}
+
+.verse-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.verse-header h3 {
+    margin: 0;
+}
+
+.text-editor {
+    margin-top: 0.5rem;
+}
+
+.text-editor button {
+    margin-top: 0.5rem;
+    padding: 0.25rem 0.5rem;
+    background-color: #4caf50;
+    color: white;
+    border: none;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.text-editor button:hover {
+    background-color: #45a049;
+}
+
+/* EmptyVerseDisplay styles */
+.empty-verse-display {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem;
+    background-color: #f0f0f0;
+    border: 1px dashed #ccc;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.empty-verse-display:hover {
+    background-color: #e0e0e0;
+}
+
+.empty-verse-marker {
+    font-weight: bold;
+    margin-right: 0.5rem;
+}
+
+.empty-verse-prompt {
+    color: #666;
+    font-style: italic;
+}
