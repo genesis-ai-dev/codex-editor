@@ -81,11 +81,6 @@ export class SpellChecker {
 
         const originalWord = word;
         const cleanedWord = cleanWord(word);
-        // const lowercaseWord = word.toLowerCase();
-
-        // Improved punctuation handling
-        // const wordWithoutPunctuation = lowercaseWord.replace(/[^\p{L}\p{N}'-]/gu, '');
-
         const isInDictionary = this.dictionary.entries.some(entry => {
             const entryWithoutPunctuation = entry.headWord.replace(/[^\p{L}\p{N}'-]/gu, '');
             return entryWithoutPunctuation === cleanedWord;
@@ -95,20 +90,37 @@ export class SpellChecker {
             return { word: originalWord, corrections: [] };
         }
 
-        const suggestions = this.getSuggestions(cleanedWord);
+        const suggestions = this.getSuggestions(originalWord);
 
         return { word: originalWord, corrections: suggestions };
     }
-
     private getSuggestions(word: string): string[] {
+        if (!word || word.trim().length === 0) {
+            return [];
+        }
+
+        const cleanedWord = cleanWord(word);
+        const leadingPunctuation = word.match(/^[^\p{L}\p{N}]+/u)?.[0] || '';
+        const trailingPunctuation = word.match(/[^\p{L}\p{N}]+$/u)?.[0] || '';
+
         return this.dictionary!.entries
             .map(entry => ({
                 word: entry.headWord,
-                distance: this.levenshteinDistance(word, entry.headWord)
+                distance: this.levenshteinDistance(cleanedWord.toLowerCase(), entry.headWord.toLowerCase())
             }))
             .sort((a, b) => a.distance - b.distance)
             .slice(0, 3)
-            .map(suggestion => suggestion.word);
+            .map(suggestion => {
+                let result = suggestion.word;
+                
+                // Preserve original capitalization
+                if (word[0].toUpperCase() === word[0]) {
+                    result = result.charAt(0).toUpperCase() + result.slice(1);
+                }
+
+                // Preserve surrounding punctuation
+                return leadingPunctuation + result + trailingPunctuation;
+            });
     }
 
     private levenshteinDistance(a: string, b: string): number {
@@ -123,7 +135,7 @@ export class SpellChecker {
 
         for (let i = 1; i <= b.length; i++) {
             for (let j = 1; j <= a.length; j++) {
-                if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                if (b.charAt(i - 1).toLowerCase() === a.charAt(j - 1).toLowerCase()) {
                     matrix[i][j] = matrix[i - 1][j - 1];
                 } else {
                     matrix[i][j] = Math.min(
