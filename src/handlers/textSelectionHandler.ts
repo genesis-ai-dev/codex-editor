@@ -44,6 +44,7 @@ export function registerTextSelectionHandler(
                                 completeLineContent,
                                 vrefAtStartOfLine: currentLineVref,
                                 selectedText: selectedText,
+                                verseNotes: "", // Add this property with an empty string as default
                             },
                         });
                         updateStoreState({
