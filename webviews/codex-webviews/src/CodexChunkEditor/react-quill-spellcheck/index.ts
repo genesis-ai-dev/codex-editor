@@ -54,31 +54,31 @@ export class QuillSpellChecker {
         }
 
         // not allow the insertion of images and texts with formatting
-        quill.clipboard.addMatcher(Node.ELEMENT_NODE, function (node) {
-            const plaintext = node.textContent || "";
-            console.log("spell-checker-debug: clipboard matcher", {
-                plaintext,
-            });
-            const Delta = Quill.import("delta");
-            return new Delta().insert(plaintext);
-        });
+        // quill.clipboard.addMatcher(Node.ELEMENT_NODE, function (node) {
+        //     const plaintext = node.textContent || "";
+        //     console.log("spell-checker-debug: clipboard matcher", {
+        //         plaintext,
+        //     });
+        //     const Delta = Quill.import("delta");
+        //     return new Delta().insert(plaintext);
+        // });
 
         // break line using enter and
         // do not allow the insertion of <> characters
-        this.quill.root.addEventListener("keydown", (event) => {
-            console.log("spell-checker-debug: keydown event", {
-                key: event.key,
-            });
-            if (event.key === "Enter") {
-                const selectionIndex = quill.getSelection()?.index;
-                if (typeof selectionIndex !== "undefined") {
-                    quill.insertText(selectionIndex, "\n");
-                    event.preventDefault();
-                }
-            } else if (event.key === "<" || event.key === ">") {
-                event.preventDefault();
-            }
-        });
+        // this.quill.root.addEventListener("keydown", (event) => {
+        //     console.log("spell-checker-debug: keydown event", {
+        //         key: event.key,
+        //     });
+        //     if (event.key === "Enter") {
+        //         const selectionIndex = quill.getSelection()?.index;
+        //         if (typeof selectionIndex !== "undefined") {
+        //             quill.insertText(selectionIndex, "\n");
+        //             event.preventDefault();
+        //         }
+        //     } else if (event.key === "<" || event.key === ">") {
+        //         event.preventDefault();
+        //     }
+        // });
 
         // copy plain text to clipboard
         this.quill.root.addEventListener("copy", (event: any) => {
@@ -185,7 +185,6 @@ export class QuillSpellChecker {
             clearTimeout(this.typingCooldown);
         }
         this.typingCooldown = window.setTimeout(() => {
-            // Use window.setTimeout
             this.checkSpelling();
         }, this.params.cooldownTime);
     }
@@ -273,12 +272,6 @@ export class QuillSpellChecker {
                     }, 5000); // 5 second timeout
                 });
             } else {
-                // Fallback to original implementation if VSCode API is not available
-                // const response = await fetch(this.params.api.url, {
-                //     ...this.params.api,
-                //     body: this.params.api.body(text),
-                // });
-                // return this.params.api.mapResponse(response);
                 return null;
             }
         } catch (e) {

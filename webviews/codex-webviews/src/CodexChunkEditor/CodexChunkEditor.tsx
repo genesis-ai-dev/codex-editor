@@ -108,12 +108,6 @@ const CodexChunkEditor: React.FC = () => {
             ]?.verseContent.replace(/\s/g, "")
     );
 
-    console.log({
-        unsavedChanges,
-        content:
-            translationUnits?.[contentBeingUpdated.verseIndex]?.verseContent,
-        contentBeingUpdated,
-    });
     const handleCloseEditor = () => {
         setContentBeingUpdated({} as EditorVerseContent);
     };
@@ -164,7 +158,6 @@ const CodexChunkEditor: React.FC = () => {
                 <p>
                     {translationUnits?.map(
                         ({ verseMarker, verseContent }, verseIndex) => {
-                            console.log({ verseMarker, verseContent });
                             if (
                                 verseMarker === contentBeingUpdated.verseMarker
                             ) {
