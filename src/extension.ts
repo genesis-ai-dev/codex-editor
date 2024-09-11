@@ -48,7 +48,6 @@ let client: LanguageClient;
 export async function activate(context: vscode.ExtensionContext) {
     await indexVerseRefsInSourceText();
     await handleConfig();
-    await initializeWebviews(context);
     registerReferencesCodeLens(context);
     registerSourceCodeLens(context);
     registerCompletionsCodeLensProviders(context);
@@ -153,6 +152,7 @@ export async function activate(context: vscode.ExtensionContext) {
     await registerCommands(context);
     await createIndexWithContext(context);
     await initializeBibleData(context);
+    await initializeWebviews(context);
 }
 
 export function deactivate(): Thenable<void> | undefined {
