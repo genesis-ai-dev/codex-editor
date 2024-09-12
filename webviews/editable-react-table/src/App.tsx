@@ -18,7 +18,6 @@ import { DictionaryPostMessages } from '../../../types';
 import { TableColumn, TableData, TableEntry } from './tableTypes';
 import debounce from 'lodash/debounce';
 
-
 function reducer(state: any, action: any) {
   console.log('Reducer action:', action);
   switch (action.type) {
@@ -203,13 +202,22 @@ function reducer(state: any, action: any) {
     case ActionTypes.LOAD_DATA:
       let columns = action.columns.map((column: TableColumn) => {
         // Set visibility for specific columns
-        if (column.id && ['headWord', 'definition', 'translationEquivalents', 'checkbox_column', 'notes'].includes(column.id)) {
+        if (
+          column.id &&
+          [
+            'headWord',
+            'definition',
+            'translationEquivalents',
+            'checkbox_column',
+            'notes',
+          ].includes(column.id)
+        ) {
           return { ...column, visible: true };
         } else {
           return { ...column, visible: false };
         }
       });
-    
+
       return {
         ...state,
         data: action.data,
@@ -225,15 +233,17 @@ function reducer(state: any, action: any) {
           (row: any) => !row[Constants.CHECKBOX_COLUMN_ID]
         ),
       };
-    
+
     case ActionTypes.RESIZE_COLUMN_WIDTHS:
       console.log('Resizing columns to', action.minWidth);
       return {
-          ...state,
-          columns: state.columns.map((column: any) => 
-            column.dataType !== DataTypes.CHECKBOX ? { ...column, width: action.minWidth } : column
-          ),
-        };
+        ...state,
+        columns: state.columns.map((column: any) =>
+          column.dataType !== DataTypes.CHECKBOX
+            ? { ...column, width: action.minWidth }
+            : column
+        ),
+      };
 
     default:
       return state;
@@ -248,7 +258,6 @@ function generateUniqueId(data: any) {
   return newId;
 }
 
-
 function App() {
   interface AppState {
     columns: TableColumn[];
@@ -261,7 +270,7 @@ function App() {
     data?: TableEntry[]; // Assuming data is an array of any objects, specify further if possible
     columns?: TableColumn[];
     dictionary?: Dictionary;
-    minWidth?: number; 
+    minWidth?: number;
   }
 
   const initialState: AppState = {
@@ -279,10 +288,10 @@ function App() {
   const [state, dispatch] = useReducer<React.Reducer<AppState, Action>>(
     reducer,
     initialState
-  );  
+  );
 
   const [searchBarWidth, setSearchBarWidth] = useState(window.innerWidth - 20);
-  
+
   useEffect(() => {
     dispatch({ type: ActionTypes.ENABLE_RESET });
     console.log('Data changed');
@@ -299,7 +308,10 @@ function App() {
         command: 'updateData',
         data: dictionaryData,
       } as DictionaryPostMessages);
-      console.log('Something in data, columns, or dict changed. New count:', state.data.length);
+      console.log(
+        'Something in data, columns, or dict changed. New count:',
+        state.data.length
+      );
     }
   }, [state.data, state.columns, state.dictionary]);
 
@@ -309,19 +321,22 @@ function App() {
       const numColumns = state.columns.filter(column => column.visible).length;
       return (windowWidth - 60) / (numColumns - 1);
     };
-    
+
     const handleResize = debounce(() => {
       const newMinWidth = calculateNewMinWidth(window.innerWidth);
-      dispatch({ type: ActionTypes.RESIZE_COLUMN_WIDTHS, minWidth: newMinWidth });
+      dispatch({
+        type: ActionTypes.RESIZE_COLUMN_WIDTHS,
+        minWidth: newMinWidth,
+      });
       setSearchBarWidth(window.innerWidth - 20);
     }, 100);
-  
+
     // Set initial width for search bar
     setSearchBarWidth(window.innerWidth - 20);
 
     // Add the event listener when the component mounts
     window.addEventListener('resize', handleResize);
-  
+
     // Return a cleanup function that removes the event listener when the component unmounts
     return () => {
       handleResize.cancel();
@@ -343,10 +358,10 @@ function App() {
 
           if (!dictionary.entries) {
             dictionary = {
-                ...dictionary,
-                entries: [],
+              ...dictionary,
+              entries: [],
             };
-        }
+          }
 
           console.log('Dictionary before transformation:');
           console.log({ dictionary });
@@ -395,8 +410,10 @@ function App() {
   };
 
   const filteredData = state.data.filter((row: any) => {
-    return Object.values(row).some(value => 
-      typeof value === 'string' && value.toLowerCase().includes(searchQuery.toLowerCase())
+    return Object.values(row).some(
+      value =>
+        typeof value === 'string' &&
+        value.toLowerCase().includes(searchQuery.toLowerCase())
     );
   });
 
@@ -412,22 +429,23 @@ function App() {
         flexDirection: 'column',
       }}
     >
-
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center', 
-        marginBottom: 40, 
-        marginTop: 40, 
-        minHeight: '60px' 
-      }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 40,
+          marginTop: 40,
+          minHeight: '60px',
+        }}
+      >
         <h1>Dictionary</h1>
         {deleteOptionShouldShow && (
-        <button
-          onClick={removeCheckedRows}
-          className="remove-button"
-          title="Remove selected rows"
-        >
+          <button
+            onClick={removeCheckedRows}
+            className="remove-button"
+            title="Remove selected rows"
+          >
             <Trash />
           </button>
         )}
@@ -445,8 +463,7 @@ function App() {
       </div>
 
       <div className="app-container">
-
-        <div className="table-container"> 
+        <div className="table-container">
           <Table
             columns={state.columns.filter(column => column.visible)}
             // data={state.data} 888
