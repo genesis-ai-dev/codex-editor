@@ -102,21 +102,37 @@ const loadWebviewHtml = (
     webviewView.webview.html = html;
     webviewView.webview.onDidReceiveMessage(
         async (message: any) => {
+            console.log(message.command);
             switch (message.command) {
                 case "openFileAtLocation":
                     simpleOpen(message.uri);
                     break;
-                case "getSimilar":
+                case "server.getSimilar":
                     try {
+                        console.log('Requesting similar words for:', message.word);
                         const word = message.word;
-                        // const response = await pyMessenger.getMostSimilar("target", word);
+                        const response = await vscode.commands.executeCommand('server.getSimilarWords', word);
                         
-                        webviewView.webview.postMessage({
-                            command: "similarWords",
-                            data: 'response',
-                        });
+                        console.log('Response from server.getSimilarWords:', response);
+                        if (response) {
+                            console.log('Sending similarWords message to webview');
+                            webviewView.webview.postMessage({
+                                command: "similarWords",
+                                data: response,
+                            });
+                        } else {
+                            console.error('No response from server.getSimilarWords');
+                            webviewView.webview.postMessage({
+                                command: "similarWords",
+                                data: [],
+                            });
+                        }
                     } catch (error) {
                         console.error('Failed to get similar words:', error);
+                        webviewView.webview.postMessage({
+                            command: "similarWords",
+                            data: [],
+                        });
                     }
                     break;                
                 default:

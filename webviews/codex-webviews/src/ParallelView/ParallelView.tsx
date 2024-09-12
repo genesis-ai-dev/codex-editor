@@ -3,48 +3,32 @@ import {
     VSCodePanelTab,
     VSCodePanelView,
     VSCodePanels,
+    VSCodeDivider,
 } from "@vscode/webview-ui-toolkit/react";
 import "./App.css";
-import { Item, OpenFileMessage, SearchCommand, SearchResults } from "./types";
-import { compareVerses } from "./utils";
+import { OpenFileMessage, SearchResults } from "./types";
+import { TranslationPair } from "../../../../types";
+
 import SearchBar from "./SearchBar";
 import VerseItem from "./VerseItem";
-import { SmartEditClient } from "./smartEditClient";
 
 const vscode = acquireVsCodeApi();
-const editClient = new SmartEditClient(vscode);
 
-function App() {
-    const [searchResults, setSearchResults] = useState<SearchResults>({
-        bibleResults: [],
-        codexResults: [],
-    });
+function ParallelView() {
+    const [verses, setVerses] = useState<TranslationPair[]>([]);
     const [lastQuery, setLastQuery] = useState<string>("");
-    const [verses, setVerses] = useState<Item[]>([]);
-    const [before, setBefore] = useState<string>("");
-    const [after, setAfter] = useState<string>("");
-    const [smartEditingIndex, setSmartEditingIndex] = useState<number>(-1);
-
+    
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             const message = event.data;
             if (message.command === "searchResults") {
-                const { bible_results, codex_results } = message.data;
-                setSearchResults({
-                    bibleResults: bible_results,
-                    codexResults: codex_results,
-                });
+                setVerses(message.data as TranslationPair[]);
             }
         };
 
         window.addEventListener("message", handleMessage);
         return () => window.removeEventListener("message", handleMessage);
     }, []);
-
-    useEffect(() => {
-        const combinedVerses = compareVerses(searchResults);
-        setVerses(combinedVerses);
-    }, [searchResults]);
 
     const handleUriClick = (uri: string, word: string) => {
         vscode.postMessage({
@@ -54,13 +38,16 @@ function App() {
         } as OpenFileMessage);
     };
 
-    const searchBoth = (query: string) => {
+    const searchBoth = (query: string, event?: React.FormEvent) => {
+        if (event) {
+            event.preventDefault();
+        }
         setLastQuery(query);
         vscode.postMessage({
             command: "search",
             database: "both",
             query: query,
-        } as SearchCommand);
+        });
     };
 
     const handleSaveClick = (
@@ -78,55 +65,42 @@ function App() {
 
         setVerses((prevVerses) => {
             const newVerses = [...prevVerses];
-            newVerses[index] = { ...newVerses[index], codexText: after };
+            newVerses[index] = { ...newVerses[index], targetVerse: { ...newVerses[index].targetVerse, content: after } };
             return newVerses;
         });
-
-        searchBoth(lastQuery);
     };
-    const getEdit = async (
-        query: string,
-        setSmartEditText: React.Dispatch<React.SetStateAction<string>>,
-    ) => {
-        editClient.getSmartEdit(before, after, query).then((result) => {
-            setSmartEditText(result.toString());
-        });
-       
-    };
-
+   
     return (
         <VSCodePanels>
             <VSCodePanelTab id="tab1">Parallel Passages</VSCodePanelTab>
             <VSCodePanelView id="view1">
                 <div className="container">
+                    <h1 className="view-title">Parallel Passages</h1>
+                    <VSCodeDivider />
                     <SearchBar
                         query={lastQuery}
                         onQueryChange={setLastQuery}
-                        onSearch={() => {
-                            setSmartEditingIndex(-1);
-                            setBefore("");
-                            setAfter("");
-                            searchBoth(lastQuery);
+                        onSearch={(event) => {
+                            searchBoth(lastQuery, event);
                         }}
                     />
-                    {verses.length > 0 && (
+                    <VSCodeDivider />
+                    {verses.length > 0 ? (
                         <div className="verses-container">
                             {verses.map((item, index) => (
-                                <VerseItem
-                                    key={index}
-                                    item={item}
-                                    index={index}
-                                    onUriClick={handleUriClick}
-                                    onSaveClick={handleSaveClick}
-                                    setBefore={setBefore}
-                                    setAfter={setAfter}
-                                    searchBoth={searchBoth}
-                                    setSmartEditingIndex={setSmartEditingIndex}
-                                    smartEditingIndex={smartEditingIndex}
-                                    getEdit={getEdit}
-                                />
+                                <React.Fragment key={index}>
+                                    <VerseItem
+                                        item={item}
+                                        index={index}
+                                        onUriClick={handleUriClick}
+                                        onSaveClick={handleSaveClick}
+                                    />
+                                    {index < verses.length - 1 && <VSCodeDivider />}
+                                </React.Fragment>
                             ))}
                         </div>
+                    ) : (
+                        <p className="no-results">No results found. Try a different search query.</p>
                     )}
                 </div>
             </VSCodePanelView>
@@ -134,6 +108,4 @@ function App() {
     );
 }
 
-export default App;
-
-
+export default ParallelView;

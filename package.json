@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.0.46",
+    "version": "0.0.48",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -25,22 +25,19 @@
     "contributes": {
         "keybindings": [
             {
-                "command": "pygls.server.add_dictionary",
-                "key": "ctrl+shift+a",
-                "mac": "cmd+shift+a",
-                "when": "editorTextFocus"
-            },
-            {
-                "command": "pygls.server.add_line_dictionary",
-                "key": "ctrl+shift+b",
-                "mac": "cmd+shift+b",
-                "when": "editorTextFocus"
+                "command": "extension.triggerInlineCompletion",
+                "key": "alt+z",
+                "when": "editorTextFocus && !inputDisabled"
             }
         ],
         "viewsWelcome": [
             {
                 "view": "scripture-explorer-activity-bar",
                 "contents": "Welcome to the Codex Scripture Editor! Please setup a new translation project by using the form below."
+            },
+            {
+                "view": "dictionary-summary-panel",
+                "contents": "\n[Open Dictionary Table](command:dictionaryTable.showDictionaryTable)"
             }
         ],
         "notebookEditorDecorations": [
@@ -77,7 +74,7 @@
             "dictionary-summary": [
                 {
                     "type": "webview",
-                    "id": "dictionary-side-panel",
+                    "id": "dictionary-summary-panel",
                     "name": "Dictionary Table",
                     "icon": "$(notebook)",
                     "contextualTitle": "Dictionary Table"
@@ -88,6 +85,24 @@
                     "name": "Thesaurus",
                     "icon": "$(unfold)",
                     "contextualTitle": "Semantic View"
+                }
+            ],
+            "genesis-translator-sidebar-view": [
+                {
+                    "type": "webview",
+                    "id": "genesis-translator-sidebar",
+                    "name": "Translator's Copilot",
+                    "icon": "$(comment-discussion)",
+                    "contextualTitle": "Translator's Copilot"
+                }
+            ],
+            "comments-sidebar-view": [
+                {
+                    "type": "webview",
+                    "id": "comments-sidebar",
+                    "name": "Comments",
+                    "icon": "$(note)",
+                    "contextualTitle": "Comments"
                 }
             ]
         },
@@ -112,6 +127,16 @@
                     "id": "dictionary-summary",
                     "title": "Dictionary Summary",
                     "icon": "$(notebook)"
+                },
+                {
+                    "id": "genesis-translator-sidebar-view",
+                    "title": "Translator's Copilot",
+                    "icon": "$(comment-discussion)"
+                },
+                {
+                    "id": "comments-sidebar-view",
+                    "title": "Comments",
+                    "icon": "$(note)"
                 }
             ]
         },
@@ -158,6 +183,130 @@
                 }
             ]
         },
+        "walkthroughs": [
+            {
+                "id": "setupLocalLLM",
+                "title": "Set up Local/Offline Translator's Copilot",
+                "description": "A simple walkthrough to help you set up a large language model on your device to benefit from the Copilot feature.",
+                "steps": [
+                    {
+                        "id": "downloadLMStudio",
+                        "title": "Download LM Studio",
+                        "description": "Download LM Studio to get a local LLM running to power your Translator's Copilot.\n\n[Download LM Studio](https://lmstudio.ai)",
+                        "media": {
+                            "image": "./src/media/lmstudio.gif",
+                            "altText": "LM Studio"
+                        }
+                    },
+                    {
+                        "id": "downloadModel",
+                        "title": "Download Model",
+                        "media": {
+                            "image": "./src/media/download-model.png",
+                            "altText": "Download Model"
+                        },
+                        "description": "Download the model you want to use for your Copilot. Not sure which one to try? Try searching LM Studio for `TheBloke/neural-chat-7B-v3-1-GGUF` (note the specific file you want is the `neural-chat-7b-v3-1.Q4_K_S.gguf` variant)."
+                    },
+                    {
+                        "id": "loadModel",
+                        "title": "Initialize Downloaded Model",
+                        "media": {
+                            "image": "./src/media/load-model.png",
+                            "altText": "Load Model"
+                        },
+                        "description": "Load the model you want to use for your Copilot. Click on the model dropdown at the top-center of the LM Studio screen, then select the model you downloaded (e.g., `neural-chat-7b-v3-1.Q4_K_S.gguf`)."
+                    },
+                    {
+                        "id": "startLocalServer",
+                        "title": "Start AI Model",
+                        "media": {
+                            "image": "./src/media/start-server.png",
+                            "altText": "Start AI Model"
+                        },
+                        "description": "Make the AI model you downloaded accessible by the Translator's Copilot by clicking on the green play 'Start Server' button in LM Studio."
+                    },
+                    {
+                        "id": "setMainChatLanguage",
+                        "title": "Set Main Chat Language",
+                        "media": {
+                            "image": "./src/media/set-main-chat-language.png",
+                            "altText": "Set Main Chat Language"
+                        },
+                        "description": "Set your main chat language (also accessible in the Translator's Copilot settings).\n\n[Set Chat Language](command:translators-copilot.setMainChatLanguage)"
+                    },
+                    {
+                        "id": "tryChatting",
+                        "title": "Try Chatting with the Translator's Copilot",
+                        "media": {
+                            "image": "./src/media/try-chatting.png",
+                            "altText": "Try Chatting"
+                        },
+                        "description": "Try chatting with the Translator's Copilot by clicking on the chat button in the sidebar, then clicking on the 'Chat' button in the top-right of the chat window."
+                    },
+                    {
+                        "id": "tryInlineCompletions",
+                        "title": "Try Inline Completions",
+                        "media": {
+                            "image": "./src/media/inline-completions.gif",
+                            "altText": "Try Inline Completions"
+                        },
+                        "description": "Try inline completions with the Translator's Copilot by clicking on the chat button in the sidebar, then clicking on the 'Chat' button in the top-right of the chat window."
+                    }
+                ]
+            },
+            {
+                "id": "setupOpenAILLM",
+                "title": "Set up OpenAI Translator's Copilot",
+                "description": "A simple walkthrough to help you set up a large language model on your device to benefit from the Copilot feature.",
+                "steps": [
+                    {
+                        "id": "getAPIKey",
+                        "title": "Get OpenAI API Key",
+                        "description": "Get your OpenAI API key from the OpenAI website.\n\n[Get OpenAI API Key](https://platform.openai.com/signup)",
+                        "media": {
+                            "image": "./src/media/openai-api-key.png",
+                            "altText": "OpenAI API Key"
+                        }
+                    },
+                    {
+                        "id": "setAPIKey",
+                        "title": "Set OpenAI API Key",
+                        "media": {
+                            "image": "./src/media/set-api-key.png",
+                            "altText": "Set API Key"
+                        },
+                        "description": "Set your OpenAI API key in the Translator's Copilot settings.\n\n[Set API Key](command:translators-copilot.setLLMApiKey)"
+                    },
+                    {
+                        "id": "setMainChatLanguage",
+                        "title": "Set Main Chat Language",
+                        "media": {
+                            "image": "./src/media/set-main-chat-language.png",
+                            "altText": "Set Main Chat Language"
+                        },
+                        "description": "Set your main chat language (also accessible in the Translator's Copilot settings).\n\n[Set Chat Language](command:translators-copilot.setMainChatLanguage)"
+                    },
+                    {
+                        "id": "tryChatting",
+                        "title": "Try Chatting with the Translator's Copilot",
+                        "media": {
+                            "image": "./src/media/try-chatting.png",
+                            "altText": "Try Chatting"
+                        },
+                        "description": "Try chatting with the Translator's Copilot by clicking on the chat button in the sidebar, then clicking on the 'Chat' button in the top-right of the chat window."
+                    },
+                    {
+                        "id": "tryInlineCompletions",
+                        "title": "Try Inline Completions",
+                        "media": {
+                            "image": "./src/media/inline-completions.gif",
+                            "altText": "Try Inline Completions"
+                        },
+                        "description": "Try inline completions with the Translator's Copilot by clicking on the chat button in the sidebar, then clicking on the 'Chat' button in the top-right of the chat window."
+                    }
+                ]
+            }
+        ],
         "submenus": [
             {
                 "id": "translators-copilot",
@@ -168,10 +317,6 @@
             {
                 "command": "codex-editor-extension.JOSH_COMMAND",
                 "title": "JOSH_COMMAND"
-            },
-            {
-                "command": "codex-editor-extension.pythonMessenger",
-                "title": "Execute Python Messenger Command"
             },
             {
                 "command": "codex-editor-extension.triggerInlineCompletion",
@@ -238,26 +383,6 @@
                 "command": "scripture-explorer-activity-bar.openChapter",
                 "title": "Open",
                 "icon": "$(arrow-right)"
-            },
-            {
-                "command": "pygls.server.restart",
-                "title": "Restart Language Server",
-                "category": "pygls"
-            },
-            {
-                "command": "pygls.server.executeCommand",
-                "title": "Execute Command",
-                "category": "pygls"
-            },
-            {
-                "command": "pygls.server.EmbedDocument",
-                "title": "Embed Document",
-                "category": "pygls"
-            },
-            {
-                "command": "pygls.server.add_dictionary",
-                "title": "Add to Dictionary",
-                "category": "pygls"
             },
             {
                 "command": "dictionaryTable.showDictionaryTable",
@@ -361,6 +486,16 @@
                 "command": "codex-editor-extension.setEditorFontToTargetLanguage",
                 "title": "Set Editor Font to Target Language",
                 "category": "Codex Editor"
+            },
+            {
+                "command": "codex-editor-extension.getBibleDataRecordById",
+                "title": "Get Bible Data Record by ID",
+                "category": "Codex Editor"
+            },
+            {
+                "command": "codex-editor-extension.exportCodexContent",
+                "title": "Export Codex Translation as Plain Text",
+                "category": "Codex Editor"
             }
         ],
         "notebooks": [
@@ -376,98 +511,7 @@
         ],
         "configuration": [
             {
-                "type": "object",
-                "title": "Server Configuration",
-                "properties": {
-                    "pygls.server.cwd": {
-                        "scope": "resource",
-                        "type": "string",
-                        "description": "The working directory from which to launch the server.",
-                        "markdownDescription": "The working directory from which to launch the server.\nIf blank, this will default to the `examples/servers` directory."
-                    },
-                    "pygls.server.relative_server_path": {
-                        "scope": "resource",
-                        "type": "string",
-                        "description": "The working directory from which to launch the server.",
-                        "markdownDescription": "The working directory from which to launch the server.\nIf blank, this will default to the `examples/servers` directory."
-                    },
-                    "pygls.server.workspace": {
-                        "scope": "resource",
-                        "type": "string",
-                        "description": "The workspace directory (for debugging)"
-                    },
-                    "pygls.server.debug": {
-                        "scope": "resource",
-                        "default": false,
-                        "type": "boolean",
-                        "description": "Enable debugging of the server process."
-                    },
-                    "pygls.server.debugHost": {
-                        "scope": "resource",
-                        "default": "localhost",
-                        "type": "string",
-                        "description": "The host on which the server process to debug is running."
-                    },
-                    "pygls.server.debugPort": {
-                        "scope": "resource",
-                        "default": 5678,
-                        "type": "integer",
-                        "description": "The port number on which the server process to debug is listening."
-                    },
-                    "pygls.server.launchScript": {
-                        "scope": "resource",
-                        "type": "string",
-                        "default": "server.py",
-                        "description": "The python script to run when launching the server.",
-                        "markdownDescription": "The python script to run when launching the server.\n Relative to #pygls.server.cwd#"
-                    },
-                    "pygls.server.pythonPath": {
-                        "scope": "resource",
-                        "type": "string",
-                        "default": "python3",
-                        "description": "The python interpreter to use to run the server.\nBy default, this extension will attempt to use the Python interpreter configured via the Python extension, setting this setting will override this behavior."
-                    },
-                    "pygls.trace.server": {
-                        "scope": "resource",
-                        "type": "string",
-                        "default": "off",
-                        "enum": [
-                            "off",
-                            "messages",
-                            "verbose"
-                        ],
-                        "description": "Controls if LSP messages send to/from the server should be logged.",
-                        "enumDescriptions": [
-                            "do not log any lsp messages",
-                            "log all lsp messages sent to/from the server",
-                            "log all lsp messages sent to/from the server, including their contents"
-                        ]
-                    }
-                }
-            },
-            {
-                "type": "object",
-                "title": "Client Configuration",
-                "properties": {
-                    "pygls.client.documentSelector": {
-                        "scope": "window",
-                        "type": "array",
-                        "items": {
-                            "type": "object"
-                        },
-                        "default": [
-                            {
-                                "scheme": "file",
-                                "language": "json"
-                            }
-                        ],
-                        "description": "The client uses this to decide which documents the server is able to help with.",
-                        "markdownDescription": "The client uses this to decide which documents the server is able to help with.\n See [DocumentSelector](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#documentFilter) in the LSP Specification for more details."
-                    }
-                }
-            },
-            {
-                "title": "Codex Editor - SCM",
+                "title": "Codex Editor: Cloud Sync",
                 "properties": {
                     "codex-editor-extension.scm.remoteUrl": {
                         "type": "string",
@@ -478,6 +522,19 @@
                         "type": "boolean",
                         "default": true,
                         "description": "Enable or disable auto-commit feature."
+                    },
+                    "codex-editor-extension.scm.autoSyncInterval": {
+                        "type": "string",
+                        "enum": [
+                            "Do not auto sync",
+                            "Every 1 minute",
+                            "Every 5 minutes",
+                            "Every 15 minutes",
+                            "Every hour",
+                            "Every day"
+                        ],
+                        "default": "Do not auto sync",
+                        "description": "Automatically Sync to Cloud every..."
                     }
                 }
             },
@@ -503,7 +560,7 @@
                         "title": "API Key",
                         "type": "string",
                         "default": "",
-                        "description": "Your own openai API key. Ignorable for local LLM."
+                        "description": "Your own OpenAI API key. Ignorable for local LLM."
                     },
                     "translators-copilot.max_tokens": {
                         "title": "Max Tokens",
@@ -611,14 +668,14 @@
                     "translators-copilot.additionalResourcesDirectory": {
                         "type": "string",
                         "default": "",
-                        "description": "The directory path containing additional resources for completion context. Will read all files in directory and put them in the context. No recources if path is invalid."
+                        "description": "The directory path containing additional resources for completion context. Will read all files in directory and put them in the context. No resources if path is invalid."
                     },
-                    "translators-copilot.defaultsRecommended.llmEndpoint": {
+                    "translators-copilot.llmEndpoint": {
                         "type": "string",
                         "default": "https://api.openai.com/v1",
                         "description": "The endpoint for the completion API. Currently only supports OpenAI API."
                     },
-                    "translators-copilot.defaultsRecommended.model": {
+                    "translators-copilot.model": {
                         "title": "LLM Model",
                         "type": "string",
                         "enum": [
@@ -633,15 +690,11 @@
                         "default": "gpt-4o-mini",
                         "description": "Model name selected for inference. Ignorable for local LLM."
                     },
-                    "translators-copilot.defaultsRecommended.sourceBookWhitelist": {
+                    "translators-copilot.sourceBookWhitelist": {
+                        "title": "Source Book Whitelist",
                         "type": "string",
                         "default": "",
                         "description": "Limits context building to specified books. Leave empty to include all. We recommend to leave empty for best results."
-                    },
-                    "translators-copilot.defaultsRecommended.experimentalContextOmission": {
-                        "type": "boolean",
-                        "default": "false",
-                        "description": "Will omit reference to the Bible in the API request. This removes scripture biase."
                     },
                     "translators-copilot.debugMode": {
                         "title": "Debugging Mode",
@@ -659,6 +712,15 @@
             }
         ],
         "customEditors": [
+            {
+                "viewType": "codex.chunkEditor",
+                "displayName": "Codex Chunk",
+                "selector": [
+                    {
+                        "filenamePattern": "*.codex2"
+                    }
+                ]
+            },
             {
                 "viewType": "codex.obs.editor",
                 "displayName": "Obs Editor",
@@ -696,7 +758,7 @@
     "devDependencies": {
         "@babel/plugin-proposal-private-property-in-object": "^7.16.7",
         "@types/glob": "^8.1.0",
-        "@types/lodash": "^4.17.5",
+        "@types/lodash": "^4.17.7",
         "@types/md5": "^2.3.5",
         "@types/mocha": "^8.2.3",
         "@types/node": "14.x",
@@ -763,7 +825,6 @@
     "extensionDependencies": [
         "project-accelerate.shared-state-store",
         "project-accelerate.scripture-language-support",
-        "project-accelerate.pythoninstaller",
         "vscode.git"
     ]
 }

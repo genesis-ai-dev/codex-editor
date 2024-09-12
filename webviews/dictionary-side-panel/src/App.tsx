@@ -6,6 +6,7 @@ import "./App.css";
 
 function App() {
     const [entries, setEntries] = useState(0);
+    const [frequentWords, setFrequentWords] = useState<string[]>([]);
 
     useEffect(() => {
         const handleReceiveMessage = (event: MessageEvent) => {
@@ -16,10 +17,13 @@ function App() {
                     setEntries(numberOfEntries(dictionary));
                     break;
                 }
-
                 case "updateEntryCount": {
                     setEntries(message.count);
                     console.log("Entry count updated to:", message.count);
+                    break;
+                }
+                case "updateFrequentWords": {
+                    setFrequentWords(message.words);
                     break;
                 }
             }
@@ -30,8 +34,16 @@ function App() {
         };
     }, []);
 
-    // Request dictionary data update
-    vscode.postMessage({ command: "updateData" });
+    const refreshWordFrequency = () => {
+        vscode.postMessage({ command: "refreshWordFrequency" });
+    };
+
+    const addFrequentWordsToDictionary = () => {
+        vscode.postMessage({
+            command: "addFrequentWordsToDictionary",
+            words: frequentWords,
+        });
+    };
 
     return (
         <div className="app-container">
@@ -40,11 +52,26 @@ function App() {
                 <p className="entry-count">Entries in dictionary: {entries}</p>
                 <button
                     className="show-table-btn"
-                    onClick={() => {
-                        vscode.postMessage({ command: "showDictionaryTable" });
-                    }}
+                    onClick={() =>
+                        vscode.postMessage({ command: "showDictionaryTable" })
+                    }
                 >
                     Show Dictionary Table
+                </button>
+                <button className="refresh-btn" onClick={refreshWordFrequency}>
+                    Refresh Word Frequency
+                </button>
+                <h2>Frequent Words Not in Dictionary</h2>
+                <ul>
+                    {frequentWords.map((word, index) => (
+                        <li key={index}>{word}</li>
+                    ))}
+                </ul>
+                <button
+                    className="add-words-btn"
+                    onClick={addFrequentWordsToDictionary}
+                >
+                    Add Frequent Words to Dictionary
                 </button>
             </div>
         </div>

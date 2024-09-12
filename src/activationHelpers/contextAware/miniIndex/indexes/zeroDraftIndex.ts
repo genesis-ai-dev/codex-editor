@@ -67,7 +67,7 @@ export async function processZeroDraftFileWithoutIndexing(uri: vscode.Uri): Prom
     return records;
 }
 
-export async function createZeroDraftIndex(zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>, statusBarHandler: StatusBarHandler): Promise<void> {
+export async function createZeroDraftIndex(zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>, force: boolean = false): Promise<void> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
         console.error('No workspace folder found');
@@ -80,10 +80,12 @@ export async function createZeroDraftIndex(zeroDraftIndex: MiniSearch<ZeroDraftI
 
     let totalRecordsProcessed = 0;
 
-    for (const file of zeroDraftFiles) {
-        const recordsProcessed = await processZeroDraftFile(file, zeroDraftIndex);
-        totalRecordsProcessed += recordsProcessed;
-        console.log(`Processed ${recordsProcessed} records from ${file.fsPath}, current document count: ${zeroDraftIndex.documentCount}`);
+    // Batch process files
+    const batchSize = 10;
+    for (let i = 0; i < zeroDraftFiles.length; i += batchSize) {
+        const batch = zeroDraftFiles.slice(i, i + batchSize);
+        const results = await Promise.all(batch.map(file => processZeroDraftFile(file, zeroDraftIndex)));
+        totalRecordsProcessed += results.reduce((sum, count) => sum + count, 0);
     }
 
     console.log(`Zero Draft index created with ${zeroDraftIndex.documentCount} unique verses from ${totalRecordsProcessed} total records`);
@@ -93,7 +95,6 @@ export async function createZeroDraftIndex(zeroDraftIndex: MiniSearch<ZeroDraftI
     const watcher = vscode.workspace.createFileSystemWatcher(
         new vscode.RelativePattern(zeroDraftFolder, '*.{jsonl,json,tsv,txt}')
     );
-
     watcher.onDidChange(async (uri) => await updateIndex(uri, zeroDraftIndex));
     watcher.onDidCreate(async (uri) => await updateIndex(uri, zeroDraftIndex));
     watcher.onDidDelete(async (uri) => await removeFromIndex(uri, zeroDraftIndex));
@@ -101,7 +102,7 @@ export async function createZeroDraftIndex(zeroDraftIndex: MiniSearch<ZeroDraftI
     console.log('Watching for changes to zero_draft directory in workspace');
 }
 
-async function updateIndex(uri: vscode.Uri, zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>) {
+async function updateIndex(uri: vscode.Uri, zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>, force: boolean = false) {
     await processZeroDraftFile(uri, zeroDraftIndex);
     console.log(`Updated Zero Draft index for file: ${uri.fsPath}`);
 }

@@ -3,14 +3,25 @@ import { VSCodeLink } from "@vscode/webview-ui-toolkit/react";
 
 type ContextItemListProps = {
     contextItems: string[];
+    vscode: any;
 };
 
 export const ContextItemList: React.FC<ContextItemListProps> = ({
     contextItems,
+    vscode, // Needed to send messages to the extension host
 }) => {
     const [isCollapsed, setIsCollapsed] = useState(true);
 
     const toggleCollapse = () => setIsCollapsed(!isCollapsed);
+
+    const openContextItem = (item: string) => {
+        vscode.postMessage({
+            command: "openContextItem",
+            text: item,
+            // FIXME: I'm just going to check the string for 'Notes' or 'Questions' respectively, and open the webview for the appropriate one.
+            // This is a serious hack. I should be passing the context item type as well, and that should be passed in from a more sophisticated context object other than a string.
+        });
+    };
 
     return (
         (contextItems.length > 0 && (
@@ -34,7 +45,11 @@ export const ContextItemList: React.FC<ContextItemListProps> = ({
                     <div style={{ marginTop: "0.5em" }}>
                         {contextItems.map((item, index) => (
                             <div key={index} style={{ marginBottom: "0.25em" }}>
-                                <VSCodeLink href="#" title={item}>
+                                <VSCodeLink
+                                    href="#"
+                                    title={item}
+                                    onClick={() => openContextItem(item)}
+                                >
                                     {item.length > 50
                                         ? `${item.substring(0, 47)}...`
                                         : item}

@@ -1,44 +1,26 @@
 import React, { useState, useEffect } from "react";
-import { VSCodeButton, VSCodeTextField, VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
-import WordCloud from "react-wordcloud";
-
+import { VSCodeButton, VSCodeTextField, VSCodeDivider } from "@vscode/webview-ui-toolkit/react";
 
 const vscode = acquireVsCodeApi();
 
-interface SimilarWord {
-    text: string;
-    value: number;
-}
-
-const normalizeScores = (words: SimilarWord[]) => {
-    const maxScore = Math.max(...words.map((word) => word.value));
-    return words.map((word) => ({
-        ...word,
-        value: word.value / maxScore,
-    }));
-};
-
 function App() {
-    const [similarWords, setSimilarWords] = useState<SimilarWord[]>([]);
+    const [similarWords, setSimilarWords] = useState<string[]>([]);
     const [query, setQuery] = useState("");
-    const [isTraining, setIsTraining] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
+            console.log('Received message in webview:', event.data);
             const message = event.data;
             switch (message.command) {
                 case "similarWords":
-                    {
-                        const words = message.data.map((word: { text: string; value: number }) => ({
-                            text: word.text,
-                            value: word.value,
-                        }));
-                        const normalizedWords = normalizeScores(words);
-                        setSimilarWords(normalizedWords);
+                    setIsLoading(false);
+                    if (Array.isArray(message.data)) {
+                        setSimilarWords(message.data.filter(word => word.toLowerCase() !== query.toLowerCase()));
+                    } else {
+                        console.error('Received invalid data for similarWords:', message.data);
+                        setSimilarWords([]);
                     }
-                    break;
-                case "loadingComplete":
-                    setIsTraining(false);
                     break;
             }
         };
@@ -48,51 +30,33 @@ function App() {
         return () => {
             window.removeEventListener("message", handleMessage);
         };
-    }, []);
+    }, [query]);
 
     const searchSimilarWords = (word: string) => {
+        console.log('Sending getSimilar message for word:', word);
         setQuery(word);
+        setIsLoading(true);
         vscode.postMessage({
-            command: "getSimilar",
+            command: "server.getSimilar",
             word: word,
         });
-    };
-
-    const trainModel = () => {
-        setIsTraining(true);
-        vscode.postMessage({
-            command: "train",
-        });
-    };
-
-    const handleWordClick = (word: SimilarWord) => {
-        searchSimilarWords(word.text);
-    };
-
-    const wordCloudOptions = {
-        rotations: 0,
-        rotationAngles: [0],
-        fontSizes: [10, 60] as [number, number],
-        enableOptimizations: true,
-        padding: 5,
-        colors: ["white"],
     };
 
     return (
         <div style={{
             display: "flex",
             flexDirection: "column",
-            alignItems: "center",
-            padding: "1em",
+            padding: "1.5em",
             boxSizing: "border-box",
             height: "100%",
+            fontFamily: "var(--vscode-font-family)",
+            color: "var(--vscode-foreground)",
+            backgroundColor: "var(--vscode-editor-background)",
         }}>
             <div style={{
                 display: "flex",
                 alignItems: "center",
-                marginBottom: "1em",
-                width: "100%",
-                maxWidth: "400px",
+                marginBottom: "1.5em",
             }}>
                 <VSCodeTextField
                     placeholder="Enter a word"
@@ -103,18 +67,46 @@ function App() {
                 <VSCodeButton appearance="primary" onClick={() => searchSimilarWords(query)}>Search</VSCodeButton>
             </div>
 
-            {similarWords.length > 0 && (
-                <div style={{ width: "100%", height: "400px" }}>
-                    <WordCloud
-                        words={[{ text: query, value: 1 }, ...normalizeScores(similarWords)]}
-                        options={{
-                            ...wordCloudOptions,
-                            rotationAngles: [0, 0] // Adjusted to match the expected type [number, number]
-                        }}
-                        callbacks={{
-                            onWordClick: handleWordClick,
-                        }}
-                    />
+            <VSCodeDivider />
+
+            {isLoading ? (
+                <div style={{ 
+                    marginTop: "1.5em", 
+                    textAlign: "center", 
+                    color: "var(--vscode-descriptionForeground)"
+                }}>
+                    Loading...
+                </div>
+            ) : similarWords.length > 0 ? (
+                <div style={{ overflowY: "auto", marginTop: "1.5em" }}>
+                    <h3 style={{ marginBottom: "1em", color: "var(--vscode-foreground)" }}>Contextually close words:</h3>
+                    <div style={{ 
+                        display: "flex", 
+                        flexWrap: "wrap", 
+                        gap: "0.5em",
+                    }}>
+                        {similarWords.map((word, index) => (
+                            <VSCodeButton 
+                                key={index} 
+                                appearance="secondary" 
+                                onClick={() => searchSimilarWords(word)}
+                                style={{
+                                    margin: "0.25em",
+                                    transition: "all 0.2s ease-in-out",
+                                }}
+                            >
+                                {word}
+                            </VSCodeButton>
+                        ))}
+                    </div>
+                </div>
+            ) : query && (
+                <div style={{ 
+                    marginTop: "1.5em", 
+                    textAlign: "center", 
+                    color: "var(--vscode-descriptionForeground)"
+                }}>
+                    The thesaurus is still being built. Please try a different word or check back later.
                 </div>
             )}
         </div>

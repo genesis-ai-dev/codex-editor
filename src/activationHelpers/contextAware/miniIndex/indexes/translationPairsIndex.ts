@@ -4,7 +4,7 @@ import { verseRefRegex } from '../../../../utils/verseRefUtils';
 import { StatusBarHandler } from '../statusBarHandler';
 import * as fs from 'fs';
 import * as path from 'path';
-
+import { getWorkSpaceFolder } from '../../../../utils';
 export interface minisearchDoc {
     id: string;
     vref: string;
@@ -17,15 +17,15 @@ export interface minisearchDoc {
     line: number;
 }
 
-export async function createTranslationPairsIndex(context: vscode.ExtensionContext, translationPairsIndex: MiniSearch<minisearchDoc>, workspaceFolder: string | undefined, statusBarHandler: StatusBarHandler): Promise<void> {
-
+export async function createTranslationPairsIndex(context: vscode.ExtensionContext, translationPairsIndex: MiniSearch<minisearchDoc>, force: boolean = false): Promise<void> {
+    const workspaceFolder = getWorkSpaceFolder();
     if (!workspaceFolder) {
         console.warn('Workspace folder not found for Translation Pairs Index. Returning empty index.');
         return;
     }
 
 
-    async function indexAllDocuments(): Promise<number> {
+    async function indexAllDocuments(force: boolean = false): Promise<number> {
         console.log('Starting indexAllDocuments');
         let indexed = 0;
         if (!workspaceFolder) {
@@ -179,7 +179,7 @@ export async function createTranslationPairsIndex(context: vscode.ExtensionConte
     async function initializeIndexing() {
         const startTime = Date.now();
         try {
-            await rebuildFullIndex();
+            await rebuildFullIndex(force);
         } catch (error) {
             console.error('Error during index initialization:', error);
             vscode.window.showErrorMessage('Failed to initialize indexing. Check the logs for details.');
@@ -190,10 +190,8 @@ export async function createTranslationPairsIndex(context: vscode.ExtensionConte
         }
     }
 
-    async function rebuildFullIndex() {
-        statusBarHandler.setIndexingActive();
-        await indexAllDocuments();
-        statusBarHandler.setIndexingComplete();
+    async function rebuildFullIndex(force: boolean = false) {
+        await indexAllDocuments(force);
     }
 
 
@@ -215,4 +213,7 @@ export async function createTranslationPairsIndex(context: vscode.ExtensionConte
         console.error('Error initializing indexing:', error);
         vscode.window.showErrorMessage('Failed to initialize indexing.');
     });
+
+    console.log('Translation pairs index created with', translationPairsIndex.documentCount, 'documents');
+    console.log('Sample document:', JSON.stringify(translationPairsIndex.search('*')[0], null, 2));
 }

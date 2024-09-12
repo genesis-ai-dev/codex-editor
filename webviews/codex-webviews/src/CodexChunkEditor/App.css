@@ -1,0 +1,217 @@
+.ql-ai::after {
+    content: "✨";
+    font-size: 18px;
+}
+
+.codex-chunk-editor {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+.editor-container {
+    display: flex;
+    flex-direction: column;
+    max-width: 40rem;
+    width: 100%;
+}
+
+.chapter-navigation {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+}
+
+.chapter-navigation > button {
+    background-color: var(--vscode-button-secondaryBackground);
+    border: none;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    border-radius: 0.25rem;
+    transition: background-color 0.3s ease;
+}
+
+.chapter-navigation > button:hover {
+    background-color: var(--vscode-button-secondaryHoverBackground);
+}
+
+.chapter-navigation > button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* VerseList styles */
+.verse-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+/* VerseGroup styles */
+.verse-group {
+    display: inline;
+    background-color: var(--vscode-editor-background);
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+}
+
+/* VerseDisplay styles */
+.verse-display {
+    display: inline;
+    padding: 0.25rem 0;
+}
+
+.verse-display:hover {
+    background-color: var(--vscode-list-hoverBackground);
+}
+
+.verse-display sup {
+    font-size: 0.75em;
+    margin-right: 0.25rem;
+    color: var(--vscode-descriptionForeground);
+}
+
+/* VerseEditor styles */
+.verse-editor {
+    border: 1px solid var(--vscode-widget-border);
+    border-radius: 0.25rem;
+    padding: 1rem;
+    background-color: var(--vscode-editor-background);
+}
+
+.verse-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.verse-header h3 {
+    margin: 0;
+}
+
+.text-editor {
+    margin-top: 0.5rem;
+}
+
+.text-editor button {
+    margin-top: 0.5rem;
+    padding: 0.25rem 0.5rem;
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border: none;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.text-editor button:hover {
+    background-color: var(--vscode-button-hoverBackground);
+}
+
+/* EmptyVerseDisplay styles */
+.empty-verse-display {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem;
+    background-color: var(--vscode-editor-background);
+    border: 1px dashed var(--vscode-widget-border);
+    border-radius: 0.25rem;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.empty-verse-display:hover {
+    background-color: var(--vscode-list-hoverBackground);
+}
+
+.empty-verse-marker {
+    font-weight: bold;
+    margin-right: 0.5rem;
+}
+
+.empty-verse-prompt {
+    color: var(--vscode-descriptionForeground);
+    font-style: italic;
+}
+
+li {
+    display: block;
+}
+
+/* Styles for ql-indent-* classes */
+.ql-indent-1 {
+    padding-left: 1em;
+    display: block;
+}
+
+.ql-indent-2 {
+    padding-left: 2em;
+    display: block;
+}
+
+.ql-indent-3 {
+    padding-left: 3em;
+    display: block;
+}
+
+.ql-indent-4 {
+    padding-left: 4em;
+    display: block;
+}
+
+.ql-indent-5 {
+    padding-left: 5em;
+    display: block;
+}
+
+.ql-indent-6 {
+    padding-left: 6em;
+    display: block;
+}
+
+.ql-indent-7 {
+    padding-left: 7em;
+    display: block;
+}
+
+.ql-indent-8 {
+    padding-left: 8em;
+    display: block;
+}
+
+/* Add VS Code styles */
+.vscode-button,
+.vscode-button-confirm {
+    border: none;
+    padding: 0.1rem 0.2rem;
+    cursor: pointer;
+    border-radius: 0.25rem;
+    transition: background-color 0.3s ease;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.vscode-button {
+    background-color: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+}
+
+.vscode-button:hover {
+    background-color: var(--vscode-button-secondaryHoverBackground);
+}
+
+.vscode-button-confirm {
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+}
+
+.vscode-button-confirm:hover {
+    background-color: var(--vscode-button-hoverBackground);
+}
+
+.vscode-button:disabled,
+.vscode-button-confirm:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}

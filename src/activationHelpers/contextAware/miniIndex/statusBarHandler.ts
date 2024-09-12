@@ -2,13 +2,17 @@ import * as vscode from 'vscode';
 
 export class StatusBarHandler {
     private static instance: StatusBarHandler;
-    private statusBar: vscode.StatusBarItem;
+    private statusBarItem: vscode.StatusBarItem;
+    private indexCountsItem: vscode.StatusBarItem;
+    private progressBarItem: vscode.StatusBarItem;
 
     private constructor() {
-        this.statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-        this.setIndexingIdle();
-        this.statusBar.show();
-        this.statusBar.command = 'translators-copilot.showIndexOptions';
+        this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+        this.indexCountsItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
+        this.progressBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
+        this.statusBarItem.show();
+        this.indexCountsItem.show();
+        this.progressBarItem.show();
     }
 
     public static getInstance(): StatusBarHandler {
@@ -19,22 +23,32 @@ export class StatusBarHandler {
     }
 
     public setIndexingActive(): void {
-        this.statusBar.text = '$(sync~spin) Indexing';
-        this.statusBar.tooltip = 'Indexing in progress';
+        this.statusBarItem.text = "$(sync~spin) Indexing...";
+        this.statusBarItem.tooltip = "Translators Copilot is currently indexing";
     }
 
     public setIndexingComplete(): void {
-        this.statusBar.text = '$(check) Indexing Complete';
-        this.statusBar.tooltip = 'Indexing completed successfully';
+        this.statusBarItem.text = "$(check) Indexed";
+        this.statusBarItem.tooltip = "Translators Copilot indexing complete";
     }
 
-    public setIndexingIdle(): void {
-        this.statusBar.text = '$(database) Index';
-        this.statusBar.tooltip = 'Click to show indexing options';
+    public updateTranslationProgress(percentage: number): void {
+        const barLength = 10;
+        const filledLength = Math.round(percentage / 100 * barLength);
+        const emptyLength = barLength - filledLength;
+        const progressBar = '█'.repeat(filledLength) + '░'.repeat(emptyLength);
+        this.progressBarItem.text = `$(book) ${progressBar} ${percentage}%`;
+        this.progressBarItem.tooltip = `Translation progress: ${percentage}%`;
     }
 
-    public dispose(): void {
-        this.statusBar.hide();
-        this.statusBar.dispose();
+    public updateIndexCounts(translationPairsCount: number, sourceBibleCount: number): void {
+        this.indexCountsItem.text = `$(book) ${translationPairsCount} | $(globe) ${sourceBibleCount}`;
+        this.indexCountsItem.tooltip = `Translation Pairs: ${translationPairsCount}, Source Bible: ${sourceBibleCount}`;
+    }
+
+    dispose() {
+        this.statusBarItem.dispose();
+        this.indexCountsItem.dispose();
+        this.progressBarItem.dispose();
     }
 }

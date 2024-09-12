@@ -7,7 +7,7 @@ export function registerDictionarySummaryProvider(
     // Register the webview view provider for the sidebar
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(
-            "dictionary-side-panel", // This ID should match the one used in the package.json
+            "dictionary-summary-panel", // This ID should match the one used in the package.json
             new DictionarySidePanel(context.extensionUri),
             { webviewOptions: { retainContextWhenHidden: true } },
         ),

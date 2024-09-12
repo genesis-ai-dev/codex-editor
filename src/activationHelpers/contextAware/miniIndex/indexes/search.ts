@@ -1,4 +1,6 @@
 import MiniSearch from "minisearch";
+import * as vscode from "vscode";
+
 import { SourceVerseVersions, TranslationPair } from "../../../../../types";
 
 export function searchTargetVersesByQuery(translationPairsIndex: MiniSearch, query: string, k: number = 5, fuzziness: number = 0.2) {
@@ -108,4 +110,48 @@ export function getTranslationPairsFromSourceVerseQuery(translationPairsIndex: M
 
 export function handleTextSelection(translationPairsIndex: MiniSearch, selectedText: string) {
     return searchTargetVersesByQuery(translationPairsIndex, selectedText);
+}
+
+// Add this new function
+export function searchParallelVerses(translationPairsIndex: MiniSearch, sourceBibleIndex: MiniSearch, query: string, k: number = 5): TranslationPair[] {
+    console.log('Searching for parallel verses with query:', query);
+
+    // Search target verses
+    const targetResults = translationPairsIndex.search(query, {
+        fields: ['targetContent'],
+        combineWith: 'OR',
+        prefix: true,
+        fuzzy: 0.2,
+        boost: { targetContent: 2, vref: 1 }
+    });
+
+    console.log('Raw target search results:', JSON.stringify(targetResults, null, 2));
+
+    const translationPairs: TranslationPair[] = targetResults.slice(0, k).map(result => {
+        console.log('Processing result:', JSON.stringify(result, null, 2));
+
+        // Get source content from sourceBibleIndex
+        const sourceResult = sourceBibleIndex.getStoredFields(result.vref);
+        const sourceContent = sourceResult ? sourceResult.content : '';
+
+        return {
+            vref: result.vref,
+            sourceVerse: {
+                vref: result.vref,
+                content: sourceContent as string,
+                uri: result.uri,
+                line: result.line
+            },
+            targetVerse: {
+                vref: result.vref,
+                content: result.targetContent as string,
+                uri: result.uri,
+                line: result.line
+            }
+        };
+    });
+
+    console.log('Processed translation pairs:', JSON.stringify(translationPairs, null, 2));
+
+    return translationPairs;
 }
