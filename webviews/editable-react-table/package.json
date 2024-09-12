@@ -6,6 +6,7 @@
     "@popperjs/core": "^2.0.0",
     "@vscode/webview-ui-toolkit": "^1.4.0",
     "clsx": "1.1.1",
+    "codex-types": "^0.0.2",
     "faker": "^5.5.3",
     "immutability-helper": "^3.1.1",
     "react": "17.0.2",
@@ -13,8 +14,7 @@
     "react-dom": "17.0.2",
     "react-popper": "^2.2.5",
     "react-table": "^7.8.0",
-    "react-window": "^1.8.6",
-    "codex-types": "^0.0.2"
+    "react-window": "^1.8.6"
   },
   "scripts": {
     "dev": "vite",
@@ -26,6 +26,7 @@
   },
   "devDependencies": {
     "@babel/plugin-transform-private-property-in-object": "^7.16.7",
+    "@types/lodash": "^4.14.191",
     "@types/react": "^18.2.58",
     "@types/react-dom": "^18.2.19",
     "@types/react-table": "^7.7.19",
