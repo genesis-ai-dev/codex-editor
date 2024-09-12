@@ -107,7 +107,7 @@ export class CodexChunkEditorProvider
                         console.log("spellCheck response", { response });
                         return;
                     }
-                    case "saveMarkdown":
+                    case "saveHtml":
                         console.log("saveMarkdown message received", { e });
                         // TODO: change this to update the document one vers at a time.
                         this.updateTextDocument(document, e.content);

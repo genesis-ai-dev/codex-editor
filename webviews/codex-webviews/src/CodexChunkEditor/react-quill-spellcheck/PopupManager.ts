@@ -136,6 +136,8 @@ export default class PopupManager {
                 });
 
                 this.closePopup();
+                // Trigger a spell check refresh
+                this.parent.checkSpelling();
             } catch (error) {
                 console.error(
                     "spellcheck.addWord Error adding word to dictionary:",

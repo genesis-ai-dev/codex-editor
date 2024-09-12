@@ -43,7 +43,7 @@ const CodexChunkEditor: React.FC = () => {
 
     const handleSaveMarkdown = () => {
         vscode.postMessage({
-            command: "saveMarkdown",
+            command: "saveHtml",
             content: contentBeingUpdated,
         } as EditorPostMessages);
         handleCloseEditor();

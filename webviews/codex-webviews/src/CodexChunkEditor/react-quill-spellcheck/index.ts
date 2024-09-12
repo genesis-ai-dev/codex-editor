@@ -131,7 +131,19 @@ export class QuillSpellChecker {
 
         this.checkSpelling();
         this.disableNativeSpellcheckIfSet();
+
+        // event listener for messages from VSCode extension
+        window.addEventListener("message", this.handleVSCodeMessage);
     }
+
+    private handleVSCodeMessage = (event: MessageEvent) => {
+        const message = event.data;
+        if (message.type === "wordAdded") {
+            // Word was successfully added to the dictionary
+            // Refresh spell check results
+            this.checkSpelling();
+        }
+    };
 
     public updateMatches(matches: MatchesEntity[]) {
         debug("spell-checker-debug: updateMatches", { matches });
@@ -228,6 +240,7 @@ export class QuillSpellChecker {
             this.boxes.addSuggestionBoxes();
         } else {
             this.matches = [];
+            this.boxes.removeSuggestionBoxes(); // Remove all suggestion boxes if no matches
         }
         // this.loader.stopLoading();
         this.onRequestComplete();
