@@ -13,7 +13,8 @@ export async function llmCompletion(
     const {
         contextSize,
         numberOfFewShotExamples,
-        debugMode
+        debugMode,
+        chatSystemMessage
     } = completionConfig;
 
     const lineContent = document.lineAt(position.line).text;
@@ -71,7 +72,11 @@ export async function llmCompletion(
                 "7. If in doubt, err on the side of literalness."
             ].join('\n');
 
-            const systemMessage = `You are a helpful assistant that translates from the source language to the target language, ${targetLanguage}, relying strictly on reference data and context provided by the user. The language may be an ultra-low resource language, so it is critical to follow the patterns and style of the provided reference data closely.\n\n${userMessageInstructions}`;
+            let systemMessage = chatSystemMessage || `You are a helpful assistant`;
+
+            systemMessage = systemMessage + `\n\nAlways translate from the source language to the target language, ${targetLanguage}, relying strictly on reference data and context provided by the user. The language may be an ultra-low resource language, so it is critical to follow the patterns and style of the provided reference data closely.`;
+
+            systemMessage = systemMessage + `\n\n${userMessageInstructions}`;
 
             const userMessage = [
                 "## Instructions",
