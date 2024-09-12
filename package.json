@@ -707,6 +707,15 @@
                         "type": "number",
                         "default": 50,
                         "description": "The minimum frequency of a word to be automatically added to the dictionary. Changing this value will trigger updates to the dictionary."
+                    },
+                    "translators-copilot.textDirection": {
+                        "type": "string",
+                        "enum": [
+                            "ltr",
+                            "rtl"
+                        ],
+                        "default": "ltr",
+                        "description": "Text direction for the editor (left-to-right or right-to-left)"
                     }
                 }
             }

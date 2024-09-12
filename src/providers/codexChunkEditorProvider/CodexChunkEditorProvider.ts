@@ -52,8 +52,10 @@ export class CodexChunkEditorProvider
         webviewPanel.webview.options = {
             enableScripts: true,
         };
+        const textDirection = this.getTextDirection();
         webviewPanel.webview.html = this.getHtmlForWebview(
             webviewPanel.webview,
+            textDirection,
         );
 
         const updateWebview = () => {
@@ -135,12 +137,21 @@ export class CodexChunkEditorProvider
         );
 
         updateWebview();
+
+        vscode.workspace.onDidChangeConfiguration((e) => {
+            if (e.affectsConfiguration("translators-copilot.textDirection")) {
+                this.updateTextDirection(webviewPanel);
+            }
+        });
     }
 
     /**
      * Get the static html used for the editor webviews.
      */
-    private getHtmlForWebview(webview: vscode.Webview): string {
+    private getHtmlForWebview(
+        webview: vscode.Webview,
+        textDirection: string,
+    ): string {
         const styleResetUri = webview.asWebviewUri(
             vscode.Uri.joinPath(
                 this.context.extensionUri,
@@ -178,17 +189,29 @@ export class CodexChunkEditorProvider
         );
 
         const nonce = getNonce();
-
+        console.log("textDirection", { textDirection });
         return /*html*/ `<!DOCTYPE html>
             <html lang="en">
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src https://languagetool.org/api/; img-src ${webview.cspSource} https:; font-src ${webview.cspSource};">
+                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${
+                    webview.cspSource
+                } 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src https://languagetool.org/api/; img-src ${
+                    webview.cspSource
+                } https:; font-src ${webview.cspSource};">
                 <link href="${styleResetUri}" rel="stylesheet" nonce="${nonce}">
                 <link href="${styleVSCodeUri}" rel="stylesheet" nonce="${nonce}">
                 <link href="${codiconsUri}" rel="stylesheet" nonce="${nonce}" />
                 <title>Codex Chunk Editor</title>
+                <style>
+                    .ql-editor {
+                        direction: ${textDirection} !important;
+                        text-align: ${
+                            textDirection === "rtl" ? "right" : "left"
+                        } !important;
+                    }
+                </style>
             </head>
             <body>
                 <div id="root"></div>
@@ -310,5 +333,19 @@ export class CodexChunkEditorProvider
             );
             return [];
         }
+    }
+
+    private getTextDirection(): string {
+        return vscode.workspace
+            .getConfiguration("translators-copilot")
+            .get("textDirection", "ltr");
+    }
+
+    private updateTextDirection(webviewPanel: vscode.WebviewPanel): void {
+        const textDirection = this.getTextDirection();
+        webviewPanel.webview.postMessage({
+            command: "updateTextDirection",
+            textDirection,
+        });
     }
 }

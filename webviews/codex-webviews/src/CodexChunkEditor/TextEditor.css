@@ -1,6 +1,6 @@
 /* @import url('https://fonts.googleapis.com/css?family=Lucida+Sans|Comic+Sans+MS&display=swap'); */
 
-.ql-editor .ql-font-georgia {
+/* .ql-editor .ql-font-georgia {
     font-family: Georgia, serif;
   }
   
@@ -26,11 +26,13 @@
   
   .ql-editor .ql-font-verdana {
     font-family: Verdana, Geneva, sans-serif;
-  }
+  } */
   .ql-editor{
-    padding: 100px;
+    /* padding: 100px;
     font-size: 16px;
-    white-space: pre-wrap !important;
+    white-space: pre-wrap !important; */
+    /* direction: rtl;
+    text-align: right; */
   }
 
  

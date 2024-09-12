@@ -12,11 +12,8 @@ const vscode: any = (window as any).vscodeApi;
 // Register the QuillSpellChecker with the VSCode API
 registerQuillSpellChecker(Quill, vscode);
 
-icons["spellcheck"] =
-    '<svg viewBox="0 0 18 18"><path class="ql-fill" d="M9 1C4.64 1 1 4.64 1 9s3.64 8 8 8 8-3.64 8-8-3.64-8-8-8zm0 16c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6zm3.78-10.78l-1 1L9 11.91 7.11 10.02l-1 1L9 13.91l4.59-4.59-1.89-1.89z"/></svg>';
-
-icons["add-test"] =
-    '<svg viewBox="0 0 18 18"><text x="4" y="14" font-size="14">T</text></svg>';
+icons["autocomplete"] =
+    '<svg viewBox="0 0 18 18"><text x="4" y="14" font-size="14">✨</text></svg>';
 
 export interface EditorContentChanged {
     html: string;
@@ -34,8 +31,7 @@ const TOOLBAR_OPTIONS = [
     [{ list: "ordered" }, { list: "bullet" }],
     [{ indent: "-1" }, { indent: "+1" }],
     ["clean"],
-    ["spellcheck"],
-    ["add-test"],
+    ["autocomplete"],
 ];
 
 export default function Editor(props: EditorProps) {
@@ -68,15 +64,16 @@ export default function Editor(props: EditorProps) {
                     toolbar: {
                         container: TOOLBAR_OPTIONS,
                         handlers: {
-                            "add-test": addTestWord,
-                            spellcheck: () => {
-                                console.log("spellcheck was clicked");
-                            },
+                            autocomplete: addTestWord,
                         },
                     },
                     spellChecker: {},
                 },
             });
+
+            // Set RTL direction after initialization
+            quill.format("direction", "rtl");
+            quill.format("align", "right");
 
             quillRef.current = quill;
 
@@ -151,10 +148,7 @@ export default function Editor(props: EditorProps) {
 
     return (
         <>
-            <button onClick={addTestWord} className="vscode-button">
-                Add "test"
-            </button>
-            <div ref={editorRef} style={{ height: "400px" }}></div>
+            <div ref={editorRef}></div>
         </>
     );
 }
