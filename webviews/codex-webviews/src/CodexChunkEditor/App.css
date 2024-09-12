@@ -22,7 +22,7 @@
 }
 
 .chapter-navigation > button {
-    background-color: #f0f0f0;
+    background-color: var(--vscode-button-secondaryBackground);
     border: none;
     padding: 0.5rem 1rem;
     cursor: pointer;
@@ -31,7 +31,7 @@
 }
 
 .chapter-navigation > button:hover {
-    background-color: #e0e0e0;
+    background-color: var(--vscode-button-secondaryHoverBackground);
 }
 
 .chapter-navigation > button:disabled {
@@ -49,7 +49,7 @@
 /* VerseGroup styles */
 .verse-group {
     display: inline;
-    background-color: #f9f9f9;
+    background-color: var(--vscode-editor-background);
     padding: 0.5rem;
     border-radius: 0.25rem;
 }
@@ -61,21 +61,21 @@
 }
 
 .verse-display:hover {
-    background-color: #f0f0f0;
+    background-color: var(--vscode-list-hoverBackground);
 }
 
 .verse-display sup {
     font-size: 0.75em;
     margin-right: 0.25rem;
-    color: #666;
+    color: var(--vscode-descriptionForeground);
 }
 
 /* VerseEditor styles */
 .verse-editor {
-    border: 1px solid #ccc;
+    border: 1px solid var(--vscode-widget-border);
     border-radius: 0.25rem;
     padding: 1rem;
-    background-color: #f9f9f9;
+    background-color: var(--vscode-editor-background);
 }
 
 .verse-header {
@@ -96,8 +96,8 @@
 .text-editor button {
     margin-top: 0.5rem;
     padding: 0.25rem 0.5rem;
-    background-color: #4caf50;
-    color: white;
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
     border: none;
     border-radius: 0.25rem;
     cursor: pointer;
@@ -105,7 +105,7 @@
 }
 
 .text-editor button:hover {
-    background-color: #45a049;
+    background-color: var(--vscode-button-hoverBackground);
 }
 
 /* EmptyVerseDisplay styles */
@@ -113,15 +113,15 @@
     display: flex;
     align-items: center;
     padding: 0.5rem;
-    background-color: #f0f0f0;
-    border: 1px dashed #ccc;
+    background-color: var(--vscode-editor-background);
+    border: 1px dashed var(--vscode-widget-border);
     border-radius: 0.25rem;
     cursor: pointer;
     transition: background-color 0.3s ease;
 }
 
 .empty-verse-display:hover {
-    background-color: #e0e0e0;
+    background-color: var(--vscode-list-hoverBackground);
 }
 
 .empty-verse-marker {
@@ -130,7 +130,7 @@
 }
 
 .empty-verse-prompt {
-    color: #666;
+    color: var(--vscode-descriptionForeground);
     font-style: italic;
 }
 
