@@ -1,22 +1,29 @@
-import { useRef, useState, useEffect } from "react";
-import ReactQuill, { Quill } from "react-quill";
-import "react-quill/dist/quill.snow.css";
+import { useRef, useState, useEffect, useMemo } from "react";
+import Quill from "quill";
+import "quill/dist/quill.snow.css";
 import registerQuillSpellChecker, {
     getCleanedHtml,
 } from "./react-quill-spellcheck";
 
+const icons: any = Quill.import("ui/icons");
 // Assuming you have access to the VSCode API here
 const vscode: any = (window as any).vscodeApi;
 
 // Register the QuillSpellChecker with the VSCode API
 registerQuillSpellChecker(Quill, vscode);
 
+icons["spellcheck"] =
+    '<svg viewBox="0 0 18 18"><path class="ql-fill" d="M9 1C4.64 1 1 4.64 1 9s3.64 8 8 8 8-3.64 8-8-3.64-8-8-8zm0 16c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6zm3.78-10.78l-1 1L9 11.91 7.11 10.02l-1 1L9 13.91l4.59-4.59-1.89-1.89z"/></svg>';
+
+icons["add-test"] =
+    '<svg viewBox="0 0 18 18"><text x="4" y="14" font-size="14">T</text></svg>';
+
 export interface EditorContentChanged {
     html: string;
 }
 
 export interface EditorProps {
-    value?: string;
+    initialValue?: string;
     onChange?: (changes: EditorContentChanged) => void;
     spellCheckResponse?: any;
 }
@@ -27,182 +34,127 @@ const TOOLBAR_OPTIONS = [
     [{ list: "ordered" }, { list: "bullet" }],
     [{ indent: "-1" }, { indent: "+1" }],
     ["clean"],
-    // ["spellcheck"], // Add spellcheck button to toolbar
+    ["spellcheck"],
+    ["add-test"],
 ];
 
-// Custom dictionary (example words)
-// const customDictionary = ["codex", "vscode", "webview", "languagetool"];
-
 export default function Editor(props: EditorProps) {
-    const revertedValue = props.value
-        ?.replace(/^<span>/, "<p>")
-        .replace(/<\/span>/, "</p>");
+    function isQuillEmpty(quill: Quill | null) {
+        if (!quill) return true;
+        let delta = quill.getContents();
+        let text = delta.ops?.reduce((text, op) => {
+            return text + (op.insert ? op.insert : "");
+        }, "");
 
-    const [value, setValue] = useState<string>(revertedValue || "");
-    const reactQuillRef = useRef<ReactQuill>(null);
+        // Trim whitespace and check if empty
+        return text?.trim().length === 0;
+    }
+
+    const revertedValue = useMemo(() => {
+        return props.initialValue
+            ?.replace(/^<span>/, "<p>")
+            .replace(/<\/span>/, "</p>");
+    }, [props.initialValue]);
+
+    const quillRef = useRef<Quill | null>(null);
+    const editorRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        // Register the QuillSpellChecker with the VSCode API
-        if ((window as any).vscodeApi) {
-            registerQuillSpellChecker(Quill, (window as any).vscodeApi);
+        if (editorRef.current && !quillRef.current) {
+            const quill = new Quill(editorRef.current, {
+                theme: "snow",
+                placeholder: "Start writing...",
+                modules: {
+                    toolbar: {
+                        container: TOOLBAR_OPTIONS,
+                        handlers: {
+                            "add-test": addTestWord,
+                            spellcheck: () => {
+                                console.log("spellcheck was clicked");
+                            },
+                        },
+                    },
+                    spellChecker: {},
+                },
+            });
+
+            quillRef.current = quill;
+
+            quill.on("text-change", () => {
+                const content = quill.root.innerHTML;
+                // Remove this line to prevent unnecessary state updates
+                // setValue(content);
+                if (props.onChange) {
+                    const cleanedContents = getCleanedHtml(content);
+
+                    const arrayOfParagraphs = cleanedContents
+                        .trim()
+                        .split("</p>")
+                        .map((p) => p.trim());
+                    const finalParagraphs = arrayOfParagraphs
+                        .filter((p) => !!p)
+                        .map((p) =>
+                            p.startsWith("<p>") ? `${p}</p>` : `<p>${p}</p>`,
+                        );
+
+                    const firstParagraph = finalParagraphs[0];
+                    const restOfParagraphs = finalParagraphs.slice(1) || [];
+                    const firstParagraphWithoutP = firstParagraph
+                        .trim()
+                        .slice(3, -4);
+                    const contentIsEmpty = isQuillEmpty(quill);
+
+                    console.log("firstParagraphWithoutP", {
+                        firstParagraphWithoutP,
+                        contentIsEmpty,
+                    });
+                    const finalContent = contentIsEmpty
+                        ? ""
+                        : [
+                              `<span>${firstParagraphWithoutP}</span>`,
+                              ...restOfParagraphs,
+                          ].join("");
+
+                    props.onChange({
+                        html: contentIsEmpty ? "\n" : finalContent,
+                    });
+                }
+            });
+
+            // Register spellchecker
+            if ((window as any).vscodeApi) {
+                registerQuillSpellChecker(Quill, (window as any).vscodeApi);
+            }
         }
     }, []);
 
-    const onChange = (content: string) => {
-        setValue(content);
+    console.log("revertedValue", revertedValue);
 
-        if (props.onChange) {
-            // Parse the content and replace outer <p> with <span>
-            const cleanedContents = getCleanedHtml(content);
+    useEffect(() => {
+        if (quillRef.current && revertedValue !== undefined) {
+            const quill = quillRef.current;
+            // Only update if the content has actually changed
+            if (quill.root.innerHTML !== revertedValue) {
+                quill.root.innerHTML = revertedValue;
+                // Move the cursor to the end
+                quill.setSelection(quill.getLength(), 0);
+            }
+        }
+    }, [revertedValue]);
 
-            const arrayOfParagraphs = cleanedContents
-                .trim()
-                .split("</p>")
-                .map((p) => p.trim());
-            const finalParagraphs = arrayOfParagraphs
-                .filter((p) => !!p)
-                .map((p) => (p.startsWith("<p>") ? `${p}</p>` : `<p>${p}</p>`));
-
-            const firstParagraph = finalParagraphs[0];
-            const restOfParagraphs = finalParagraphs.slice(1) || [];
-
-            const finalContent = [
-                `<span>${firstParagraph.trim().slice(3, -4)}</span>`,
-                ...restOfParagraphs,
-            ].join("");
-
-            props.onChange({
-                html: finalContent,
-            });
+    const addTestWord = () => {
+        if (quillRef.current) {
+            const length = quillRef.current.getLength();
+            quillRef.current.insertText(length, " test");
         }
     };
-    // const addDisabledCategoriesOnBody = (text: string) => {
-    //     console.log("text in addDisabledCategoriesOnBody", text);
-    //     const body = {
-    //         text,
-    //         language: "auto",
-    //         disabledCategories: "FORMAL_SPEECH",
-    //     };
-    //     return Object.keys(body)
-    //         .map(
-    //             (key) =>
-    //                 `${key}=${encodeURIComponent(
-    //                     body[key as keyof typeof body],
-    //                 )}`,
-    //         )
-    //         .join("&");
-    // };
 
-    // console.log("value", { value });
-    // const quillSpellCheckerParams: QuillSpellCheckerParams = {
-    //     disableNativeSpellcheck: true,
-    //     cooldownTime: 1000,
-    //     showLoadingIndicator: true,
-    //     api: {
-    //         url: "http://localhost:3000/api/v2/check",
-    //         // body: addDisabledCategoriesOnBody,
-    //         // headers: {
-    //         //     "Content-Type": "application/x-www-form-urlencoded",
-    //         // },
-    //         // method: "POST",
-    //         // mode: "cors",
-    //         // mapResponse: async (response: any) => {
-    //         //     const data = await response.json();
-    //         //     console.log("mapResponse data", { data });
-    //         //     return data;
-    //         // },
-    //     },
-    // };
     return (
-        <ReactQuill
-            ref={reactQuillRef}
-            theme="snow"
-            placeholder="Start writing..."
-            modules={{
-                toolbar: {
-                    container: TOOLBAR_OPTIONS,
-                },
-                // spellChecker: quillSpellCheckerParams,
-                spellChecker: {
-                    // api: {
-                    //     url: "https://languagetool.org/api/v2/check",
-                    //     body: (text: string) => {
-                    //         console.log(
-                    //             "spell-checker-debug: QuillSpellChecker body",
-                    //             {
-                    //                 text,
-                    //             },
-                    //         );
-                    //         const body: any = {
-                    //             text,
-                    //             language: "auto",
-                    //         };
-                    //         return Object.keys(body)
-                    //             .map(
-                    //                 (key) =>
-                    //                     `${key}=${encodeURIComponent(
-                    //                         body[key],
-                    //                     )}`,
-                    //             )
-                    //             .join("&");
-                    //     },
-                    //     headers: {
-                    //         "Content-Type": "application/x-www-form-urlencoded",
-                    //     },
-                    //     method: "POST",
-                    //     mode: "cors",
-                    //     mapResponse: async (response: any) => {
-                    //         console.log("spell-checker-debug: mapResponse", {
-                    //             response,
-                    //         });
-                    //         const json = await response.json();
-                    //         console.log(
-                    //             "spell-checker-debug: mapResponse json",
-                    //             { json },
-                    //         );
-                    //         return json;
-                    //     },
-                    // },
-                    // disableNativeSpellcheck: true,
-                    // cooldownTime: 3000,
-                    // showLoadingIndicator: false,
-                    // dictionaries: ["en-US"],
-                    // customDictionaries: [customDictionary],
-                    // misspelledWordClass: "misspelled-word",
-                    // api: {
-                    //     // url: "http://google.com/api/v2/check",
-                    //     // body: (text: string) => {
-                    //     //     console.log("text in body", { text });
-                    //     //     // const body: any = {
-                    //     //     //     text,
-                    //     //     //     language: "auto",
-                    //     //     // };
-                    //     //     // return Object.keys(body)
-                    //     //     //     .map(
-                    //     //     //         (key) =>
-                    //     //     //             `${key}=${encodeURIComponent(
-                    //     //     //                 body[key],
-                    //     //     //             )}`,
-                    //     //     //     )
-                    //     //     //     .join("&");
-                    //     // },
-                    //     //     headers: {
-                    //     //         "Content-Type": "application/x-www-form-urlencoded",
-                    //     //     },
-                    //     //     method: "POST",
-                    //     //     mode: "cors",
-                    //     //     // mapResponse: async (response: any) => {
-                    //     //     //     const data = await response.json();
-                    //     //     //     console.log("mapResponse data", { data });
-                    //     //     //     return data;
-                    //     //     // },
-                    // },
-                },
-            }}
-            value={value}
-            onChange={onChange}
-        >
-            {/* <ReactQuillSpellCheckerModule /> */}
-        </ReactQuill>
+        <>
+            <button onClick={addTestWord} className="vscode-button">
+                Add "test"
+            </button>
+            <div ref={editorRef} style={{ height: "400px" }}></div>
+        </>
     );
 }

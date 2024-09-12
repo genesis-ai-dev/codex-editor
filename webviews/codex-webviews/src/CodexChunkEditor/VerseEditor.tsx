@@ -69,7 +69,7 @@ const VerseEditor: React.FC<VerseEditorProps> = ({
             <div className="text-editor">
                 <Editor
                     key={`${verseIndex}-quill`}
-                    value={contentBeingUpdated.content || verseContent}
+                    initialValue={verseContent}
                     spellCheckResponse={spellCheckResponse}
                     onChange={({ html }) => {
                         setContentBeingUpdated({
