@@ -34,7 +34,7 @@ const VerseList: React.FC<VerseListProps> = ({
             {group.map(({ verseMarkers, verseContent }, index) => (
                 <VerseDisplay
                     key={startIndex + index}
-                    verseMarker={verseMarkers.join(" ")}
+                    verseMarkers={verseMarkers}
                     verseContent={verseContent}
                     verseIndex={startIndex + index}
                     setContentBeingUpdated={setContentBeingUpdated}

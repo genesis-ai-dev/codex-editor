@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { CustomNotebookData, EditorPostMessages, EditorVerseContent } from "../../../../types";
+import {
+    CustomNotebookData,
+    EditorPostMessages,
+    EditorVerseContent,
+} from "../../../../types";
 import ChapterNavigation from "./ChapterNavigation";
 import VerseList from "./VerseList";
 import { processVerseContent } from "./utils";
@@ -9,9 +13,13 @@ const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
 
 const CodexChunkEditor: React.FC = () => {
-    const [content, setContent] = useState<CustomNotebookData>({} as CustomNotebookData);
-    const [spellCheckResponse, setSpellCheckResponse] = useState<CustomNotebookData>({} as CustomNotebookData);
-    const [contentBeingUpdated, setContentBeingUpdated] = useState<EditorVerseContent>({} as EditorVerseContent);
+    const [content, setContent] = useState<CustomNotebookData>(
+        {} as CustomNotebookData,
+    );
+    const [spellCheckResponse, setSpellCheckResponse] =
+        useState<CustomNotebookData>({} as CustomNotebookData);
+    const [contentBeingUpdated, setContentBeingUpdated] =
+        useState<EditorVerseContent>({} as EditorVerseContent);
     const [chapterIndex, setChapterIndex] = useState<number>(0);
 
     useVSCodeMessageHandler(setContent, setSpellCheckResponse);
@@ -20,12 +28,18 @@ const CodexChunkEditor: React.FC = () => {
         vscode.postMessage({ command: "getContent" } as EditorPostMessages);
     }, []);
 
-    const scriptureCells = content?.cells?.filter(cell => cell.language === "scripture");
-    const translationUnits = scriptureCells?.length > 0
-        ? processVerseContent(scriptureCells[chapterIndex].value).filter(Boolean)
-        : [];
+    const scriptureCells = content?.cells?.filter(
+        (cell) => cell.language === "scripture",
+    );
+    const translationUnits =
+        scriptureCells?.length > 0
+            ? processVerseContent(scriptureCells[chapterIndex].value).filter(
+                  Boolean,
+              )
+            : [];
 
-    const handleCloseEditor = () => setContentBeingUpdated({} as EditorVerseContent);
+    const handleCloseEditor = () =>
+        setContentBeingUpdated({} as EditorVerseContent);
 
     const handleSaveMarkdown = () => {
         vscode.postMessage({
@@ -34,6 +48,33 @@ const CodexChunkEditor: React.FC = () => {
         } as EditorPostMessages);
         handleCloseEditor();
     };
+
+    const translationUnitsWithMergedRanges: {
+        verseMarkers: string[];
+        verseContent: string;
+    }[] = [];
+
+    translationUnits?.forEach((verse, index) => {
+        let forwardIndex = 1;
+        const rangeMarker = "<range>";
+        if (verse.verseContent?.trim() === rangeMarker) {
+            return;
+        }
+        const verseMarkers = [...verse.verseMarkers];
+        let nextVerse = translationUnits[index + forwardIndex];
+
+        while (nextVerse?.verseContent?.trim() === rangeMarker) {
+            verseMarkers.push(...nextVerse.verseMarkers);
+            forwardIndex++;
+            nextVerse = translationUnits[index + forwardIndex];
+        }
+        const verseContent = verse.verseContent;
+
+        translationUnitsWithMergedRanges.push({
+            verseMarkers,
+            verseContent: verseContent,
+        });
+    });
 
     return (
         <div className="codex-chunk-editor">
@@ -46,7 +87,7 @@ const CodexChunkEditor: React.FC = () => {
                     unsavedChanges={!!contentBeingUpdated.content}
                 />
                 <VerseList
-                    translationUnits={translationUnits}
+                    translationUnits={translationUnitsWithMergedRanges}
                     contentBeingUpdated={contentBeingUpdated}
                     setContentBeingUpdated={setContentBeingUpdated}
                     spellCheckResponse={spellCheckResponse}
