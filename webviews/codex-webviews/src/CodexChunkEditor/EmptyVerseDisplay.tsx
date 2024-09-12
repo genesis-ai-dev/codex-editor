@@ -2,19 +2,21 @@ import React from "react";
 import { EditorVerseContent } from "../../../../types";
 
 interface EmptyVerseDisplayProps {
-    verseMarker: string;
+    verseMarkers: string[];
     verseIndex: number;
-    setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorVerseContent>>;
+    setContentBeingUpdated: React.Dispatch<
+        React.SetStateAction<EditorVerseContent>
+    >;
 }
 
 const EmptyVerseDisplay: React.FC<EmptyVerseDisplayProps> = ({
-    verseMarker,
+    verseMarkers,
     verseIndex,
     setContentBeingUpdated,
 }) => {
     const handleClick = () => {
         setContentBeingUpdated({
-            verseMarkers: [verseMarker],
+            verseMarkers,
             content: "",
             verseIndex,
         });
@@ -22,7 +24,7 @@ const EmptyVerseDisplay: React.FC<EmptyVerseDisplayProps> = ({
 
     return (
         <div className="empty-verse-display" onClick={handleClick}>
-            <span className="empty-verse-marker">{verseMarker}</span>
+            <span className="empty-verse-marker">{verseMarkers.join("-")}</span>
             <span className="empty-verse-prompt">Click to add verse</span>
         </div>
     );

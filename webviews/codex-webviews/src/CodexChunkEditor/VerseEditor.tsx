@@ -5,7 +5,7 @@ import CloseButtonWithConfirmation from "../components/CloseButtonWithConfirmati
 import { getCleanedHtml } from "./react-quill-spellcheck";
 
 interface VerseEditorProps {
-    verseMarker: string;
+    verseMarkers: string[];
     verseContent: string;
     verseIndex: number;
     spellCheckResponse: CustomNotebookData;
@@ -18,7 +18,7 @@ interface VerseEditorProps {
 }
 
 const VerseEditor: React.FC<VerseEditorProps> = ({
-    verseMarker,
+    verseMarkers,
     verseContent,
     verseIndex,
     spellCheckResponse,
@@ -37,7 +37,7 @@ const VerseEditor: React.FC<VerseEditorProps> = ({
     return (
         <div className="verse-editor">
             <div className="verse-header">
-                <h3>{verseMarker}</h3>
+                <h3>{verseMarkers.join("-")}</h3>
                 {unsavedChanges ? (
                     <div
                         style={{
@@ -74,7 +74,7 @@ const VerseEditor: React.FC<VerseEditorProps> = ({
                     onChange={({ html }) => {
                         setContentBeingUpdated({
                             verseIndex,
-                            verseMarkers: [verseMarker],
+                            verseMarkers,
                             content: html.endsWith("\n") ? html : `${html}\n`,
                         });
                     }}

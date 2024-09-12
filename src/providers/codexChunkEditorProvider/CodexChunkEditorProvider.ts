@@ -20,7 +20,8 @@ function getNonce(): string {
 }
 
 export class CodexChunkEditorProvider
-    implements vscode.CustomTextEditorProvider {
+    implements vscode.CustomTextEditorProvider
+{
     public static register(
         context: vscode.ExtensionContext,
     ): vscode.Disposable {
@@ -35,7 +36,7 @@ export class CodexChunkEditorProvider
 
     private static readonly viewType = "codex.chunkEditor";
 
-    constructor(private readonly context: vscode.ExtensionContext) { }
+    constructor(private readonly context: vscode.ExtensionContext) {}
 
     /**
      * Called when our custom editor is opened.
@@ -142,10 +143,20 @@ export class CodexChunkEditorProvider
      */
     private getHtmlForWebview(webview: vscode.Webview): string {
         const styleResetUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this.context.extensionUri, "src", "media", "reset.css")
+            vscode.Uri.joinPath(
+                this.context.extensionUri,
+                "src",
+                "media",
+                "reset.css",
+            ),
         );
         const styleVSCodeUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this.context.extensionUri, "src", "media", "vscode.css")
+            vscode.Uri.joinPath(
+                this.context.extensionUri,
+                "src",
+                "media",
+                "vscode.css",
+            ),
         );
         const codiconsUri = webview.asWebviewUri(
             vscode.Uri.joinPath(
@@ -153,8 +164,8 @@ export class CodexChunkEditorProvider
                 "node_modules",
                 "@vscode/codicons",
                 "dist",
-                "codicon.css"
-            )
+                "codicon.css",
+            ),
         );
         const scriptUri = webview.asWebviewUri(
             vscode.Uri.joinPath(
@@ -164,7 +175,7 @@ export class CodexChunkEditorProvider
                 "dist",
                 "CodexChunkEditor",
                 "index.js",
-            )
+            ),
         );
 
         const nonce = getNonce();
@@ -219,8 +230,12 @@ export class CodexChunkEditorProvider
         ) as CustomNotebookData;
 
         const verseDataArray = this.getVerseDataArray(); // FIXME: Calculate the verse data array based on the content instead of using a static file. It will probably be more efficient.
-
-        const verseDataArrayIndex = verseDataArray.indexOf(data.verseMarkers[0]);
+        console.log("data.verseMarkers[0]", {
+            "data.verseMarkers[0]": data.verseMarkers[0],
+        });
+        const verseDataArrayIndex = verseDataArray.indexOf(
+            data.verseMarkers[0],
+        );
         const nextVerseMarker = verseDataArray[verseDataArrayIndex + 1];
 
         const indexOfCellToUpdate = currentContent.cells.findIndex((cell) =>
@@ -232,7 +247,9 @@ export class CodexChunkEditorProvider
         }
         const cellToUpdate = currentContent.cells[indexOfCellToUpdate];
 
-        if (data.verseMarkers[0].split(":")[0] === nextVerseMarker.split(":")[0]) {
+        if (
+            data.verseMarkers[0].split(":")[0] === nextVerseMarker.split(":")[0]
+        ) {
             const currentValue = cellToUpdate.value;
             const startIndex = currentValue.indexOf(data.verseMarkers[0]);
             const endIndex = currentValue.indexOf(nextVerseMarker, startIndex);
@@ -253,7 +270,7 @@ export class CodexChunkEditorProvider
                 cellToUpdate.value.substring(
                     0,
                     cellToUpdate.value.indexOf(data.verseMarkers[0]) +
-                    data.verseMarkers[0].length,
+                        data.verseMarkers[0].length,
                 ) +
                 " " +
                 data.content;

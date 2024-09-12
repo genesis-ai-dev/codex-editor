@@ -51,9 +51,8 @@ const VerseList: React.FC<VerseListProps> = ({
 
         for (let i = 0; i < translationUnits.length; i++) {
             const { verseMarkers, verseContent } = translationUnits[i];
-            const verseMarker = verseMarkers.join(" ");
 
-            if (verseMarker === contentBeingUpdated.verseMarkers?.join(" ")) {
+            if (verseMarkers.join(" ") === contentBeingUpdated.verseMarkers?.join(" ")) {
                 if (currentGroup.length > 0) {
                     result.push(
                         renderVerseGroup(currentGroup, groupStartIndex),
@@ -63,7 +62,7 @@ const VerseList: React.FC<VerseListProps> = ({
                 result.push(
                     <VerseEditor
                         key={i}
-                        verseMarker={verseMarker}
+                        verseMarkers={verseMarkers}
                         verseContent={verseContent}
                         verseIndex={i}
                         spellCheckResponse={spellCheckResponse}
@@ -84,7 +83,7 @@ const VerseList: React.FC<VerseListProps> = ({
                 result.push(
                     <EmptyVerseDisplay
                         key={i}
-                        verseMarker={verseMarker}
+                        verseMarkers={verseMarkers}
                         verseIndex={i}
                         setContentBeingUpdated={setContentBeingUpdated}
                     />,
