@@ -1,7 +1,6 @@
 export const processVerseContent = (cellContent: string) => {
     const verseRefRegex = /(?<=^|\s)(?=[A-Z, 1-9]{3} \d{1,3}:\d{1,3})/;
     const lines = cellContent.split(verseRefRegex);
-
     return lines
         .map((line) => {
             const verseMarker = line.match(/(\b[A-Z, 1-9]{3}\s\d+:\d+\b)/)?.[0];
