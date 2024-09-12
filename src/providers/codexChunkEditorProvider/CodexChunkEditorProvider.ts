@@ -109,7 +109,6 @@ export class CodexChunkEditorProvider
                         console.log("saveMarkdown message received", { e });
                         // TODO: change this to update the document one vers at a time.
                         this.updateTextDocument(document, e.content);
-                        // this.updateTextDocument(document, JSON.parse(e.content));
                         return;
                     case "updateMetadataWithUnsavedChanges":
                         console.log("update message received", { e });
