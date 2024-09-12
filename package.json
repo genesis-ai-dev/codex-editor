@@ -639,7 +639,7 @@
                         "title": "Rules for AI (System Message)",
                         "type": "string",
                         "default": "This is a chat between a helpful Bible translation assistant and a Bible translator. The assistant will provide helpful answers and suggestions to the translator, often relying on the translator's current project and reference resources. The translator will ask questions and provide context to the assistant. The translator's aim is to be consistent and faithful in a fairly literalistic rendering of the source text.",
-                        "description": "The system message controlling the behavior of the chat system (not inline completion). You can customize this message to fit your needs, or ask the copilot to translate it for you into your preferred interface language."
+                        "description": "The system message controlling the behavior of the chat system and inline completion. You can customize this message to fit your needs, or ask the copilot to translate it for you into your preferred interface language."
                     },
                     "translators-copilot.sourceTextSelectionMode": {
                         "type": "string",
