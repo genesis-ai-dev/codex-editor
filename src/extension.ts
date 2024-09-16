@@ -24,7 +24,7 @@ import { syncUtils } from "./activationHelpers/contextAware/syncUtils";
 import { initializeStateStore } from "./stateStore";
 import { projectFileExists } from "./utils/fileUtils";
 import { registerCompletionsCodeLensProviders } from "./activationHelpers/contextAware/completionsCodeLensProviders";
-import { CodexChunkEditorProvider } from "./providers/codexChunkEditorProvider/codexChunkEditorProvider";
+import { CodexChunkEditorProvider } from "./providers/codexChunkEditorProvider/CodexChunkEditorProvider";
 import * as path from "path";
 import {
     LanguageClient,
@@ -208,8 +208,7 @@ async function startSyncLoop(context: vscode.ExtensionContext) {
                     true,
                 );
                 vscode.window.showInformationMessage(
-                    `Auto-commit is now ${
-                        autoCommitEnabled ? "enabled" : "disabled"
+                    `Auto-commit is now ${autoCommitEnabled ? "enabled" : "disabled"
                     }.`,
                 );
 
