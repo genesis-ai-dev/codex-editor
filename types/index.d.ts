@@ -69,9 +69,9 @@ type CommentPostMessages =
     | { command: "updateCommentThread"; commentThread: NotebookCommentThread }
     | { command: "deleteCommentThread"; commentThreadId: string }
     | {
-          command: "deleteComment";
-          args: { commentId: number; commentThreadId: string };
-      }
+        command: "deleteComment";
+        args: { commentId: number; commentThreadId: string };
+    }
     | { command: "getCurrentVerseRef" }
     | { command: "fetchComments" };
 
@@ -92,11 +92,11 @@ type ChatPostMessages =
     | { command: "fetch"; messages: string }
     | { command: "notifyUserError"; message: string }
     | {
-          command: "updateMessageThread";
-          messages: ChatMessageWithContext[];
-          threadId: string;
-          threadTitle?: string;
-      }
+        command: "updateMessageThread";
+        messages: ChatMessageWithContext[];
+        threadId: string;
+        threadTitle?: string;
+    }
     | { command: "deleteThread"; threadId: string }
     | { command: "fetchThread" }
     | { command: "abort-fetch" }
@@ -106,15 +106,25 @@ type ChatPostMessages =
 
 type DictionaryPostMessages =
     | { command: "sendData"; data: Dictionary }
-    | { command: "updateData"; data: Dictionary }
-    | { command: "confirmRemove"; count: number }
+    | { command: "webviewTellsProviderToUpdateData"; data: Dictionary }
+    | { command: "webviewAsksProviderToConfirmRemove"; count: number }
     | { command: "updateEntryCount"; count: number }
-    | { command: "removeConfirmed" }
     | { command: "updateFrequentWords"; words: string[] }
     | {
-          command: "updateWordFrequencies";
-          wordFrequencies: { [key: string]: number };
-      };
+        command: "updateWordFrequencies";
+        wordFrequencies: { [key: string]: number };
+    }
+    | { command: "updateDictionary"; content: Dictionary }
+
+type DictionaryReceiveMessages =
+    | { command: "providerTellsWebviewRemoveConfirmed" }
+    | { command: "providerTellsWebviewToUpdateData"; data: Dictionary };
+
+type DictionarySidePanelPostMessages =
+    | { command: "updateData", data: Dictionary }
+    | { command: "showDictionaryTable" }
+    | { command: "refreshWordFrequency" }
+    | { command: "addFrequentWordsToDictionary", words: string[] };
 
 type TranslationNotePostMessages =
     | { command: "update"; data: ScriptureTSV }
@@ -193,14 +203,14 @@ type EditorPostMessages =
     | { command: "addWord"; text: string }
     | { command: "saveHtml"; content: EditorVerseContent }
     | {
-          command: "updateMetadataWithUnsavedChanges";
-          content: EditorVerseContent;
-      }
+        command: "updateMetadataWithUnsavedChanges";
+        content: EditorVerseContent;
+    }
     | { command: "getContent" }
     | {
-          command: "setCurrentIdToGlobalState";
-          content: { currentLineId: string };
-      };
+        command: "setCurrentIdToGlobalState";
+        content: { currentLineId: string };
+    };
 
 type CustomNotebook = vscode.NotebookCellData & {
     language: string;

@@ -14,7 +14,10 @@ import {
 import update from "immutability-helper";
 import { Dictionary } from "codex-types";
 import Trash from "./img/Trash";
-import { DictionaryPostMessages } from "../../../../types";
+import {
+    DictionaryPostMessages,
+    DictionaryReceiveMessages,
+} from "../../../../types";
 import { TableColumn, TableData, TableEntry } from "./tableTypes";
 import debounce from "lodash/debounce";
 
@@ -324,24 +327,35 @@ function App() {
         console.log("Data changed");
     }, [state.data, state.columns]);
 
+    let lastSentDictionary: Dictionary = {
+        id: "",
+        label: "",
+        entries: [],
+        metadata: {},
+    };
+
     useEffect(() => {
         if (state.data.length > 0 && state.columns.length > 0) {
             const tableData: TableData = {
                 data: state.data,
                 columns: state.columns,
-            }; // Adjust according to the actual structure
+            };
             const dictionaryData: Dictionary = transformToDictionaryFormat(
                 tableData,
                 state.dictionary
             );
-            vscode.postMessage({
-                command: "updateData",
-                data: dictionaryData,
-            } as DictionaryPostMessages);
-            console.log(
-                "Something in data, columns, or dict changed. New count:",
-                state.data.length
-            );
+
+            // Add a check to prevent unnecessary updates
+            if (
+                JSON.stringify(lastSentDictionary) !==
+                JSON.stringify(dictionaryData)
+            ) {
+                lastSentDictionary = dictionaryData;
+                vscode.postMessage({
+                    command: "webviewTellsProviderToUpdateData",
+                    data: dictionaryData,
+                } as DictionaryPostMessages);
+            }
         }
     }, [state.data, state.columns, state.dictionary]);
 
@@ -377,16 +391,15 @@ function App() {
     }, [dispatch, state.columns.length]); // Only re-run the effect if `dispatch` changes
 
     useEffect(() => {
-        //once was function, not const
-        // function handleReceiveMessage(event: any) {
-        const handleReceiveMessage = (event: MessageEvent) => {
-            console.log("Received event:");
-            console.log({ event });
-            const message: DictionaryPostMessages = event.data; // The JSON data our extension sent
+        const handleReceiveMessage = (
+            event: MessageEvent<DictionaryReceiveMessages>
+        ) => {
+            console.log("Received event:", event);
+            const message = event.data;
             switch (message.command) {
-                case "sendData": {
-                    // const dictionary = JSON.parse(message.data);
+                case "providerTellsWebviewToUpdateData": {
                     let dictionary: Dictionary = message.data;
+                    console.log("Dictionary received from update:", dictionary);
 
                     if (!dictionary.entries) {
                         dictionary = {
@@ -395,38 +408,66 @@ function App() {
                         };
                     }
 
-                    console.log("Dictionary before transformation:");
-                    console.log({ dictionary });
-                    const tableData = transformToTableData(dictionary);
-                    dispatch({
-                        type: ActionTypes.LOAD_DATA,
-                        data: tableData.data,
-                        columns: tableData.columns,
-                        dictionary: dictionary,
-                    });
-                    // Trigger window resize event manually to size columns correctly
-                    window.dispatchEvent(new Event("resize"));
+                    // Add a check to prevent unnecessary updates
+                    if (
+                        JSON.stringify(state.dictionary) !==
+                        JSON.stringify(dictionary)
+                    ) {
+                        console.log(
+                            "Dictionary before transformation:",
+                            dictionary
+                        );
+                        const tableData = transformToTableData(dictionary);
+                        dispatch({
+                            type: ActionTypes.LOAD_DATA,
+                            data: tableData.data,
+                            columns: tableData.columns,
+                            dictionary: dictionary,
+                        });
+                        // Trigger window resize event manually to size columns correctly
+                        window.dispatchEvent(new Event("resize"));
+                    }
                     break;
                 }
-                case "removeConfirmed":
-                    dispatch({ type: ActionTypes.REMOVE_CHECKED_ROWS });
+                case "providerTellsWebviewRemoveConfirmed":
+                    const updatedData = state.data.filter(
+                        (row: any) => !row[Constants.CHECKBOX_COLUMN_ID]
+                    );
+                    const updatedDictionary = {
+                        ...state.dictionary,
+                        entries: updatedData.map((row: any) => ({
+                            ...row,
+                        })),
+                    };
+                    dispatch({
+                        type: ActionTypes.LOAD_DATA,
+                        data: updatedData,
+                        columns: state.columns,
+                        dictionary: updatedDictionary,
+                    });
+                    // Send the updated dictionary back to the extension
+                    vscode.postMessage({
+                        command: "webviewTellsProviderToUpdateData",
+                        data: updatedDictionary,
+                    } as DictionaryPostMessages);
                     break;
             }
         };
+
         window.addEventListener("message", handleReceiveMessage);
 
-        // Make sure to clean up the event listener when the component is unmounted
+        // Clean up the event listener when the component is unmounted
         return () => {
             window.removeEventListener("message", handleReceiveMessage);
         };
-    }, []);
+    }, [state.dictionary, state.data, state.columns]);
 
     const removeCheckedRows = () => {
         const checkedRowsCount = state.data.filter(
             (row: any) => row[Constants.CHECKBOX_COLUMN_ID]
         ).length;
         vscode.postMessage({
-            command: "confirmRemove",
+            command: "webviewAsksProviderToConfirmRemove",
             count: checkedRowsCount,
         } as DictionaryPostMessages);
     };

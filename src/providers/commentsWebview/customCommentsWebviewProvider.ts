@@ -23,10 +23,10 @@ const loadWebviewHtml = (
   };
 
   const styleResetUri = webviewView.webview.asWebviewUri(
-    vscode.Uri.joinPath(extensionUri, "src", "media", "reset.css")
+    vscode.Uri.joinPath(extensionUri, "src", "assets", "reset.css")
   );
   const styleVSCodeUri = webviewView.webview.asWebviewUri(
-    vscode.Uri.joinPath(extensionUri, "src", "media", "vscode.css")
+    vscode.Uri.joinPath(extensionUri, "src", "assets", "vscode.css")
   );
 
   const scriptUri = webviewView.webview.asWebviewUri(
