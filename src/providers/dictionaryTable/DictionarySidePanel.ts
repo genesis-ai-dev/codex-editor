@@ -60,7 +60,7 @@ export class DictionarySidePanel implements vscode.WebviewViewProvider {
         } as DictionaryPostMessages);
 
         // Update frequent words
-        const frequentWords = await vscode.commands.executeCommand('translators-copilot.getWordsAboveThreshold'); // Adjust threshold as needed
+        const frequentWords = await vscode.commands.executeCommand('translators-copilot.getWordsAboveThreshold');
         this._view?.webview.postMessage({
             command: "updateFrequentWords",
             words: frequentWords,
@@ -85,30 +85,47 @@ export class DictionarySidePanel implements vscode.WebviewViewProvider {
     }
 
     private getWebviewContent(webview: vscode.Webview): string {
-        const stylesUri = getUri(webview, this.extensionUri, [
-            "webviews",
-            "dictionary-side-panel",
-            "dist",
-            "assets",
-            "index.css",
-        ]);
-        const scriptUri = getUri(webview, this.extensionUri, [
-            "webviews",
-            "dictionary-side-panel",
-            "dist",
-            "assets",
-            "index.js",
-        ]);
+        const scriptUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(
+                this.extensionUri,
+                "webviews",
+                "codex-webviews",
+                "dist",
+                "DictionarySidePanel",
+                "index.js"
+            )
+        );
+        const stylesUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(
+                this.extensionUri,
+                "webviews",
+                "codex-webviews",
+                "dist",
+                "DictionarySidePanel",
+                "index.css"
+            )
+        );
+        const codiconsUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(
+                this.extensionUri,
+                "node_modules",
+                "@vscode/codicons",
+                "dist",
+                "codicon.css"
+            )
+        );
+
         const nonce = getNonce();
 
         return `
           <!DOCTYPE html>
           <html lang="en">
           <head>
-              <meta charset="UTF-8">
-              <meta name="viewport" content="width=device-width, initial-scale=1.0">
-              <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https:; script-src 'nonce-${nonce}'; style-src ${webview.cspSource};">
-              <link href="${stylesUri}" rel="stylesheet">
+              <meta charset="UTF-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} https:; font-src ${webview.cspSource};">
+            <link href="${codiconsUri}" rel="stylesheet" />
+            <link href="${stylesUri}" rel="stylesheet" />
               <title>Dictionary Table</title>
           </head>
           <body>
@@ -133,17 +150,24 @@ export class DictionarySidePanel implements vscode.WebviewViewProvider {
                     }
                     case "refreshWordFrequency": {
                         vscode.window.showInformationMessage("Refreshing word frequency");
-                        this.updateWebviewData();
+                        // Refresh the word index
+                        await vscode.commands.executeCommand('translators-copilot.refreshWordIndex');
+                        // Update the webview data
+                        await this.updateWebviewData();
                         return;
                     }
                     case "addFrequentWordsToDictionary": {
                         const words = message.words;
-                        const spellChecker = new SpellChecker(vscode.workspace.workspaceFolders![0].uri.fsPath);
                         for (const word of words) {
-                            await spellChecker.addToDictionary(word);
+                            await vscode.commands.executeCommand('spellcheck.addToDictionary', word);
                         }
                         vscode.window.showInformationMessage(`Added ${words.length} words to the dictionary.`);
-                        this.updateWebviewData();
+
+                        // Refresh the word index
+                        await vscode.commands.executeCommand('translators-copilot.refreshWordIndex');
+
+                        // Update the webview data
+                        await this.updateWebviewData();
                         return;
                     }
                 }
@@ -151,15 +175,5 @@ export class DictionarySidePanel implements vscode.WebviewViewProvider {
             undefined,
             [],
         );
-    }
-}
-
-// You'll need to import or define the SpellChecker class
-class SpellChecker {
-    constructor(private workspaceFolder: string) { }
-
-    async addToDictionary(word: string): Promise<void> {
-        // Implement logic to add word to dictionary
-        // This should be consistent with your existing SpellChecker implementation
     }
 }

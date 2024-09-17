@@ -34,6 +34,7 @@ import {
 } from "vscode-languageclient/node";
 
 import { initializeBibleData } from "./activationHelpers/contextAware/sourceData";
+import { initializeWordsIndex } from './activationHelpers/contextAware/miniIndex/indexes/wordsIndex';
 
 let scmInterval: any; // Webpack & typescript for vscode are having issues
 

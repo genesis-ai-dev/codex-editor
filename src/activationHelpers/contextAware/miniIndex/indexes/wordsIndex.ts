@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { cleanWord } from '../../../../utils/spellingUtils';
+import { FileHandler } from '../../../../providers/dictionaryTable/utilities/FileHandler';
 
 interface WordFrequency {
     word: string;
@@ -34,9 +35,16 @@ export function getWordFrequency(wordIndex: Map<string, number>, word: string): 
     return wordIndex.get(word) || 0;
 }
 
-export function getWordsAboveThreshold(wordIndex: Map<string, number>, threshold: number): string[] {
+export async function getWordsAboveThreshold(wordIndex: Map<string, number>, threshold: number): Promise<string[]> {
+    const { data } = await FileHandler.readFile("files/project.dictionary");
+    let dictionaryWords: string[] = [];
+    if (data) {
+        const dictionary = JSON.parse(data);
+        dictionaryWords = dictionary.entries.map((entry: any) => entry.headForm?.toLowerCase() || '');
+    }
+
     return Array.from(wordIndex.entries())
-        .filter(([_, frequency]) => frequency >= threshold)
+        .filter(([word, frequency]) => frequency >= threshold && !dictionaryWords.includes(word?.toLowerCase() || ''))
         .map(([word, _]) => word);
 }
 

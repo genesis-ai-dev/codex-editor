@@ -43,11 +43,13 @@ function App() {
             command: "addFrequentWordsToDictionary",
             words: frequentWords,
         });
+        // Clear the frequent words list immediately in the UI
+        setFrequentWords([]);
     };
 
     return (
         <div className="app-container">
-            <h1 className="title">Dictionary Summary</h1>
+            <h1 className="title">Dictionary Summary - ryder</h1>
             <div className="card">
                 <p className="entry-count">Entries in dictionary: {entries}</p>
                 <button
