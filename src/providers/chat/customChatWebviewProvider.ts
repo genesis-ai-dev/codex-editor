@@ -79,16 +79,16 @@ const loadWebviewHtml = (
       "index.js"
     )
   );
-  const styleUri = webviewView.webview.asWebviewUri(
-    vscode.Uri.joinPath(
-      extensionUri,
-      "webviews",
-      "codex-webviews",
-      "dist",
-      "ChatView",
-      "index.css"
-    )
-  );
+  // const styleUri = webviewView.webview.asWebviewUri(
+  //   vscode.Uri.joinPath(
+  //     extensionUri,
+  //     "webviews",
+  //     "codex-webviews",
+  //     "dist",
+  //     "ChatView",
+  //     "index.css"
+  //   )
+  // );
   function getNonce() {
     let text = "";
     const possible =
@@ -110,10 +110,9 @@ const loadWebviewHtml = (
     <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${webviewView.webview.cspSource
     }; script-src 'nonce-${nonce}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link href="${styleResetUri}" rel="stylesheet">
-    <link href="${styleVSCodeUri}" rel="stylesheet">
-    <link href="${styleUri}" rel="stylesheet" />
-    <link href="${codiconsUri}" rel="stylesheet" />
+    <link href="${styleResetUri}" rel="stylesheet" nonce="${nonce}">
+    <link href="${styleVSCodeUri}" rel="stylesheet" nonce="${nonce}">
+    <link href="${codiconsUri}" rel="stylesheet" nonce="${nonce}" />
     <script nonce="${nonce}">
       // const vsCodeApi = acquireVsCodeApi();
       const apiBaseUrl = ${JSON.stringify("http://localhost:3002")}

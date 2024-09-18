@@ -5,8 +5,8 @@ import { TranslationPair } from "../../../types";
 async function simpleOpen(uri: string) {
     try {
         const parsedUri = vscode.Uri.parse(uri);
-        if (parsedUri.toString().includes(".codex")){
-            jumpToCellInNotebook(uri.toString(),  0);
+        if (parsedUri.toString().includes(".codex")) {
+            jumpToCellInNotebook(uri.toString(), 0);
         }
         else {
             const document = await vscode.workspace.openTextDocument(parsedUri);
@@ -43,16 +43,16 @@ const loadWebviewHtml = (
             "index.js",
         ),
     );
-    const styleUri = webviewView.webview.asWebviewUri(
-        vscode.Uri.joinPath(
-            extensionUri,
-            "webviews",
-            "codex-webviews",
-            "dist",
-            "ParallelView",
-            "index.css",
-        ),
-    );
+    // const styleUri = webviewView.webview.asWebviewUri(
+    //     vscode.Uri.joinPath(
+    //         extensionUri,
+    //         "webviews",
+    //         "codex-webviews",
+    //         "dist",
+    //         "ParallelView",
+    //         "index.css",
+    //     ),
+    // );
     function getNonce() {
         let text = "";
         const possible =
@@ -65,6 +65,7 @@ const loadWebviewHtml = (
         return text;
     }
     const nonce = getNonce();
+    // FIXME: the api base url below is hardcoded to localhost:3002. This should probably be dynamic at least.
     const html = /*html*/ `<!DOCTYPE html>
   <html lang="en">
   <head>
@@ -78,7 +79,6 @@ const loadWebviewHtml = (
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="${styleResetUri}" rel="stylesheet">
     <link href="${styleVSCodeUri}" rel="stylesheet">
-    <link href="${styleUri}" rel="stylesheet">
     <script nonce="${nonce}">
     //   const vscode = acquireVsCodeApi();
       const apiBaseUrl = ${JSON.stringify("http://localhost:3002")}
@@ -122,7 +122,7 @@ const loadWebviewHtml = (
 export class CustomWebviewProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
 
-    constructor(private readonly _context: vscode.ExtensionContext) {}
+    constructor(private readonly _context: vscode.ExtensionContext) { }
 
     public resolveWebviewView(webviewView: vscode.WebviewView) {
         this._view = webviewView;

@@ -6,7 +6,7 @@ export function cleanWord(word: string | undefined | null): string { // this is 
         // Replace multiple apostrophes with a single one
         .replace(/''+/g, "'")
         // Remove apostrophes at the start or end of words and other special characters
-        .replace(/(?<!\S)'|'(?!\S)|[^\p{L}\p{N}'\s]/gu, '')
-        // Convert to lowercase
-        .toLowerCase();
+        .replace(/(?<!\S)'|'(?!\S)|[^\p{L}\p{N}'\s]/gu, '');
+    // Convert to lowercase ? We won't do this for now to handle proper nouns, etc.
+    // .toLowerCase();
 }

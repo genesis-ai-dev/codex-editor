@@ -39,16 +39,16 @@ const loadWebviewHtml = (
       "index.js"
     )
   );
-  const styleUri = webviewView.webview.asWebviewUri(
-    vscode.Uri.joinPath(
-      extensionUri,
-      "webviews",
-      "codex-webviews",
-      "dist",
-      "CommentsView",
-      "index.css"
-    )
-  );
+  // const styleUri = webviewView.webview.asWebviewUri(
+  //   vscode.Uri.joinPath(
+  //     extensionUri,
+  //     "webviews",
+  //     "codex-webviews",
+  //     "dist",
+  //     "CommentsView",
+  //     "index.css"
+  //   )
+  // );
   const codiconsUri = webviewView.webview.asWebviewUri(
     vscode.Uri.joinPath(
       extensionUri,
@@ -81,7 +81,6 @@ const loadWebviewHtml = (
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="${styleResetUri}" rel="stylesheet">
     <link href="${styleVSCodeUri}" rel="stylesheet">
-    <link href="${styleUri}" rel="stylesheet">
     <link href="${codiconsUri}" rel="stylesheet" />
     <script nonce="${nonce}">
       const apiBaseUrl = ${JSON.stringify("http://localhost:3002")}

@@ -75,9 +75,9 @@
                 {
                     "type": "webview",
                     "id": "dictionary-summary-panel",
-                    "name": "Dictionary Table",
+                    "name": "Dictionary Summary",
                     "icon": "$(notebook)",
-                    "contextualTitle": "Dictionary Table"
+                    "contextualTitle": "Dictionary Summary"
                 },
                 {
                     "type": "webview",

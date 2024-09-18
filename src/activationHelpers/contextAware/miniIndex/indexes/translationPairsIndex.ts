@@ -62,6 +62,7 @@ export async function createTranslationPairsIndex(context: vscode.ExtensionConte
         }
 
         // Write complete drafts to file
+        // Note: subsequent updates to this file will use updateCompleteDrafts util
         const completeDraftPath = path.join(workspaceFolder!, '.project', 'complete_drafts.txt');
         try {
             await fs.promises.mkdir(path.dirname(completeDraftPath), { recursive: true });
