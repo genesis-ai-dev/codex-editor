@@ -1,7 +1,6 @@
 import { LanguageMetadata, LanguageProjectStatus } from 'codex-types';
 import * as vscode from "vscode";
-import * as path from "path";
-import { CellTypes, CodexCell } from "../../utils/codexNotebookUtils";
+import { CodexCell } from "../../utils/codexNotebookUtils";
 import { vrefData } from "../../utils/verseRefUtils/verseData";
 import { getProjectMetadata } from '../../utils';
 
@@ -10,7 +9,7 @@ export class Node extends vscode.TreeItem {
 
     constructor(
         public readonly label: string,
-        public readonly type: "grouping" | "notebook" | "chapter",
+        public readonly type: "grouping" | "document" | "section" | "cell",
         public readonly collapsibleState: vscode.TreeItemCollapsibleState,
         public readonly command?: vscode.Command,
     ) {
@@ -37,117 +36,99 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
 
     async getChildren(element?: Node): Promise<Node[] | undefined> {
         if (!this.workspaceRoot) {
-            // vscode.window.showInformationMessage(
-            //     "No notebooks in empty workspace",
-            // );
             return Promise.resolve([]);
         }
 
         if (element) {
-            if (element.type === "notebook") {
-                // Read the chapters from the .codex file
-                const notebookPath = path.join(
-                    this.workspaceRoot,
-                    "files",
-                    "target",
-                    `${element.label}.codex`,
-                );
-                const chapters = this.getChaptersInNotebook(notebookPath);
+            if (element.type === "document") {
+                const notebookUri = vscode.Uri.joinPath(vscode.Uri.file(this.workspaceRoot), "files", "target", `${element.label}.codex`);
+                const chapters = await this.getChaptersInNotebook(notebookUri);
                 return Promise.resolve(chapters);
-            } else if (element.type === "grouping") {
+            } else if (element.type === "section") {
                 return Promise.resolve(element.children);
             } else {
-                // Handle the case when element.type is not 'notebook'
-                return Promise.resolve([]);
+                return Promise.resolve(element.children);
             }
         } else {
-
-            // Read the .codex files from the files/{targetLanguage} directory
-            const notebooksPath = path.join(
-                this.workspaceRoot,
-                "files",
-                "target",
-            );
-            const notebooks = this.getNotebooksByTestamentInDirectory(notebooksPath);
+            const notebooksUri = vscode.Uri.joinPath(vscode.Uri.file(this.workspaceRoot), "files", "target");
+            const notebooks = await this.getNotebooksByGrouping(notebooksUri);
             return Promise.resolve(notebooks);
         }
     }
 
-    private async getNotebooksByTestamentInDirectory(dirPath: string): Promise<Node[]> {
+    private async getNotebooksByGrouping(dirUri: vscode.Uri): Promise<Node[]> {
         try {
-            const files = await vscode.workspace.fs.readDirectory(
-                vscode.Uri.file(dirPath),
-            );
-            let notebooks = files
-                .filter(
-                    ([file, type]) =>
-                        type === vscode.FileType.File &&
-                        path.extname(file) === ".codex",
-                )
-                .map(
-                    ([file]) =>
-                        new Node(
-                            path.basename(file, ".codex"),
-                            "notebook",
-                            vscode.TreeItemCollapsibleState.Collapsed,
-                        ),
-                );
+            const files = await vscode.workspace.fs.readDirectory(dirUri);
+            const notebooks = files
+                .filter(([file, type]) => type === vscode.FileType.File && file.endsWith(".codex"))
+                .map(([file]) => new Node(
+                    file.slice(0, -6), // Remove .codex extension
+                    "document",
+                    vscode.TreeItemCollapsibleState.Collapsed
+                ));
 
-            // Define the canonical order based on the keys of vrefData
+            // Define the canonical order and groupings
             const canonicalOrder = Object.keys(vrefData);
+            const groupings = {
+                "Old Testament": canonicalOrder.slice(0, 39),
+                "New Testament": canonicalOrder.slice(39)
+            };
 
-            // Sort the notebooks array based on the canonical order
-            notebooks = notebooks.sort((a, b) => {
-                const indexA = canonicalOrder.indexOf(a.label);
-                const indexB = canonicalOrder.indexOf(b.label);
-                return indexA - indexB;
-            });
+            // Sort notebooks based on canonical order
+            notebooks.sort((a, b) => canonicalOrder.indexOf(a.label) - canonicalOrder.indexOf(b.label));
 
-            const OTNotebooks = notebooks.slice(0, 39); // Genesis to Malachi
-            const NTNotebooks = notebooks.slice(39); // Matthew to Revelation
+            // Group notebooks
+            const groupedNotebooks = this.groupNotebooks(notebooks, groupings);
 
-            const OTNode = new Node("Old Testament", "grouping", vscode.TreeItemCollapsibleState.Collapsed, undefined);
-            const NTNode = new Node("New Testament", "grouping", vscode.TreeItemCollapsibleState.Expanded, undefined);
-
-            OTNode.children = OTNotebooks;
-            NTNode.children = NTNotebooks;
-
-            if (OTNotebooks.length === 0 && NTNotebooks.length === 0) {
-                return [];
-            }
-
-            return [OTNode, NTNode];
+            return groupedNotebooks;
         } catch (error) {
-            vscode.window.showErrorMessage(
-                `Error reading directory: ${dirPath}`,
-            );
+            vscode.window.showErrorMessage(`Error reading directory: ${dirUri.fsPath}`);
             return [];
         }
     }
 
-    private async getChaptersInNotebook(notebookPath: string): Promise<Node[]> {
-        const notebookContentBuffer = await vscode.workspace.fs.readFile(
-            vscode.Uri.file(notebookPath),
-        );
-        const notebookContent = notebookContentBuffer.toString(); // Convert the buffer to a string
-        const notebookJson = JSON.parse(notebookContent); // Parse the JSON content
-        const cells = notebookJson.cells; // Access the cells array
+    private groupNotebooks(notebooks: Node[], groupings: Record<string, string[]>): Node[] {
+        const result: Node[] = [];
 
-        // Now you can process each cell as needed
-        return cells.map((cell: CodexCell, index: number) => {
-            // Assuming you want to create a Node for each cell
-            if (cell.metadata?.type === CellTypes.CHAPTER_HEADING) {
-                return new Node(
-                    `Chapter ${cell.metadata.data.chapter}`,
-                    "chapter",
-                    vscode.TreeItemCollapsibleState.None,
-                    {
-                        command: "scripture-explorer-activity-bar.openChapter",
-                        title: "",
-                        arguments: [notebookPath, index],
-                    },
-                );
+        for (const [groupName, books] of Object.entries(groupings)) {
+            const groupNotebooks = notebooks.filter(notebook => books.includes(notebook.label));
+            if (groupNotebooks.length > 0) {
+                const groupNode = new Node(groupName, "grouping", vscode.TreeItemCollapsibleState.Expanded);
+                groupNode.children = groupNotebooks;
+                result.push(groupNode);
             }
-        });
+        }
+
+        // Add any notebooks that don't belong to a group
+        const ungroupedNotebooks = notebooks.filter(notebook =>
+            !Object.values(groupings).flat().includes(notebook.label)
+        );
+        result.push(...ungroupedNotebooks);
+
+        return result;
+    }
+
+    private async getChaptersInNotebook(notebookUri: vscode.Uri): Promise<Node[]> {
+        const notebookDocument = await vscode.workspace.openNotebookDocument(notebookUri);
+        const cells = notebookDocument.getCells();
+        return cells.map((cell: vscode.NotebookCell, index: number) => {
+            const cellId = cell.metadata?.id;
+            if (cellId) {
+                const sectionNumber = cellId.split(' ')[1].split(':')[0];
+                if (sectionNumber) {
+                    return new Node(
+                        `Section ${sectionNumber}`,
+                        "section",
+                        vscode.TreeItemCollapsibleState.None,
+                        {
+                            command: "scripture-explorer-activity-bar.openSection",
+                            title: "",
+                            arguments: [notebookUri.fsPath, index],
+                        },
+                    );
+                }
+            }
+            return undefined;
+        }).filter((node): node is Node => node !== undefined);
     }
 }
