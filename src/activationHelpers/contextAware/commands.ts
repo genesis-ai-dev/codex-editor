@@ -14,7 +14,7 @@ import {
 } from "../../commands/indexVrefsCommand";
 import { DownloadedResource } from "../../providers/obs/resources/types";
 import { translationAcademy } from "../../providers/translationAcademy/provider";
-import { downloadBible, initializeProject, setTargetFont } from "../contextUnaware/projectInitializers";
+import { setTargetFont } from "../contextUnaware/projectInitializers";
 
 import { CodexNotebookProvider } from "../../providers/treeViews/scriptureTreeViewProvider";
 import {
