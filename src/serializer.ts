@@ -42,6 +42,10 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
                 item.language,
             );
             cell.metadata = item.metadata || {}; // Ensure metadata is included if available
+            if (item.metadata && item.metadata.id) {
+                // @ts-expect-error: metadata is added above
+                cell.metadata.id = item.metadata.id;
+            }
             return cell;
         });
 
@@ -60,7 +64,10 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
                 kind: cell.kind,
                 language: cell.languageId,
                 value: cell.value,
-                metadata: cell.metadata,
+                metadata: {
+                    ...cell.metadata,
+                    id: cell.metadata?.id,
+                },
             });
         }
 

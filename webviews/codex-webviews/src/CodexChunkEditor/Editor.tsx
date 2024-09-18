@@ -4,6 +4,8 @@ import "quill/dist/quill.snow.css";
 import registerQuillSpellChecker, {
     getCleanedHtml,
 } from "./react-quill-spellcheck";
+import { EditorPostMessages } from "../../../../types";
+import "./TextEditor.css"; // over write the default quill styles so spans flow
 
 const icons: any = Quill.import("ui/icons");
 // Assuming you have access to the VSCode API here
@@ -20,6 +22,7 @@ export interface EditorContentChanged {
 }
 
 export interface EditorProps {
+    currentLineId: string;
     initialValue?: string;
     onChange?: (changes: EditorContentChanged) => void;
     spellCheckResponse?: any;
@@ -49,7 +52,8 @@ export default function Editor(props: EditorProps) {
     const revertedValue = useMemo(() => {
         return props.initialValue
             ?.replace(/^<span>/, "<p>")
-            .replace(/<\/span>/, "</p>");
+            .replace(/<\/span>/, "</p>")
+            .replace(/\n$/, "");
     }, [props.initialValue]);
 
     const quillRef = useRef<Quill | null>(null);
@@ -64,7 +68,7 @@ export default function Editor(props: EditorProps) {
                     toolbar: {
                         container: TOOLBAR_OPTIONS,
                         handlers: {
-                            autocomplete: addTestWord,
+                            autocomplete: llmCompletion,
                         },
                     },
                     spellChecker: {},
@@ -110,7 +114,7 @@ export default function Editor(props: EditorProps) {
                         : [
                               `<span>${firstParagraphWithoutP}</span>`,
                               ...restOfParagraphs,
-                          ].join("");
+                          ].join(" ");
 
                     props.onChange({
                         html: contentIsEmpty ? "\n" : finalContent,
@@ -139,10 +143,33 @@ export default function Editor(props: EditorProps) {
         }
     }, [revertedValue]);
 
-    const addTestWord = () => {
+    const llmCompletion = async () => {
+        console.log(
+            "llmCompletion vscode",
+            { vscode, window },
+            window.vscodeApi,
+        );
+        window.vscodeApi.postMessage({
+            command: "llmCompletion",
+            content: {
+                currentLineId: props.currentLineId,
+            },
+        } as EditorPostMessages);
+        // create a promis and resolve it when the llmCompletionResponse is received
+        const text: string = await new Promise((resolve) => {
+            const messageListener = (event: any) => {
+                console.log("messageListener", { event });
+                if (event.data.type === "llmCompletionResponse") {
+                    resolve(event.data.content.completion);
+                    window.removeEventListener("message", messageListener);
+                }
+            };
+            window.addEventListener("message", messageListener);
+        });
+        console.log("text", text);
         if (quillRef.current) {
             const length = quillRef.current.getLength();
-            quillRef.current.insertText(length, " test");
+            quillRef.current.insertText(length, text);
         }
     };
 

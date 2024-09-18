@@ -1,21 +1,26 @@
 import React from "react";
-import { EditorVerseContent, EditorPostMessages } from "../../../../types";
+import {
+    EditorVerseContent,
+    EditorPostMessages,
+    CodexCellTypes,
+} from "../../../../types";
 import { HACKY_removeContiguousSpans } from "./utils";
 
-interface VerseDisplayProps {
-    verseMarkers: string[];
-    verseContent: string;
-    verseIndex: number;
+interface CellContentDisplayProps {
+    cellIds: string[];
+    cellContent: string;
+    cellIndex: number;
+    cellType: CodexCellTypes;
     setContentBeingUpdated: React.Dispatch<
         React.SetStateAction<EditorVerseContent>
     >;
     vscode: any;
 }
 
-const VerseDisplay: React.FC<VerseDisplayProps> = ({
-    verseMarkers,
-    verseContent,
-    verseIndex,
+const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
+    cellIds: verseMarkers,
+    cellContent: verseContent,
+    cellIndex: verseIndex,
     setContentBeingUpdated,
     vscode,
 }) => {
@@ -53,4 +58,4 @@ const VerseDisplay: React.FC<VerseDisplayProps> = ({
     );
 };
 
-export default VerseDisplay;
+export default CellContentDisplay;

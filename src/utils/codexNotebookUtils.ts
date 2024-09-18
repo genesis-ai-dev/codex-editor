@@ -6,11 +6,10 @@ import { generateFiles as generateFile } from "./fileUtils";
 import { getAllBookRefs, getAllBookChapterRefs, getAllVrefs } from ".";
 import { vrefData } from "./verseRefUtils/verseData";
 import { LanguageProjectStatus } from "codex-types";
+import { extractVerseRefFromLine } from "./verseRefUtils";
+// import { CodexCellTypes } from "../../types";
 
 export const NOTEBOOK_TYPE = "codex-type";
-export enum CellTypes {
-    CHAPTER_HEADING = "chapter-heading",
-}
 
 /**
  * Interface representing a Codex cell with optional metadata.
@@ -25,7 +24,7 @@ export enum CellTypes {
  */
 export interface CodexCell extends vscode.NotebookCellData {
     metadata?: {
-        type: CellTypes;
+        type: any;
         data: {
             chapter: string;
         };
@@ -78,8 +77,8 @@ export const createCodexNotebook = async (
  * @param {string[]} options.books - An array of book names for which to create notebooks. If not provided, notebooks will be created for all books.
  * @returns {Promise<void>} A promise that resolves when all notebooks have been created.
  */
-export async function createProjectNotebooks({
-    shouldOverWrite = false,
+export async function updateProjectNotebooksToUseCellsForVerseContent({
+    shouldOverWrite = true,
     books = undefined,
 }: {
     shouldOverWrite?: boolean;
@@ -96,49 +95,89 @@ export async function createProjectNotebooks({
          * markdown cell that says '### Notes for Chapter {chapter number}'
          */
         const cells: vscode.NotebookCellData[] = [];
-        const chapterHeadingText = `# Chapter`;
+        const chapterHeadingText = `Chapter`;
 
         // Iterate over all chapters in the current book
         for (const chapter of getAllBookChapterRefs(book)) {
             // Generate a markdown cell with the chapter number
             const cell = new vscode.NotebookCellData(
-                vscode.NotebookCellKind.Markup,
-                `${chapterHeadingText} ${chapter}`,
-                "markdown",
+                vscode.NotebookCellKind.Code,
+                `<h1>${chapterHeadingText} ${chapter}</h1>`,
+                "paratext",
             );
             cell.metadata = {
-                type: CellTypes.CHAPTER_HEADING,
+                type: "paratext",
                 data: {
                     chapter: chapter,
                 },
+                id: `${book} ${chapter}:001`,
             };
+
             cells.push(cell);
 
             // Generate a code cell for the chapter
             const numberOfVrefsForChapter =
                 vrefData[book].chapterVerseCountPairings[chapter];
-            const vrefsString = getAllVrefs(
-                book,
-                chapter,
-                numberOfVrefsForChapter,
+            // const vrefsString = getAllVrefs(
+            //     book,
+            //     chapter,
+            //     numberOfVrefsForChapter,
+            // );
+
+            // get file for book using vscode api
+            const workspaceRoot =
+                vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+            const file = await vscode.workspace.fs.readFile(
+                vscode.Uri.file(`${workspaceRoot}/files/target/${book}.codex`),
             );
 
-            cells.push(
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Code,
-                    vrefsString + " ", // Add a space to the end of the vref
-                    "scripture",
-                ),
+            const serializerNew = new CodexContentSerializer();
+            const notebookData = await serializerNew.deserializeNotebook(
+                file,
+                new vscode.CancellationTokenSource().token,
             );
+
+            const chapterCell = notebookData.cells.filter((cell) =>
+                cell.value.includes(`${book} ${chapter}:`),
+            )[0];
+
+            const cellContent = chapterCell.value;
+
+            const verseWithContent: {
+                verseRef: string;
+                content: string;
+            }[] = [];
+            cellContent.split("\n").forEach((line) => {
+                const verseRef = extractVerseRefFromLine(line);
+                if (verseRef) {
+                    const verseContent = line.substring(verseRef.length).trim();
+                    verseWithContent.push({
+                        verseRef,
+                        content: verseContent,
+                    });
+                }
+            });
+            for (const verse of verseWithContent) {
+                const verseCell = new vscode.NotebookCellData(
+                    vscode.NotebookCellKind.Code,
+                    verse.content,
+                    "scripture",
+                );
+                verseCell.metadata = {
+                    type: "verse",
+                    id: verse.verseRef,
+                };
+                cells.push(verseCell);
+            }
 
             // Generate a markdown cell for notes for the chapter
-            cells.push(
-                new vscode.NotebookCellData(
-                    vscode.NotebookCellKind.Markup,
-                    `### Notes for Chapter ${chapter}`,
-                    "markdown",
-                ),
-            );
+            // cells.push(
+            //     new vscode.NotebookCellData(
+            //         vscode.NotebookCellKind.Markup,
+            //         `### Notes for Chapter ${chapter}`,
+            //         "markdown",
+            //     ),
+            // );
         }
         // Create a notebook for the current book
         const serializer = new CodexContentSerializer();

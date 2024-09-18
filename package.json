@@ -371,6 +371,10 @@
                 "title": "Create Codex Notebook"
             },
             {
+                "command": "codex-editor-extension.updateProjectNotebooksToUseCellsForVerseContent",
+                "title": "Update Project Notebooks to Use Cells for Verse Content"
+            },
+            {
                 "command": "codex-notebook-extension.createCodexProject",
                 "title": "Create Codex Project"
             },
@@ -726,7 +730,7 @@
                 "displayName": "Codex Chunk",
                 "selector": [
                     {
-                        "filenamePattern": "*.codex2"
+                        "filenamePattern": "*.codex"
                     }
                 ]
             },

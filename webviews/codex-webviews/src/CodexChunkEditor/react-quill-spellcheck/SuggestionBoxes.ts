@@ -33,7 +33,6 @@ export function removeSuggestionBoxes(quillEditor: Quill) {
         return delta;
     });
 
-    // @ts-ignore
     quillEditor.setContents(new Delta(deltasWithoutSuggestionBoxes), "silent");
 
     if (initialSelection) {
@@ -68,7 +67,7 @@ export class SuggestionBoxes {
             const ops = new Delta()
                 .retain(match.offset)
                 .retain(match.length, { "spck-match": match });
-            // @ts-ignore
+
             this.parent.quill.updateContents(ops, "silent");
         });
     }
