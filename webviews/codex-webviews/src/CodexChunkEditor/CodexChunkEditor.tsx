@@ -1,42 +1,37 @@
 import React, { useState, useEffect } from "react";
 import {
+    CellContent,
     CustomNotebookData,
     EditorPostMessages,
     EditorVerseContent,
 } from "../../../../types";
 import ChapterNavigation from "./ChapterNavigation";
 import VerseList from "./VerseList";
-import { processVerseContent } from "./utils";
 import { useVSCodeMessageHandler } from "./hooks/useVSCodeMessageHandler";
 
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
 
 const CodexChunkEditor: React.FC = () => {
-    const [content, setContent] = useState<CustomNotebookData>(
-        {} as CustomNotebookData,
-    );
+    const [translationUnits, setTranslationUnits] = useState<CellContent[]>([]);
     const [spellCheckResponse, setSpellCheckResponse] =
         useState<CustomNotebookData>({} as CustomNotebookData);
     const [contentBeingUpdated, setContentBeingUpdated] =
         useState<EditorVerseContent>({} as EditorVerseContent);
-    const [chapterIndex, setChapterIndex] = useState<number>(0);
+    const [chapterNumber, setChapterNumber] = useState<number>(1);
 
-    useVSCodeMessageHandler(setContent, setSpellCheckResponse);
+    useVSCodeMessageHandler(setTranslationUnits, setSpellCheckResponse);
 
     useEffect(() => {
         vscode.postMessage({ command: "getContent" } as EditorPostMessages);
     }, []);
 
-    const scriptureCells = content?.cells?.filter(
-        (cell) => cell.language === "scripture",
-    );
-    const translationUnits =
-        scriptureCells?.length > 0
-            ? processVerseContent(scriptureCells[chapterIndex].value).filter(
-                  Boolean,
-              )
-            : [];
+    const translationUnitsForChapter = translationUnits.filter((verse) => {
+        const verseMarker = verse.verseMarkers[0];
+        const chapterVerseParts = verseMarker.split(" ")[1].split(":");
+        const verseChapterNumber = chapterVerseParts[0];
+        return verseChapterNumber === chapterNumber.toString();
+    });
 
     const handleCloseEditor = () =>
         setContentBeingUpdated({} as EditorVerseContent);
@@ -49,45 +44,22 @@ const CodexChunkEditor: React.FC = () => {
         handleCloseEditor();
     };
 
-    const translationUnitsWithMergedRanges: {
-        verseMarkers: string[];
-        verseContent: string;
-    }[] = [];
-
-    translationUnits?.forEach((verse, index) => {
-        let forwardIndex = 1;
-        const rangeMarker = "<range>";
-        if (verse.verseContent?.trim() === rangeMarker) {
-            return;
-        }
-        const verseMarkers = [...verse.verseMarkers];
-        let nextVerse = translationUnits[index + forwardIndex];
-
-        while (nextVerse?.verseContent?.trim() === rangeMarker) {
-            verseMarkers.push(...nextVerse.verseMarkers);
-            forwardIndex++;
-            nextVerse = translationUnits[index + forwardIndex];
-        }
-        const verseContent = verse.verseContent;
-
-        translationUnitsWithMergedRanges.push({
-            verseMarkers,
-            verseContent: verseContent,
-        });
-    });
-
     return (
         <div className="codex-chunk-editor">
-            <h1>{translationUnits[0]?.verseMarkers[0].split(":")[0]}</h1>
+            <h1>
+                {translationUnitsForChapter[0]?.verseMarkers[0].split(":")[0]}
+            </h1>
             <div className="editor-container">
                 <ChapterNavigation
-                    chapterIndex={chapterIndex}
-                    setChapterIndex={setChapterIndex}
-                    scriptureCellsLength={scriptureCells?.length || 0}
+                    chapterNumber={chapterNumber}
+                    setChapterNumber={setChapterNumber}
+                    scriptureCellsLength={
+                        translationUnitsForChapter?.length || 0
+                    }
                     unsavedChanges={!!contentBeingUpdated.content}
                 />
                 <VerseList
-                    translationUnits={translationUnitsWithMergedRanges}
+                    translationUnits={translationUnitsForChapter}
                     contentBeingUpdated={contentBeingUpdated}
                     setContentBeingUpdated={setContentBeingUpdated}
                     spellCheckResponse={spellCheckResponse}

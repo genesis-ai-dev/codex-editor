@@ -22,7 +22,7 @@ import { createIndexWithContext } from "./activationHelpers/contextAware/miniInd
 import { initializeWebviews } from "./activationHelpers/contextAware/webviewInitializers";
 import { syncUtils } from "./activationHelpers/contextAware/syncUtils";
 import { registerCompletionsCodeLensProviders } from "./activationHelpers/contextAware/completionsCodeLensProviders";
-import { CodexChunkEditorProvider } from "./providers/codexChunkEditorProvider/CodexChunkEditorProvider";
+import { CodexChunkEditorProvider } from "./providers/codexChunkEditorProvider/codexChunkEditorProvider";
 import * as path from "path";
 import {
     LanguageClient,
@@ -32,7 +32,7 @@ import {
 } from "vscode-languageclient/node";
 
 import { initializeBibleData } from "./activationHelpers/contextAware/sourceData";
-import { initializeWordsIndex } from './activationHelpers/contextAware/miniIndex/indexes/wordsIndex';
+import { initializeWordsIndex } from "./activationHelpers/contextAware/miniIndex/indexes/wordsIndex";
 
 let scmInterval: any; // Webpack & typescript for vscode are having issues
 
@@ -207,7 +207,8 @@ async function startSyncLoop(context: vscode.ExtensionContext) {
                     true,
                 );
                 vscode.window.showInformationMessage(
-                    `Auto-commit is now ${autoCommitEnabled ? "enabled" : "disabled"
+                    `Auto-commit is now ${
+                        autoCommitEnabled ? "enabled" : "disabled"
                     }.`,
                 );
 

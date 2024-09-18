@@ -2,12 +2,15 @@ import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
 import {
+    CodexCellTypes,
     CustomNotebookData,
     EditorPostMessages,
     EditorVerseContent,
 } from "../../../types";
 import { getUri } from "../translationNotes/utilities/getUri";
 import { initializeStateStore } from "../../stateStore";
+import { fetchCompletionConfig } from "../translationSuggestions/inlineCompletionsProvider";
+import { CodexContentSerializer } from "../../serializer";
 
 function getNonce(): string {
     let text = "";
@@ -59,11 +62,14 @@ export class CodexChunkEditorProvider
         );
 
         const updateWebview = () => {
-            const jsonContent = this.getDocumentAsJson(document);
+            const notebookData: vscode.NotebookData =
+                this.getDocumentAsJson(document);
+
+            const processedData = this.processNotebookData(notebookData);
 
             webviewPanel.webview.postMessage({
                 type: "update",
-                content: JSON.stringify(jsonContent),
+                content: JSON.stringify(processedData),
             });
         };
 
@@ -80,58 +86,147 @@ export class CodexChunkEditorProvider
 
         webviewPanel.webview.onDidReceiveMessage(
             async (e: EditorPostMessages) => {
-                switch (e.command) {
-                    case "addWord": {
-                        console.log("addWord message received", { e });
-                        await vscode.commands.executeCommand(
-                            "spellcheck.addWord",
-                            e.text,
-                        );
-                        // webviewPanel.webview.postMessage({
-                        //     type: "spellCheckResponse",
-                        //     content: response,
-                        // });
-                        // console.log("spellCheck response", { response });
-                        return;
-                    }
-                    case "spellCheck": {
-                        console.log("spellCheck message received", { e });
-                        const response = await vscode.commands.executeCommand(
-                            "spellcheck.checkText",
-                            e.content.content,
-                        );
-                        webviewPanel.webview.postMessage({
-                            type: "spellCheckResponse",
-                            content: response,
-                        });
-                        console.log("spellCheck response", { response });
-                        return;
-                    }
-                    case "saveHtml":
-                        console.log("saveMarkdown message received", { e });
-                        // TODO: change this to update the document one vers at a time.
-                        this.updateTextDocument(document, e.content);
-                        return;
-                    case "updateMetadataWithUnsavedChanges":
-                        console.log("update message received", { e });
-                        // TODO: change this to update the document one vers at a time.
-                        this.updateTextDocument(document, e.content);
-                        return;
-                    case "getContent":
-                        updateWebview();
-                        return;
-                    case "setCurrentIdToGlobalState":
-                        console.log("setVerseRef message received", { e });
-                        initializeStateStore().then(({ updateStoreState }) => {
-                            updateStoreState({
-                                key: "verseRef",
-                                value: {
-                                    verseRef: e.content.currentLineId,
-                                    uri: document.uri.toString(),
-                                },
+                try {
+                    switch (e.command) {
+                        case "addWord": {
+                            console.log("addWord message received", { e });
+                            try {
+                                await vscode.commands.executeCommand(
+                                    "spellcheck.addWord",
+                                    e.text,
+                                );
+                            } catch (error) {
+                                console.error("Error adding word:", error);
+                                vscode.window.showErrorMessage(
+                                    "Failed to add word to dictionary.",
+                                );
+                            }
+                            return;
+                        }
+                        case "spellCheck": {
+                            console.log("spellCheck message received", { e });
+                            try {
+                                const response =
+                                    await vscode.commands.executeCommand(
+                                        "spellcheck.checkText",
+                                        e.content.content,
+                                    );
+                                webviewPanel.webview.postMessage({
+                                    type: "spellCheckResponse",
+                                    content: response,
+                                });
+                                console.log("spellCheck response", {
+                                    response,
+                                });
+                            } catch (error) {
+                                console.error(
+                                    "Error during spell check:",
+                                    error,
+                                );
+                                vscode.window.showErrorMessage(
+                                    "Spell check failed.",
+                                );
+                            }
+                            return;
+                        }
+                        case "saveHtml":
+                            console.log("saveMarkdown message received", { e });
+                            try {
+                                this.updateTextDocument(document, e.content);
+                            } catch (error) {
+                                console.error("Error saving HTML:", error);
+                                vscode.window.showErrorMessage(
+                                    "Failed to save HTML content.",
+                                );
+                            }
+                            return;
+                        case "updateMetadataWithUnsavedChanges":
+                            console.log("update message received", { e });
+                            try {
+                                this.updateTextDocument(document, e.content);
+                            } catch (error) {
+                                console.error(
+                                    "Error updating metadata:",
+                                    error,
+                                );
+                                vscode.window.showErrorMessage(
+                                    "Failed to update metadata.",
+                                );
+                            }
+                            return;
+                        case "getContent":
+                            updateWebview();
+                            return;
+                        case "setCurrentIdToGlobalState":
+                            console.log("setVerseRef message received", { e });
+                            try {
+                                await initializeStateStore().then(
+                                    ({ updateStoreState }) => {
+                                        updateStoreState({
+                                            key: "verseRef",
+                                            value: {
+                                                verseRef:
+                                                    e.content.currentLineId,
+                                                uri: document.uri.toString(),
+                                            },
+                                        });
+                                    },
+                                );
+                            } catch (error) {
+                                console.error(
+                                    "Error setting current ID to global state:",
+                                    error,
+                                );
+                                vscode.window.showErrorMessage(
+                                    "Failed to set current ID in global state.",
+                                );
+                            }
+                            return;
+                        case "llmCompletion": {
+                            console.log("llmCompletion message received", {
+                                e,
                             });
-                        });
-                        return;
+                            try {
+                                const completionResult =
+                                    await this.performLLMCompletion(
+                                        document,
+                                        e.content.currentLineId,
+                                    );
+                                console.log("completionResult", {
+                                    completionResult,
+                                });
+                                webviewPanel.webview.postMessage({
+                                    type: "llmCompletionResponse",
+                                    content: completionResult,
+                                });
+                            } catch (error) {
+                                console.error(
+                                    "Error during LLM completion:",
+                                    error,
+                                );
+                                vscode.window.showErrorMessage(
+                                    "LLM completion failed.",
+                                );
+                            }
+                            return;
+                        }
+                        // case "getCompletionConfig": {
+                        //     const config = await fetchCompletionConfig();
+                        //     webviewPanel.webview.postMessage({
+                        //         type: "completionConfig",
+                        //         content: config,
+                        //     });
+                        //     return;
+                        // }
+                    }
+                } catch (error) {
+                    console.error(
+                        "Unexpected error in message handler:",
+                        error,
+                    );
+                    vscode.window.showErrorMessage(
+                        "An unexpected error occurred.",
+                    );
                 }
             },
         );
@@ -254,14 +349,15 @@ export class CodexChunkEditorProvider
         const verseDataArray = this.getVerseDataArray(); // FIXME: Calculate the verse data array based on the content instead of using a static file. It will probably be more efficient.
         console.log("data.verseMarkers[0]", {
             "data.verseMarkers[0]": data.verseMarkers[0],
+            currentContent,
         });
         const verseDataArrayIndex = verseDataArray.indexOf(
             data.verseMarkers[0],
         );
         const nextVerseMarker = verseDataArray[verseDataArrayIndex + 1];
 
-        const indexOfCellToUpdate = currentContent.cells.findIndex((cell) =>
-            cell.value.includes(data.verseMarkers[0]),
+        const indexOfCellToUpdate = currentContent.cells.findIndex(
+            (cell) => cell.metadata?.id === data.verseMarkers[0],
         );
 
         if (indexOfCellToUpdate === -1) {
@@ -269,34 +365,7 @@ export class CodexChunkEditorProvider
         }
         const cellToUpdate = currentContent.cells[indexOfCellToUpdate];
 
-        if (
-            data.verseMarkers[0].split(":")[0] === nextVerseMarker.split(":")[0]
-        ) {
-            const currentValue = cellToUpdate.value;
-            const startIndex = currentValue.indexOf(data.verseMarkers[0]);
-            const endIndex = currentValue.indexOf(nextVerseMarker, startIndex);
-
-            if (startIndex !== -1 && endIndex !== -1) {
-                cellToUpdate.value =
-                    currentValue.substring(0, startIndex) +
-                    data.verseMarkers[0] +
-                    " " +
-                    data.content +
-                    (data.content.endsWith("\n") ? "" : "\n") +
-                    currentValue.substring(endIndex);
-            } else {
-                console.error("Could not find verse markers in cell content");
-            }
-        } else {
-            cellToUpdate.value =
-                cellToUpdate.value.substring(
-                    0,
-                    cellToUpdate.value.indexOf(data.verseMarkers[0]) +
-                        data.verseMarkers[0].length,
-                ) +
-                " " +
-                data.content;
-        }
+        cellToUpdate.value = data.content;
 
         // Just replace the entire document every time for this example extension.
         // A more complete extension should compute minimal edits instead.
@@ -347,5 +416,173 @@ export class CodexChunkEditorProvider
             command: "updateTextDirection",
             textDirection,
         });
+    }
+
+    private async performLLMCompletion(
+        document: vscode.TextDocument,
+        currentLineId: string,
+    ) {
+        try {
+            console.log("Starting performLLMCompletion", { currentLineId });
+
+            const book = currentLineId.split(" ")[0];
+            const notebookFiles = await vscode.workspace.findFiles(
+                `**/${book}.codex`,
+            );
+            console.log("Found notebook files", { notebookFiles });
+
+            if (notebookFiles.length === 0) {
+                throw new Error(`No .codex file found for book ${book}`);
+            }
+            const workspaceRoot =
+                vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+            const file = await vscode.workspace.fs.readFile(
+                vscode.Uri.file(`${workspaceRoot}/files/target/${book}.codex`),
+            );
+
+            const serializerNew = new CodexContentSerializer();
+            const notebookData = await serializerNew.deserializeNotebook(
+                file,
+                new vscode.CancellationTokenSource().token,
+            );
+            // const notebook = await vscode.workspace.openNotebookDocument(
+            //     notebookFiles[0],
+            // );
+            console.log("Opened notebook", { notebookData });
+
+            // let cellIndex = -1;
+            // let lineIndex = -1;
+            // let position = 0;
+
+            // for (let i = 0; i < notebook.cellCount; i++) {
+            //     const cell = notebook.cellAt(i);
+            //     // if (cell.kind === vscode.NotebookCellKind.Code) {
+            //         // const lines = cell.document.getText().split("\n");
+            //         const foundIndex = cell.document.
+
+            //         if (foundIndex !== -1) {
+            //             cellIndex = i;
+            //             // lineIndex = foundIndex;
+            //             // position += lines
+            //             //     .slice(0, foundIndex)
+            //             //     .reduce((sum, line) => sum + line.length + 1, 0);
+            //             break;
+            //         }
+
+            //         // position += cell.document.getText().length + 1;
+            //     // }
+            // }
+
+            // if (cellIndex === -1) {
+            //     throw new Error(
+            //         `Could not find line with ID ${currentLineId} in the notebook.`,
+            //     );
+            // }
+
+            // console.log("Found target line", {
+            //     cellIndex,
+            //     lineIndex,
+            //     position,
+            // });
+
+            // const cellText = notebook.cellAt(cellIndex).document.getText();
+            const cell = notebookData.cells.find((cell) => {
+                return cell.metadata?.id === currentLineId;
+            });
+
+            if (!cell) {
+                throw new Error(
+                    `Could not find line with ID ${currentLineId} in the notebook.`,
+                );
+            }
+            const cellDocument = await vscode.workspace.openTextDocument({
+                content: cell.value,
+                language: "plaintext",
+            });
+            const lines = cellDocument.getText().split("\n");
+            // find the position of the line in the text document
+            const lineIndex = lines.findIndex((line) =>
+                line.trim().startsWith(currentLineId),
+            );
+
+            const positionOfLineInTextDoc = new vscode.Position(lineIndex, 0);
+
+            console.log("Created cell document", { cellDocument, lines });
+
+            const { llmCompletion } = await import(
+                "../../providers/translationSuggestions/llmCompletion"
+            );
+            const completionConfig = await fetchCompletionConfig();
+            console.log("Fetched completion config", { completionConfig });
+
+            const result = await llmCompletion(
+                cellDocument,
+                positionOfLineInTextDoc,
+                completionConfig,
+                new vscode.CancellationTokenSource().token,
+            );
+
+            console.log("LLM completion result", { result });
+            return result;
+        } catch (error: any) {
+            console.error("Error in performLLMCompletion:", error);
+            vscode.window.showErrorMessage(
+                `LLM completion failed: ${error.message}`,
+            );
+            throw error;
+        }
+    }
+
+    private processNotebookData(notebook: vscode.NotebookData) {
+        const translationUnits = notebook.cells.map((cell) => ({
+            verseMarkers: [cell.metadata?.id],
+            verseContent: cell.value,
+            cellType: cell.metadata?.type,
+        }));
+        console.log("translationUnits in processNotebookData", {
+            translationUnits,
+        });
+        const processedData = this.mergeRangesAndProcess(translationUnits);
+
+        return processedData;
+    }
+
+    private mergeRangesAndProcess(
+        translationUnits: {
+            verseMarkers: string[];
+            verseContent: string;
+            cellType: CodexCellTypes;
+        }[],
+    ) {
+        const translationUnitsWithMergedRanges: {
+            verseMarkers: string[];
+            verseContent: string;
+            cellType: CodexCellTypes;
+        }[] = [];
+
+        translationUnits.forEach((verse, index) => {
+            const rangeMarker = "<range>";
+            if (verse.verseContent?.trim() === rangeMarker) {
+                return;
+            }
+
+            let forwardIndex = 1;
+            const verseMarkers = [...verse.verseMarkers];
+            let nextVerse = translationUnits[index + forwardIndex];
+
+            while (nextVerse?.verseContent?.trim() === rangeMarker) {
+                verseMarkers.push(...nextVerse.verseMarkers);
+                forwardIndex++;
+                nextVerse = translationUnits[index + forwardIndex];
+            }
+
+            translationUnitsWithMergedRanges.push({
+                verseMarkers,
+                verseContent: verse.verseContent,
+                cellType: verse.cellType,
+            });
+        });
+
+        return translationUnitsWithMergedRanges;
     }
 }

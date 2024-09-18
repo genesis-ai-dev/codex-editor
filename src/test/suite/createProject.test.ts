@@ -1,6 +1,9 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
-import { CellTypes, createProjectNotebooks } from "../../utils/codexNotebookUtils";
+import {
+    CodexCellTypes,
+    createProjectNotebooks,
+} from "../../utils/codexNotebookUtils";
 import { getProjectMetadata } from "../../utils";
 import * as sinon from "sinon";
 import * as path from "path";
@@ -50,7 +53,8 @@ suite("createProjectNotebooks Test Suite", () => {
         const codexContent = JSON.parse(generatedCodexFile.toString());
 
         const firstCellIsChapterHeadingType =
-            codexContent.cells[0].metadata.type === CellTypes.CHAPTER_HEADING;
+            codexContent.cells[0].metadata.type ===
+            CodexCellTypes.CHAPTER_HEADING;
         const firstCellIsMetadataIsPresent =
             codexContent.cells[0].metadata.data.chapter === "1";
 
