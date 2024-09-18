@@ -18,7 +18,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { URI } from 'vscode-uri';
 import { Connection } from 'vscode-languageserver/node';
-import { cleanWord } from '../utils/spellingUtils';
+import { cleanWord } from '../utils/cleaningUtils';
 
 export class SpellChecker {
     private dictionary: Dictionary | null = null;

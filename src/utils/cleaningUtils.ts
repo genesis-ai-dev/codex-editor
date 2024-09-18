@@ -1,4 +1,4 @@
-export function cleanWord(word: string | undefined | null): string {
+export function cleanWord(word: string | undefined | null): string { // this is for the spellchecker
     if (!word) return '';
     return word
         // Remove non-alphanumeric characters from start and end

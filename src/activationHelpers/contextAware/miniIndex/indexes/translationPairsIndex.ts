@@ -5,6 +5,8 @@ import { StatusBarHandler } from '../statusBarHandler';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getWorkSpaceFolder } from '../../../../utils';
+import { getCodexCells, cleanCodexCell } from '../../../../utils/verseRefUtils/verseCleanup';
+
 export interface minisearchDoc {
     id: string;
     vref: string;
@@ -41,10 +43,10 @@ export async function createTranslationPairsIndex(context: vscode.ExtensionConte
         const completeDrafts: string[] = [];
 
         for (const file of targetBibleFiles) {
-            const document = await vscode.workspace.openNotebookDocument(file);
-            const cells = document.getCells();
+            const cells = await getCodexCells(file.fsPath);
             for (const cell of cells) {
-                const lines = cell.document.getText().split('\n');
+                const cleanedCell = cleanCodexCell(cell);
+                const lines = cleanedCell.split('\n');
                 for (const line of lines) {
                     const match = line.match(verseRefRegex);
                     if (match) {

@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { cleanWord } from '../../../../utils/spellingUtils';
 import { FileHandler } from '../../../../providers/dictionaryTable/utilities/FileHandler';
+import { cleanWord } from '../../../../utils/cleaningUtils';
 
 interface WordFrequency {
     word: string;
