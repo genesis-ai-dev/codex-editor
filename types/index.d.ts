@@ -115,6 +115,9 @@ type DictionaryPostMessages =
         wordFrequencies: { [key: string]: number };
     }
     | { command: "updateDictionary"; content: Dictionary }
+    | { command: "updateData"; data: Dictionary }
+    | { command: "confirmRemove"; count: number }
+    | { command: "removeConfirmed" }
 
 type DictionaryReceiveMessages =
     | { command: "providerTellsWebviewRemoveConfirmed" }
