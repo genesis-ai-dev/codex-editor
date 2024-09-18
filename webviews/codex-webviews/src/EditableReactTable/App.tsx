@@ -1,3 +1,4 @@
+/* eslint-disable no-case-declarations */
 import { vscode } from "./utilities/vscode";
 import React, { useEffect, useReducer, useState } from "react";
 import "./style.css";
@@ -91,7 +92,7 @@ function reducer(state: any, action: any) {
                     ) {
                         return state;
                     } else {
-                        let options: any = [];
+                        const options: any = [];
                         state.data.forEach((row: any) => {
                             if (row[action.columnId]) {
                                 options.push({
@@ -169,7 +170,7 @@ function reducer(state: any, action: any) {
             const leftIndex = state.columns.findIndex(
                 (column: any) => column.id === action.columnId
             );
-            let leftId = shortId();
+            const leftId = shortId();
             return update(state, {
                 skipReset: { $set: true },
                 columns: {
@@ -228,7 +229,7 @@ function reducer(state: any, action: any) {
             return update(state, { skipReset: { $set: true } });
 
         case ActionTypes.LOAD_DATA:
-            let columns = action.columns.map((column: TableColumn) => {
+            const columns = action.columns.map((column: TableColumn) => {
                 // Set visibility for specific columns
                 if (
                     column.id &&

@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { FileHandler } from '../../../../providers/dictionaryTable/utilities/FileHandler';
 import { cleanWord } from '../../../../utils/cleaningUtils';
+import { updateCompleteDrafts } from '../indexingUtils';
+import { getWorkSpaceUri } from '../../../../utils';
 
 interface WordFrequency {
     word: string;
@@ -14,6 +16,8 @@ export async function initializeWordsIndex(initialWordIndex: Map<string, number>
         return initialWordIndex;
     }
 
+    // Update complete drafts file
+    await updateCompleteDrafts();
     const completeDraftsPath = path.join(workspaceFolder, '.project', 'complete_drafts.txt');
     const fileUri = vscode.Uri.file(completeDraftsPath);
     const content = await vscode.workspace.fs.readFile(fileUri);
@@ -36,11 +40,42 @@ export function getWordFrequency(wordIndex: Map<string, number>, word: string): 
 }
 
 export async function getWordsAboveThreshold(wordIndex: Map<string, number>, threshold: number): Promise<string[]> {
-    const { data } = await FileHandler.readFile("files/project.dictionary");
+    const workspaceFolderUri = getWorkSpaceUri();
+    if (!workspaceFolderUri) {
+        console.error("No workspace folder found");
+        return [];
+    }
+
+    const dictionaryUri = vscode.Uri.joinPath(workspaceFolderUri, 'files', 'project.dictionary');
     let dictionaryWords: string[] = [];
-    if (data) {
-        const dictionary = JSON.parse(data);
-        dictionaryWords = dictionary.entries.map((entry: any) => entry.headForm?.toLowerCase() || '');
+
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(dictionaryUri);
+        const data = Buffer.from(fileContent).toString('utf-8');
+
+        if (data) {
+            try {
+                // Try parsing as JSONL first
+                const entries = data.split('\n')
+                    .filter(line => line.trim().length > 0)
+                    .map(line => JSON.parse(line));
+                dictionaryWords = entries.map((entry: any) => entry.headWord?.toLowerCase() || '');
+            } catch (jsonlError) {
+                try {
+                    // If JSONL parsing fails, try parsing as a single JSON object
+                    const dictionary = JSON.parse(data);
+                    if (Array.isArray(dictionary.entries)) {
+                        dictionaryWords = dictionary.entries.map((entry: any) => entry.headWord?.toLowerCase() || '');
+                    } else {
+                        throw new Error('Invalid JSON format: missing or invalid entries array.');
+                    }
+                } catch (jsonError) {
+                    console.error("Could not parse dictionary as JSONL or JSON:", jsonError);
+                }
+            }
+        }
+    } catch (error) {
+        console.error("Error reading dictionary file:", error);
     }
 
     return Array.from(wordIndex.entries())

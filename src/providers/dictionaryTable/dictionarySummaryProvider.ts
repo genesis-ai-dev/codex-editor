@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { DictionarySidePanel } from "./DictionarySidePanel";
+import { DictionarySummaryProvider } from "./DictionarySidePanel";
 
 export function registerDictionarySummaryProvider(
     context: vscode.ExtensionContext,
@@ -8,8 +8,8 @@ export function registerDictionarySummaryProvider(
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(
             "dictionary-summary-panel", // This ID should match the one used in the package.json
-            new DictionarySidePanel(context.extensionUri),
-            { webviewOptions: { retainContextWhenHidden: true } },
+            new DictionarySummaryProvider(context.extensionUri),
+            // { webviewOptions: { retainContextWhenHidden: true } },
         ),
     );
 

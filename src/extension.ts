@@ -13,11 +13,6 @@ import { promptForLocalSync } from "./providers/scm/git";
 import { TranslationNotesProvider } from "./providers/translationNotes/TranslationNotesProvider";
 import { registerScmStatusBar } from "./providers/scm/statusBar";
 import { DownloadedResourcesProvider } from "./providers/downloadedResource/provider";
-import {
-    handleConfig,
-    onBoard,
-    initializeProject,
-} from "./activationHelpers/contextUnaware/projectInitializers";
 import { createIndexWithContext } from "./activationHelpers/contextAware/miniIndex/indexes/index";
 import { initializeWebviews } from "./activationHelpers/contextAware/webviewInitializers";
 import { syncUtils } from "./activationHelpers/contextAware/syncUtils";
@@ -46,7 +41,6 @@ let client: LanguageClient;
 
 export async function activate(context: vscode.ExtensionContext) {
     await indexVerseRefsInSourceText();
-    await handleConfig();
     registerReferencesCodeLens(context);
     registerSourceCodeLens(context);
     registerCompletionsCodeLensProviders(context);

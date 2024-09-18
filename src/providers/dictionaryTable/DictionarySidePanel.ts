@@ -2,28 +2,39 @@ import * as vscode from "vscode";
 import { getUri } from "./utilities/getUri";
 import { getNonce } from "./utilities/getNonce";
 import { FileHandler } from './utilities/FileHandler';
-import { Dictionary } from "codex-types";
-import { DictionaryPostMessages } from "../../../types";
+import { Dictionary, DictionaryEntry } from "codex-types";
+import { DictionarySummaryPostMessages } from "../../../types";
 
 // Dictionary path constant
-
 const dictionaryPath = "files/project.dictionary";
 
-export class DictionarySidePanel implements vscode.WebviewViewProvider {
+export class DictionarySummaryProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     public static readonly viewType = "dictionaryTable";
     private extensionUri: vscode.Uri;
+    private lastSentDictionary: Dictionary;
 
     constructor(extensionUri: vscode.Uri) {
         this.extensionUri = extensionUri;
         this.setupFileChangeListener();
+        this.lastSentDictionary = {
+            id: '',
+            label: '',
+            entries: [],
+            metadata: {},
+        };
 
         // Register the command to update entry count
         vscode.commands.registerCommand('dictionaryTable.updateEntryCount', (count: number) => {
             this._view?.webview.postMessage({
                 command: "updateEntryCount",
                 count: count,
-            } as DictionaryPostMessages);
+            } as DictionarySummaryPostMessages);
+        });
+
+        // Listen for dictionary updates
+        vscode.commands.registerCommand('spellcheck.dictionaryUpdated', () => {
+            this.refreshDictionary();
         });
     }
 
@@ -46,25 +57,35 @@ export class DictionarySidePanel implements vscode.WebviewViewProvider {
                 metadata: {},
             };
         } else {
-            dictionary = JSON.parse(data);
+            dictionary = this.parseDictionaryData(data);
         }
-        this._view?.webview.postMessage({
-            command: "sendData",
-            data: dictionary,
-        } as DictionaryPostMessages);
 
-        const wordFrequencies = await vscode.commands.executeCommand('translators-copilot.getWordFrequencies');
-        this._view?.webview.postMessage({
-            command: "updateWordFrequencies",
-            wordFrequencies: wordFrequencies,
-        } as DictionaryPostMessages);
+        // Add a check to prevent unnecessary updates
+        if (JSON.stringify(this.lastSentDictionary) !== JSON.stringify(dictionary)) {
+            this.lastSentDictionary = dictionary;
+            this._view?.webview.postMessage({
+                command: "providerSendsDataToWebview",
+                data: dictionary,
+            } as DictionarySummaryPostMessages);
 
-        // Update frequent words
-        const frequentWords = await vscode.commands.executeCommand('translators-copilot.getWordsAboveThreshold');
-        this._view?.webview.postMessage({
-            command: "updateFrequentWords",
-            words: frequentWords,
-        } as DictionaryPostMessages);
+            const wordFrequencies = await vscode.commands.executeCommand('translators-copilot.getWordFrequencies');
+            this._view?.webview.postMessage({
+                command: "providerSendsUpdatedWordFrequenciesToWebview",
+                wordFrequencies: wordFrequencies,
+            } as DictionarySummaryPostMessages);
+
+            // Get frequent words
+            const allFrequentWords = await vscode.commands.executeCommand('translators-copilot.getWordsAboveThreshold') as string[];
+
+            // Filter out words that are already in the dictionary
+            const existingWords = new Set(dictionary.entries.map(entry => entry.headWord.toLowerCase()));
+            const newFrequentWords = allFrequentWords.filter(word => !existingWords.has(word.toLowerCase()));
+
+            this._view?.webview.postMessage({
+                command: "providerSendsFrequentWordsToWebview",
+                words: newFrequentWords,
+            } as DictionarySummaryPostMessages);
+        }
     }
 
     public resolveWebviewView(
@@ -95,16 +116,16 @@ export class DictionarySidePanel implements vscode.WebviewViewProvider {
                 "index.js"
             )
         );
-        const stylesUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(
-                this.extensionUri,
-                "webviews",
-                "codex-webviews",
-                "dist",
-                "DictionarySidePanel",
-                "index.css"
-            )
-        );
+        // const stylesUri = webview.asWebviewUri(
+        //     vscode.Uri.joinPath(
+        //         this.extensionUri,
+        //         "webviews",
+        //         "codex-webviews",
+        //         "dist",
+        //         "DictionarySidePanel",
+        //         "index.css"
+        //     )
+        // );
         const codiconsUri = webview.asWebviewUri(
             vscode.Uri.joinPath(
                 this.extensionUri,
@@ -125,7 +146,6 @@ export class DictionarySidePanel implements vscode.WebviewViewProvider {
             <meta name="viewport" content="width=device-width, initial-scale=1.0" />
             <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} https:; font-src ${webview.cspSource};">
             <link href="${codiconsUri}" rel="stylesheet" />
-            <link href="${stylesUri}" rel="stylesheet" />
               <title>Dictionary Table</title>
           </head>
           <body>
@@ -138,7 +158,7 @@ export class DictionarySidePanel implements vscode.WebviewViewProvider {
 
     private setWebviewMessageListener(webview: vscode.Webview) {
         webview.onDidReceiveMessage(
-            async (message) => {
+            async (message: DictionarySummaryPostMessages) => {
                 switch (message.command) {
                     case "updateData": {
                         this.updateWebviewData();
@@ -175,5 +195,45 @@ export class DictionarySidePanel implements vscode.WebviewViewProvider {
             undefined,
             [],
         );
+    }
+
+    private parseDictionaryData(data: string): Dictionary {
+        try {
+            // Try parsing as JSONL first
+            const entries = data
+                .split('\n')
+                .filter(line => line.trim().length > 0)
+                .map(line => JSON.parse(line) as DictionaryEntry);
+            return {
+                id: '',
+                label: '',
+                entries,
+                metadata: {},
+            };
+        } catch (jsonlError) {
+            try {
+                // If JSONL parsing fails, try parsing as a single JSON object
+                const parsed = JSON.parse(data);
+                if (Array.isArray(parsed.entries)) {
+                    return parsed as Dictionary;
+                } else {
+                    throw new Error('Invalid JSON format: missing or invalid entries array.');
+                }
+            } catch (jsonError) {
+                console.error("Could not parse dictionary as JSONL or JSON:", jsonError);
+                return {
+                    id: '',
+                    label: '',
+                    entries: [],
+                    metadata: {},
+                };
+            }
+        }
+    }
+
+    private refreshDictionary() {
+        // Logic to refresh the dictionary view
+        // For example, request the latest dictionary data from the server
+        this.updateWebviewData();
     }
 }

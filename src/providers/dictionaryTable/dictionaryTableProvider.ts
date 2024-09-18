@@ -20,13 +20,13 @@ export function registerDictionaryTableProvider(context: vscode.ExtensionContext
     const openDictionaryEditorCommand = vscode.commands.registerCommand("dictionaryTable.showDictionaryTable", async () => {
         const workspaceUri = getWorkSpaceUri();
         if (!workspaceUri) {
-            console.log("No workspace found, aborting registration of dictionary table provider");
+            vscode.window.showErrorMessage("No workspace found. Please open a workspace to access the dictionary.");
             return;
         }
         const dictionaryUri = vscode.Uri.joinPath(workspaceUri, "files", "project.dictionary");
 
         try {
-            await vscode.commands.executeCommand("vscode.openWith", dictionaryUri, DictionaryEditorProvider.viewType);
+            await vscode.commands.executeCommand('vscode.openWith', dictionaryUri, DictionaryEditorProvider.viewType);
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to open dictionary: ${error}`);
         }

@@ -2,9 +2,16 @@ import * as vscode from "vscode";
 import { Dictionary, DictionaryEntry } from "codex-types";
 import { getNonce } from "./utilities/getNonce";
 import { DictionaryPostMessages, DictionaryReceiveMessages } from "../../../types";
+import { getWorkSpaceUri } from "../../utils";
+
+interface DictionaryDocument extends vscode.CustomDocument {
+    content: Dictionary;
+}
 
 export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider {
     public static readonly viewType = "codex.dictionaryEditor";
+    private document: DictionaryDocument | undefined;
+    private readonly onDidChangeCustomDocument = new vscode.EventEmitter<vscode.CustomDocumentEditEvent<DictionaryDocument>>();
 
     constructor(private readonly context: vscode.ExtensionContext) { }
 
@@ -22,6 +29,11 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
         webviewPanel: vscode.WebviewPanel,
         _token: vscode.CancellationToken
     ): Promise<void> {
+        this.document = {
+            uri: document.uri,
+            content: this.getDocumentAsJson(document),
+            dispose: () => { }
+        };
         webviewPanel.webview.options = {
             enableScripts: true,
         };
@@ -35,6 +47,15 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
             } as DictionaryReceiveMessages);
         };
 
+        // Watch for changes in the project.dictionary file
+        const watcher = vscode.workspace.createFileSystemWatcher(
+            new vscode.RelativePattern(document.uri.fsPath, "**/project.dictionary")
+        );
+
+        watcher.onDidChange(() => {
+            updateWebview();
+        });
+
         const changeDocumentSubscription = vscode.workspace.onDidChangeTextDocument(e => {
             if (e.document.uri.toString() === document.uri.toString()) {
                 updateWebview();
@@ -42,6 +63,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
         });
 
         webviewPanel.onDidDispose(() => {
+            watcher.dispose();
             changeDocumentSubscription.dispose();
         });
 
@@ -110,21 +132,107 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
         }
 
         try {
-            return JSON.parse(text);
-        } catch {
-            throw new Error("Could not get document as json. Content is not valid json");
+            // Try parsing as JSONL (each line is a JSON entry)
+            const entries = text
+                .split('\n')
+                .filter(line => line.trim().length > 0)
+                .map(line => JSON.parse(line) as DictionaryEntry);
+
+            return { id: "", label: "", entries, metadata: {} };
+        } catch (jsonlError) {
+            try {
+                // If parsing as JSONL fails, try parsing as a single JSON object
+                const parsed = JSON.parse(text);
+                if (parsed.entries) {
+                    return parsed;
+                } else {
+                    throw new Error('Invalid JSON format: missing entries.');
+                }
+            } catch (jsonError) {
+                throw new Error("Could not parse document as JSONL or JSON. Content is not valid.");
+            }
         }
     }
 
     private updateTextDocument(document: vscode.TextDocument, dictionary: Dictionary) {
         const edit = new vscode.WorkspaceEdit();
 
+        const content = dictionary.entries
+            .map(entry => JSON.stringify(entry))
+            .join('\n');
+
         edit.replace(
             document.uri,
             new vscode.Range(0, 0, document.lineCount, 0),
-            JSON.stringify(dictionary, null, 2)
+            content
         );
 
         return vscode.workspace.applyEdit(edit);
+    }
+    // Listen for dictionary updates
+    private async refreshEditor() {
+        if (this.document) {
+            try {
+                const workspaceFolderUri = getWorkSpaceUri();
+                if (!workspaceFolderUri) {
+                    throw new Error("Workspace folder not found.");
+                }
+                const dictionaryUri = vscode.Uri.joinPath(workspaceFolderUri, "files", "project.dictionary");
+                const fileContent = await vscode.workspace.fs.readFile(dictionaryUri);
+                const content = new TextDecoder().decode(fileContent);
+                const dictionary = this.parseDictionary(content);
+
+                // Create a temporary TextDocument from the dictionary content
+                const tempDocument = await vscode.workspace.openTextDocument({
+                    content: JSON.stringify(dictionary, null, 2),
+                    language: 'json'
+                });
+
+                await this.updateTextDocument(tempDocument, dictionary);
+
+                // Update the custom document
+                Object.assign(this.document, { content: dictionary });
+
+                this.onDidChangeCustomDocument.fire({
+                    document: this.document,
+                    undo: () => {
+                        // Implement undo logic if needed
+                    },
+                    redo: () => {
+                        // Implement redo logic if needed
+                    }
+                });
+            } catch (error) {
+                vscode.window.showErrorMessage(`Failed to refresh dictionary: ${error}`);
+            }
+        }
+    }
+
+    public saveCustomDocument(document: Dictionary, cancellation: vscode.CancellationToken): Thenable<void> {
+        // Serialize the document content
+        const content = this.serializeDictionary(document);
+
+        // Use vscode.workspace.fs to write the file
+        const encoder = new TextEncoder();
+        const array = encoder.encode(content);
+        const workspaceFolderUri = getWorkSpaceUri();
+        if (!workspaceFolderUri) {
+            console.error("Workspace folder not found. Aborting save of dictionary.");
+            return Promise.reject(new Error("Workspace folder not found"));
+        }
+        const dictionaryUri = vscode.Uri.joinPath(workspaceFolderUri, "files", "project.dictionary");
+        return vscode.workspace.fs.writeFile(dictionaryUri, array);
+    }
+
+    private serializeDictionary(document: Dictionary): string {
+        // Convert the dictionary entries to JSON Lines
+        return document.entries.map(entry => JSON.stringify(entry)).join('\n');
+    }
+
+    private parseDictionary(content: string): Dictionary {
+        const entries = content.split('\n')
+            .filter(line => line.trim() !== '')
+            .map(line => JSON.parse(line) as DictionaryEntry);
+        return { id: "", label: "", entries, metadata: {} };
     }
 }
