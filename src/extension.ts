@@ -17,7 +17,7 @@ import { createIndexWithContext } from "./activationHelpers/contextAware/miniInd
 import { initializeWebviews } from "./activationHelpers/contextAware/webviewInitializers";
 import { syncUtils } from "./activationHelpers/contextAware/syncUtils";
 import { registerCompletionsCodeLensProviders } from "./activationHelpers/contextAware/completionsCodeLensProviders";
-import { CodexCellEditorProvider } from "./providers/codexCellEditorProvider/CodexCellEditorProvider";
+import { CodexCellEditorProvider } from "./providers/codexCellEditorProvider/codexCellEditorProvider";
 import * as path from "path";
 import {
     LanguageClient,
