@@ -10,6 +10,7 @@ import {
 import { getUri } from "../translationNotes/utilities/getUri";
 import { initializeStateStore } from "../../stateStore";
 import { fetchCompletionConfig } from "../translationSuggestions/inlineCompletionsProvider";
+import { CodexContentSerializer } from "../../serializer";
 
 function getNonce(): string {
     let text = "";
@@ -433,42 +434,50 @@ export class CodexChunkEditorProvider
             if (notebookFiles.length === 0) {
                 throw new Error(`No .codex file found for book ${book}`);
             }
-
-            const notebook = await vscode.workspace.openNotebookDocument(
-                notebookFiles[0],
+            const workspaceRoot =
+                vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+            const file = await vscode.workspace.fs.readFile(
+                vscode.Uri.file(`${workspaceRoot}/files/target/${book}.codex`),
             );
-            console.log("Opened notebook", { notebook });
 
-            let cellIndex = -1;
+            const serializerNew = new CodexContentSerializer();
+            const notebookData = await serializerNew.deserializeNotebook(
+                file,
+                new vscode.CancellationTokenSource().token,
+            );
+            // const notebook = await vscode.workspace.openNotebookDocument(
+            //     notebookFiles[0],
+            // );
+            console.log("Opened notebook", { notebookData });
+
+            // let cellIndex = -1;
             // let lineIndex = -1;
             // let position = 0;
 
-            for (let i = 0; i < notebook.cellCount; i++) {
-                const cell = notebook.cellAt(i);
-                if (cell.kind === vscode.NotebookCellKind.Code) {
-                    const lines = cell.document.getText().split("\n");
-                    const foundIndex = lines.findIndex((line) =>
-                        line.trim().startsWith(currentLineId),
-                    );
+            // for (let i = 0; i < notebook.cellCount; i++) {
+            //     const cell = notebook.cellAt(i);
+            //     // if (cell.kind === vscode.NotebookCellKind.Code) {
+            //         // const lines = cell.document.getText().split("\n");
+            //         const foundIndex = cell.document.
 
-                    if (foundIndex !== -1) {
-                        cellIndex = i;
-                        // lineIndex = foundIndex;
-                        // position += lines
-                        //     .slice(0, foundIndex)
-                        //     .reduce((sum, line) => sum + line.length + 1, 0);
-                        break;
-                    }
+            //         if (foundIndex !== -1) {
+            //             cellIndex = i;
+            //             // lineIndex = foundIndex;
+            //             // position += lines
+            //             //     .slice(0, foundIndex)
+            //             //     .reduce((sum, line) => sum + line.length + 1, 0);
+            //             break;
+            //         }
 
-                    // position += cell.document.getText().length + 1;
-                }
-            }
+            //         // position += cell.document.getText().length + 1;
+            //     // }
+            // }
 
-            if (cellIndex === -1) {
-                throw new Error(
-                    `Could not find line with ID ${currentLineId} in the notebook.`,
-                );
-            }
+            // if (cellIndex === -1) {
+            //     throw new Error(
+            //         `Could not find line with ID ${currentLineId} in the notebook.`,
+            //     );
+            // }
 
             // console.log("Found target line", {
             //     cellIndex,
@@ -476,9 +485,18 @@ export class CodexChunkEditorProvider
             //     position,
             // });
 
-            const cellText = notebook.cellAt(cellIndex).document.getText();
+            // const cellText = notebook.cellAt(cellIndex).document.getText();
+            const cell = notebookData.cells.find((cell) => {
+                return cell.metadata?.id === currentLineId;
+            });
+
+            if (!cell) {
+                throw new Error(
+                    `Could not find line with ID ${currentLineId} in the notebook.`,
+                );
+            }
             const cellDocument = await vscode.workspace.openTextDocument({
-                content: cellText,
+                content: cell.value,
                 language: "plaintext",
             });
             const lines = cellDocument.getText().split("\n");
