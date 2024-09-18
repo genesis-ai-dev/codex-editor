@@ -189,13 +189,13 @@ export async function fetchCompletionConfig(): Promise<CompletionConfig> {
         }
 
         return {
-            endpoint: config.get("defaultsRecommended.llmEndpoint") || "https://api.openai.com/v1",
+            endpoint: config.get("llmEndpoint") || "https://api.openai.com/v1",
             apiKey: config.get("api_key") || "",
-            model: config.get("defaultsRecommended.model") || "gpt-4o",
+            model: config.get("model") || "gpt-4o",
             contextSize: config.get("contextSize") || "large",
             additionalResourceDirectory: config.get("additionalResourcesDirectory") || "",
-            contextOmission: config.get("defaultsRecommended.experimentalContextOmission") || false,
-            sourceBookWhitelist: config.get("defaultsRecommended.sourceBookWhitelist") || "",
+            contextOmission: config.get("experimentalContextOmission") || false,
+            sourceBookWhitelist: config.get("sourceBookWhitelist") || "",
             maxTokens: config.get("max_tokens") || 2048,
             temperature: config.get("temperature") || 0.8,
             mainChatLanguage: config.get("main_chat_language") || "English",

@@ -74,11 +74,14 @@ type CommentPostMessages =
     }
     | { command: "getCurrentVerseRef" }
     | { command: "fetchComments" };
+
 interface SelectedTextDataWithContext {
     selection: string;
     completeLineContent: string | null;
     vrefAtStartOfLine: string | null;
     selectedText: string | null;
+    verseNotes: string | null;
+    verseGraphData: any;
 }
 
 type ChatPostMessages =
@@ -97,16 +100,31 @@ type ChatPostMessages =
     | { command: "deleteThread"; threadId: string }
     | { command: "fetchThread" }
     | { command: "abort-fetch" }
-    | { command: "openSettings" };
+    | { command: "openSettings" }
+    | { command: "openContextItem"; text: string }
+    | { command: "verseGraphData"; data: string[] };
 
 type DictionaryPostMessages =
     | { command: "sendData"; data: Dictionary }
-    | { command: "updateData"; data: Dictionary }
-    | { command: "confirmRemove"; count: number }
+    | { command: "webviewTellsProviderToUpdateData"; data: Dictionary }
+    | { command: "webviewAsksProviderToConfirmRemove"; count: number }
     | { command: "updateEntryCount"; count: number }
-    | { command: "removeConfirmed" }
     | { command: "updateFrequentWords"; words: string[] }
-    | { command: "updateWordFrequencies"; wordFrequencies: { [key: string]: number } };
+    | {
+        command: "updateWordFrequencies";
+        wordFrequencies: { [key: string]: number };
+    }
+    | { command: "updateDictionary"; content: Dictionary }
+
+type DictionaryReceiveMessages =
+    | { command: "providerTellsWebviewRemoveConfirmed" }
+    | { command: "providerTellsWebviewToUpdateData"; data: Dictionary };
+
+type DictionarySidePanelPostMessages =
+    | { command: "updateData", data: Dictionary }
+    | { command: "showDictionaryTable" }
+    | { command: "refreshWordFrequency" }
+    | { command: "addFrequentWordsToDictionary", words: string[] };
 
 type TranslationNotePostMessages =
     | { command: "update"; data: ScriptureTSV }
@@ -125,12 +143,12 @@ type DictionaryEntry = {
     id: string;
     headWord: string;
     hash: string;
-}
+};
 
 type SpellCheckResult = {
     word: string;
     corrections: string[];
-}
+};
 
 type SpellCheckFunction = (word: string) => SpellCheckResult;
 
@@ -139,7 +157,7 @@ type SpellCheckDiagnostic = {
     message: string;
     severity: vscode.DiagnosticSeverity;
     source: string;
-}
+};
 
 type MiniSearchVerseResult = {
     book: string;
@@ -154,23 +172,107 @@ type MiniSearchVerseResult = {
     terms: string[];
     uri: string;
     vref: string;
-}
+};
 
 type MinimalVerseResult = {
-    vref: string,
-    content: string,
-    uri: string,
-    line: number,
-}
+    vref: string;
+    content: string;
+    uri: string;
+    line: number;
+};
 
 type TranslationPair = {
     vref: string;
     sourceVerse: MinimalVerseResult;
     targetVerse: MinimalVerseResult;
-}
+};
 
 type SourceVerseVersions = {
     vref: string;
     content: string;
     versions: string[];
+};
+type EditorVerseContent = {
+    verseMarkers: string[];
+    content: string;
+    verseIndex: number;
+};
+
+type EditorPostMessages =
+    | { command: "spellCheck"; content: EditorVerseContent }
+    | { command: "addWord"; text: string }
+    | { command: "saveHtml"; content: EditorVerseContent }
+    | {
+        command: "updateMetadataWithUnsavedChanges";
+        content: EditorVerseContent;
+    }
+    | { command: "getContent" }
+    | {
+        command: "setCurrentIdToGlobalState";
+        content: { currentLineId: string };
+    };
+
+type CustomNotebook = vscode.NotebookCellData & {
+    language: string;
+};
+
+type CustomNotebookData = {
+    metadata: vscode.NotebookData["metadata"];
+    cells: CustomNotebook[];
+};
+
+export enum MainChatLanguage {
+    English = "English",
+    Tamil = "தமிழ் (Tamil)",
+    Telugu = "తెలుగు (Telugu)",
+    Kannada = "ಕನ್ನಡ (Kannada)",
+    Hindi = "हिन्दी (Hindi)",
+    Gujarati = "ગુજરાતી (Gujarati)",
+    Spanish = "Español (Spanish)",
+    French = "Français (French)",
+    German = "Deutsch (German)",
+    Italian = "Italiano (Italian)",
+    Dutch = "Nederlands (Dutch)",
+    Portuguese = "Português (Portuguese)",
+    Russian = "Русский (Russian)",
+    Chinese = "中文 (Chinese)",
+    Japanese = "日本語 (Japanese)",
+    Korean = "한국어 (Korean)",
+    Arabic = "العربية (Arabic)",
+    Turkish = "Türkçe (Turkish)",
+    Vietnamese = "Tiếng Việt (Vietnamese)",
+    Thai = "ไทย (Thai)",
+    Indonesian = "Bahasa Indonesia (Indonesian)",
+    Malay = "Bahasa Melayu (Malay)",
+    Filipino = "Filipino (Filipino)",
+    Bengali = "বাংলা (Bengali)",
+    Punjabi = "ਪੰਜਾਬੀ (Punjabi)",
+    Marathi = "मराठी (Marathi)",
+    Odia = "ଓଡ଼ିଆ (Odia)",
+    Kiswahili = "Swahili (Kiswahili)",
+    Urdu = "اردو (Urdu)",
+    Persian = "فارسی (Persian)",
+    Hausa = "Hausa",
+    Amharic = "አማርኛ (Amharic)",
+    Javanese = "ꦧꦱꦗꦮ (Javanese)",
+    Burmese = "မြန်မာဘာသာ (Burmese)",
+    Swedish = "Svenska (Swedish)",
+    Norwegian = "Norsk (Norwegian)",
+    Finnish = "Suomi (Finnish)",
+    Danish = "Dansk (Danish)",
+    Hebrew = "עברית (Hebrew)",
+    Ukrainian = "Українська (Ukrainian)",
+    Polish = "Polski (Polish)",
+    Romanian = "Română (Romanian)",
+    Czech = "Čeština (Czech)",
+    Hungarian = "Magyar (Hungarian)",
+    Greek = "Ελληνικά (Greek)",
+    Serbian = "Српски (Serbian)",
+    Croatian = "Hrvatski (Croatian)",
+    Bulgarian = "Български (Bulgarian)",
+    Slovak = "Slovenčina (Slovak)",
+    Malayalam = "മലയാളം (Malayalam)",
+    Sinhala = "සිංහල (Sinhala)",
+    Khmer = "ភាសាខ្មែរ (Khmer)",
+    Lao = "ພາສາລາວ (Lao)",
 }

@@ -105,7 +105,7 @@ export class DictionaryTablePanel {
                         Uri.joinPath(extensionUri, "out"),
                         Uri.joinPath(
                             extensionUri,
-                            "webviews/editable-react-table/dist",
+                            "webviews/codex-webviews/dist/EditableReactTable",
                         ),
                     ],
                 },
@@ -172,22 +172,35 @@ export class DictionaryTablePanel {
      * rendered within the webview panel
      */
     private _getWebviewContent(webview: Webview, extensionUri: Uri) {
-        // The CSS file from the React build output
-        const stylesUri = getUri(webview, extensionUri, [
-            "webviews",
-            "editable-react-table",
-            "dist",
-            "assets",
-            "index.css",
-        ]);
-        // The JS file from the React build output
-        const scriptUri = getUri(webview, extensionUri, [
-            "webviews",
-            "editable-react-table",
-            "dist",
-            "assets",
-            "index.js",
-        ]);
+        const scriptUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(
+                extensionUri,
+                "webviews",
+                "codex-webviews",
+                "dist",
+                "EditableReactTable",
+                "index.js"
+            )
+        );
+        const stylesUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(
+                extensionUri,
+                "webviews",
+                "codex-webviews",
+                "dist",
+                "EditableReactTable",
+                "index.css"
+            )
+        );
+        const codiconsUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(
+                extensionUri,
+                "node_modules",
+                "@vscode/codicons",
+                "dist",
+                "codicon.css"
+            )
+        );
 
         const nonce = getNonce();
 
@@ -200,8 +213,9 @@ export class DictionaryTablePanel {
         <head>
           <meta charset="UTF-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
-          <link rel="stylesheet" type="text/css" href="${stylesUri}">
+          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} https:; font-src ${webview.cspSource};">
+          <link href="${codiconsUri}" rel="stylesheet" />
+          <link href="${stylesUri}" rel="stylesheet" />
           <title>Dictionary Table</title>
         </head>
         <body>

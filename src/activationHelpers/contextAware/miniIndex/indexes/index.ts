@@ -23,7 +23,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         vscode.window.showInformationMessage("Translators Copilot Server is disabled. Language server not activated.");
         return;
     }
-    vscode.window.showInformationMessage("Translators Copilot Server activated");
 
     const translationPairsIndex = new MiniSearch({
         fields: ['vref', 'book', 'chapter', 'sourceContent', 'targetContent'],
@@ -63,6 +62,9 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             await createSourceBibleIndex(sourceBibleIndex, force || sourceBibleIndex.documentCount === 0);
             await createZeroDraftIndex(zeroDraftIndex, force || zeroDraftIndex.documentCount === 0);
             wordsIndex = await initializeWordsIndex(wordsIndex, workspaceFolder);
+
+            // Update status bar with index counts
+            statusBarHandler.updateIndexCounts(translationPairsIndex.documentCount, sourceBibleIndex.documentCount);
         } catch (error) {
             console.error('Error rebuilding full index:', error);
             vscode.window.showErrorMessage('Failed to rebuild full index. Check the logs for details.');
@@ -258,14 +260,20 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         return getWordFrequencies(wordsIndex);
     });
 
+    const refreshWordIndexCommand = vscode.commands.registerCommand('translators-copilot.refreshWordIndex', async () => {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+        wordsIndex = await initializeWordsIndex(new Map(), workspaceFolder);
+        console.log('Word index refreshed');
+    });
+
     const getWordsAboveThresholdCommand = vscode.commands.registerCommand('translators-copilot.getWordsAboveThreshold', async () => {
         const config = vscode.workspace.getConfiguration('translators-copilot');
         const threshold = config.get<number>('wordFrequencyThreshold', 50);
         if (wordsIndex.size === 0) {
             wordsIndex = await initializeWordsIndex(wordsIndex, workspaceFolder);
         }
-        const wordsAboveThreshold = getWordsAboveThreshold(wordsIndex, threshold);
-        vscode.window.showInformationMessage(`Words above threshold: ${wordsAboveThreshold}`);
+        const wordsAboveThreshold = await getWordsAboveThreshold(wordsIndex, threshold);
+        console.log(`Words above threshold: ${wordsAboveThreshold}`);
         return wordsAboveThreshold;
     });
 
@@ -320,6 +328,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             insertZeroDraftsIntoNotebooksCommand,
             insertZeroDraftsInCurrentEditorCommand,
             getWordFrequenciesCommand,
+            refreshWordIndexCommand,
             getWordsAboveThresholdCommand,
             searchParallelVersesCommand
         ]

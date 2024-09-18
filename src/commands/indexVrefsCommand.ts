@@ -63,10 +63,6 @@ export async function indexVerseRefsInSourceText() {
                 }
             }),
         );
-
-        vscode.window.showInformationMessage(
-            "Indexing of verse references completed successfully.",
-        );
     } catch (error) {
         console.error(`Error indexing documents: ${error}`);
     }

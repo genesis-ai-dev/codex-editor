@@ -6,6 +6,7 @@ const vscode = acquireVsCodeApi();
 function App() {
     const [similarWords, setSimilarWords] = useState<string[]>([]);
     const [query, setQuery] = useState("");
+    const [isLoading, setIsLoading] = useState(false);
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
@@ -13,10 +14,12 @@ function App() {
             const message = event.data;
             switch (message.command) {
                 case "similarWords":
+                    setIsLoading(false);
                     if (Array.isArray(message.data)) {
                         setSimilarWords(message.data.filter(word => word.toLowerCase() !== query.toLowerCase()));
                     } else {
                         console.error('Received invalid data for similarWords:', message.data);
+                        setSimilarWords([]);
                     }
                     break;
             }
@@ -32,6 +35,7 @@ function App() {
     const searchSimilarWords = (word: string) => {
         console.log('Sending getSimilar message for word:', word);
         setQuery(word);
+        setIsLoading(true);
         vscode.postMessage({
             command: "server.getSimilar",
             word: word,
@@ -65,9 +69,17 @@ function App() {
 
             <VSCodeDivider />
 
-            {similarWords.length > 0 ? (
+            {isLoading ? (
+                <div style={{ 
+                    marginTop: "1.5em", 
+                    textAlign: "center", 
+                    color: "var(--vscode-descriptionForeground)"
+                }}>
+                    Loading...
+                </div>
+            ) : similarWords.length > 0 ? (
                 <div style={{ overflowY: "auto", marginTop: "1.5em" }}>
-                    <h3 style={{ marginBottom: "1em", color: "var(--vscode-foreground)" }}>Similar Words:</h3>
+                    <h3 style={{ marginBottom: "1em", color: "var(--vscode-foreground)" }}>Contextually close words:</h3>
                     <div style={{ 
                         display: "flex", 
                         flexWrap: "wrap", 
@@ -94,7 +106,7 @@ function App() {
                     textAlign: "center", 
                     color: "var(--vscode-descriptionForeground)"
                 }}>
-                    No similar words found for "{query}".
+                    The thesaurus is still being built. Please try a different word or check back later.
                 </div>
             )}
         </div>

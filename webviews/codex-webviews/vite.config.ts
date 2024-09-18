@@ -14,8 +14,10 @@ export default defineConfig({
                 entryFileNames: `[name].js`,
                 chunkFileNames: `[name].js`,
                 assetFileNames: `[name].[ext]`,
+                format: "iife",
             },
         },
         outDir: appToBuild ? `dist/${appToBuild}` : "dist",
+        sourcemap: true,
     },
 });

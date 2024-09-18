@@ -115,7 +115,7 @@ export function handleTextSelection(translationPairsIndex: MiniSearch, selectedT
 // Add this new function
 export function searchParallelVerses(translationPairsIndex: MiniSearch, sourceBibleIndex: MiniSearch, query: string, k: number = 5): TranslationPair[] {
     console.log('Searching for parallel verses with query:', query);
-    
+
     // Search target verses
     const targetResults = translationPairsIndex.search(query, {
         fields: ['targetContent'],
@@ -127,9 +127,9 @@ export function searchParallelVerses(translationPairsIndex: MiniSearch, sourceBi
 
     console.log('Raw target search results:', JSON.stringify(targetResults, null, 2));
 
-    const translationPairs = targetResults.slice(0, k).map(result => {
+    const translationPairs: TranslationPair[] = targetResults.slice(0, k).map(result => {
         console.log('Processing result:', JSON.stringify(result, null, 2));
-        
+
         // Get source content from sourceBibleIndex
         const sourceResult = sourceBibleIndex.getStoredFields(result.vref);
         const sourceContent = sourceResult ? sourceResult.content as string : '';
@@ -138,13 +138,13 @@ export function searchParallelVerses(translationPairsIndex: MiniSearch, sourceBi
             vref: result.vref,
             sourceVerse: {
                 vref: result.vref,
-                content: sourceContent,
+                content: sourceContent as string,
                 uri: result.uri,
                 line: result.line
             },
             targetVerse: {
                 vref: result.vref,
-                content: result.targetContent || '',
+                content: result.targetContent as string,
                 uri: result.uri,
                 line: result.line
             }

@@ -24,13 +24,24 @@ import { syncUtils } from "./activationHelpers/contextAware/syncUtils";
 import { initializeStateStore } from "./stateStore";
 import { projectFileExists } from "./utils/fileUtils";
 import { registerCompletionsCodeLensProviders } from "./activationHelpers/contextAware/completionsCodeLensProviders";
-import * as path from 'path';
-import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from 'vscode-languageclient/node';
+import { CodexChunkEditorProvider } from "./providers/codexChunkEditorProvider/CodexChunkEditorProvider";
+import * as path from "path";
+import {
+    LanguageClient,
+    LanguageClientOptions,
+    ServerOptions,
+    TransportKind,
+} from "vscode-languageclient/node";
+
+import { initializeBibleData } from "./activationHelpers/contextAware/sourceData";
+import { initializeWordsIndex } from './activationHelpers/contextAware/miniIndex/indexes/wordsIndex';
 
 let scmInterval: any; // Webpack & typescript for vscode are having issues
 
 // initial autoCommit config
-const configuration = vscode.workspace.getConfiguration("codex-editor-extension.scm");
+const configuration = vscode.workspace.getConfiguration(
+    "codex-editor-extension.scm",
+);
 let autoCommitEnabled = configuration.get<boolean>("autoCommit", true);
 
 let client: LanguageClient;
@@ -38,12 +49,10 @@ let client: LanguageClient;
 export async function activate(context: vscode.ExtensionContext) {
     await indexVerseRefsInSourceText();
     await handleConfig();
-    await initializeWebviews(context);
     registerReferencesCodeLens(context);
     registerSourceCodeLens(context);
     registerCompletionsCodeLensProviders(context);
     registerTextSelectionHandler(context, () => undefined);
-    createIndexWithContext(context);
 
     const [, syncStatus] = registerScmStatusBar(context);
     syncUtils.registerSyncCommands(context, syncStatus);
@@ -57,51 +66,94 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(ObsEditorProvider.register(context));
     context.subscriptions.push(providerRegistration);
     context.subscriptions.push(commandRegistration);
+    console.log("CodexChunkEditorProvider registered");
+    context.subscriptions.push(CodexChunkEditorProvider.register(context));
 
     // Set up the language client
-    const serverModule = context.asAbsolutePath(path.join('out', 'server.js'));
-    const debugOptions = { execArgv: ['--nolazy', '--inspect=6009'] };
+    const serverModule = context.asAbsolutePath(path.join("out", "server.js"));
+    const debugOptions = { execArgv: ["--nolazy", "--inspect=6009"] };
 
     const serverOptions: ServerOptions = {
         run: { module: serverModule, transport: TransportKind.ipc },
-        debug: { module: serverModule, transport: TransportKind.ipc, options: debugOptions }
+        debug: {
+            module: serverModule,
+            transport: TransportKind.ipc,
+            options: debugOptions,
+        },
     };
 
     const clientOptions: LanguageClientOptions = {
         documentSelector: [
-            { scheme: 'file', language: '*' },
-            { scheme: 'vscode-notebook-cell', language: '*' },
-            { notebook: '*', language: '*' }
+            { scheme: "file", language: "*" },
+            { scheme: "vscode-notebook-cell", language: "*" },
+            { notebook: "*", language: "*" },
         ],
         synchronize: {
-            fileEvents: vscode.workspace.createFileSystemWatcher('**/.clientrc')
-        }
+            fileEvents:
+                vscode.workspace.createFileSystemWatcher("**/.clientrc"),
+        },
     };
 
     client = new LanguageClient(
-        'scriptureLanguageServer',
-        'Scripture Language Server',
+        "scriptureLanguageServer",
+        "Scripture Language Server",
         serverOptions,
-        clientOptions
+        clientOptions,
     );
     // Start the client. This will also launch the server
-    client.start().then(() => {
-        context.subscriptions.push(client);
-        // Register the server.getSimilarWords command
-        context.subscriptions.push(vscode.commands.registerCommand('server.getSimilarWords', async (word: string) => {
-            if (client) {
-                return client.sendRequest('server.getSimilarWords', [word]);
-            }
-        }));
-    }).catch(error => {
-        console.error('Failed to start the client:', error);
-    });
+    client
+        .start()
+        .then(() => {
+            context.subscriptions.push(client);
+            // Register the server.getSimilarWords command
+            context.subscriptions.push(
+                vscode.commands.registerCommand(
+                    "server.getSimilarWords",
+                    async (word: string) => {
+                        if (client) {
+                            return client.sendRequest(
+                                "server.getSimilarWords",
+                                [word],
+                            );
+                        }
+                    },
+                ),
+            );
+        })
+        .catch((error) => {
+            console.error("Failed to start the client:", error);
+        });
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "spellcheck.checkText",
+            async (text: string) => {
+                if (client) {
+                    return client.sendRequest("spellcheck/check", { text });
+                }
+            },
+        ),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "spellcheck.addWord",
+            async (word: string) => {
+                console.log("spellcheck.addWord", { word });
+                if (client) {
+                    console.log("sending request inside addWord");
+                    return client.sendRequest("spellcheck/addWord", { word });
+                }
+            },
+        ),
+    );
 
     await executeCommandsAfter();
     await startSyncLoop(context);
     await registerCommands(context);
     await createIndexWithContext(context);
-
+    await initializeBibleData(context);
+    await initializeWebviews(context);
 }
 
 export function deactivate(): Thenable<void> | undefined {
@@ -141,13 +193,25 @@ async function startSyncLoop(context: vscode.ExtensionContext) {
 
     const configChangeSubscription = vscode.workspace.onDidChangeConfiguration(
         (e) => {
-            if (e.affectsConfiguration("codex-editor-extension.scm.remoteUrl")) {
+            if (
+                e.affectsConfiguration("codex-editor-extension.scm.remoteUrl")
+            ) {
                 syncUtils.checkConfigRemoteAndUpdateIt();
             }
-            if (e.affectsConfiguration("codex-editor-extension.scm.autoCommit")) {
-                const updatedConfiguration = vscode.workspace.getConfiguration("codex-editor-extension.scm");
-                autoCommitEnabled = updatedConfiguration.get<boolean>("autoCommit", true);
-                vscode.window.showInformationMessage(`Auto-commit is now ${autoCommitEnabled ? 'enabled' : 'disabled'}.`);
+            if (
+                e.affectsConfiguration("codex-editor-extension.scm.autoCommit")
+            ) {
+                const updatedConfiguration = vscode.workspace.getConfiguration(
+                    "codex-editor-extension.scm",
+                );
+                autoCommitEnabled = updatedConfiguration.get<boolean>(
+                    "autoCommit",
+                    true,
+                );
+                vscode.window.showInformationMessage(
+                    `Auto-commit is now ${autoCommitEnabled ? "enabled" : "disabled"
+                    }.`,
+                );
 
                 if (autoCommitEnabled) {
                     startInterval();

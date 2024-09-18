@@ -44,6 +44,8 @@ export function registerTextSelectionHandler(
                                 completeLineContent,
                                 vrefAtStartOfLine: currentLineVref,
                                 selectedText: selectedText,
+                                verseNotes: "",
+                                verseGraphData: null,
                             },
                         });
                         updateStoreState({
