@@ -726,8 +726,8 @@
         ],
         "customEditors": [
             {
-                "viewType": "codex.chunkEditor",
-                "displayName": "Codex Chunk",
+                "viewType": "codex.cellEditor",
+                "displayName": "Codex Cell Editor",
                 "selector": [
                     {
                         "filenamePattern": "*.codex"

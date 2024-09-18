@@ -4,6 +4,7 @@ import { CodexContentSerializer } from "../../serializer";
 import {
     NOTEBOOK_TYPE,
     createCodexNotebook,
+    updateProjectNotebooksToUseCellsForVerseContent,
 } from "../../utils/codexNotebookUtils";
 import {
     jumpToCellInNotebook,
@@ -118,9 +119,14 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
-    const initializeNewProjectCommand = vscode.commands.registerCommand(
-        "codex-editor-extension.initializeNewProject",
-        await initializeProject
+    // const initializeNewProjectCommand = vscode.commands.registerCommand(
+    //     "codex-editor-extension.initializeNewProject",
+    //     await initializeProject
+    // );
+
+    const updateProjectNotebooksToUseCellsForVerseContentCommand = vscode.commands.registerCommand(
+        "codex-editor-extension.updateProjectNotebooksToUseCellsForVerseContent",
+        updateProjectNotebooksToUseCellsForVerseContent
     );
 
     const setEditorFontCommand = vscode.commands.registerCommand(
@@ -131,10 +137,10 @@ export async function registerCommands(context: vscode.ExtensionContext) {
     const exportCodexContentCommand = vscode.commands.registerCommand('codex-editor-extension.exportCodexContent', exportCodexContent);
     context.subscriptions.push(exportCodexContentCommand);
 
-    const downloadSourceTextBiblesCommand = vscode.commands.registerCommand(
-        "codex-editor-extension.downloadSourceTextBibles",
-        await downloadBible
-    );
+    // const downloadSourceTextBiblesCommand = vscode.commands.registerCommand(
+    //     "codex-editor-extension.downloadSourceTextBibles",
+    //     await downloadBible
+    // );
 
     const getBibleDataRecordByIdCommand = vscode.commands.registerCommand(
         "codex-editor-extension.getBibleDataRecordById",
@@ -177,12 +183,13 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         openChapterCommand,
         openFileCommand,
         createCodexNotebookCommand,
-        initializeNewProjectCommand,
+        // initializeNewProjectCommand,
         setEditorFontCommand,
-        downloadSourceTextBiblesCommand,
+        // downloadSourceTextBiblesCommand,
         getBibleDataRecordByIdCommand,
         exportCodexContentCommand,
-        getContextDataFromVrefCommand
+        getContextDataFromVrefCommand,
+        updateProjectNotebooksToUseCellsForVerseContentCommand
     );
 
     ensureBibleDownload();

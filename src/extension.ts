@@ -17,7 +17,7 @@ import { createIndexWithContext } from "./activationHelpers/contextAware/miniInd
 import { initializeWebviews } from "./activationHelpers/contextAware/webviewInitializers";
 import { syncUtils } from "./activationHelpers/contextAware/syncUtils";
 import { registerCompletionsCodeLensProviders } from "./activationHelpers/contextAware/completionsCodeLensProviders";
-import { CodexChunkEditorProvider } from "./providers/codexChunkEditorProvider/codexChunkEditorProvider";
+import { CodexCellEditorProvider } from "./providers/codexCellEditorProvider/CodexCellEditorProvider";
 import * as path from "path";
 import {
     LanguageClient,
@@ -58,8 +58,7 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(ObsEditorProvider.register(context));
     context.subscriptions.push(providerRegistration);
     context.subscriptions.push(commandRegistration);
-    console.log("CodexChunkEditorProvider registered");
-    context.subscriptions.push(CodexChunkEditorProvider.register(context));
+    context.subscriptions.push(CodexCellEditorProvider.register(context));
 
     // Set up the language client
     const serverModule = context.asAbsolutePath(path.join("out", "server.js"));
@@ -201,8 +200,7 @@ async function startSyncLoop(context: vscode.ExtensionContext) {
                     true,
                 );
                 vscode.window.showInformationMessage(
-                    `Auto-commit is now ${
-                        autoCommitEnabled ? "enabled" : "disabled"
+                    `Auto-commit is now ${autoCommitEnabled ? "enabled" : "disabled"
                     }.`,
                 );
 

@@ -106,13 +106,13 @@ export function generateProjectScope(
 
     skipNonCanonical
         ? books
-              .filter((book) => !nonCanonicalBookRefs.includes(book))
-              .forEach((book) => {
-                  projectScope[book] = [];
-              })
+            .filter((book) => !nonCanonicalBookRefs.includes(book))
+            .forEach((book) => {
+                projectScope[book] = [];
+            })
         : books.forEach((book) => {
-              projectScope[book] = [];
-          });
+            projectScope[book] = [];
+        });
     return projectScope;
 }
 

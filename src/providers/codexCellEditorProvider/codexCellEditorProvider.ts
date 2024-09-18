@@ -22,24 +22,22 @@ function getNonce(): string {
     return text;
 }
 
-export class CodexChunkEditorProvider
-    implements vscode.CustomTextEditorProvider
-{
+export class CodexCellEditorProvider
+    implements vscode.CustomTextEditorProvider {
     public static register(
         context: vscode.ExtensionContext,
     ): vscode.Disposable {
-        console.log("CodexChunkEditorProvider register called");
-        const provider = new CodexChunkEditorProvider(context);
+        const provider = new CodexCellEditorProvider(context);
         const providerRegistration = vscode.window.registerCustomEditorProvider(
-            CodexChunkEditorProvider.viewType,
+            CodexCellEditorProvider.viewType,
             provider,
         );
         return providerRegistration;
     }
 
-    private static readonly viewType = "codex.chunkEditor";
+    private static readonly viewType = "codex.cellEditor";
 
-    constructor(private readonly context: vscode.ExtensionContext) {}
+    constructor(private readonly context: vscode.ExtensionContext) { }
 
     /**
      * Called when our custom editor is opened.
@@ -278,7 +276,7 @@ export class CodexChunkEditorProvider
                 "webviews",
                 "codex-webviews",
                 "dist",
-                "CodexChunkEditor",
+                "CodexCellEditor",
                 "index.js",
             ),
         );
@@ -290,21 +288,18 @@ export class CodexChunkEditorProvider
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${
-                    webview.cspSource
-                } 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src https://languagetool.org/api/; img-src ${
-                    webview.cspSource
-                } https:; font-src ${webview.cspSource};">
+                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource
+            } 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src https://languagetool.org/api/; img-src ${webview.cspSource
+            } https:; font-src ${webview.cspSource};">
                 <link href="${styleResetUri}" rel="stylesheet" nonce="${nonce}">
                 <link href="${styleVSCodeUri}" rel="stylesheet" nonce="${nonce}">
                 <link href="${codiconsUri}" rel="stylesheet" nonce="${nonce}" />
-                <title>Codex Chunk Editor</title>
+                <title>Codex Cell Editor</title>
                 <style>
                     .ql-editor {
                         direction: ${textDirection} !important;
-                        text-align: ${
-                            textDirection === "rtl" ? "right" : "left"
-                        } !important;
+                        text-align: ${textDirection === "rtl" ? "right" : "left"
+            } !important;
                     }
                 </style>
             </head>
@@ -510,7 +505,7 @@ export class CodexChunkEditorProvider
             console.log("Created cell document", { cellDocument, lines });
 
             const { llmCompletion } = await import(
-                "../../providers/translationSuggestions/llmCompletion"
+                "../translationSuggestions/llmCompletion"
             );
             const completionConfig = await fetchCompletionConfig();
             console.log("Fetched completion config", { completionConfig });

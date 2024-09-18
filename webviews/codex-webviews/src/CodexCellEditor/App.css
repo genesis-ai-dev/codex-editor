@@ -3,7 +3,7 @@
     font-size: 18px;
 }
 
-.codex-chunk-editor {
+.codex-cell-editor {
     display: flex;
     flex-direction: column;
     align-items: center;

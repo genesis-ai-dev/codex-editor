@@ -12,7 +12,7 @@ import { useVSCodeMessageHandler } from "./hooks/useVSCodeMessageHandler";
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
 
-const CodexChunkEditor: React.FC = () => {
+const CodexCellEditor: React.FC = () => {
     const [translationUnits, setTranslationUnits] = useState<CellContent[]>([]);
     const [spellCheckResponse, setSpellCheckResponse] =
         useState<CustomNotebookData>({} as CustomNotebookData);
@@ -45,7 +45,7 @@ const CodexChunkEditor: React.FC = () => {
     };
 
     return (
-        <div className="codex-chunk-editor">
+        <div className="codex-cell-editor">
             <h1>
                 {translationUnitsForChapter[0]?.verseMarkers[0].split(":")[0]}
             </h1>
@@ -72,4 +72,4 @@ const CodexChunkEditor: React.FC = () => {
     );
 };
 
-export default CodexChunkEditor;
+export default CodexCellEditor;
