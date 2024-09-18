@@ -68,6 +68,7 @@ const VerseEditor: React.FC<VerseEditorProps> = ({
             </div>
             <div className="text-editor">
                 <Editor
+                    currentLineId={verseMarkers[0]}
                     key={`${verseIndex}-quill`}
                     initialValue={verseContent}
                     spellCheckResponse={spellCheckResponse}

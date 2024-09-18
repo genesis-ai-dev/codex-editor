@@ -1,12 +1,20 @@
 import React from "react";
-import { EditorVerseContent, CustomNotebookData } from "../../../../types";
+import {
+    EditorVerseContent,
+    CustomNotebookData,
+    CodexCellTypes,
+} from "../../../../types";
 import VerseEditor from "./VerseEditor";
-import VerseDisplay from "./VerseDisplay";
+import CellContentDisplay from "./CellContentDisplay";
 import EmptyVerseDisplay from "./EmptyVerseDisplay";
 import "@vscode/codicons/dist/codicon.css"; // Import codicons
 
 interface VerseListProps {
-    translationUnits: { verseMarkers: string[]; verseContent: string }[];
+    translationUnits: {
+        verseMarkers: string[];
+        verseContent: string;
+        cellType: CodexCellTypes;
+    }[];
     contentBeingUpdated: EditorVerseContent;
     setContentBeingUpdated: React.Dispatch<
         React.SetStateAction<EditorVerseContent>
@@ -31,12 +39,13 @@ const VerseList: React.FC<VerseListProps> = ({
         startIndex: number,
     ) => (
         <span key={`group-${startIndex}`} className="verse-group">
-            {group.map(({ verseMarkers, verseContent }, index) => (
-                <VerseDisplay
+            {group.map(({ verseMarkers, verseContent, cellType }, index) => (
+                <CellContentDisplay
                     key={startIndex + index}
-                    verseMarkers={verseMarkers}
-                    verseContent={verseContent}
-                    verseIndex={startIndex + index}
+                    cellIds={verseMarkers}
+                    cellContent={verseContent}
+                    cellIndex={startIndex + index}
+                    cellType={cellType}
                     setContentBeingUpdated={setContentBeingUpdated}
                     vscode={vscode}
                 />

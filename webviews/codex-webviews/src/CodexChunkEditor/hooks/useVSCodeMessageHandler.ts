@@ -1,9 +1,11 @@
 import { useEffect } from "react";
-import { CustomNotebookData } from "../../../../../types";
+import { CellContent, CustomNotebookData } from "../../../../../types";
 
 export const useVSCodeMessageHandler = (
-    setContent: React.Dispatch<React.SetStateAction<CustomNotebookData>>,
-    setSpellCheckResponse: React.Dispatch<React.SetStateAction<CustomNotebookData>>
+    setContent: React.Dispatch<React.SetStateAction<CellContent[]>>,
+    setSpellCheckResponse: React.Dispatch<
+        React.SetStateAction<CustomNotebookData>
+    >,
 ) => {
     useEffect(() => {
         const messageListener = (event: MessageEvent) => {
@@ -12,6 +14,7 @@ export const useVSCodeMessageHandler = (
                 case "update":
                     try {
                         const jsonContent = JSON.parse(message.content);
+
                         setContent(jsonContent);
                     } catch (error) {
                         console.error("Failed to parse JSON content:", error);
