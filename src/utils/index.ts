@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { CodexContentSerializer } from "../serializer";
 import { nonCanonicalBookRefs, vrefData } from "./verseRefUtils/verseData";
 import { Project } from "codex-types";
+import { updateWorkspaceState } from "./workspaceEventListener";
 
 export const getWorkSpaceFolder = (): string | undefined => {
     /**
@@ -68,38 +69,14 @@ export async function getProjectMetadata(): Promise<Project> {
 }
 
 export async function jumpToCellInNotebook(
+    context: vscode.ExtensionContext,
     notebookPath: string,
-    cellSectionMarker: string,
+    cellIdToJumpTo: string,
 ) {
     const notebookUri = vscode.Uri.file(notebookPath);
 
     try {
-        const document = await vscode.workspace.openTextDocument(notebookUri);
-        const notebookEditor = await vscode.window.showTextDocument(document);
-        // FIXME: rather than opening a document and revealing a range, we need to just update the global state of the custom editor extension here.
-        if (!cellSectionMarker) {
-            console.error(
-                `No section marker provided in jumpToCellInNotebook().`,
-            );
-            return;
-        }
-
-        const cellIndex = document.getCells().findIndex(
-            (cell) => cell.metadata?.data?.sectionMarker === cellSectionMarker,
-        );
-
-        if (cellIndex === -1) {
-            console.error(
-                `No cell found with the provided section marker: ${cellSectionMarker}`,
-            );
-            return;
-        }
-
-        // Reveal the cell in the notebook editor
-        notebookEditor.revealRange(
-            new vscode.NotebookRange(cellIndex, cellIndex + 1),
-            vscode.NotebookEditorRevealType.AtTop,
-        );
+        updateWorkspaceState(context, { key: "cellToJumpTo", value: cellIdToJumpTo });
     } catch (error: any) {
         vscode.window.showErrorMessage(
             `Failed to open notebook: ${error.message}`,

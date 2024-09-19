@@ -6,11 +6,8 @@ async function simpleOpen(uri: string) {
     try {
         const parsedUri = vscode.Uri.parse(uri);
         if (parsedUri.toString().includes(".codex")) {
-            jumpToCellInNotebook(uri.toString(), 0);
-        }
-        else {
-            const document = await vscode.workspace.openTextDocument(parsedUri);
-            await vscode.window.showTextDocument(document);
+            // jumpToCellInNotebook(context, uri.toString(), 0);
+            vscode.window.showErrorMessage("Note: you need to pass the cellId to updateWorkspaceState for the cell with the content you want to open");
         }
     } catch (error) {
         console.error(`Failed to open file: ${uri}`, error);

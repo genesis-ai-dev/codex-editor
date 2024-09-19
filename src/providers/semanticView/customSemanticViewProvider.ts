@@ -1,10 +1,5 @@
 // TODO: Get rid of this for something better
 import * as vscode from "vscode";
-import { jumpToCellInNotebook } from "../../utils";
-// import { PythonMessenger } from "../../utils/pyglsMessenger";
-
-const abortController: AbortController | null = null;
-// const pyMessenger: PythonMessenger = new PythonMessenger();
 
 interface OpenFileMessage {
     command: "openFileAtLocation";
@@ -112,7 +107,7 @@ const loadWebviewHtml = (
                         console.log('Requesting similar words for:', message.word);
                         const word = message.word;
                         const response = await vscode.commands.executeCommand('server.getSimilarWords', word);
-                        
+
                         console.log('Response from server.getSimilarWords:', response);
                         if (response) {
                             console.log('Sending similarWords message to webview');
@@ -134,7 +129,7 @@ const loadWebviewHtml = (
                             data: [],
                         });
                     }
-                    break;                
+                    break;
                 default:
                     console.error(`Unknown command: ${message.command}`);
             }
@@ -166,6 +161,6 @@ export function registerSemanticViewProvider(
             new CustomWebviewProvider(context),
         ),
     );
-    
+
     item.show();
 }

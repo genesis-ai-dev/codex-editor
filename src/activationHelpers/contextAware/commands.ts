@@ -42,9 +42,9 @@ export async function registerCommands(context: vscode.ExtensionContext) {
 
     const scriptureExplorerOpenChapterCommand = vscode.commands.registerCommand(
         "translation-navigation.openSection",
-        async (notebookPath: string, sectionMarker: 'string') => {
+        async (notebookPath: string, cellIdToJumpTo: string) => {
             try {
-                jumpToCellInNotebook(notebookPath, sectionMarker);
+                jumpToCellInNotebook(context, notebookPath, cellIdToJumpTo);
             } catch (error) {
                 vscode.window.showErrorMessage(
                     `Failed to open section: ${error}`,
@@ -90,7 +90,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         "codex-editor-extension.openSection",
         async (notebookPath: string, sectionMarker: string) => {
             try {
-                jumpToCellInNotebook(notebookPath, sectionMarker);
+                jumpToCellInNotebook(context, notebookPath, sectionMarker);
             } catch (error) {
                 console.error(`Failed to open section: ${error}`);
             }
