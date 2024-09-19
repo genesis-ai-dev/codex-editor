@@ -1,17 +1,18 @@
 import { LanguageMetadata, LanguageProjectStatus } from "codex-types";
 import * as vscode from "vscode";
-import { CodexCell } from "../../utils/codexNotebookUtils";
+import { CodexCell, NotebookMetadata, NavigationCell } from "../../utils/codexNotebookUtils";
 import { vrefData } from "../../utils/verseRefUtils/verseData";
 import { getProjectMetadata } from "../../utils";
 
 export class Node extends vscode.TreeItem {
-    public children?: Node[]; // Modified line
+    public children?: Node[];
 
     constructor(
         public readonly label: string,
         public readonly type: "corpus" | "document" | "section" | "cell",
         public readonly collapsibleState: vscode.TreeItemCollapsibleState,
         public readonly command?: vscode.Command,
+        public readonly cellId?: string
     ) {
         super(label, collapsibleState);
         this.contextValue = type;
@@ -24,7 +25,34 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
     readonly onDidChangeTreeData: vscode.Event<Node | undefined | void> =
         this._onDidChangeTreeData.event;
 
-    constructor(private workspaceRoot: string | undefined) { }
+    private notebookMetadata: Map<string, { navigation: NavigationCell[], corpusMarker?: string }> = new Map();
+
+    constructor(private workspaceRoot: string | undefined) {
+        this.initializeNotebookMetadata();
+    }
+
+    private async initializeNotebookMetadata(): Promise<void> {
+        if (!this.workspaceRoot) {
+            return;
+        }
+
+        const notebooksUri = vscode.Uri.joinPath(vscode.Uri.file(this.workspaceRoot), "files", "target");
+        const files = await vscode.workspace.fs.readDirectory(notebooksUri);
+
+        for (const [file, type] of files) {
+            if (type === vscode.FileType.File && file.endsWith(".codex")) {
+                const notebookUri = vscode.Uri.joinPath(notebooksUri, file);
+                const notebookContent = await vscode.workspace.fs.readFile(notebookUri);
+                const notebookJson = JSON.parse(notebookContent.toString());
+                const metadata = notebookJson?.metadata as NotebookMetadata;
+
+                this.notebookMetadata.set(notebookUri.fsPath, {
+                    navigation: metadata?.navigation || [],
+                    corpusMarker: metadata?.data?.corpusMarker
+                });
+            }
+        }
+    }
 
     refresh(): void {
         this._onDidChangeTreeData.fire();
@@ -40,104 +68,92 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
         }
 
         if (element) {
-            if (element.type === "document") {
-                const notebookUri = vscode.Uri.joinPath(vscode.Uri.file(this.workspaceRoot), "files", "target", `${element.label}.codex`);
-                const chapters = await this.getChaptersInNotebook(notebookUri);
-                return Promise.resolve(chapters);
-            } else if (element.type === "section") {
-                return Promise.resolve(element.children);
-            } else {
-                return Promise.resolve(element.children);
-            }
+            return Promise.resolve(element.children);
         } else {
-            const notebooksUri = vscode.Uri.joinPath(vscode.Uri.file(this.workspaceRoot), "files", "target");
-            const notebooks = await this.getNotebooksByCorpus(notebooksUri);
+            const notebooks = await this.getNotebooksByCorpus();
             return Promise.resolve(notebooks);
         }
     }
 
-
-    private async getNotebooksByCorpus(dirUri: vscode.Uri): Promise<Node[]> {
+    private async getNotebooksByCorpus(): Promise<Node[]> {
+        console.time('getNotebooksByCorpus');
         try {
-            const files = await vscode.workspace.fs.readDirectory(dirUri);
-            const notebooks: Node[] = [];
-            const corpora: Record<string, Node[]> = {};
+            const corpora: Record<string, Node> = {};
+            const ungroupedNotebooks: Node[] = [];
 
-            for (const [file, type] of files) {
-                if (type === vscode.FileType.File && file.endsWith(".codex")) {
-                    const notebookUri = vscode.Uri.joinPath(dirUri, file);
-                    const notebookDocument = await vscode.workspace.openNotebookDocument(notebookUri);
-                    const corpusMarker = notebookDocument.metadata?.data?.corpusMarker as string;
+            for (const [notebookPath, metadata] of this.notebookMetadata) {
+                const fileName = vscode.Uri.parse(notebookPath).path.split('/').pop() || '';
+                const notebookUri = vscode.Uri.file(notebookPath);
+                const notebookNode = new Node(
+                    fileName.slice(0, -6),
+                    "document",
+                    vscode.TreeItemCollapsibleState.Collapsed
+                );
 
-                    const notebookNode = new Node(
-                        file.slice(0, -6), // Remove .codex extension
-                        "document",
-                        vscode.TreeItemCollapsibleState.Collapsed
-                    );
+                // Create the child nodes from navigation data
+                if (metadata.navigation) {
+                    notebookNode.children = this.createNodesFromNavigation(metadata.navigation, notebookUri);
+                }
 
-                    notebooks.push(notebookNode);
-
-                    if (corpusMarker) {
-                        if (!corpora[corpusMarker]) {
-                            corpora[corpusMarker] = [];
-                        }
-                        corpora[corpusMarker].push(notebookNode);
+                if (metadata.corpusMarker) {
+                    // Add notebook to the corpus
+                    if (!corpora[metadata.corpusMarker]) {
+                        // Create a new corpus node
+                        const corpusNode = new Node(
+                            metadata.corpusMarker,
+                            "corpus",
+                            vscode.TreeItemCollapsibleState.Expanded
+                        );
+                        corpusNode.children = [];
+                        corpora[metadata.corpusMarker] = corpusNode;
                     }
+                    corpora[metadata.corpusMarker].children?.push(notebookNode);
+                } else {
+                    // Ungrouped notebook
+                    ungroupedNotebooks.push(notebookNode);
                 }
             }
 
-            console.log("Detected corpora:", Object.keys(corpora));
+            const result: Node[] = [];
 
-            // Group notebooks
-            const groupedNotebooks = this.groupNotebooks(notebooks, corpora);
+            // Add corpus nodes
+            for (const corpusNode of Object.values(corpora)) {
+                result.push(corpusNode);
+            }
 
-            return groupedNotebooks;
+            // Add ungrouped notebooks
+            result.push(...ungroupedNotebooks);
+
+            return result;
         } catch (error) {
-            vscode.window.showErrorMessage(`Error reading directory: ${dirUri.fsPath}`);
+            vscode.window.showErrorMessage(`Error processing notebooks: ${error}`);
             return [];
+        } finally {
+            console.timeEnd('getNotebooksByCorpus');
         }
     }
 
-    private groupNotebooks(notebooks: Node[], corpora: Record<string, Node[]>): Node[] {
-        const result: Node[] = [];
+    private createNodesFromNavigation(navigationCells: NavigationCell[], notebookUri: vscode.Uri): Node[] {
+        return navigationCells.map(navCell => {
+            const node = new Node(
+                navCell.label,
+                navCell.children.length > 0 ? "section" : "cell",
+                navCell.children.length > 0 ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
+                navCell.cellId
+                    ? {
+                        command: "translation-navigation.openSection",
+                        title: "$(arrow-right)",
+                        arguments: [notebookUri.fsPath, navCell.cellId],
+                    }
+                    : undefined,
+                navCell.cellId
+            );
 
-        // Create corpus nodes
-        for (const [corpusName, corpusNotebooks] of Object.entries(corpora)) {
-            const corpusNode = new Node(corpusName, "corpus", vscode.TreeItemCollapsibleState.Expanded);
-            corpusNode.children = corpusNotebooks;
-            result.push(corpusNode);
-        }
-
-        // Add any notebooks that don't belong to a corpus
-        const ungroupedNotebooks = notebooks.filter(notebook =>
-            !Object.values(corpora).flat().some(corpusNotebook => corpusNotebook.label === notebook.label)
-        );
-        result.push(...ungroupedNotebooks);
-
-        return result;
-    }
-
-    private async getChaptersInNotebook(notebookUri: vscode.Uri): Promise<Node[]> {
-        const notebookDocument = await vscode.workspace.openNotebookDocument(notebookUri);
-        const cells = notebookDocument.getCells();
-        return cells.map((cell: vscode.NotebookCell, index: number) => {
-            const cellSectionMarker = cell.metadata?.data?.sectionMarker;
-            if (cellSectionMarker) {
-                const sectionNumber = cellSectionMarker;
-                if (sectionNumber) {
-                    return new Node(
-                        `${sectionNumber}`,
-                        "section",
-                        vscode.TreeItemCollapsibleState.None,
-                        {
-                            command: "translation-navigation.openSection",
-                            title: "$(arrow-right)",
-                            arguments: [notebookUri.fsPath, cellSectionMarker],
-                        },
-                    );
-                }
+            if (navCell.children.length > 0) {
+                node.children = this.createNodesFromNavigation(navCell.children, notebookUri);
             }
-            return undefined;
-        }).filter((node): node is Node => node !== undefined);
+
+            return node;
+        });
     }
 }
