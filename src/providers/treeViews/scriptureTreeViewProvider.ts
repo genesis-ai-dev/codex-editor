@@ -1,9 +1,9 @@
-import { LanguageMetadata, LanguageProjectStatus } from 'codex-types';
+import { LanguageMetadata, LanguageProjectStatus } from "codex-types";
 import * as vscode from "vscode";
 import * as path from "path";
-import { CellTypes, CodexCell } from "../../utils/codexNotebookUtils";
+import { CodexCell } from "../../utils/codexNotebookUtils";
 import { vrefData } from "../../utils/verseRefUtils/verseData";
-import { getProjectMetadata } from '../../utils';
+import { getProjectMetadata } from "../../utils";
 
 export class Node extends vscode.TreeItem {
     public children?: Node[]; // Modified line
@@ -25,7 +25,7 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
     readonly onDidChangeTreeData: vscode.Event<Node | undefined | void> =
         this._onDidChangeTreeData.event;
 
-    constructor(private workspaceRoot: string | undefined) { }
+    constructor(private workspaceRoot: string | undefined) {}
 
     refresh(): void {
         this._onDidChangeTreeData.fire();
@@ -61,19 +61,21 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
                 return Promise.resolve([]);
             }
         } else {
-
             // Read the .codex files from the files/{targetLanguage} directory
             const notebooksPath = path.join(
                 this.workspaceRoot,
                 "files",
                 "target",
             );
-            const notebooks = this.getNotebooksByTestamentInDirectory(notebooksPath);
+            const notebooks =
+                this.getNotebooksByTestamentInDirectory(notebooksPath);
             return Promise.resolve(notebooks);
         }
     }
 
-    private async getNotebooksByTestamentInDirectory(dirPath: string): Promise<Node[]> {
+    private async getNotebooksByTestamentInDirectory(
+        dirPath: string,
+    ): Promise<Node[]> {
         try {
             const files = await vscode.workspace.fs.readDirectory(
                 vscode.Uri.file(dirPath),
@@ -106,8 +108,18 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
             const OTNotebooks = notebooks.slice(0, 39); // Genesis to Malachi
             const NTNotebooks = notebooks.slice(39); // Matthew to Revelation
 
-            const OTNode = new Node("Old Testament", "grouping", vscode.TreeItemCollapsibleState.Collapsed, undefined);
-            const NTNode = new Node("New Testament", "grouping", vscode.TreeItemCollapsibleState.Expanded, undefined);
+            const OTNode = new Node(
+                "Old Testament",
+                "grouping",
+                vscode.TreeItemCollapsibleState.Collapsed,
+                undefined,
+            );
+            const NTNode = new Node(
+                "New Testament",
+                "grouping",
+                vscode.TreeItemCollapsibleState.Expanded,
+                undefined,
+            );
 
             OTNode.children = OTNotebooks;
             NTNode.children = NTNotebooks;
@@ -133,21 +145,22 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
         const notebookJson = JSON.parse(notebookContent); // Parse the JSON content
         const cells = notebookJson.cells; // Access the cells array
 
+        // FIXME: this needs to update the verse ref in global state so that the chunk editor provider can pass the new verse ref to the webview and display the associated chapter
         // Now you can process each cell as needed
-        return cells.map((cell: CodexCell, index: number) => {
-            // Assuming you want to create a Node for each cell
-            if (cell.metadata?.type === CellTypes.CHAPTER_HEADING) {
-                return new Node(
-                    `Chapter ${cell.metadata.data.chapter}`,
-                    "chapter",
-                    vscode.TreeItemCollapsibleState.None,
-                    {
-                        command: "scripture-explorer-activity-bar.openChapter",
-                        title: "",
-                        arguments: [notebookPath, index],
-                    },
-                );
-            }
-        });
+        // return cells.map((cell: CodexCell, index: number) => {
+        //     // Assuming you want to create a Node for each cell
+        //     if (cell.metadata?.type === CellContent.CHAPTER_HEADING) {
+        //         return new Node(
+        //             `Chapter ${cell.metadata.data.chapter}`,
+        //             "chapter",
+        //             vscode.TreeItemCollapsibleState.None,
+        //             {
+        //                 command: "scripture-explorer-activity-bar.openChapter",
+        //                 title: "",
+        //                 arguments: [notebookPath, index],
+        //             },
+        //         );
+        //     }
+        // });
     }
 }

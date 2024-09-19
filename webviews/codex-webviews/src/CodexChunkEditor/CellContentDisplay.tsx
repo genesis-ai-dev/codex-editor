@@ -21,6 +21,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     cellIds: verseMarkers,
     cellContent: verseContent,
     cellIndex: verseIndex,
+    cellType,
     setContentBeingUpdated,
     vscode,
 }) => {
@@ -48,7 +49,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     }
     return (
         <span className="verse-display" onClick={handleVerseClick}>
-            <sup>{verseRefForDisplay}</sup>
+            {cellType === "verse" && <sup>{verseRefForDisplay}</sup>}
             <span
                 dangerouslySetInnerHTML={{
                     __html: HACKY_removeContiguousSpans(verseContent),
