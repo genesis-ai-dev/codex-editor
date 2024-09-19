@@ -28,7 +28,6 @@ export interface CodexCell extends vscode.NotebookCellData {
         type: "text" | "paratext";
         id: string;
         data: {
-            sectionMarker?: string; // This is used for populating the navigation pane
             [key: string]: any | undefined;
         }
     };
@@ -75,6 +74,20 @@ export const createCodexNotebook = async (
     );
     return doc;
 };
+
+export interface NotebookMetadata {
+    data: {
+        corpusMarker?: string;
+        [key: string]: any | undefined;
+    };
+    navigation: NavigationCell[];
+}
+
+export interface NavigationCell {
+    cellId: string;
+    children: NavigationCell[];
+    label: string;
+}
 
 /**
  * Creates a Codex notebook for each book in the Bible.
@@ -131,11 +144,7 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
                 corpusMarker = "Other";
             }
 
-            const notebookMetadata = {
-                data: {
-                    corpusMarker: corpusMarker,
-                }
-            };
+            const navigationCells: NavigationCell[] = [];
 
             for (const cell of notebookData.cells) {
                 if (cell.kind === vscode.NotebookCellKind.Markup) {
@@ -143,19 +152,23 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
                         // This is a chapter heading cell
                         const chapter = cell.metadata.data?.chapter;
                         if (chapter && book) {
+                            const h1Content = `${chapterHeadingText} ${chapter}`;
                             const newCell = new vscode.NotebookCellData(
                                 vscode.NotebookCellKind.Code,
-                                `<h1>${chapterHeadingText} ${chapter}</h1>`,
+                                `<h1>${h1Content}</h1>`,
                                 "paratext"
                             );
                             const randomId = Math.random().toString(36).substring(2, 15);
+                            const cellId = `${book} ${chapter}:1:${randomId}`;
                             newCell.metadata = {
                                 type: "paratext",
-                                data: {
-                                    sectionMarker: chapter,
-                                },
-                                id: `${book} ${chapter}:1:${randomId}`,
+                                id: cellId,
                             };
+                            navigationCells.push({
+                                cellId: cellId,
+                                children: [],
+                                label: `${chapterHeadingText} ${chapter}`,
+                            });
                             newCells.push(newCell);
                         } else {
                             console.warn(`Skipping chapter heading cell for ${book} ${chapter} because it is apparently malformed:`, cell);
@@ -190,6 +203,13 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
             }
 
             const updatedNotebookData = new vscode.NotebookData(newCells);
+
+            const notebookMetadata = {
+                data: {
+                    corpusMarker: corpusMarker,
+                },
+                navigation: navigationCells,
+            };
 
             updatedNotebookData.metadata = notebookMetadata;
             const notebookCreationPromise = serializer
