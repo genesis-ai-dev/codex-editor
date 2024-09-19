@@ -201,7 +201,8 @@ async function startSyncLoop(context: vscode.ExtensionContext) {
                     true,
                 );
                 vscode.window.showInformationMessage(
-                    `Auto-commit is now ${autoCommitEnabled ? "enabled" : "disabled"
+                    `Auto-commit is now ${
+                        autoCommitEnabled ? "enabled" : "disabled"
                     }.`,
                 );
 
@@ -228,7 +229,7 @@ async function temporaryMigrationScript_checkMatthewNotebook() {
 
     const matthewNotebookPath = vscode.Uri.joinPath(
         workspaceFolders[0].uri,
-        "MAT.codex",
+        "/files/target/MAT.codex",
     );
     try {
         const document =
@@ -238,8 +239,29 @@ async function temporaryMigrationScript_checkMatthewNotebook() {
                 cell.kind === vscode.NotebookCellKind.Code &&
                 cell.document.getText().includes("MAT 1:1")
             ) {
+                vscode.window.showInformationMessage(
+                    "Updating notebook to use cells for verse content.",
+                );
+                await vscode.window.withProgress(
+                    {
+                        location: vscode.ProgressLocation.Notification,
+                        title: "Updating notebooks",
+                        cancellable: false,
+                    },
+                    async (progress) => {
+                        progress.report({ increment: 0 });
+                        await vscode.commands.executeCommand(
+                            "codex-editor-extension.updateProjectNotebooksToUseCellsForVerseContent",
+                        );
+                        progress.report({ increment: 100 });
+                    },
+                );
+                vscode.window.showInformationMessage(
+                    "Updated notebook to use cells for verse content.",
+                );
+                // Reload the window
                 await vscode.commands.executeCommand(
-                    "codex-editor-extension.updateProjectNotebooksToUseCellsForVerseContent",
+                    "workbench.action.reloadWindow",
                 );
                 break;
             }
