@@ -77,7 +77,7 @@ export async function activate(context: vscode.ExtensionContext) {
         documentSelector: [
             { scheme: "file", language: "*" },
             { scheme: "vscode-notebook-cell", language: "*" },
-            { notebook: "*", language: "*" },
+            { notebook: "codex-type", language: "*" },
         ],
         synchronize: {
             fileEvents:
@@ -201,8 +201,7 @@ async function startSyncLoop(context: vscode.ExtensionContext) {
                     true,
                 );
                 vscode.window.showInformationMessage(
-                    `Auto-commit is now ${
-                        autoCommitEnabled ? "enabled" : "disabled"
+                    `Auto-commit is now ${autoCommitEnabled ? "enabled" : "disabled"
                     }.`,
                 );
 
