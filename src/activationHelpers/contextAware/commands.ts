@@ -41,13 +41,13 @@ export async function registerCommands(context: vscode.ExtensionContext) {
     );
 
     const scriptureExplorerOpenChapterCommand = vscode.commands.registerCommand(
-        "scripture-explorer-activity-bar.openChapter",
-        async (notebookPath: string, chapterIndex: number) => {
+        "scripture-explorer-activity-bar.openSection",
+        async (notebookPath: string, sectionMarker: 'string') => {
             try {
-                jumpToCellInNotebook(notebookPath, chapterIndex);
+                jumpToCellInNotebook(notebookPath, sectionMarker);
             } catch (error) {
                 vscode.window.showErrorMessage(
-                    `Failed to open chapter: ${error}`,
+                    `Failed to open section: ${error}`,
                 );
             }
         },
@@ -87,12 +87,12 @@ export async function registerCommands(context: vscode.ExtensionContext) {
     const codexKernel = new CodexKernel();
 
     const openChapterCommand = vscode.commands.registerCommand(
-        "codex-editor-extension.openChapter",
-        async (notebookPath: string, chapterIndex: number) => {
+        "codex-editor-extension.openSection",
+        async (notebookPath: string, sectionMarker: string) => {
             try {
-                jumpToCellInNotebook(notebookPath, chapterIndex);
+                jumpToCellInNotebook(notebookPath, sectionMarker);
             } catch (error) {
-                console.error(`Failed to open chapter: ${error}`);
+                console.error(`Failed to open section: ${error}`);
             }
         },
     );

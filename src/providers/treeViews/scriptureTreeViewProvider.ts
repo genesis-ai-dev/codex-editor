@@ -122,8 +122,8 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
                         vscode.TreeItemCollapsibleState.None,
                         {
                             command: "scripture-explorer-activity-bar.openSection",
-                            title: "",
-                            arguments: [notebookUri.fsPath, index],
+                            title: "$(arrow-right)",
+                            arguments: [notebookUri.fsPath, cellSectionMarker],
                         },
                     );
                 }

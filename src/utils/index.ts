@@ -69,19 +69,28 @@ export async function getProjectMetadata(): Promise<Project> {
 
 export async function jumpToCellInNotebook(
     notebookPath: string,
-    cellIndex: number,
+    cellSectionMarker: string,
 ) {
     const notebookUri = vscode.Uri.file(notebookPath);
 
     try {
-        const document =
-            await vscode.workspace.openNotebookDocument(notebookUri);
-        const notebookEditor =
-            await vscode.window.showNotebookDocument(document);
+        const document = await vscode.workspace.openTextDocument(notebookUri);
+        const notebookEditor = await vscode.window.showTextDocument(document);
+        // FIXME: rather than opening a document and revealing a range, we need to just update the global state of the custom editor extension here.
+        if (!cellSectionMarker) {
+            console.error(
+                `No section marker provided in jumpToCellInNotebook().`,
+            );
+            return;
+        }
 
-        if (cellIndex < 0 || cellIndex >= document.cellCount) {
-            vscode.window.showInformationMessage(
-                `Cell at index ${cellIndex} not found.`,
+        const cellIndex = document.getCells().findIndex(
+            (cell) => cell.metadata?.data?.sectionMarker === cellSectionMarker,
+        );
+
+        if (cellIndex === -1) {
+            console.error(
+                `No cell found with the provided section marker: ${cellSectionMarker}`,
             );
             return;
         }
