@@ -146,6 +146,8 @@ export async function activate(context: vscode.ExtensionContext) {
     await initializeBibleData(context);
     await initializeWebviews(context);
     await temporaryMigrationScript_checkMatthewNotebook();
+
+    vscode.commands.executeCommand("translation-navigation.refreshEntry");
 }
 
 export function deactivate(): Thenable<void> | undefined {

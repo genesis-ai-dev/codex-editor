@@ -44,7 +44,10 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         "translation-navigation.openSection",
         async (notebookPath: string, cellIdToJumpTo: string) => {
             try {
-                jumpToCellInNotebook(context, notebookPath, cellIdToJumpTo);
+                const uri = vscode.Uri.file(notebookPath);
+                await vscode.commands.executeCommand('vscode.openWith', uri, 'codex.cellEditor');
+                // After opening, jump to the specific cell
+                await jumpToCellInNotebook(context, notebookPath, cellIdToJumpTo);
             } catch (error) {
                 vscode.window.showErrorMessage(
                     `Failed to open section: ${error}`,
