@@ -116,6 +116,27 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
             const newCells: vscode.NotebookCellData[] = [];
             const chapterHeadingText = `Chapter`;
 
+            const canonicalOrder = Object.keys(vrefData);
+            const corpora = {
+                "Old Testament": canonicalOrder.slice(0, 39),
+                "New Testament": canonicalOrder.slice(39)
+            };
+
+            let corpusMarker;
+            if (corpora["Old Testament"].includes(book)) {
+                corpusMarker = "Old Testament";
+            } else if (corpora["New Testament"].includes(book)) {
+                corpusMarker = "New Testament";
+            } else {
+                corpusMarker = "Other";
+            }
+
+            const notebookMetadata = {
+                data: {
+                    corpusMarker: corpusMarker,
+                }
+            };
+
             for (const cell of notebookData.cells) {
                 if (cell.kind === vscode.NotebookCellKind.Markup) {
                     if (cell.metadata?.type === 'chapter-heading') {
@@ -170,6 +191,7 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
 
             const updatedNotebookData = new vscode.NotebookData(newCells);
 
+            updatedNotebookData.metadata = notebookMetadata;
             const notebookCreationPromise = serializer
                 .serializeNotebook(
                     updatedNotebookData,

@@ -8,6 +8,7 @@ import { TextDecoder, TextEncoder } from "util";
 
 interface RawNotebookData {
     cells: RawNotebookCell[];
+    metadata?: any;
 }
 
 interface RawNotebookCell {
@@ -32,7 +33,7 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
         try {
             raw = <RawNotebookData>JSON.parse(contents);
         } catch {
-            raw = { cells: [] };
+            raw = { cells: [], metadata: {} };
         }
         // Create array of Notebook cells for the VS Code API from file contents
         const cells = raw.cells.map((item) => {
@@ -49,7 +50,9 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
             return cell;
         });
 
-        return new vscode.NotebookData(cells);
+        const notebookData = new vscode.NotebookData(cells);
+        notebookData.metadata = raw.metadata || {};
+        return notebookData;
     }
 
     public async serializeNotebook(
@@ -57,7 +60,10 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
         token: vscode.CancellationToken,
     ): Promise<Uint8Array> {
         // Map the Notebook data into the format we want to save the Notebook data as
-        const contents: RawNotebookData = { cells: [] };
+        const contents: RawNotebookData = { 
+            cells: [],
+            metadata: data.metadata
+        };
 
         for (const cell of data.cells) {
             contents.cells.push({

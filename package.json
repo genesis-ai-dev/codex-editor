@@ -32,8 +32,8 @@
         ],
         "viewsWelcome": [
             {
-                "view": "scripture-explorer-activity-bar",
-                "contents": "Welcome to the Codex Scripture Editor! Please setup a new translation project by using the form below."
+                "view": "translation-navigation",
+                "contents": "Welcome to the Codex Translation Editor! When you bookmark cells in your Codex notebook, you will see navigation shortcuts here."
             },
             {
                 "view": "dictionary-summary-panel",
@@ -62,13 +62,13 @@
                     "contextualTitle": "Parallel Passages"
                 }
             ],
-            "scripture-explorer-activity-bar": [
+            "translation-navigation": [
                 {
-                    "id": "scripture-explorer-activity-bar",
-                    "name": "Scripture Explorer",
+                    "id": "translation-navigation",
+                    "name": "Project",
                     "visibility": "visible",
                     "initialSize": 1,
-                    "icon": "$(open-editors-view-icon)"
+                    "icon": "$(compass)"
                 }
             ],
             "dictionary-summary": [
@@ -109,9 +109,9 @@
         "viewsContainers": {
             "activitybar": [
                 {
-                    "id": "scripture-explorer-activity-bar",
-                    "title": "Scripture Explorer",
-                    "icon": "$(open-editors-view-icon)"
+                    "id": "translation-navigation",
+                    "title": "Navigation",
+                    "icon": "$(compass)"
                 },
                 {
                     "id": "parallel-passages-view",
@@ -143,8 +143,8 @@
         "menus": {
             "view/title": [
                 {
-                    "command": "scripture-explorer-activity-bar.refreshEntry",
-                    "when": "view == scripture-explorer-activity-bar",
+                    "command": "translation-navigation.refreshEntry",
+                    "when": "view == translation-navigation",
                     "group": "navigation"
                 },
                 {
@@ -157,6 +157,11 @@
                 {
                     "command": "dictionaryTable.showDictionaryTable",
                     "when": "view == dictionaryTable",
+                    "group": "navigation"
+                },
+                {
+                    "command": "translation-navigation.openSection",
+                    "when": "view == translation-navigation",
                     "group": "navigation"
                 }
             ],
@@ -379,12 +384,12 @@
                 "title": "Create Codex Project"
             },
             {
-                "command": "scripture-explorer-activity-bar.refreshEntry",
+                "command": "translation-navigation.refreshEntry",
                 "title": "Refresh",
                 "icon": "$(refresh)"
             },
             {
-                "command": "scripture-explorer-activity-bar.openChapter",
+                "command": "translation-navigation.openSection",
                 "title": "Open",
                 "icon": "$(arrow-right)"
             },

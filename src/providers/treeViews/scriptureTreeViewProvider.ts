@@ -9,7 +9,7 @@ export class Node extends vscode.TreeItem {
 
     constructor(
         public readonly label: string,
-        public readonly type: "grouping" | "document" | "section" | "cell",
+        public readonly type: "corpus" | "document" | "section" | "cell",
         public readonly collapsibleState: vscode.TreeItemCollapsibleState,
         public readonly command?: vscode.Command,
     ) {
@@ -51,34 +51,45 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
             }
         } else {
             const notebooksUri = vscode.Uri.joinPath(vscode.Uri.file(this.workspaceRoot), "files", "target");
-            const notebooks = await this.getNotebooksByGrouping(notebooksUri);
+            const notebooks = await this.getNotebooksByCorpus(notebooksUri);
             return Promise.resolve(notebooks);
         }
     }
 
-    private async getNotebooksByGrouping(dirUri: vscode.Uri): Promise<Node[]> {
+
+    private async getNotebooksByCorpus(dirUri: vscode.Uri): Promise<Node[]> {
         try {
             const files = await vscode.workspace.fs.readDirectory(dirUri);
-            const notebooks = files
-                .filter(([file, type]) => type === vscode.FileType.File && file.endsWith(".codex"))
-                .map(([file]) => new Node(
-                    file.slice(0, -6), // Remove .codex extension
-                    "document",
-                    vscode.TreeItemCollapsibleState.Collapsed
-                ));
+            const notebooks: Node[] = [];
+            const corpora: Record<string, Node[]> = {};
 
-            // Define the canonical order and groupings
-            const canonicalOrder = Object.keys(vrefData);
-            const groupings = {
-                "Old Testament": canonicalOrder.slice(0, 39),
-                "New Testament": canonicalOrder.slice(39)
-            };
+            for (const [file, type] of files) {
+                if (type === vscode.FileType.File && file.endsWith(".codex")) {
+                    const notebookUri = vscode.Uri.joinPath(dirUri, file);
+                    const notebookDocument = await vscode.workspace.openNotebookDocument(notebookUri);
+                    const corpusMarker = notebookDocument.metadata?.data?.corpusMarker as string;
 
-            // Sort notebooks based on canonical order
-            notebooks.sort((a, b) => canonicalOrder.indexOf(a.label) - canonicalOrder.indexOf(b.label));
+                    const notebookNode = new Node(
+                        file.slice(0, -6), // Remove .codex extension
+                        "document",
+                        vscode.TreeItemCollapsibleState.Collapsed
+                    );
+
+                    notebooks.push(notebookNode);
+
+                    if (corpusMarker) {
+                        if (!corpora[corpusMarker]) {
+                            corpora[corpusMarker] = [];
+                        }
+                        corpora[corpusMarker].push(notebookNode);
+                    }
+                }
+            }
+
+            console.log("Detected corpora:", Object.keys(corpora));
 
             // Group notebooks
-            const groupedNotebooks = this.groupNotebooks(notebooks, groupings);
+            const groupedNotebooks = this.groupNotebooks(notebooks, corpora);
 
             return groupedNotebooks;
         } catch (error) {
@@ -87,21 +98,19 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
         }
     }
 
-    private groupNotebooks(notebooks: Node[], groupings: Record<string, string[]>): Node[] {
+    private groupNotebooks(notebooks: Node[], corpora: Record<string, Node[]>): Node[] {
         const result: Node[] = [];
 
-        for (const [groupName, books] of Object.entries(groupings)) {
-            const groupNotebooks = notebooks.filter(notebook => books.includes(notebook.label));
-            if (groupNotebooks.length > 0) {
-                const groupNode = new Node(groupName, "grouping", vscode.TreeItemCollapsibleState.Expanded);
-                groupNode.children = groupNotebooks;
-                result.push(groupNode);
-            }
+        // Create corpus nodes
+        for (const [corpusName, corpusNotebooks] of Object.entries(corpora)) {
+            const corpusNode = new Node(corpusName, "corpus", vscode.TreeItemCollapsibleState.Expanded);
+            corpusNode.children = corpusNotebooks;
+            result.push(corpusNode);
         }
 
-        // Add any notebooks that don't belong to a group
+        // Add any notebooks that don't belong to a corpus
         const ungroupedNotebooks = notebooks.filter(notebook =>
-            !Object.values(groupings).flat().includes(notebook.label)
+            !Object.values(corpora).flat().some(corpusNotebook => corpusNotebook.label === notebook.label)
         );
         result.push(...ungroupedNotebooks);
 
@@ -121,7 +130,7 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
                         "section",
                         vscode.TreeItemCollapsibleState.None,
                         {
-                            command: "scripture-explorer-activity-bar.openSection",
+                            command: "translation-navigation.openSection",
                             title: "$(arrow-right)",
                             arguments: [notebookUri.fsPath, cellSectionMarker],
                         },
