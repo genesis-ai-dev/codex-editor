@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useMemo } from "react";
+import { useRef, useEffect, useMemo } from "react";
 import Quill from "quill";
 import "quill/dist/quill.snow.css";
 import registerQuillSpellChecker, {
@@ -40,8 +40,8 @@ const TOOLBAR_OPTIONS = [
 export default function Editor(props: EditorProps) {
     function isQuillEmpty(quill: Quill | null) {
         if (!quill) return true;
-        let delta = quill.getContents();
-        let text = delta.ops?.reduce((text, op) => {
+        const delta = quill.getContents();
+        const text = delta.ops?.reduce((text, op) => {
             return text + (op.insert ? op.insert : "");
         }, "");
 
@@ -95,7 +95,7 @@ export default function Editor(props: EditorProps) {
                     const finalParagraphs = arrayOfParagraphs
                         .filter((p) => !!p)
                         .map((p) =>
-                            p.startsWith("<p>") ? `${p}</p>` : `<p>${p}</p>`,
+                            p.startsWith("<p>") ? `${p}</p>` : `<p>${p}</p>`
                         );
 
                     const firstParagraph = finalParagraphs[0];
@@ -147,7 +147,7 @@ export default function Editor(props: EditorProps) {
         console.log(
             "llmCompletion vscode",
             { vscode, window },
-            window.vscodeApi,
+            window.vscodeApi
         );
         window.vscodeApi.postMessage({
             command: "llmCompletion",

@@ -1,8 +1,8 @@
-import { LanguageMetadata, LanguageProjectStatus } from 'codex-types';
+import { LanguageMetadata, LanguageProjectStatus } from "codex-types";
 import * as vscode from "vscode";
 import { CodexCell } from "../../utils/codexNotebookUtils";
 import { vrefData } from "../../utils/verseRefUtils/verseData";
-import { getProjectMetadata } from '../../utils';
+import { getProjectMetadata } from "../../utils";
 
 export class Node extends vscode.TreeItem {
     public children?: Node[]; // Modified line
