@@ -142,7 +142,7 @@ export async function activate(context: vscode.ExtensionContext) {
     await executeCommandsAfter();
     await startSyncLoop(context);
     await registerCommands(context);
-    await createIndexWithContext(context);
+    // await createIndexWithContext(context);
     await initializeBibleData(context);
     await initializeWebviews(context);
     await temporaryMigrationScript_checkMatthewNotebook();
