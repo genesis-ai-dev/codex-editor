@@ -776,7 +776,9 @@
         "format": "prettier --write .",
         "build:table": "cd webviews/editable-react-table && npm run build",
         "build:dictionary-side": "cd webviews/dictionary-side-panel && npm run build",
-        "build:webviews": "cd webviews/codex-webviews && pnpm run build:all && cd ../dictionary-side-panel && pnpm run build && cd ../editable-react-table && pnpm run build && cd ../usfm-viewer && pnpm run build && cd ../.."
+        "build:webviews": "cd webviews/codex-webviews && pnpm run build:all &&  cd ../usfm-viewer && pnpm run build && cd ../obs && pnpm run build && cd ../..",
+        "build:ci": "pnpm -r --filter='./webviews/*' run build",
+        "build": "npm run compile"
     },
     "devDependencies": {
         "@babel/plugin-proposal-private-property-in-object": "^7.16.7",

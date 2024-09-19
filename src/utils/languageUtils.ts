@@ -63754,4 +63754,4 @@ export const LanguageCodes: LanguageMetadata[] = isoLanguageData.map(
     },
 );
 
-export { LanguageMetadata };
+export type { LanguageMetadata };
