@@ -20,7 +20,14 @@ const CodexCellEditor: React.FC = () => {
         useState<EditorVerseContent>({} as EditorVerseContent);
     const [chapterNumber, setChapterNumber] = useState<number>(1);
 
-    useVSCodeMessageHandler(setTranslationUnits, setSpellCheckResponse);
+    useVSCodeMessageHandler({
+        setContent: setTranslationUnits,
+        setSpellCheckResponse,
+        jumpToCell: (cellId) => {
+            const chapter = cellId?.split(" ")[1]?.split(":")[0];
+            setChapterNumber(parseInt(chapter));
+        },
+    });
 
     useEffect(() => {
         vscode.postMessage({ command: "getContent" } as EditorPostMessages);

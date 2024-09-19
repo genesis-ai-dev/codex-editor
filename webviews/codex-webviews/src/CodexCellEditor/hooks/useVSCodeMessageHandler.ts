@@ -1,16 +1,25 @@
 import { useEffect } from "react";
 import { CellContent, CustomNotebookData } from "../../../../../types";
 
-export const useVSCodeMessageHandler = (
-    setContent: React.Dispatch<React.SetStateAction<CellContent[]>>,
+export const useVSCodeMessageHandler = ({
+    setContent,
+    setSpellCheckResponse,
+    jumpToCell,
+}: {
+    setContent: React.Dispatch<React.SetStateAction<CellContent[]>>;
     setSpellCheckResponse: React.Dispatch<
         React.SetStateAction<CustomNotebookData>
-    >,
-) => {
+    >;
+    jumpToCell: (cellId: string) => void;
+}) => {
     useEffect(() => {
         const messageListener = (event: MessageEvent) => {
             const message = event.data;
             switch (message.type) {
+                case "jumpToSection": {
+                    jumpToCell(message.content);
+                    break;
+                }
                 case "update":
                     try {
                         const jsonContent = JSON.parse(message.content);
