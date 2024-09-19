@@ -56,7 +56,7 @@ suite("createProjectNotebooks Test Suite", () => {
             codexContent.cells[0].metadata.type ===
             CodexCellTypes.CHAPTER_HEADING;
         const firstCellIsMetadataIsPresent =
-            codexContent.cells[0].metadata.data.chapter === "1";
+            codexContent.cells[0].metadata.data.chapter === "1"; // FIXME: check interfaces in codexNotebookUtils
 
         assert.ok(
             firstCellIsChapterHeadingType && firstCellIsMetadataIsPresent,

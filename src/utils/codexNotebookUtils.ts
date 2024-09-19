@@ -6,7 +6,8 @@ import { generateFiles as generateFile } from "./fileUtils";
 import { getAllBookRefs, getAllBookChapterRefs, getAllVrefs } from ".";
 import { vrefData } from "./verseRefUtils/verseData";
 import { LanguageProjectStatus } from "codex-types";
-import { extractVerseRefFromLine } from "./verseRefUtils";
+import { extractVerseRefFromLine, verseRefRegex } from "./verseRefUtils";
+import { NotebookCell } from "vscode-languageclient";
 // import { CodexCellTypes } from "../../types";
 
 export const NOTEBOOK_TYPE = "codex-type";
@@ -23,6 +24,17 @@ export const NOTEBOOK_TYPE = "codex-type";
  * @property {string} [chapter] - The chapter number or identifier associated with the cell.
  */
 export interface CodexCell extends vscode.NotebookCellData {
+    metadata?: {
+        type: "text" | "paratext";
+        id: string;
+        data: {
+            sectionMarker?: string; // This is used for populating the navigation pane
+            [key: string]: any | undefined;
+        }
+    };
+}
+
+interface deprecated_CodexCell extends vscode.NotebookCellData {
     metadata?: {
         type: any;
         data: {
@@ -109,27 +121,25 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
                     if (cell.metadata?.type === 'chapter-heading') {
                         // This is a chapter heading cell
                         const chapter = cell.metadata.data?.chapter;
-                        const book = cell.metadata.data?.book;
                         if (chapter && book) {
                             const newCell = new vscode.NotebookCellData(
                                 vscode.NotebookCellKind.Code,
                                 `<h1>${chapterHeadingText} ${chapter}</h1>`,
                                 "paratext"
                             );
+                            const randomId = Math.random().toString(36).substring(2, 15);
                             newCell.metadata = {
                                 type: "paratext",
                                 data: {
-                                    chapter: chapter,
+                                    sectionMarker: chapter,
                                 },
-                                id: `${book} ${chapter}:1:1`,
-                                position: 'precede-parent-cell'
+                                id: `${book} ${chapter}:1:${randomId}`,
                             };
                             newCells.push(newCell);
                         } else {
-                            // If we don't have chapter and book info, keep the original cell - don't want to lose data the user put into a new markdown or json cell randomly
-                            newCells.push(cell);
+                            console.warn(`Skipping chapter heading cell for ${book} ${chapter} because it is apparently malformed:`, cell);
                         }
-                    } else if (cell.value.includes('Notes for Chapter')) {
+                    } else if (cell.value.includes('Notes')) {
                         // This is a notes cell - we don't need to do anything with it
                         // newCells.push(cell);
                     }
@@ -137,18 +147,23 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
                     // This is a cell containing all verses for a chapter
                     const lines = cell.value.split('\n');
                     for (const line of lines) {
-                        const [verseRef, ...contentParts] = line.split(' ');
-                        const content = contentParts.join(' ');
+                        const verseRef = extractVerseRefFromLine(line);
+                        const content = line.replace(verseRefRegex, '');
                         const verseCell = new vscode.NotebookCellData(
                             vscode.NotebookCellKind.Code,
                             content,
-                            'scripture'
+                            'scripture',
                         );
+                        if (!verseRef) {
+                            console.warn(`Skipping verse cell for ${book} because it is apparently malformed:`, cell);
+                            continue;
+                        }
                         verseCell.metadata = {
-                            type: 'verse',
+                            type: 'text',
                             id: verseRef,
+                            data: {},
                         };
-                        newCells.push(verseCell);
+                        newCells.push(verseCell as CodexCell);
                     }
                 }
             }

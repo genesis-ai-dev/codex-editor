@@ -27,9 +27,9 @@ const CodexCellEditor: React.FC = () => {
     }, []);
 
     const translationUnitsForChapter = translationUnits.filter((verse) => {
-        const verseMarker = verse.verseMarkers[0];
-        const chapterVerseParts = verseMarker.split(" ")[1].split(":");
-        const verseChapterNumber = chapterVerseParts[0];
+        const verseMarker = verse?.verseMarkers?.[0];
+        const chapterVerseParts = verseMarker?.split(" ")?.[1]?.split(":");
+        const verseChapterNumber = chapterVerseParts?.[0];
         return verseChapterNumber === chapterNumber.toString();
     });
 
@@ -47,7 +47,11 @@ const CodexCellEditor: React.FC = () => {
     return (
         <div className="codex-cell-editor">
             <h1>
-                {translationUnitsForChapter[0]?.verseMarkers[0].split(":")[0]}
+                {
+                    translationUnitsForChapter[0]?.verseMarkers?.[0]?.split(
+                        ":"
+                    )[0]
+                }
             </h1>
             <div className="editor-container">
                 <ChapterNavigation
