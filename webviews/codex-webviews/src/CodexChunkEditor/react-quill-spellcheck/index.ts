@@ -1,6 +1,6 @@
 import Quill from "quill";
 // import LoadingIndicator from "./LoadingIndicator";
-import PlainClipboard, { specialCharacters } from "./PlainClipboard";
+import { /* PlainClipboard, */ specialCharacters } from "./PlainClipboard";
 import PopupManager from "./PopupManager";
 import "./QuillSpellChecker.css";
 import createSuggestionBlotForQuillInstance from "./SuggestionBlot";
@@ -9,7 +9,7 @@ import { MatchesEntity, SpellCheckerApi } from "./types";
 import { EditorPostMessages } from "../../../../../types";
 
 // Define the debug function
-let DEBUG_MODE = false;
+const DEBUG_MODE = false;
 function debug(...args: any[]) {
     if (DEBUG_MODE) {
         console.log(...args);
@@ -46,17 +46,14 @@ export class QuillSpellChecker {
      * @param quill Instance of the Qill editor.
      * @param params Options for the QuillSpellChecker instance.
      */
-    constructor(
-        public quill: Quill,
-        public params: QuillSpellCheckerParams,
-    ) {
+    constructor(public quill: Quill, public params: QuillSpellCheckerParams) {
         debug("spell-checker-debug: QuillSpellChecker constructor", {
             quill,
             params,
         });
         if (!quill || !quill.root) {
             console.error(
-                "spell-checker-debug: Quill instance or its root is not available",
+                "spell-checker-debug: Quill instance or its root is not available"
             );
             return;
         }
@@ -162,7 +159,7 @@ export class QuillSpellChecker {
             this.quill.insertText(match.offset, replacement, "silent");
             this.quill.setSelection(
                 match.offset + replacement.length,
-                "silent",
+                "silent"
             );
             this.boxes.removeCurrentSuggestionBox(match, replacement);
         }
@@ -228,7 +225,7 @@ export class QuillSpellChecker {
             this.matches = results
                 .filter(
                     (match) =>
-                        match.replacements && match.replacements.length > 0,
+                        match.replacements && match.replacements.length > 0
                 )
                 .map((match, index) => ({
                     ...match,
@@ -247,7 +244,7 @@ export class QuillSpellChecker {
     }
 
     private async getSpellCheckerResults(
-        text: string,
+        text: string
     ): Promise<MatchesEntity[] | null> {
         debug("spell-checker-debug: getSpellCheckerResults", { text });
         try {
@@ -259,11 +256,11 @@ export class QuillSpellChecker {
                         if (message.type === "spellCheckResponse") {
                             window.removeEventListener(
                                 "message",
-                                messageListener,
+                                messageListener
                             );
                             debug(
                                 "spell-checker-debug: spellCheckResponse",
-                                message.content,
+                                message.content
                             );
                             const response: MatchesEntity[] = message.content;
 
@@ -292,7 +289,7 @@ export class QuillSpellChecker {
         } catch (e) {
             console.error(
                 "spell-checker-debug: getSpellCheckerResults error",
-                e,
+                e
             );
             return null;
         }
