@@ -4,11 +4,15 @@ import { FileHandler } from '../../../../providers/dictionaryTable/utilities/Fil
 import { cleanWord } from '../../../../utils/cleaningUtils';
 import { updateCompleteDrafts } from '../indexingUtils';
 import { getWorkSpaceUri } from '../../../../utils';
+import { tokenizeText } from '../../../../utils/nlpUtils';
 
 interface WordFrequency {
     word: string;
     frequency: number;
 }
+
+// FIXME: name says it all
+const METHOD_SHOULD_BE_STORED_IN_CONFIG = 'words';
 
 export async function initializeWordsIndex(initialWordIndex: Map<string, number>, workspaceFolder: string | undefined): Promise<Map<string, number>> {
     if (!workspaceFolder) {
@@ -21,7 +25,10 @@ export async function initializeWordsIndex(initialWordIndex: Map<string, number>
     const completeDraftsPath = path.join(workspaceFolder, '.project', 'complete_drafts.txt');
     const fileUri = vscode.Uri.file(completeDraftsPath);
     const content = await vscode.workspace.fs.readFile(fileUri);
-    const words = Buffer.from(content).toString('utf8').split(/\s+/).map(cleanWord).filter(Boolean);
+    const words = tokenizeText({
+        method: METHOD_SHOULD_BE_STORED_IN_CONFIG,
+        text: Buffer.from(content).toString('utf8')
+    }).map(cleanWord).filter(Boolean);
 
     const wordIndex = new Map<string, number>();
     try {
