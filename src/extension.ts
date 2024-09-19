@@ -145,6 +145,7 @@ export async function activate(context: vscode.ExtensionContext) {
     await createIndexWithContext(context);
     await initializeBibleData(context);
     await initializeWebviews(context);
+    await temporaryMigrationScript_checkMatthewNotebook();
 }
 
 export function deactivate(): Thenable<void> | undefined {
@@ -217,4 +218,33 @@ async function startSyncLoop(context: vscode.ExtensionContext) {
     setTimeout(() => {
         syncUtils.checkConfigRemoteAndUpdateIt();
     }, 3000);
+}
+
+async function temporaryMigrationScript_checkMatthewNotebook() {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders) {
+        return;
+    }
+
+    const matthewNotebookPath = vscode.Uri.joinPath(
+        workspaceFolders[0].uri,
+        "MAT.codex",
+    );
+    try {
+        const document =
+            await vscode.workspace.openNotebookDocument(matthewNotebookPath);
+        for (const cell of document.getCells()) {
+            if (
+                cell.kind === vscode.NotebookCellKind.Code &&
+                cell.document.getText().includes("MAT 1:1")
+            ) {
+                await vscode.commands.executeCommand(
+                    "codex-editor-extension.updateProjectNotebooksToUseCellsForVerseContent",
+                );
+                break;
+            }
+        }
+    } catch (error) {
+        console.error("Error checking Matthew notebook:", error);
+    }
 }
