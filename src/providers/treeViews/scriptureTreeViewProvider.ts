@@ -112,12 +112,12 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
         const notebookDocument = await vscode.workspace.openNotebookDocument(notebookUri);
         const cells = notebookDocument.getCells();
         return cells.map((cell: vscode.NotebookCell, index: number) => {
-            const cellId = cell.metadata?.id;
-            if (cellId) {
-                const sectionNumber = cellId.split(' ')[1].split(':')[0];
+            const cellSectionMarker = cell.metadata?.data?.sectionMarker;
+            if (cellSectionMarker) {
+                const sectionNumber = cellSectionMarker;
                 if (sectionNumber) {
                     return new Node(
-                        `Section ${sectionNumber}`,
+                        `${sectionNumber}`,
                         "section",
                         vscode.TreeItemCollapsibleState.None,
                         {
