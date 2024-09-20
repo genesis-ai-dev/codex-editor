@@ -54,7 +54,7 @@ export class SpellChecker {
             await fs.promises.mkdir(path.dirname(this.dictionaryPath), { recursive: true });
             await fs.promises.writeFile(
                 this.dictionaryPath,
-                JSON.stringify(emptyDictionary)
+                JSON.stringify(emptyDictionary) + '\n'
             );
             console.log("Created new empty dictionary.");
         }
@@ -63,7 +63,25 @@ export class SpellChecker {
     private async loadDictionary() {
         console.log(this.dictionaryPath);
         const content = await fs.promises.readFile(this.dictionaryPath, 'utf-8');
-        this.dictionary = JSON.parse(content);
+
+        // Try parsing as JSON first (for older dictionaries)
+        try {
+            this.dictionary = JSON.parse(content);
+        } catch {
+            // If JSON parsing fails, assume it's JSONL
+            const entries: DictionaryEntry[] = [];
+            const lines = content.split('\n').filter(line => line.trim() !== '');
+            for (const line of lines) {
+                try {
+                    const entry = JSON.parse(line);
+                    entries.push(entry);
+                } catch (error) {
+                    console.error(`Error parsing dictionary entry: ${line}`, error);
+                }
+            }
+            this.dictionary = { entries };
+        }
+
         if (this.dictionary && Array.isArray(this.dictionary.entries)) {
             const wordCount = this.dictionary.entries.length;
             console.log(`Dictionary loaded with ${wordCount} words.`);
@@ -76,7 +94,7 @@ export class SpellChecker {
 
     spellCheck(word: string): SpellCheckResult {
         if (!this.dictionary || this.dictionary.entries.length === 0) {
-            return { word, corrections: ['[Dictionary is empty]'] };
+            return { word, corrections: [] };
         }
 
         const originalWord = word;
@@ -112,7 +130,7 @@ export class SpellChecker {
             .slice(0, 3)
             .map(suggestion => {
                 let result = suggestion.word;
-                
+
                 // Preserve original capitalization
                 if (word[0].toUpperCase() === word[0]) {
                     result = result.charAt(0).toUpperCase() + result.slice(1);
@@ -170,8 +188,8 @@ export class SpellChecker {
         this.dictionary.entries.push(newEntry);
 
         try {
-            const serializedDictionary = JSON.stringify(this.dictionary, null, 2);
-            await fs.promises.writeFile(this.dictionaryPath, serializedDictionary);
+            const serializedEntry = JSON.stringify(newEntry) + '\n';
+            await fs.promises.appendFile(this.dictionaryPath, serializedEntry);
             // Reload the dictionary after adding a new word
             await this.loadDictionary();
         } catch (error) {
