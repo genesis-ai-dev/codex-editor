@@ -24,8 +24,7 @@ function getNonce(): string {
 }
 
 export class CodexCellEditorProvider
-    implements vscode.CustomTextEditorProvider
-{
+    implements vscode.CustomTextEditorProvider {
     public static register(
         context: vscode.ExtensionContext,
     ): vscode.Disposable {
@@ -33,13 +32,18 @@ export class CodexCellEditorProvider
         const providerRegistration = vscode.window.registerCustomEditorProvider(
             CodexCellEditorProvider.viewType,
             provider,
+            {
+                webviewOptions: {
+                    retainContextWhenHidden: true,
+                },
+            },
         );
         return providerRegistration;
     }
 
     private static readonly viewType = "codex.cellEditor";
 
-    constructor(private readonly context: vscode.ExtensionContext) {}
+    constructor(private readonly context: vscode.ExtensionContext) { }
 
     /**
      * Called when our custom editor is opened.
@@ -305,13 +309,10 @@ export class CodexCellEditorProvider
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${
-                    webview.cspSource
-                } 'unsafe-inline'; script-src 'nonce-${nonce}'; worker-src ${
-                    webview.cspSource
-                }; connect-src https://languagetool.org/api/; img-src ${
-                    webview.cspSource
-                } https:; font-src ${webview.cspSource};">
+                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource
+            } 'unsafe-inline'; script-src 'nonce-${nonce}'; worker-src ${webview.cspSource
+            }; connect-src https://languagetool.org/api/; img-src ${webview.cspSource
+            } https:; font-src ${webview.cspSource};">
                 <link href="${styleResetUri}" rel="stylesheet" nonce="${nonce}">
                 <link href="${styleVSCodeUri}" rel="stylesheet" nonce="${nonce}">
                 <link href="${codiconsUri}" rel="stylesheet" nonce="${nonce}" />
@@ -319,9 +320,8 @@ export class CodexCellEditorProvider
                 <style>
                     .ql-editor {
                         direction: ${textDirection} !important;
-                        text-align: ${
-                            textDirection === "rtl" ? "right" : "left"
-                        } !important;
+                        text-align: ${textDirection === "rtl" ? "right" : "left"
+            } !important;
                     }
                 </style>
             </head>
