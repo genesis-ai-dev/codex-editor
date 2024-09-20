@@ -16,7 +16,7 @@ const extensionConfig = {
 
     entry: "./src/extension.ts", // the entry point of this extension, 📖 -> https://webpack.js.org/configuration/entry-context/
     output: {
-        // the bundle is stored in the 'dist' folder (check package.json), 📖 -> https://webpack.js.org/configuration/output/
+        // the bundle is stored in the 'out' folder (check package.json), 📖 -> https://webpack.js.org/configuration/output/
         path: path.resolve(__dirname, "out"),
         filename: "extension.js",
         libraryTarget: "commonjs2",
@@ -62,6 +62,10 @@ const extensionConfig = {
         level: "log", // enables logging required for problem matchers
     },
 };
+
+console.log("Server entry point:", path.resolve(__dirname, "src/tsServer/server.ts"));
+console.log("Server output path:", path.resolve(__dirname, "out/server.js"));
+
 const serverConfig = {
     target: "node",
     mode: "none",

@@ -7,7 +7,7 @@ import { createSourceBibleIndex } from "./sourceBibleIndex";
 import { searchTargetVersesByQuery, getTranslationPairsFromSourceVerseQuery, getSourceVerseByVrefFromAllSourceVerses, getTargetVerseByVref, getTranslationPairFromProject, handleTextSelection, searchParallelVerses } from "./search";
 import MiniSearch from "minisearch";
 import { createZeroDraftIndex, ZeroDraftIndexRecord, getContentOptionsForVref, insertDraftsIntoTargetNotebooks, insertDraftsInCurrentEditor, VerseWithMetadata } from "./zeroDraftIndex";
-import { initializeWordsIndex, getWordFrequencies, getWordsAboveThreshold, getWordFrequency } from "./wordsIndex";
+import { initializeWordsIndex, getWordFrequencies, getWordsAboveThreshold } from "./wordsIndex";
 
 type WordFrequencyMap = Map<string, number>;
 

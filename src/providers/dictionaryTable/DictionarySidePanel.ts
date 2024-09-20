@@ -68,7 +68,13 @@ export class DictionarySummaryProvider implements vscode.WebviewViewProvider {
                 data: dictionary,
             } as DictionarySummaryPostMessages);
 
-            const wordFrequencies = await vscode.commands.executeCommand('translators-copilot.getWordFrequencies');
+            let wordFrequencies;
+            try {
+                wordFrequencies = await vscode.commands.executeCommand('translators-copilot.getWordFrequencies');
+            } catch (error) {
+                console.error('Error fetching word frequencies:', error);
+                wordFrequencies = [];
+            }
             this._view?.webview.postMessage({
                 command: "providerSendsUpdatedWordFrequenciesToWebview",
                 wordFrequencies: wordFrequencies,
