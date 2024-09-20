@@ -42,14 +42,25 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
         for (const [file, type] of files) {
             if (type === vscode.FileType.File && file.endsWith(".codex")) {
                 const notebookUri = vscode.Uri.joinPath(notebooksUri, file);
-                const notebookContent = await vscode.workspace.fs.readFile(notebookUri);
-                const notebookJson = JSON.parse(notebookContent.toString());
-                const metadata = notebookJson?.metadata as NotebookMetadata;
+                try {
+                    const notebookContent = await vscode.workspace.fs.readFile(notebookUri);
+                    let notebookJson;
+                    try {
+                        notebookJson = JSON.parse(notebookContent.toString());
+                    } catch (parseError) {
+                        console.error(`Error parsing JSON for file ${file}:`, parseError);
+                        console.log('Content causing the error:', notebookContent.toString());
+                        continue;
+                    }
+                    const metadata = notebookJson?.metadata as NotebookMetadata;
 
-                this.notebookMetadata.set(notebookUri.fsPath, {
-                    navigation: metadata?.navigation || [],
-                    corpusMarker: metadata?.data?.corpusMarker
-                });
+                    this.notebookMetadata.set(notebookUri.fsPath, {
+                        navigation: metadata?.navigation || [],
+                        corpusMarker: metadata?.data?.corpusMarker
+                    });
+                } catch (error) {
+                    console.error(`Error processing file ${file}:`, error);
+                }
             }
         }
     }
@@ -78,14 +89,20 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
     private async getNotebooksByCorpus(): Promise<Node[]> {
         console.time('getNotebooksByCorpus');
         try {
-            const corpora: Record<string, Node> = {};
+            const corpora: Record<string, Node> = {
+                "Old Testament": new Node("Old Testament", "corpus", vscode.TreeItemCollapsibleState.Expanded),
+                "New Testament": new Node("New Testament", "corpus", vscode.TreeItemCollapsibleState.Expanded)
+            };
+            corpora["Old Testament"].children = [];
+            corpora["New Testament"].children = [];
             const ungroupedNotebooks: Node[] = [];
 
             for (const [notebookPath, metadata] of this.notebookMetadata) {
                 const fileName = vscode.Uri.parse(notebookPath).path.split('/').pop() || '';
+                const fileNameWithoutExtension = fileName.slice(0, -6);
                 const notebookUri = vscode.Uri.file(notebookPath);
                 const notebookNode = new Node(
-                    fileName.slice(0, -6),
+                    fileNameWithoutExtension,
                     "document",
                     vscode.TreeItemCollapsibleState.Collapsed
                 );
@@ -95,17 +112,19 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
                     notebookNode.children = this.createNodesFromNavigation(metadata.navigation, notebookUri);
                 }
 
-                if (metadata.corpusMarker) {
-                    // Add notebook to the corpus
+                const bookData = vrefData[fileNameWithoutExtension];
+                if (bookData) {
+                    const testament = bookData.testament === "OT" ? "Old Testament" : "New Testament";
+                    corpora[testament].children?.push(notebookNode);
+                } else if (metadata.corpusMarker) {
+                    // Add notebook to the corpus if it's not in vrefData but has a corpusMarker
                     if (!corpora[metadata.corpusMarker]) {
-                        // Create a new corpus node
-                        const corpusNode = new Node(
+                        corpora[metadata.corpusMarker] = new Node(
                             metadata.corpusMarker,
                             "corpus",
                             vscode.TreeItemCollapsibleState.Expanded
                         );
-                        corpusNode.children = [];
-                        corpora[metadata.corpusMarker] = corpusNode;
+                        corpora[metadata.corpusMarker].children = [];
                     }
                     corpora[metadata.corpusMarker].children?.push(notebookNode);
                 } else {
@@ -114,12 +133,16 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
                 }
             }
 
-            const result: Node[] = [];
-
-            // Add corpus nodes
-            for (const corpusNode of Object.values(corpora)) {
-                result.push(corpusNode);
+            // Sort books within each testament
+            for (const testament of ["Old Testament", "New Testament"]) {
+                corpora[testament].children?.sort((a, b) => {
+                    const aOrd = Number(vrefData[a.label]?.ord) || Infinity;
+                    const bOrd = Number(vrefData[b.label]?.ord) || Infinity;
+                    return aOrd - bOrd;
+                });
             }
+
+            const result: Node[] = Object.values(corpora);
 
             // Add ungrouped notebooks
             result.push(...ungroupedNotebooks);
