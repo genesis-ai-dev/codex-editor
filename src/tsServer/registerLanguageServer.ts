@@ -5,10 +5,13 @@ import {
     ServerOptions,
     TransportKind,
 } from "vscode-languageclient/node";
+import { NOTEBOOK_TYPE } from "../utils/codexNotebookUtils";
 
-export async function registerLanguageServer(context: vscode.ExtensionContext, client: LanguageClient): Promise<LanguageClient> {
-    console.log("Registering the Scripture Language Server...");
-    const serverModule = context.asAbsolutePath("out/server.js"); // Changed from "out/tsServer/server.js"
+export async function registerLanguageServer(
+    context: vscode.ExtensionContext
+): Promise<LanguageClient> {
+    console.log("Registering the Codex Copilot Language Server...");
+    const serverModule = context.asAbsolutePath("out/server.js");
     const debugOptions = { execArgv: ["--nolazy", "--inspect=6009"] };
 
     const serverOptions: ServerOptions = {
@@ -24,7 +27,7 @@ export async function registerLanguageServer(context: vscode.ExtensionContext, c
         documentSelector: [
             { scheme: "file", language: "*" },
             { scheme: "vscode-notebook-cell", language: "*" },
-            { notebook: "codex-type", language: "*" },
+            { notebook: NOTEBOOK_TYPE, language: "*" },
         ],
         synchronize: {
             fileEvents:
@@ -32,36 +35,37 @@ export async function registerLanguageServer(context: vscode.ExtensionContext, c
         },
     };
 
-    console.log("Creating the Scripture Language Server client...");
-    client = new LanguageClient(
-        "scriptureLanguageServer",
-        "Scripture Language Server",
+    console.log("Creating the Codex Copilot Language Server client...");
+    const client = new LanguageClient(
+        "codexCopilotLanguageServer",
+        "Codex Copilot Language Server",
         serverOptions,
-        clientOptions,
+        clientOptions
     );
 
-    console.log("Attempting to start the Scripture Language Server...");
+    console.log("Attempting to start the Codex Copilot Language Server...");
     try {
-        await client.start();
-        console.log("Scripture Language Server started successfully.");
-        context.subscriptions.push(client);
+        await client.start().then(() => {
+            context.subscriptions.push(client);
+            console.log("Codex Copilot Language Server started successfully.");
+        });
     } catch (error) {
-        console.error("Failed to start the Scripture Language Server:", error);
+        console.error("Failed to start the Codex Copilot Language Server:", error);
         console.error("Server module path:", serverModule);
         console.error("Client options:", JSON.stringify(clientOptions, null, 2));
-        vscode.window.showErrorMessage(`Failed to start Scripture Language Server: ${error}`);
+        vscode.window.showErrorMessage(`Failed to start Codex Copilot Language Server: ${error}`);
 
         // Attempt to restart the server
-        console.log("Attempting to restart the Scripture Language Server...");
+        console.log("Attempting to restart the Codex Copilot Language Server...");
         try {
             await client.stop();
             await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for 1 second
             await client.start();
-            console.log("Scripture Language Server restarted successfully.");
+            console.log("Codex Copilot Language Server restarted successfully.");
             context.subscriptions.push(client);
         } catch (restartError: any) {
-            console.error("Failed to restart the Scripture Language Server:", restartError);
-            vscode.window.showErrorMessage(`Failed to restart Scripture Language Server: ${restartError.message}`);
+            console.error("Failed to restart the Codex Copilot Language Server:", restartError);
+            vscode.window.showErrorMessage(`Failed to restart Codex Copilot Language Server: ${restartError.message}`);
         }
     }
 
@@ -70,12 +74,12 @@ export async function registerLanguageServer(context: vscode.ExtensionContext, c
 
 export function deactivate(client: LanguageClient): Thenable<void> | undefined {
     if (!client) {
-        console.log("No Scripture Language Server client to stop.");
+        console.log("No Codex Copilot Language Server client to stop.");
         return undefined;
     }
-    console.log("Stopping Scripture Language Server...");
+    console.log("Stopping Codex Copilot Language Server...");
     return client.stop().then(
-        () => console.log("Scripture Language Server stopped successfully."),
-        error => console.error("Error stopping Scripture Language Server:", error)
+        () => console.log("Codex Copilot Language Server stopped successfully."),
+        error => console.error("Error stopping Codex Copilot Language Server:", error)
     );
 }

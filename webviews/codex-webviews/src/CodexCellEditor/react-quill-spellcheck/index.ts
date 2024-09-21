@@ -253,13 +253,13 @@ export class QuillSpellChecker {
                 return new Promise((resolve, reject) => {
                     const messageListener = (event: MessageEvent) => {
                         const message = event.data;
-                        if (message.type === "spellCheckResponse") {
+                        if (message.type === "from-provider-getSpellCheckResponse") {
                             window.removeEventListener(
                                 "message",
                                 messageListener
                             );
                             debug(
-                                "spell-checker-debug: spellCheckResponse",
+                                "spell-checker-debug: from-provider-getSpellCheckResponse",
                                 message.content
                             );
                             const response: MatchesEntity[] = message.content;
@@ -271,7 +271,7 @@ export class QuillSpellChecker {
                     window.addEventListener("message", messageListener);
 
                     window.vscodeApi.postMessage({
-                        command: "spellCheck",
+                        command: "from-quill-spellcheck-getSpellCheckResponse",
                         content: {
                             content: text,
                         },

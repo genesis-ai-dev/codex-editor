@@ -102,13 +102,13 @@ const loadWebviewHtml = (
                 case "openFileAtLocation":
                     simpleOpen(message.uri);
                     break;
-                case "server.getSimilar":
+                case "translators-copilot.getSimilarWords":
                     try {
                         console.log('Requesting similar words for:', message.word);
                         const word = message.word;
-                        const response = await vscode.commands.executeCommand('server.getSimilarWords', word);
+                        const response = await vscode.commands.executeCommand('translators-copilot.getSimilarWords', word);
 
-                        console.log('Response from server.getSimilarWords:', response);
+                        console.log('Response from translators-copilot.getSimilarWords:', response);
                         if (response) {
                             console.log('Sending similarWords message to webview');
                             webviewView.webview.postMessage({
@@ -116,7 +116,7 @@ const loadWebviewHtml = (
                                 data: response,
                             });
                         } else {
-                            console.error('No response from server.getSimilarWords');
+                            console.error('No response from translators-copilot.getSimilarWords');
                             webviewView.webview.postMessage({
                                 command: "similarWords",
                                 data: [],

@@ -4,7 +4,7 @@ import { createObsProject } from "./functions/createObsProject";
 import { getUri } from "./utilities/getUri";
 import { getNonce } from "./utilities/getNonce";
 import { initializeNewProject } from "./functions/initializeNewProject";
-import { ProjectDetails } from "../../../utils/projectUtils";
+import { ProjectDetails } from "../../../projectManager/utils/projectUtils";
 import { initProject } from "../../scm/git";
 import { indexVerseRefsInSourceText } from "../../../commands/indexVrefsCommand";
 

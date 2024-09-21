@@ -122,19 +122,19 @@ export class CodexCellEditorProvider
                             }
                             return;
                         }
-                        case "spellCheck": {
-                            console.log("spellCheck message received", { e });
+                        case "from-quill-spellcheck-getSpellCheckResponse": {
+                            console.log("from-quill-spellcheck-getSpellCheckResponse message received", { e });
                             try {
                                 const response =
                                     await vscode.commands.executeCommand(
-                                        "spellcheck.checkText",
+                                        "translators-copilot.spellCheckText",
                                         e.content.content,
                                     );
                                 webviewPanel.webview.postMessage({
-                                    type: "spellCheckResponse",
+                                    type: "from-provider-getSpellCheckResponse",
                                     content: response,
                                 });
-                                console.log("spellCheck response", {
+                                console.log("from-provider-getSpellCheckResponse response", {
                                     response,
                                 });
                             } catch (error) {

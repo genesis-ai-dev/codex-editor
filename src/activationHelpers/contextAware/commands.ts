@@ -13,7 +13,7 @@ import {
 } from "../../commands/indexVrefsCommand";
 import { DownloadedResource } from "../../providers/obs/resources/types";
 import { translationAcademy } from "../../providers/translationAcademy/provider";
-import { setTargetFont } from "../contextUnaware/projectInitializers";
+import { downloadBible, setTargetFont } from "../../projectManager/projectInitializers";
 
 import { CodexNotebookProvider } from "../../providers/treeViews/scriptureTreeViewProvider";
 import { getWorkSpaceFolder } from "../../utils";
@@ -144,11 +144,6 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         exportCodexContent,
     );
     context.subscriptions.push(exportCodexContentCommand);
-
-    // const downloadSourceTextBiblesCommand = vscode.commands.registerCommand(
-    //     "codex-editor-extension.downloadSourceTextBibles",
-    //     await downloadBible
-    // );
 
     const getBibleDataRecordByIdCommand = vscode.commands.registerCommand(
         "codex-editor-extension.getBibleDataRecordById",

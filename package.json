@@ -1,7 +1,7 @@
 {
     "name": "codex-editor-extension",
     "displayName": "Codex Translation Editor",
-    "description": "Support for `.codex` notebooks, `.bible` source files, and `.scripture` raw scripture files. Includes Translator's Copilot Language Server for scripture drafting and checking diagnostics and features.",
+    "description": "Support for `.codex` notebooks and translation source files. Includes Translator's Copilot Language Server for translation drafting and checking diagnostics and features.",
     "publisher": "project-accelerate",
     "homepage": "https://codex-editor.gitbook.io/",
     "repository": {
@@ -104,6 +104,22 @@
                     "icon": "$(note)",
                     "contextualTitle": "Comments"
                 }
+            ],
+            "project-manager": [
+                {
+                    "type": "webview",
+                    "id": "project-manager-sidebar",
+                    "name": "Project Manager",
+                    "icon": "$(tools)",
+                    "contextualTitle": "Project Manager"
+                }
+            ],
+            "explorer": [
+                {
+                    "id": "codex-project-manager.welcomeView",
+                    "name": "Codex Project Manager",
+                    "when": "workbenchState == empty"
+                }
             ]
         },
         "viewsContainers": {
@@ -112,6 +128,11 @@
                     "id": "translation-navigation",
                     "title": "Navigation",
                     "icon": "$(compass)"
+                },
+                {
+                    "id": "project-manager",
+                    "title": "Project Manager",
+                    "icon": "$(tools)"
                 },
                 {
                     "id": "parallel-passages-view",
@@ -310,6 +331,144 @@
                         "description": "Try inline completions with the Translator's Copilot by clicking on the chat button in the sidebar, then clicking on the 'Chat' button in the top-right of the chat window."
                     }
                 ]
+            },
+            {
+                "id": "codexWalkthrough",
+                "title": "Start a Codex Project",
+                "description": "A simple walkthrough to help you start a new Codex translation project.",
+                "steps": [
+                    {
+                        "id": "openFolder",
+                        "title": "Open Project Folder",
+                        "description": "First, let's open a folder where your new Codex project will be initialized.\n[Open Project Folder](command:workbench.action.files.openFolder)",
+                        "media": {
+                            "image": "./src/media/folder-active.png",
+                            "altText": "Open Project Folder"
+                        },
+                        "completionEvents": [
+                            "onSettingChanged:workbenchState"
+                        ],
+                        "when": "workbenchState == empty"
+                    },
+                    {
+                        "id": "projectName",
+                        "title": "Name Project",
+                        "description": "Now that we have a folder, let's name your new Codex project.\n[Name Project](command:codex-project-manager.nameProject)",
+                        "media": {
+                            "image": "./src/media/name-project.png",
+                            "altText": "Name Project"
+                        },
+                        "completionEvents": [
+                            "onCommand:codex-project-manager.nameProject"
+                        ],
+                        "when": "workbenchState !== empty"
+                    },
+                    {
+                        "id": "userName",
+                        "title": "Set User Name",
+                        "description": "Now that we have a Project name, let's set the user name for your new Codex project.\n[Set User Name](command:codex-project-manager.userName)",
+                        "media": {
+                            "image": "./src/media/user-name.png",
+                            "altText": "Set User Name"
+                        },
+                        "completionEvents": [
+                            "onCommand:codex-project-manager.userName"
+                        ],
+                        "when": "workbenchState !== empty"
+                    },
+                    {
+                        "id": "selectSourceLanguage",
+                        "title": "Select Source Language",
+                        "description": "Now that we have a folder, let's initialize your new Codex project.\n[Select Source Language](command:codex-project-manager.changeSourceLanguage)\n",
+                        "media": {
+                            "image": "./src/media/source-and-target.png",
+                            "altText": "Select Source Language"
+                        },
+                        "completionEvents": [
+                            "onCommand:codex-project-manager.changeSourceLanguage"
+                        ],
+                        "when": "workbenchState !== empty"
+                    },
+                    {
+                        "id": "selectTargetLanguage",
+                        "title": "Select Target Language",
+                        "description": "Now that we have a folder, let's initialize your new Codex project.\n[Select target Language](command:codex-project-manager.changeTargetLanguage)\n",
+                        "media": {
+                            "image": "./src/media/source-and-target.png",
+                            "altText": "Select Source Language"
+                        },
+                        "completionEvents": [
+                            "onCommand:codex-project-manager.changeTargetLanguage"
+                        ],
+                        "when": "workbenchState !== empty"
+                    },
+                    {
+                        "id": "setAbbreviation",
+                        "title": "Set Project Abbreviation",
+                        "description": "Let's set an abbreviation for your Codex project.\n[Set Abbreviation](command:codex-project-manager.editAbbreviation)",
+                        "media": {
+                            "image": "./src/media/set-abbreviation.png",
+                            "altText": "Set Project Abbreviation"
+                        },
+                        "completionEvents": [
+                            "onCommand:codex-project-manager.editAbbreviation"
+                        ],
+                        "when": "workbenchState !== empty"
+                    },
+                    {
+                        "id": "selectCategory",
+                        "title": "Select Project Category",
+                        "description": "Now, let's choose a category for your Codex project.\n[Select Category](command:codex-project-manager.selectCategory)",
+                        "media": {
+                            "image": "./src/media/select-category.png",
+                            "altText": "Select Project Category"
+                        },
+                        "completionEvents": [
+                            "onCommand:codex-project-manager.selectCategory"
+                        ],
+                        "when": "workbenchState !== empty"
+                    },
+                    {
+                        "id": "addSourceBible",
+                        "title": "Add Source Bible",
+                        "description": "Now that we have a folder, let's add a source Bible to your Codex project.\n[Download Source Text Bible](command:codex-project-manager.downloadSourceTextBibles)\n or \n [Import Local USFM Bible](command:codex-project-manager.importLocalUsfmSourceBible)",
+                        "media": {
+                            "image": "./src/media/add-source-bible.png",
+                            "altText": "Add Source Bible"
+                        },
+                        "completionEvents": [
+                            "onCommand:codex-project-manager.downloadSourceTextBibles",
+                            "onCommand:codex-project-manager.importLocalUsfmSourceBible"
+                        ],
+                        "when": "workbenchState !== empty"
+                    },
+                    {
+                        "id": "initializeProject",
+                        "title": "Create files",
+                        "description": "Now that we have a folder, let's initialize your new Codex project.\n[Create New Project](command:codex-project-manager.initializeNewProject)\n or \n [Import USFM Project](command:codex-project-manager.initializeImportProject)",
+                        "media": {
+                            "image": "./src/media/initialize-project.png",
+                            "altText": "Initialize Project"
+                        },
+                        "completionEvents": [
+                            "onCommand:codex-project-manager.initializeNewProject"
+                        ],
+                        "when": "workbenchState !== empty"
+                    },
+                    {
+                        "id": "startTranslating",
+                        "title": "Start Translating",
+                        "description": "Now that we've initialized all these files, let's start translating your new Codex project.\n[Start Translating](command:codex-project-manager.startTranslating)",
+                        "media": {
+                            "image": "./src/media/edit.png",
+                            "altText": "Start Translating"
+                        },
+                        "completionEvents": [
+                            "onCommand:codex-project-manager.startTranslating"
+                        ],
+                        "when": "workbenchState !== empty"
+                    }
+                ]
             }
         ],
         "submenus": [
@@ -505,6 +664,56 @@
                 "command": "codex-editor-extension.exportCodexContent",
                 "title": "Export Codex Translation as Plain Text",
                 "category": "Codex Editor"
+            },
+            {
+                "command": "codex-project-manager.initializeNewProject",
+                "title": "Initialize New Project",
+                "category": "Codex Project Management"
+            },
+            {
+                "command": "codex-project-manager.nameProject",
+                "title": "Name Project",
+                "category": "Codex Project Management"
+            },
+            {
+                "command": "codex-project-manager.openProjectSettings",
+                "title": "Open Project Settings",
+                "category": "Codex Project Management"
+            },
+            {
+                "command": "codex-project-manager.startWalkthrough",
+                "title": "Start Walkthrough",
+                "category": "Codex Project Management"
+            },
+            {
+                "command": "codex-project-manager.startTranslating",
+                "title": "Start Translating",
+                "category": "Codex Project Management"
+            },
+            {
+                "command": "codex-project-manager.downloadTargetBible",
+                "title": "Download Target Bible",
+                "category": "Codex Project Management"
+            },
+            {
+                "command": "codex-project-manager.editAbbreviation",
+                "title": "Edit Abbreviation",
+                "category": "Codex Project Management"
+            },
+            {
+                "command": "codex-project-manager.selectCategory",
+                "title": "Select Category",
+                "category": "Codex Project Management"
+            },
+            {
+                "command": "codex-project-manager.reinstallExtensions",
+                "title": "Reinstall Extensions",
+                "category": "Codex Project Management"
+            },
+            {
+                "command": "codex-project-manager.importLocalUsfmSourceBible",
+                "title": "Import Local USFM Source Bible",
+                "category": "Codex Project Management"
             }
         ],
         "notebooks": [
@@ -519,6 +728,80 @@
             }
         ],
         "configuration": [
+            {
+                "title": "Codex Project Manager",
+                "properties": {
+                    "codex-project-manager.projectName": {
+                        "type": "string",
+                        "default": "",
+                        "description": "Name of the project"
+                    },
+                    "codex-project-manager.projectCategory": {
+                        "type": "string",
+                        "default": "",
+                        "description": "Category of the project",
+                        "enum": [
+                            "Scripture",
+                            "Gloss",
+                            "Parascriptural",
+                            "Peripheral"
+                        ],
+                        "enumDescriptions": [
+                            "Projects focused on scripture texts.",
+                            "Projects focused on glossaries or dictionaries.",
+                            "Projects related to parascriptural materials.",
+                            "Projects dealing with peripheral or supplementary materials."
+                        ]
+                    },
+                    "codex-project-manager.userName": {
+                        "type": "string",
+                        "default": "",
+                        "description": "Name of the user"
+                    },
+                    "codex-project-manager.abbreviation": {
+                        "type": "string",
+                        "default": "",
+                        "description": "Project abbreviation"
+                    },
+                    "codex-project-manager.sourceLanguage": {
+                        "type": "object",
+                        "default": {},
+                        "description": "Source language for the project",
+                        "properties": {
+                            "tag": {
+                                "type": "string"
+                            },
+                            "refName": {
+                                "type": "string"
+                            },
+                            "projectStatus": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "codex-project-manager.targetLanguage": {
+                        "type": "object",
+                        "default": {},
+                        "description": "Target language for the project",
+                        "properties": {
+                            "tag": {
+                                "type": "string"
+                            },
+                            "refName": {
+                                "type": "string"
+                            },
+                            "projectStatus": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "codex-project-manager.primarySourceBible": {
+                        "type": "string",
+                        "default": "",
+                        "description": "Path to the primary source Bible for the project"
+                    }
+                }
+            },
             {
                 "title": "Codex Editor: Cloud Sync",
                 "properties": {
@@ -813,6 +1096,7 @@
         "vscode-languageserver": "^9.0.1",
         "vscode-languageserver-textdocument": "^1.0.12",
         "vscode-test": "^1.5.0",
+        "glob": "^10.3.10",
         "webpack": "^5.89.0",
         "webpack-cli": "^5.1.4"
     },
@@ -843,6 +1127,7 @@
         "sinon": "^17.0.1",
         "sql.js": "^1.11.0",
         "token.js": "^0.4.3",
+        "usfm-grammar": "^2.3.1",
         "uuid": "^9.0.1",
         "vscode-languageclient": "^9.0.1",
         "vscode-uri": "^3.0.8"
@@ -854,6 +1139,7 @@
     "extensionDependencies": [
         "project-accelerate.shared-state-store",
         "project-accelerate.scripture-language-support",
+        "sevenx-codex.codex-resources",
         "vscode.git"
     ]
 }

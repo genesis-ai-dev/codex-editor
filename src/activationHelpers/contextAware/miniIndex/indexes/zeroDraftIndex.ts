@@ -166,47 +166,31 @@ export async function insertDraftsIntoTargetNotebooks({
 
             for (let cellIndex = 0; cellIndex < notebook.cellCount; cellIndex++) {
                 const cell = notebook.cellAt(cellIndex);
-                if (cell.kind === vscode.NotebookCellKind.Code) {
-                    const lines = cell.document.getText().split('\n');
-                    const newLines: string[] = [];
-                    let cellModified = false;
+                if (cell.kind === vscode.NotebookCellKind.Code && cell.document.languageId === 'scripture') {
+                    const cellContent = cell.document.getText().trim();
+                    const match = cellContent.match(verseRefRegex);
+                    if (match) {
+                        const vref = match[0];
+                        const zeroDraft = drafts.get(vref);
+                        if (zeroDraft) {
+                            if (forceInsert || cellContent === vref) {
+                                const updatedCell = new vscode.NotebookCellData(
+                                    vscode.NotebookCellKind.Code,
+                                    `${vref} ${zeroDraft}`,
+                                    'scripture'
+                                );
+                                updatedCell.metadata = { ...cell.metadata };
 
-                    for (const line of lines) {
-                        const trimmedLine = line.trim();
-                        const match = trimmedLine.match(verseRefRegex);
-                        if (match) {
-                            const vref = match[0];
-                            const zeroDraft = drafts.get(vref);
-                            if (zeroDraft) {
-                                if (forceInsert || trimmedLine === vref) {
-                                    newLines.push(`${vref} ${zeroDraft}`);
-                                    cellModified = true;
-                                    insertedCount++;
-                                } else {
-                                    newLines.push(line);
-                                    skippedCount++;
-                                }
+                                const notebookEdit = new vscode.NotebookEdit(
+                                    new vscode.NotebookRange(cellIndex, cellIndex + 1),
+                                    [updatedCell]
+                                );
+                                workspaceEdit.set(notebook.uri, [notebookEdit]);
+                                insertedCount++;
                             } else {
-                                newLines.push(line);
+                                skippedCount++;
                             }
-                        } else {
-                            newLines.push(line);
                         }
-                    }
-
-                    if (cellModified) {
-                        const updatedCell = new vscode.NotebookCellData(
-                            vscode.NotebookCellKind.Code,
-                            newLines.join('\n'),
-                            cell.document.languageId
-                        );
-                        updatedCell.metadata = { ...cell.metadata };
-
-                        const notebookEdit = new vscode.NotebookEdit(
-                            new vscode.NotebookRange(cellIndex, cellIndex + 1),
-                            [updatedCell]
-                        );
-                        workspaceEdit.set(notebook.uri, [notebookEdit]);
                     }
                 }
             }
@@ -222,7 +206,7 @@ export async function insertDraftsIntoTargetNotebooks({
     );
 }
 
-export async function insertDraftsInCurrentEditor(zeroDraftIndex: MiniSearch, forceInsert: boolean = false): Promise<void> {
+export async function insertDraftsInCurrentEditor(zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>, forceInsert: boolean = false): Promise<void> {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
         vscode.window.showErrorMessage('No active editor found');
@@ -230,30 +214,24 @@ export async function insertDraftsInCurrentEditor(zeroDraftIndex: MiniSearch, fo
     }
 
     const document = editor.document;
-    const text = document.getText();
-    const lines = text.split('\n');
     let insertedCount = 0;
     let skippedCount = 0;
-    let modified = false;
 
     const edit = new vscode.WorkspaceEdit();
 
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        const match = line.match(verseRefRegex);
+    for (let i = 0; i < document.lineCount; i++) {
+        const line = document.lineAt(i);
+        const trimmedLine = line.text.trim();
+        const match = trimmedLine.match(verseRefRegex);
         if (match) {
-            const vref = match[0]; // Use the full match as vref
+            const vref = match[0];
             const contentOptions = getContentOptionsForVref(zeroDraftIndex, vref);
             if (contentOptions && contentOptions.verses && contentOptions.verses.length > 0) {
                 const zeroDraft = contentOptions.verses[0].content.trim();
 
-                if (forceInsert || line === vref) {
-                    const range = new vscode.Range(
-                        new vscode.Position(i, 0),
-                        new vscode.Position(i, line.length)
-                    );
+                if (forceInsert || trimmedLine === vref) {
+                    const range = line.range;
                     edit.replace(document.uri, range, `${vref} ${zeroDraft}`);
-                    modified = true;
                     insertedCount++;
                 } else {
                     skippedCount++;
@@ -262,7 +240,7 @@ export async function insertDraftsInCurrentEditor(zeroDraftIndex: MiniSearch, fo
         }
     }
 
-    if (modified) {
+    if (insertedCount > 0) {
         await vscode.workspace.applyEdit(edit);
     }
 

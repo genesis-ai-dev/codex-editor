@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { NOTEBOOK_TYPE } from './utils/codexNotebookUtils';
 
 export class CodexKernel {
 	private readonly _id = 'codex-kernel';
@@ -11,7 +12,7 @@ export class CodexKernel {
 	constructor() {
 
 		this._controller = vscode.notebooks.createNotebookController(this._id,
-			'codex-type',
+			NOTEBOOK_TYPE,
 			this._label);
 
 		this._controller.supportedLanguages = this._supportedLanguages;

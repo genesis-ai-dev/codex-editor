@@ -87,7 +87,7 @@ connection.onCompletion((params: TextDocumentPositionParams) => {
     // Create a dummy CancellationToken since we don't have one in this context
     const dummyToken = {
         isCancellationRequested: false,
-        onCancellationRequested: () => ({ dispose: () => {} }),
+        onCancellationRequested: () => ({ dispose: () => { } }),
     };
 
     // Create a default CompletionContext
@@ -128,6 +128,7 @@ connection.onCodeAction((params: CodeActionParams) => {
 connection.onExecuteCommand(async (params) => {
     console.log("Received execute command:", params.command);
 
+    // FIXME: what's the relation to spellcheck/addWord (below)?
     if (params.command === "spellcheck.addToDictionary" && params.arguments) {
         const word = params.arguments[0];
         await spellChecker.addToDictionary(word);
@@ -158,6 +159,7 @@ connection.onExecuteCommand(async (params) => {
 });
 
 connection.onRequest("spellcheck/check", async (params: { text: string }) => {
+    console.log("SERVER: Received spellcheck/check request:", { params });
     const words = params.text.split(/\s+/);
     const matches = words
         .map((word, index) => {

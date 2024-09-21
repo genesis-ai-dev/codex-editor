@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import {
     initializeProjectMetadata,
     ProjectDetails,
-} from "../../../../utils/projectUtils";
+} from "../../../../projectManager/utils/projectUtils";
 import { createProjectNotebooks } from "../../../../utils/codexNotebookUtils";
 import { indexVerseRefsInSourceText } from "../../../../commands/indexVrefsCommand";
 
