@@ -8,6 +8,8 @@ import { searchTargetVersesByQuery, getTranslationPairsFromSourceVerseQuery, get
 import MiniSearch from "minisearch";
 import { createZeroDraftIndex, ZeroDraftIndexRecord, getContentOptionsForVref, insertDraftsIntoTargetNotebooks, insertDraftsInCurrentEditor, VerseWithMetadata } from "./zeroDraftIndex";
 import { initializeWordsIndex, getWordFrequencies, getWordsAboveThreshold } from "./wordsIndex";
+import { updateCompleteDrafts } from '../indexingUtils';
+import { readSourceAndTargetFiles } from './fileReaders';
 
 type WordFrequencyMap = Map<string, number>;
 
@@ -50,18 +52,29 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     async function rebuildIndexes(force: boolean = false) {
         statusBarHandler.setIndexingActive();
         try {
-            // Clean
             if (force) {
                 translationPairsIndex?.removeAll();
                 sourceBibleIndex?.removeAll();
                 zeroDraftIndex?.removeAll();
                 wordsIndex.clear();
             }
-            // Rebuild
-            await createTranslationPairsIndex(context, translationPairsIndex, force || translationPairsIndex.documentCount === 0);
-            await createSourceBibleIndex(sourceBibleIndex, force || sourceBibleIndex.documentCount === 0);
+
+            // Read all source and target files once
+            const { sourceFiles, targetFiles } = await readSourceAndTargetFiles();
+
+            // Rebuild indexes using the read data
+            await createTranslationPairsIndex(context, translationPairsIndex, sourceFiles, targetFiles, force || translationPairsIndex.documentCount === 0);
+            await createSourceBibleIndex(sourceBibleIndex, sourceFiles, force || sourceBibleIndex.documentCount === 0);
+            wordsIndex = await initializeWordsIndex(wordsIndex, targetFiles);
             await createZeroDraftIndex(zeroDraftIndex, force || zeroDraftIndex.documentCount === 0);
-            wordsIndex = await initializeWordsIndex(wordsIndex, workspaceFolder);
+
+            // Update complete drafts
+            try {
+                await updateCompleteDrafts(targetFiles);
+            } catch (error) {
+                console.error('Error updating complete drafts:', error);
+                vscode.window.showWarningMessage('Failed to update complete drafts. Some drafts may be out of sync.');
+            }
 
             // Update status bar with index counts
             statusBarHandler.updateIndexCounts(translationPairsIndex.documentCount, sourceBibleIndex.documentCount);
@@ -261,8 +274,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     });
 
     const refreshWordIndexCommand = vscode.commands.registerCommand('translators-copilot.refreshWordIndex', async () => {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
-        wordsIndex = await initializeWordsIndex(new Map(), workspaceFolder);
+        const { targetFiles } = await readSourceAndTargetFiles();
+        wordsIndex = await initializeWordsIndex(new Map(), targetFiles);
         console.log('Word index refreshed');
     });
 
@@ -270,7 +283,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         const config = vscode.workspace.getConfiguration('translators-copilot');
         const threshold = config.get<number>('wordFrequencyThreshold', 50);
         if (wordsIndex.size === 0) {
-            wordsIndex = await initializeWordsIndex(wordsIndex, workspaceFolder);
+            const { targetFiles } = await readSourceAndTargetFiles();
+            wordsIndex = await initializeWordsIndex(wordsIndex, targetFiles);
         }
         const wordsAboveThreshold = await getWordsAboveThreshold(wordsIndex, threshold);
         console.log(`Words above threshold: ${wordsAboveThreshold}`);

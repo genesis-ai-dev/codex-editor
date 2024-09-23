@@ -168,28 +168,24 @@ export async function insertDraftsIntoTargetNotebooks({
                 const cell = notebook.cellAt(cellIndex);
                 if (cell.kind === vscode.NotebookCellKind.Code && cell.document.languageId === 'scripture') {
                     const cellContent = cell.document.getText().trim();
-                    const match = cellContent.match(verseRefRegex);
-                    if (match) {
-                        const vref = match[0];
-                        const zeroDraft = drafts.get(vref);
-                        if (zeroDraft) {
-                            if (forceInsert || cellContent === vref) {
-                                const updatedCell = new vscode.NotebookCellData(
-                                    vscode.NotebookCellKind.Code,
-                                    `${vref} ${zeroDraft}`,
-                                    'scripture'
-                                );
-                                updatedCell.metadata = { ...cell.metadata };
+                    const zeroDraft = drafts.get(cell.metadata?.id);
+                    if (zeroDraft) {
+                        if (forceInsert || cellContent === '') {
+                            const updatedCell = new vscode.NotebookCellData(
+                                vscode.NotebookCellKind.Code,
+                                zeroDraft,
+                                'scripture'
+                            );
+                            updatedCell.metadata = { ...cell.metadata };
 
-                                const notebookEdit = new vscode.NotebookEdit(
-                                    new vscode.NotebookRange(cellIndex, cellIndex + 1),
-                                    [updatedCell]
-                                );
-                                workspaceEdit.set(notebook.uri, [notebookEdit]);
-                                insertedCount++;
-                            } else {
-                                skippedCount++;
-                            }
+                            const notebookEdit = new vscode.NotebookEdit(
+                                new vscode.NotebookRange(cellIndex, cellIndex + 1),
+                                [updatedCell]
+                            );
+                            workspaceEdit.set(notebook.uri, [notebookEdit]);
+                            insertedCount++;
+                        } else {
+                            skippedCount++;
                         }
                     }
                 }

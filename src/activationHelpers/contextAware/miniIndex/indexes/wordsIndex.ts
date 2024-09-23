@@ -5,6 +5,7 @@ import { cleanWord } from '../../../../utils/cleaningUtils';
 import { updateCompleteDrafts } from '../indexingUtils';
 import { getWorkSpaceUri } from '../../../../utils';
 import { tokenizeText } from '../../../../utils/nlpUtils';
+import { FileData } from './fileReaders';
 
 interface WordFrequency {
     word: string;
@@ -14,31 +15,28 @@ interface WordFrequency {
 // FIXME: name says it all
 const METHOD_SHOULD_BE_STORED_IN_CONFIG = 'words';
 
-export async function initializeWordsIndex(initialWordIndex: Map<string, number>, workspaceFolder: string | undefined): Promise<Map<string, number>> {
-    if (!workspaceFolder) {
-        console.warn('Workspace folder not found for Words Index.');
-        return initialWordIndex;
-    }
-
-    // Update complete drafts file
-    await updateCompleteDrafts();
-    const completeDraftsPath = path.join(workspaceFolder, '.project', 'complete_drafts.txt');
-    const fileUri = vscode.Uri.file(completeDraftsPath);
-    const content = await vscode.workspace.fs.readFile(fileUri);
-    const words = tokenizeText({
-        method: METHOD_SHOULD_BE_STORED_IN_CONFIG,
-        text: Buffer.from(content).toString('utf8')
-    }).map(cleanWord).filter(Boolean);
-
+export async function initializeWordsIndex(
+    initialWordIndex: Map<string, number>, 
+    targetFiles: FileData[]
+): Promise<Map<string, number>> {
     const wordIndex = new Map<string, number>();
-    try {
-        words.forEach((word: string) => {
-            wordIndex.set(word, (wordIndex.get(word) || 0) + 1);
-        });
-    } catch (error) {
-        console.error(error);
+
+    for (const file of targetFiles) {
+        for (const cell of file.cells) {
+            if (cell.metadata?.type === 'text' && cell.value.trim() !== '') {
+                const words = tokenizeText({
+                    method: METHOD_SHOULD_BE_STORED_IN_CONFIG,
+                    text: cell.value
+                }).map(cleanWord).filter(Boolean);
+
+                words.forEach((word: string) => {
+                    wordIndex.set(word, (wordIndex.get(word) || 0) + 1);
+                });
+            }
+        }
     }
-    vscode.window.showInformationMessage(`Indexed ${words.length} words.`);
+
+    vscode.window.showInformationMessage(`Indexed ${wordIndex.size} unique words.`);
     return wordIndex;
 }
 

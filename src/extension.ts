@@ -13,6 +13,7 @@ import { registerClientCommands } from "./tsServer/registerClientCommands";
 import { LanguageClient } from "vscode-languageclient/node";
 import { registerProjectManager } from "./projectManager";
 import { temporaryMigrationScript_checkMatthewNotebook, migration_changeDraftFolderToFilesFolder } from "./projectManager/utils/migrationUtils";
+import { createIndexWithContext } from "./activationHelpers/contextAware/miniIndex/indexes";
 
 let client: LanguageClient;
 let clientCommandsDisposable: vscode.Disposable;
@@ -35,6 +36,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     await indexVerseRefsInSourceText();
+    await createIndexWithContext(context);
     await executeCommandsAfter();
     await temporaryMigrationScript_checkMatthewNotebook();
     await migration_changeDraftFolderToFilesFolder();

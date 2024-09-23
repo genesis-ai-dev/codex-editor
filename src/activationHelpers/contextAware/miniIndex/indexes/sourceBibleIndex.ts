@@ -1,43 +1,54 @@
 import MiniSearch from 'minisearch';
 import * as vscode from 'vscode';
-import { verseRefRegex } from '../../../../utils/verseRefUtils';
 import { SourceVerseVersions } from "../../../../../types";
+import { FileData } from './fileReaders';
 
-export async function createSourceBibleIndex(sourceBibleIndex: MiniSearch<SourceVerseVersions>, force: boolean = false): Promise<MiniSearch<SourceVerseVersions>> {
-    const sourceBibleFiles = await vscode.workspace.findFiles('**/*.bible');
-    const verseMap = new Map<string, { content: string, versions: string[] }>();
+export async function createSourceBibleIndex(
+    sourceBibleIndex: MiniSearch<SourceVerseVersions>,
+    sourceFiles: FileData[],
+    force: boolean = false
+): Promise<MiniSearch<SourceVerseVersions>> {
+    const verseMap = new Map<string, { content: string, version: string }>();
 
-    for (const file of sourceBibleFiles) {
-        const document = await vscode.workspace.openTextDocument(file);
-        const content = document.getText();
-        const lines = content.split('\n');
-        const version = file.fsPath.split('/').pop()?.replace('.bible', '') || '';
+    // Get the primary source Bible setting
+    const config = vscode.workspace.getConfiguration('codex-project-manager');
+    const primarySourceBible = config.get<string>('primarySourceBible');
 
-        for (const line of lines) {
-            const match = line.match(verseRefRegex);
-            if (match) {
-                const [vref] = match;
-                const verseContent = line.substring(match.index! + match[0].length).trim();
-                if (verseContent) {
-                    if (verseMap.has(vref)) {
-                        const existingVerse = verseMap.get(vref)!;
-                        existingVerse.versions.push(version);
-                    } else {
-                        verseMap.set(vref, { content: verseContent, versions: [version] });
-                    }
-                }
-            }
+    let selectedSourceFile: FileData | undefined;
+
+    if (primarySourceBible) {
+        selectedSourceFile = sourceFiles.find(file => file.uri.fsPath === primarySourceBible);
+    }
+
+    if (!selectedSourceFile) {
+        // If primary source Bible doesn't exist or isn't set, use the first .bible file
+        selectedSourceFile = sourceFiles.find(file => file.uri.fsPath.endsWith('.bible'));
+    }
+
+    if (!selectedSourceFile) {
+        console.error('No suitable source Bible file found');
+        return sourceBibleIndex;
+    }
+
+    const version = selectedSourceFile.uri.fsPath.split('/').pop()?.replace('.bible', '') || '';
+
+    for (const cell of selectedSourceFile.cells) {
+        if (cell.metadata?.type === 'text' && cell.metadata?.id && cell.value.trim() !== '') {
+            const vref = cell.metadata.id;
+            verseMap.set(vref, { content: cell.value, version });
         }
     }
 
-    const documents = Array.from(verseMap.entries()).map(([vref, { content, versions }]) => ({
+    const documents = Array.from(verseMap.entries()).map(([vref, { content, version }]) => ({
+        id: vref,
         vref,
         content,
-        versions,
+        versions: [version],
     }));
 
+    sourceBibleIndex.removeAll(); // Clear existing index before adding new documents
     sourceBibleIndex.addAll(documents);
-    console.log(`Source Bible index created with ${sourceBibleIndex.documentCount} verses`);
+    console.log(`Source Bible index created with ${sourceBibleIndex.documentCount} verses from ${version}`);
 
     return sourceBibleIndex;
 }
