@@ -6,10 +6,12 @@ import { syncUtils } from "../../activationHelpers/contextAware/syncUtils";
 export class SourceControlProvider implements vscode.Disposable {
     private static instance: SourceControlProvider | null = null;
     private scmInterval: NodeJS.Timeout | null = null;
-    private autoCommitEnabled: boolean = true;
+    private autoCommitEnabled: boolean;
     private disposables: vscode.Disposable[] = [];
 
     private constructor(private context: vscode.ExtensionContext) {
+        const configuration = vscode.workspace.getConfiguration("codex-editor-extension.scm");
+        this.autoCommitEnabled = configuration.get<boolean>("autoCommit", true);
         this.initializeAutoCommit();
     }
 
@@ -43,11 +45,6 @@ export class SourceControlProvider implements vscode.Disposable {
     }
 
     private initializeAutoCommit() {
-        const configuration = vscode.workspace.getConfiguration(
-            "codex-editor-extension.scm"
-        );
-        this.autoCommitEnabled = configuration.get<boolean>("autoCommit", this.autoCommitEnabled);
-
         const configChangeDisposable = vscode.workspace.onDidChangeConfiguration(e => {
             if (e.affectsConfiguration("codex-editor-extension.scm.autoCommit")) {
                 const updatedConfiguration = vscode.workspace.getConfiguration(

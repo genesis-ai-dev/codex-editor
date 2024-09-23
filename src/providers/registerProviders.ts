@@ -5,7 +5,7 @@ import { ObsEditorProvider } from "./obs/editor/ObsEditorProvider";
 import { TranslationNotesProvider } from "./translationNotes/TranslationNotesProvider";
 import { DownloadedResourcesProvider } from "./downloadedResource/provider";
 import { CodexCellEditorProvider } from "./codexCellEditorProvider/codexCellEditorProvider";
-import { SourceControlProvider } from "./sourceControl/sourceControlProvider";
+import { registerSourceControl } from "./sourceControl/sourceControlProvider";
 
 export function registerProviders(context: vscode.ExtensionContext) {
     // Register ResourcesProvider
@@ -28,7 +28,6 @@ export function registerProviders(context: vscode.ExtensionContext) {
     context.subscriptions.push(CodexCellEditorProvider.register(context));
 
     // Register SourceControlProvider
-    const { providerRegistration: scmProviderRegistration, startSyncLoop } = SourceControlProvider.register(context);
-    context.subscriptions.push(scmProviderRegistration);
-    startSyncLoop();
+    const sourceControlProvider = registerSourceControl(context);
+    context.subscriptions.push(sourceControlProvider);
 }
