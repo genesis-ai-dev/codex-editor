@@ -1062,7 +1062,7 @@
         "lint": "eslint src --ext ts",
         "pretest": "npm run compile && npm run lint",
         "test": "node ./out/test/runTest.js",
-        "format": "prettier --write .",
+        "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
         "build:table": "cd webviews/editable-react-table && npm run build",
         "build:dictionary-side": "cd webviews/dictionary-side-panel && npm run build",
         "build:webviews": "cd webviews/codex-webviews && pnpm run build:all && cd ../dictionary-side-panel && pnpm run build && cd ../editable-react-table && pnpm run build && cd ../usfm-viewer && pnpm run build && cd ../.."
@@ -1138,7 +1138,6 @@
     },
     "extensionDependencies": [
         "project-accelerate.shared-state-store",
-        "project-accelerate.scripture-language-support",
         "sevenx-codex.codex-resources",
         "vscode.git"
     ]
