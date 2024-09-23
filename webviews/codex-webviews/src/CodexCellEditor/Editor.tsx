@@ -142,9 +142,9 @@ export default function Editor(props: EditorProps) {
                 currentLineId: props.currentLineId,
             },
         } as EditorPostMessages);
-        // create a promis and resolve it when the llmCompletionResponse is received
+
         const text: string = await new Promise((resolve) => {
-            const messageListener = (event: any) => {
+            const messageListener = (event: MessageEvent) => {
                 console.log("messageListener", { event });
                 if (event.data.type === "llmCompletionResponse") {
                     resolve(event.data.content.completion);
@@ -153,10 +153,14 @@ export default function Editor(props: EditorProps) {
             };
             window.addEventListener("message", messageListener);
         });
-        console.log("text", text);
-        if (quillRef.current) {
-            const length = quillRef.current.getLength();
-            quillRef.current.insertText(length, text);
+
+        console.log("Received text from LLM completion:", text);
+        if (quillRef.current && text) {
+            const quill = quillRef.current;
+            const length = quill.getLength();
+            quill.insertText(length, text);
+        } else {
+            console.error("Quill editor not initialized or empty text received");
         }
     };
 

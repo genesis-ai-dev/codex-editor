@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { llmCompletion } from "./llmCompletion";
 // import { getAiTranslation } from "./aiZeroDraftProvider";
 import { meshCompletion } from "../../utils/completionUtils";
+import { CodexNotebookReader } from "../../serializer";
 
 let shouldProvideCompletion = false;
 let isAutocompletingInProgress = false;
@@ -140,9 +141,19 @@ async function verseCompletion(
     const currentLineText = document.lineAt(position.line).text;
     const currentPosition = position.character;
 
-    const { completion, context } = await llmCompletion(
-        document,
-        position,
+    // Get the CodexNotebookReader for the current document
+    const currentNotebookReader = new CodexNotebookReader(document.uri);
+
+    // Find the current cell
+    const currentCell = await currentNotebookReader.cellAt(position.line);
+    if (!currentCell) {
+        vscode.window.showErrorMessage("Could not find the current cell in the notebook.");
+        return completions;
+    }
+
+    const completion = await llmCompletion(
+        currentNotebookReader,
+        currentCell,
         completionConfig,
         token
     );
@@ -189,7 +200,7 @@ async function verseCompletion(
     );
 
     completions.push(new vscode.InlineCompletionItem(meshedCompletion, completionRange));
-    (completions[0] as any).context = context; // Store context for CodeLens
+    (completions[0] as any).context = currentCell.metadata; // Store context for CodeLens
 
     // // Try to get AI translation
     // const vrefMatch = currentLineText.match(/^([\w\d\s:]+):/);

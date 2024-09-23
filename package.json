@@ -949,8 +949,8 @@
                     },
                     "translators-copilot.contextSize": {
                         "type": "string",
-                        "default": "large",
-                        "description": "The size of the context to be used for completion.",
+                        "default": "medium",
+                        "description": "The size of the context to be used for completion. Small is 5 cells, medium is 10 cells, large is 50 cells.",
                         "enum": [
                             "small",
                             "medium",

@@ -53,7 +53,7 @@ function registerCodeLensProviders(context: vscode.ExtensionContext) {
 
 async function executeCommandsAfter() {
     vscode.commands.executeCommand("workbench.action.focusAuxiliaryBar");
-    vscode.commands.executeCommand("translation-navigation.refreshEntry");
+    vscode.commands.executeCommand("translation-navigation.refreshNavigationTreeView");
     vscode.commands.executeCommand("codex-editor-extension.setEditorFontToTargetLanguage");
 }
 

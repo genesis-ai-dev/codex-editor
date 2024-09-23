@@ -1,28 +1,32 @@
 import * as vscode from "vscode";
 import { TextDecoder, TextEncoder } from "util";
 
-/**
- * An ultra-minimal sample provider that lets the user type in JSON, and then
- * outputs JSON cells. The outputs are transient and not saved to notebook file on disk.
- */
-
-interface RawNotebookData {
-    cells: RawNotebookCell[];
-    metadata?: any;
+export interface CodexNotebookDocument extends vscode.NotebookDocument {
+    cells: CodexNotebookCell[];
+    metadata: { [key: string]: any };
+    getCells(): vscode.NotebookCell[];
+    getCellIndex(cell: vscode.NotebookCell): number;
+    cellAt(index: number): vscode.NotebookCell;
+    cellsUpTo(index: number): vscode.NotebookCell[];
 }
 
-interface RawNotebookCell {
+interface RawNotebookData {
+    cells: CodexNotebookCell[];
+    metadata?: { [key: string]: any };
+}
+
+export interface CodexNotebookCell {
     language: string;
     value: string;
     kind: vscode.NotebookCellKind;
     editable?: boolean;
-    metadata?: any;
+    metadata?: { [key: string]: any };
 }
 
 export class CodexContentSerializer implements vscode.NotebookSerializer {
-    public readonly label: string = "My Sample Content Serializer";
+    public readonly label: string = "Codex Translation Notebook Serializer";
 
-    public async deserializeNotebook(
+    async deserializeNotebook(
         data: Uint8Array,
         token: vscode.CancellationToken
     ): Promise<vscode.NotebookData> {
@@ -40,7 +44,6 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
             const cell = new vscode.NotebookCellData(item.kind, item.value, item.language);
             cell.metadata = item.metadata || {}; // Ensure metadata is included if available
             if (item.metadata && item.metadata.id) {
-                // @ts-expect-error: metadata is added above
                 cell.metadata.id = item.metadata.id;
             }
             return cell;
@@ -51,7 +54,7 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
         return notebookData;
     }
 
-    public async serializeNotebook(
+    async serializeNotebook(
         data: vscode.NotebookData,
         token: vscode.CancellationToken
     ): Promise<Uint8Array> {
@@ -74,5 +77,48 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
         }
 
         return new TextEncoder().encode(JSON.stringify(contents, null, 4));
+    }
+}
+
+export class CodexNotebookReader {
+    private notebookDocument: vscode.NotebookDocument | undefined;
+
+    constructor(private readonly uri: vscode.Uri) {}
+
+    private async ensureNotebookDocument(): Promise<void> {
+        if (!this.notebookDocument) {
+            this.notebookDocument = await vscode.workspace.openNotebookDocument(this.uri);
+        }
+    }
+
+    async getCells(): Promise<CodexNotebookCell[]> {
+        await this.ensureNotebookDocument();
+        return this.notebookDocument!.getCells().map((cell, index) => ({
+            index,
+            language: cell.document.languageId,
+            value: cell.document.getText(),
+            kind: cell.kind,
+            document: cell.document,
+            metadata: cell.metadata,
+            outputs: cell.outputs,
+        }));
+    }
+
+    async getCellIndex(props: { cell?: vscode.NotebookCell; id?: string }): Promise<number> {
+        const { cell, id } = props;
+        const cells = await this.getCells();
+        return cells.findIndex(
+            (c) => c.metadata?.id === cell?.metadata?.id || c.metadata?.id === id
+        );
+    }
+
+    async cellAt(index: number): Promise<CodexNotebookCell | undefined> {
+        const cells = await this.getCells();
+        return cells[index];
+    }
+
+    async cellsUpTo(index: number): Promise<CodexNotebookCell[]> {
+        const cells = await this.getCells();
+        return cells.slice(0, index);
     }
 }

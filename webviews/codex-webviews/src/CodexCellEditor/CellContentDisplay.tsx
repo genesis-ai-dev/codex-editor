@@ -31,7 +31,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         } as EditorPostMessages);
     };
     const verseMarkerVerseNumbers = verseMarkers.map((verseMarker) => {
-        return verseMarker?.split(" ")[1]?.split(":")?.[1];
+        const parts = verseMarker?.split(":");
+        return parts?.[parts.length - 1];
     });
     let verseRefForDisplay = "";
     if (verseMarkerVerseNumbers.length === 1) {

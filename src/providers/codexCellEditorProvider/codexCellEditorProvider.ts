@@ -10,8 +10,13 @@ import {
 import { getUri } from "../translationNotes/utilities/getUri";
 import { initializeStateStore } from "../../stateStore";
 import { fetchCompletionConfig } from "../translationSuggestions/inlineCompletionsProvider";
-import { CodexContentSerializer } from "../../serializer";
+import {
+    CodexContentSerializer,
+    CodexNotebookDocument,
+    CodexNotebookReader,
+} from "../../serializer";
 import { workspaceStoreListener } from "../../utils/workspaceEventListener";
+import { llmCompletion } from "../translationSuggestions/llmCompletion";
 
 function getNonce(): string {
     let text = "";
@@ -181,7 +186,9 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                             });
                             webviewPanel.webview.postMessage({
                                 type: "llmCompletionResponse",
-                                content: completionResult,
+                                content: {
+                                    completion: completionResult,
+                                },
                             });
                         } catch (error) {
                             console.error("Error during LLM completion:", error);
@@ -376,82 +383,26 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                 throw new Error(`No .codex file found for book ${book}`);
             }
             const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
-            const file = await vscode.workspace.fs.readFile(
-                vscode.Uri.file(`${workspaceRoot}/files/target/${book}.codex`)
+            const notebookUri = vscode.Uri.file(`${workspaceRoot}/files/target/${book}.codex`);
+
+            const currentNotebookReader = new CodexNotebookReader(notebookUri);
+
+            console.log("Opened notebook", { notebookUri });
+
+            const currentCell = await currentNotebookReader.cellAt(
+                await currentNotebookReader.getCellIndex({ id: currentLineId })
             );
 
-            const serializerNew = new CodexContentSerializer();
-            const notebookData = await serializerNew.deserializeNotebook(
-                file,
-                new vscode.CancellationTokenSource().token
-            );
-            // const notebook = await vscode.workspace.openNotebookDocument(
-            //     notebookFiles[0],
-            // );
-            console.log("Opened notebook", { notebookData });
-
-            // let cellIndex = -1;
-            // let lineIndex = -1;
-            // let position = 0;
-
-            // for (let i = 0; i < notebook.cellCount; i++) {
-            //     const cell = notebook.cellAt(i);
-            //     // if (cell.kind === vscode.NotebookCellKind.Code) {
-            //         // const lines = cell.document.getText().split("\n");
-            //         const foundIndex = cell.document.
-
-            //         if (foundIndex !== -1) {
-            //             cellIndex = i;
-            //             // lineIndex = foundIndex;
-            //             // position += lines
-            //             //     .slice(0, foundIndex)
-            //             //     .reduce((sum, line) => sum + line.length + 1, 0);
-            //             break;
-            //         }
-
-            //         // position += cell.document.getText().length + 1;
-            //     // }
-            // }
-
-            // if (cellIndex === -1) {
-            //     throw new Error(
-            //         `Could not find line with ID ${currentLineId} in the notebook.`,
-            //     );
-            // }
-
-            // console.log("Found target line", {
-            //     cellIndex,
-            //     lineIndex,
-            //     position,
-            // });
-
-            // const cellText = notebook.cellAt(cellIndex).document.getText();
-            const cell = notebookData.cells.find((cell) => {
-                return cell.metadata?.id === currentLineId;
-            });
-
-            if (!cell) {
+            if (!currentCell) {
                 throw new Error(`Could not find line with ID ${currentLineId} in the notebook.`);
             }
-            const cellDocument = await vscode.workspace.openTextDocument({
-                content: cell.value,
-                language: "plaintext",
-            });
-            const lines = cellDocument.getText().split("\n");
-            // find the position of the line in the text document
-            const lineIndex = lines.findIndex((line) => line.trim().startsWith(currentLineId));
 
-            const positionOfLineInTextDoc = new vscode.Position(lineIndex, 0);
-
-            console.log("Created cell document", { cellDocument, lines });
-
-            const { llmCompletion } = await import("../translationSuggestions/llmCompletion");
             const completionConfig = await fetchCompletionConfig();
             console.log("Fetched completion config", { completionConfig });
 
             const result = await llmCompletion(
-                cellDocument,
-                positionOfLineInTextDoc,
+                currentNotebookReader,
+                currentCell,
                 completionConfig,
                 new vscode.CancellationTokenSource().token
             );
