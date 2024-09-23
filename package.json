@@ -359,7 +359,7 @@
                             "altText": "Name Project"
                         },
                         "completionEvents": [
-                            "onCommand:codex-project-manager.nameProject"
+                            "onCommand:codex-project-manager.renameProject"
                         ],
                         "when": "workbenchState !== empty"
                     },
@@ -372,7 +372,7 @@
                             "altText": "Set User Name"
                         },
                         "completionEvents": [
-                            "onCommand:codex-project-manager.userName"
+                            "onCommand:codex-project-manager.changeUserName"
                         ],
                         "when": "workbenchState !== empty"
                     },
