@@ -10,7 +10,11 @@ export class SourceControlProvider implements vscode.Disposable {
     private disposables: vscode.Disposable[] = [];
 
     private constructor(private context: vscode.ExtensionContext) {
-        this.initializeAutoCommit();
+        try {
+            this.initializeAutoCommit();
+        } catch (error) {
+            console.error("Failed to initialize auto-commit:", error);
+        }
     }
 
     static register(context: vscode.ExtensionContext): SourceControlProvider {
@@ -21,52 +25,98 @@ export class SourceControlProvider implements vscode.Disposable {
     }
 
     startSyncLoop() {
-        console.log("sync loop timer refreshed");
-        const syncIntervalTime = 1000 * 60 * 15; // 15 minutes
+        try {
+            console.log("autoCommit sync loop timer refreshed", {
+                autoCommitEnabled: this.autoCommitEnabled,
+            });
+            const syncIntervalTime = 1000 * 60 * 15; // 15 minutes
 
-        if (this.autoCommitEnabled) {
-            this.startInterval();
-        }
-
-        const configChangeDisposable = vscode.workspace.onDidChangeConfiguration(
-            (e) => {
-                if (e.affectsConfiguration("codex-editor-extension.scm.remoteUrl")) {
-                    syncUtils.checkConfigRemoteAndUpdateIt();
-                }
+            if (this.autoCommitEnabled) {
+                this.startInterval();
             }
-        );
 
-        this.disposables.push(configChangeDisposable);
-        setTimeout(() => {
-            syncUtils.checkConfigRemoteAndUpdateIt();
-        }, 3000);
+            const configChangeDisposable =
+                vscode.workspace.onDidChangeConfiguration((e) => {
+                    if (
+                        e.affectsConfiguration(
+                            "codex-editor-extension.scm.remoteUrl",
+                        )
+                    ) {
+                        syncUtils.checkConfigRemoteAndUpdateIt();
+                    }
+                });
+
+            this.disposables.push(configChangeDisposable);
+            setTimeout(() => {
+                syncUtils.checkConfigRemoteAndUpdateIt();
+            }, 3000);
+        } catch (error) {
+            console.error("Failed to start sync loop:", error);
+        }
     }
 
     private initializeAutoCommit() {
-        const configuration = vscode.workspace.getConfiguration(
-            "codex-editor-extension.scm"
-        );
-        this.autoCommitEnabled = configuration.get<boolean>("autoCommit", this.autoCommitEnabled);
+        try {
+            const configuration = vscode.workspace.getConfiguration(
+                "codex-editor-extension.scm",
+            );
 
-        const configChangeDisposable = vscode.workspace.onDidChangeConfiguration(e => {
-            if (e.affectsConfiguration("codex-editor-extension.scm.autoCommit")) {
-                const updatedConfiguration = vscode.workspace.getConfiguration(
-                    "codex-editor-extension.scm"
-                );
-                this.autoCommitEnabled = updatedConfiguration.get<boolean>("autoCommit", this.autoCommitEnabled);
-                vscode.window.showInformationMessage(
-                    `Auto-commit is now ${this.autoCommitEnabled ? "enabled" : "disabled"}.`
-                );
+            const autoCommit = configuration.get<boolean>(
+                "autoCommit",
+                this.autoCommitEnabled,
+            );
+            console.log("autoCommit", { autoCommit });
+            this.autoCommitEnabled = autoCommit;
 
-                if (this.autoCommitEnabled) {
-                    this.startInterval();
-                } else {
-                    this.stopInterval();
-                }
-            }
-        });
+            const configChangeDisposable =
+                vscode.workspace.onDidChangeConfiguration((e) => {
+                    if (
+                        e.affectsConfiguration(
+                            "codex-editor-extension.scm.autoCommit",
+                        )
+                    ) {
+                        try {
+                            const updatedConfiguration =
+                                vscode.workspace.getConfiguration(
+                                    "codex-editor-extension.scm",
+                                );
+                            const updatedAutoCommit =
+                                updatedConfiguration.get<boolean>(
+                                    "autoCommit",
+                                    this.autoCommitEnabled,
+                                );
 
-        this.disposables.push(configChangeDisposable);
+                            console.log("autoCommit", { updatedAutoCommit });
+                            this.autoCommitEnabled = updatedAutoCommit;
+                            vscode.window.showInformationMessage(
+                                `Auto-commit is now ${
+                                    this.autoCommitEnabled
+                                        ? "enabled"
+                                        : "disabled"
+                                }.`,
+                            );
+
+                            if (this.autoCommitEnabled) {
+                                this.startInterval();
+                            } else {
+                                this.stopInterval();
+                            }
+                        } catch (error) {
+                            console.error(
+                                "Failed to update auto-commit configuration:",
+                                error,
+                            );
+                        }
+                    }
+                });
+
+            this.disposables.push(configChangeDisposable);
+        } catch (error) {
+            console.error(
+                "Failed to initialize auto-commit configuration:",
+                error,
+            );
+        }
     }
 
     private startInterval() {
@@ -84,7 +134,7 @@ export class SourceControlProvider implements vscode.Disposable {
 
     dispose() {
         this.stopInterval();
-        this.disposables.forEach(d => d.dispose());
+        this.disposables.forEach((d) => d.dispose());
         this.disposables = [];
     }
 }

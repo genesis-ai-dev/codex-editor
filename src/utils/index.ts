@@ -40,6 +40,11 @@ export async function getProjectMetadata(): Promise<Project> {
     const projectMetadataPath = vscode.Uri.file(
         `${workspaceFolder}/metadata.json`,
     );
+    try {
+        await vscode.workspace.fs.stat(projectMetadataPath);
+    } catch {
+        return Promise.reject("Project metadata file does not exist");
+    }
 
     const projectMetadata = await vscode.workspace.fs
         .readFile(projectMetadataPath)
@@ -76,7 +81,10 @@ export async function jumpToCellInNotebook(
     const notebookUri = vscode.Uri.file(notebookPath);
 
     try {
-        updateWorkspaceState(context, { key: "cellToJumpTo", value: cellIdToJumpTo });
+        updateWorkspaceState(context, {
+            key: "cellToJumpTo",
+            value: cellIdToJumpTo,
+        });
     } catch (error: any) {
         vscode.window.showErrorMessage(
             `Failed to open notebook: ${error.message}`,
