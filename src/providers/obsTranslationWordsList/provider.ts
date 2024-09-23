@@ -12,10 +12,7 @@ export class ObsTranslationWordsListProvider {
     context: vscode.ExtensionContext;
     stateStore?: Awaited<ReturnType<typeof initializeStateStore>>;
 
-    constructor(
-        context: vscode.ExtensionContext,
-        resource: DownloadedResource,
-    ) {
+    constructor(context: vscode.ExtensionContext, resource: DownloadedResource) {
         this.resource = resource;
         this.context = context;
         initializeStateStore().then((stateStore) => {
@@ -23,9 +20,7 @@ export class ObsTranslationWordsListProvider {
         });
     }
 
-    async startWebview(
-        viewColumn: vscode.ViewColumn = vscode.ViewColumn.Beside,
-    ) {
+    async startWebview(viewColumn: vscode.ViewColumn = vscode.ViewColumn.Beside) {
         if (!this.stateStore) {
             this.stateStore = await initializeStateStore();
             console.log("stateStore", this.stateStore);
@@ -37,85 +32,74 @@ export class ObsTranslationWordsListProvider {
             {
                 enableScripts: true,
                 localResourceRoots: [this.context.extensionUri],
-            },
+            }
         );
         this.webview = panel;
 
-        panel.webview.html = this._getWebviewContent(
-            panel.webview,
-            this.context.extensionUri,
-        );
+        panel.webview.html = this._getWebviewContent(panel.webview, this.context.extensionUri);
 
-        panel.webview.onDidReceiveMessage(
-            async (e: { type: MessageType; payload: unknown }) => {
-                switch (e.type) {
-                    case MessageType.GET_TW_CONTENT: {
+        panel.webview.onDidReceiveMessage(async (e: { type: MessageType; payload: unknown }) => {
+            switch (e.type) {
+                case MessageType.GET_TW_CONTENT: {
+                    try {
+                        const translationWord: {
+                            path: string;
+                        } = (e.payload as Record<string, any>)?.translationWord;
+
+                        if (!translationWord) {
+                            return;
+                        }
+
+                        const path = translationWord.path;
+
+                        if (!path) {
+                            return;
+                        }
+
                         try {
-                            const translationWord: {
-                                path: string;
-                            } = (e.payload as Record<string, any>)
-                                ?.translationWord;
-
-                            if (!translationWord) {
-                                return;
-                            }
-
-                            const path = translationWord.path;
-
-                            if (!path) {
-                                return;
-                            }
-
-                            try {
-                                const content =
-                                    await vscode.workspace.fs.readFile(
-                                        vscode.Uri.file(path),
-                                    );
-                                panel.webview.postMessage({
-                                    type: "update-tw-content",
-                                    payload: {
-                                        content: content.toString(),
-                                    },
-                                });
-                            } catch (e: any) {
-                                panel.webview.postMessage({
-                                    type: "update-tw-content",
-                                    payload: {
-                                        error: e?.message,
-                                        content: null,
-                                    },
-                                });
-                            }
-                        } catch (error: any) {
-                            vscode.window.showErrorMessage(
-                                "Unable to read the given translation word: " +
-                                    error?.message,
+                            const content = await vscode.workspace.fs.readFile(
+                                vscode.Uri.file(path)
                             );
                             panel.webview.postMessage({
                                 type: "update-tw-content",
                                 payload: {
-                                    error: "Not found",
+                                    content: content.toString(),
+                                },
+                            });
+                        } catch (e: any) {
+                            panel.webview.postMessage({
+                                type: "update-tw-content",
+                                payload: {
+                                    error: e?.message,
+                                    content: null,
                                 },
                             });
                         }
-                        break;
+                    } catch (error: any) {
+                        vscode.window.showErrorMessage(
+                            "Unable to read the given translation word: " + error?.message
+                        );
+                        panel.webview.postMessage({
+                            type: "update-tw-content",
+                            payload: {
+                                error: "Not found",
+                            },
+                        });
                     }
-                    default: {
-                        break;
-                    }
+                    break;
                 }
-            },
-        );
+                default: {
+                    break;
+                }
+            }
+        });
 
         // TODO: Add global state to keep track of the current verseRef
         const verseRefListenerDisposeFunction = this.stateStore?.storeListener(
             "obsRef",
             async (value) => {
                 if (value) {
-                    const wordsList = await getTranslationWordsListByObsRef(
-                        this.resource,
-                        value,
-                    );
+                    const wordsList = await getTranslationWordsListByObsRef(this.resource, value);
 
                     console.log("wordsList", wordsList?.length);
 
@@ -126,16 +110,15 @@ export class ObsTranslationWordsListProvider {
                         },
                     });
                 }
-            },
+            }
         );
         const onDidChangeViewState = panel.onDidChangeViewState(async (e) => {
             if (e.webviewPanel.visible) {
                 try {
-                    const obsRef =
-                        await this.stateStore?.getStoreState("obsRef");
+                    const obsRef = await this.stateStore?.getStoreState("obsRef");
                     const wordsList = await getTranslationWordsListByObsRef(
                         this.resource,
-                        obsRef ?? { storyId: "01", paragraph: "1" },
+                        obsRef ?? { storyId: "01", paragraph: "1" }
                     );
 
                     panel.webview.postMessage({
@@ -146,8 +129,7 @@ export class ObsTranslationWordsListProvider {
                     });
                 } catch (error: any) {
                     vscode.window.showErrorMessage(
-                        "Unable to get the translation words list: " +
-                            error?.message,
+                        "Unable to get the translation words list: " + error?.message
                     );
 
                     panel.webview.postMessage({
@@ -170,10 +152,7 @@ export class ObsTranslationWordsListProvider {
         };
     }
 
-    private _getWebviewContent(
-        webview: vscode.Webview,
-        extensionUri: vscode.Uri,
-    ) {
+    private _getWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri) {
         // The CSS file from the React build output
         const stylesUri = getUri(webview, extensionUri, [
             "webviews",

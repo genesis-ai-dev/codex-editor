@@ -1,16 +1,14 @@
 import * as vscode from "vscode";
 import { DictionarySummaryProvider } from "./DictionarySidePanel";
 
-export function registerDictionarySummaryProvider(
-    context: vscode.ExtensionContext,
-) {
+export function registerDictionarySummaryProvider(context: vscode.ExtensionContext) {
     // Register the webview view provider for the sidebar
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(
             "dictionary-summary-panel", // This ID should match the one used in the package.json
-            new DictionarySummaryProvider(context.extensionUri),
+            new DictionarySummaryProvider(context.extensionUri)
             // { webviewOptions: { retainContextWhenHidden: true } },
-        ),
+        )
     );
 
     // // Register a command that activates the sidebar view

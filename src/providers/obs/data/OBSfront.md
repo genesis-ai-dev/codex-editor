@@ -6,7 +6,7 @@
 
 [https://openbiblestories.org](https://openbiblestories.org)
 
-*Copyright © 2020 by unfoldingWord*
+_Copyright © 2020 by unfoldingWord_
 
 This work is made available under the Creative Commons Attribution-ShareAlike 4.0 International License (CC BY-SA). To view a copy of this license, visit [http://creativecommons.org/licenses/by-sa/4.0/](http://creativecommons.org/licenses/by-sa/4.0/) or send a letter to Creative Commons, PO Box 1866, Mountain View, CA 94042, USA.
 
@@ -22,4 +22,4 @@ Version 8, 2020-04-24
 
 ISBN PDF: 978-1-62666-005-2 | ISBN Print: 978-1-62666-006-9
 
-*To our brothers and sisters in Christ all over the world—the global church. It is our prayer that God would use this visual overview of His Word to bless, strengthen, and encourage you.*
+_To our brothers and sisters in Christ all over the world—the global church. It is our prayer that God would use this visual overview of His Word to bless, strengthen, and encourage you._

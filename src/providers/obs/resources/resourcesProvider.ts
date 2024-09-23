@@ -25,13 +25,11 @@ import { DownloadedResource, OpenResource } from "./types";
 export class ResourcesProvider implements vscode.WebviewViewProvider {
     private _webviewView: vscode.WebviewView | undefined;
     private _context: vscode.ExtensionContext | undefined;
-    public static register(
-        context: vscode.ExtensionContext,
-    ): vscode.Disposable {
+    public static register(context: vscode.ExtensionContext): vscode.Disposable {
         const provider = new ResourcesProvider(context);
         const providerRegistration = vscode.window.registerWebviewViewProvider(
             ResourcesProvider.viewType,
-            provider,
+            provider
         );
         return providerRegistration;
     }
@@ -51,14 +49,14 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
     public async resolveWebviewView(
         webviewPanel: vscode.WebviewView,
         ctx: vscode.WebviewViewResolveContext,
-        _token: vscode.CancellationToken,
+        _token: vscode.CancellationToken
     ): Promise<void> {
         webviewPanel.webview.options = {
             enableScripts: true,
         };
         webviewPanel.webview.html = this._getWebviewContent(
             webviewPanel.webview,
-            this.context.extensionUri,
+            this.context.extensionUri
         );
 
         const disposable = vscode.window.tabGroups.onDidChangeTabs((e) => {
@@ -74,65 +72,52 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
                     case MessageType.DOWNLOAD_RESOURCE: {
                         const context = this._context;
                         if (!context) {
-                            console.error(
-                                "No workspace opened and no context found!",
-                            );
+                            console.error("No workspace opened and no context found!");
                             return;
                         }
 
                         const downloadResourceResult = await downloadResource(
-                            (e.payload as any)?.resource as any,
+                            (e.payload as any)?.resource as any
                         );
 
-                        const downloadedResourcesInfo = Array.isArray(
-                            downloadResourceResult,
-                        )
+                        const downloadedResourcesInfo = Array.isArray(downloadResourceResult)
                             ? downloadResourceResult
                             : [downloadResourceResult];
 
                         for (const downloadedResourceInfo of downloadedResourcesInfo) {
                             const localPath: string =
                                 downloadedResourceInfo?.folder.path.replace(
-                                    vscode.workspace.workspaceFolders?.[0].uri
-                                        .path + "/",
-                                    "",
+                                    vscode.workspace.workspaceFolders?.[0].uri.path + "/",
+                                    ""
                                 ) ?? "";
 
                             if (!downloadedResourceInfo) {
-                                vscode.window.showErrorMessage(
-                                    "Failed to download resource!",
-                                );
+                                vscode.window.showErrorMessage("Failed to download resource!");
                                 return;
                             }
                             const downloadedResource: DownloadedResource = {
-                                name:
-                                    downloadedResourceInfo?.resource.name ?? "",
+                                name: downloadedResourceInfo?.resource.name ?? "",
                                 id: downloadedResourceInfo?.resource.id ?? "",
                                 localPath: localPath,
-                                type:
-                                    downloadedResourceInfo?.resourceType ?? "",
-                                remoteUrl:
-                                    downloadedResourceInfo?.resource.url ?? "",
-                                version:
-                                    downloadedResourceInfo?.resource.release
-                                        .tag_name,
+                                type: downloadedResourceInfo?.resourceType ?? "",
+                                remoteUrl: downloadedResourceInfo?.resource.url ?? "",
+                                version: downloadedResourceInfo?.resource.release.tag_name,
                             };
 
-                            await addDownloadedResourceToProjectConfig(
+                            await addDownloadedResourceToProjectConfig(downloadedResource);
+
+                            const allDownloadedResources = (context?.workspaceState.get(
+                                "downloadedResources"
+                            ) ?? []) as DownloadedResource[];
+
+                            const newDownloadedResources: DownloadedResource[] = [
+                                ...allDownloadedResources,
                                 downloadedResource,
-                            );
-
-                            const allDownloadedResources =
-                                (context?.workspaceState.get(
-                                    "downloadedResources",
-                                ) ?? []) as DownloadedResource[];
-
-                            const newDownloadedResources: DownloadedResource[] =
-                                [...allDownloadedResources, downloadedResource];
+                            ];
 
                             await context.workspaceState.update(
                                 "downloadedResources",
-                                newDownloadedResources,
+                                newDownloadedResources
                             );
                         }
 
@@ -149,7 +134,7 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
                     default:
                         break;
                 }
-            },
+            }
         );
         this.syncDownloadedResources();
 
@@ -172,19 +157,13 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
         commands.forEach((command) => {
             if (!registeredCommands.includes(command.command)) {
                 this._context?.subscriptions.push(
-                    vscode.commands.registerCommand(
-                        command.command,
-                        command.handler,
-                    ),
+                    vscode.commands.registerCommand(command.command, command.handler)
                 );
             }
         });
     }
 
-    private _getWebviewContent(
-        webview: vscode.Webview,
-        extensionUri: vscode.Uri,
-    ) {
+    private _getWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri) {
         // The CSS file from the React build output
 
         const stylesUri = getUri(webview, extensionUri, [
@@ -234,22 +213,17 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
     }
 
     public async _openResource(resource: DownloadedResource) {
-        const openResources = (this._context?.workspaceState.get(
-            "openResources",
-            [],
-        ) ?? []) as OpenResource[];
+        const openResources = (this._context?.workspaceState.get("openResources", []) ??
+            []) as OpenResource[];
         // open resource
-        let newViewCol: vscode.ViewColumn | undefined =
-            vscode.ViewColumn.Beside;
+        let newViewCol: vscode.ViewColumn | undefined = vscode.ViewColumn.Beside;
 
         switch (resource.type) {
             case "obs":
-                newViewCol = (await openOBS(this.context, resource))
-                    ?.viewColumn;
+                newViewCol = (await openOBS(this.context, resource))?.viewColumn;
                 break;
             case "bible":
-                newViewCol = (await openBible(this.context, resource))
-                    ?.viewColumn;
+                newViewCol = (await openBible(this.context, resource))?.viewColumn;
                 break;
             case "tn": {
                 newViewCol = (await openTn(this.context, resource))?.viewColumn;
@@ -284,25 +258,16 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
                 break;
             }
             default:
-                newViewCol = (await openTranslationHelper(resource))
-                    ?.viewColumn;
+                newViewCol = (await openTranslationHelper(resource))?.viewColumn;
                 break;
         }
 
-        const newResources = [
-            ...openResources,
-            { ...resource, viewColumn: newViewCol },
-        ];
+        const newResources = [...openResources, { ...resource, viewColumn: newViewCol }];
         // save to workspace state
-        await this._context?.workspaceState.update(
-            "openResources",
-            newResources,
-        );
+        await this._context?.workspaceState.update("openResources", newResources);
 
-        const updatedResources = (this._context?.workspaceState.get(
-            "openResources",
-            [],
-        ) ?? []) as OpenResource[];
+        const updatedResources = (this._context?.workspaceState.get("openResources", []) ??
+            []) as OpenResource[];
 
         return {
             viewColumn: newViewCol,
@@ -315,9 +280,8 @@ export class ResourcesProvider implements vscode.WebviewViewProvider {
             console.error("No workspace opened and no context found!");
             return;
         }
-        const downloadedResources = (context?.workspaceState.get(
-            "downloadedResources",
-        ) ?? []) as DownloadedResource[];
+        const downloadedResources = (context?.workspaceState.get("downloadedResources") ??
+            []) as DownloadedResource[];
 
         if (!webviewPanel?.webview) {
             return;

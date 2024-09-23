@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { llmCompletion } from "./llmCompletion";
 // import { getAiTranslation } from "./aiZeroDraftProvider";
-import { meshCompletion } from '../../utils/completionUtils';
+import { meshCompletion } from "../../utils/completionUtils";
 
 let shouldProvideCompletion = false;
 let isAutocompletingInProgress = false;
@@ -10,7 +10,9 @@ const currentSourceText = "";
 
 export const MAX_TOKENS = 4000;
 export const TEMPERATURE = 0.8;
-const sharedStateExtension = vscode.extensions.getExtension("project-accelerate.shared-state-store");
+const sharedStateExtension = vscode.extensions.getExtension(
+    "project-accelerate.shared-state-store"
+);
 
 export interface CompletionConfig {
     endpoint: string;
@@ -48,12 +50,17 @@ export async function triggerInlineCompletion(statusBarItem: vscode.StatusBarIte
         });
 
         shouldProvideCompletion = true;
-        await vscode.commands.executeCommand("editor.action.inlineSuggest.trigger", autocompleteCancellationTokenSource.token);
+        await vscode.commands.executeCommand(
+            "editor.action.inlineSuggest.trigger",
+            autocompleteCancellationTokenSource.token
+        );
 
         disposable.dispose();
     } catch (error) {
         console.error("Error triggering inline completion", error);
-        vscode.window.showErrorMessage("Error triggering inline completion. Check the output panel for details.");
+        vscode.window.showErrorMessage(
+            "Error triggering inline completion. Check the output panel for details."
+        );
     } finally {
         shouldProvideCompletion = false;
         isAutocompletingInProgress = false;
@@ -85,7 +92,7 @@ export async function provideInlineCompletionItems(
             const codeLens = new vscode.CodeLens(new vscode.Range(position, position), {
                 title: "Show Translation Context",
                 command: "translators-copilot.showTranslationContext",
-                arguments: [(completions[0] as any).context]
+                arguments: [(completions[0] as any).context],
             });
             registerCodeLens(codeLens);
         }
@@ -94,7 +101,9 @@ export async function provideInlineCompletionItems(
         return completions;
     } catch (error) {
         console.error("Error providing inline completion items", error);
-        vscode.window.showErrorMessage("Failed to provide inline completion. Check the output panel for details.");
+        vscode.window.showErrorMessage(
+            "Failed to provide inline completion. Check the output panel for details."
+        );
         return undefined;
     } finally {
         isAutocompletingInProgress = false;
@@ -121,12 +130,22 @@ function cancelAutocompletion(message: string) {
     }
 }
 
-async function verseCompletion(document: vscode.TextDocument, position: vscode.Position, completionConfig: CompletionConfig, token: vscode.CancellationToken): Promise<vscode.InlineCompletionItem[]> {
+async function verseCompletion(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    completionConfig: CompletionConfig,
+    token: vscode.CancellationToken
+): Promise<vscode.InlineCompletionItem[]> {
     const completions: vscode.InlineCompletionItem[] = [];
     const currentLineText = document.lineAt(position.line).text;
     const currentPosition = position.character;
 
-    const { completion, context } = await llmCompletion(document, position, completionConfig, token);
+    const { completion, context } = await llmCompletion(
+        document,
+        position,
+        completionConfig,
+        token
+    );
     if (!completion) {
         vscode.window.showErrorMessage("No completion returned from LLM");
         return completions;
@@ -157,9 +176,17 @@ async function verseCompletion(document: vscode.TextDocument, position: vscode.P
     //     }
     // }
 
-    const meshedCompletion = meshCompletion(currentLineText.substring(0, currentPosition), completion);
+    const meshedCompletion = meshCompletion(
+        currentLineText.substring(0, currentPosition),
+        completion
+    );
     const completionStart = currentPosition - meshedCompletion.length + completion.length;
-    const completionRange = new vscode.Range(position.line, completionStart, position.line, currentLineText.length);
+    const completionRange = new vscode.Range(
+        position.line,
+        completionStart,
+        position.line,
+        currentLineText.length
+    );
 
     completions.push(new vscode.InlineCompletionItem(meshedCompletion, completionRange));
     (completions[0] as any).context = context; // Store context for CodeLens
@@ -185,7 +212,10 @@ export async function fetchCompletionConfig(): Promise<CompletionConfig> {
         const config = vscode.workspace.getConfiguration("translators-copilot");
         if (sharedStateExtension) {
             const stateStore = sharedStateExtension.exports;
-            stateStore.updateStoreState({ key: 'currentUserAPI', value: config.get("api_key") || "" });
+            stateStore.updateStoreState({
+                key: "currentUserAPI",
+                value: config.get("api_key") || "",
+            });
         }
 
         return {
@@ -199,9 +229,11 @@ export async function fetchCompletionConfig(): Promise<CompletionConfig> {
             maxTokens: config.get("max_tokens") || 2048,
             temperature: config.get("temperature") || 0.8,
             mainChatLanguage: config.get("main_chat_language") || "English",
-            chatSystemMessage: config.get("chatSystemMessage") || "This is a chat between a helpful Bible translation assistant and a Bible translator...",
+            chatSystemMessage:
+                config.get("chatSystemMessage") ||
+                "This is a chat between a helpful Bible translation assistant and a Bible translator...",
             numberOfFewShotExamples: config.get("numberOfFewShotExamples") || 30,
-            debugMode: config.get("debugMode") || false
+            debugMode: config.get("debugMode") || false,
         };
     } catch (error) {
         console.error("Error getting completion configuration", error);
@@ -210,9 +242,12 @@ export async function fetchCompletionConfig(): Promise<CompletionConfig> {
 }
 
 function registerCodeLens(codeLens: vscode.CodeLens) {
-    vscode.languages.registerCodeLensProvider({ scheme: 'file', language: 'scripture' }, {
-        provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
-            return [codeLens];
+    vscode.languages.registerCodeLensProvider(
+        { scheme: "file", language: "scripture" },
+        {
+            provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
+                return [codeLens];
+            },
         }
-    });
+    );
 }

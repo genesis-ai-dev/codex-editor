@@ -8,7 +8,7 @@ const fetchResource = async (
         id: number;
         name: string;
     }[],
-    selectResource: "bible" | "obs",
+    selectResource: "bible" | "obs"
 ) => {
     const subjectTypeArray = {
         bible: [

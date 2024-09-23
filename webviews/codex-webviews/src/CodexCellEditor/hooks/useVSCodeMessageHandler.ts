@@ -7,9 +7,7 @@ export const useVSCodeMessageHandler = ({
     jumpToCell,
 }: {
     setContent: React.Dispatch<React.SetStateAction<CellContent[]>>;
-    setSpellCheckResponse: React.Dispatch<
-        React.SetStateAction<CustomNotebookData>
-    >;
+    setSpellCheckResponse: React.Dispatch<React.SetStateAction<CustomNotebookData>>;
     jumpToCell: (cellId: string) => void;
 }) => {
     useEffect(() => {

@@ -40,13 +40,8 @@ export default function Scribex() {
             switch (event.data.type) {
                 case MessageType.SCROLL_TO_CHAPTER:
                     {
-                        console.log(
-                            "scroll to chapter received",
-                            event.data.payload,
-                        );
-                        const element = document.getElementById(
-                            `ch-${event.data.payload.chapter}`,
-                        );
+                        console.log("scroll to chapter received", event.data.payload);
+                        const element = document.getElementById(`ch-${event.data.payload.chapter}`);
                         element?.scrollIntoView({ behavior: "smooth" });
                         console.log("chapterElement", element);
                     }

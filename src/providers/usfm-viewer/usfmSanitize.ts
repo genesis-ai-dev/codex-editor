@@ -7,7 +7,7 @@ export function sanitizeUSFM(usfm: string): string {
         match: string,
         tag: string,
         middleContent: string,
-        vTag: string,
+        vTag: string
     ): string {
         // Check for a \p tag in the middle content
         if (!/\\p/.test(middleContent)) {

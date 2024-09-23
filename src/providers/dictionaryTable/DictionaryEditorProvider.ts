@@ -11,9 +11,11 @@ interface DictionaryDocument extends vscode.CustomDocument {
 export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider {
     public static readonly viewType = "codex.dictionaryEditor";
     private document: DictionaryDocument | undefined;
-    private readonly onDidChangeCustomDocument = new vscode.EventEmitter<vscode.CustomDocumentEditEvent<DictionaryDocument>>();
+    private readonly onDidChangeCustomDocument = new vscode.EventEmitter<
+        vscode.CustomDocumentEditEvent<DictionaryDocument>
+    >();
 
-    constructor(private readonly context: vscode.ExtensionContext) { }
+    constructor(private readonly context: vscode.ExtensionContext) {}
 
     public static register(context: vscode.ExtensionContext): vscode.Disposable {
         const provider = new DictionaryEditorProvider(context);
@@ -32,7 +34,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
         this.document = {
             uri: document.uri,
             content: this.getDocumentAsJson(document),
-            dispose: () => { }
+            dispose: () => {},
         };
         webviewPanel.webview.options = {
             enableScripts: true,
@@ -56,7 +58,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
             updateWebview();
         });
 
-        const changeDocumentSubscription = vscode.workspace.onDidChangeTextDocument(e => {
+        const changeDocumentSubscription = vscode.workspace.onDidChangeTextDocument((e) => {
             if (e.document.uri.toString() === document.uri.toString()) {
                 updateWebview();
             }
@@ -76,10 +78,10 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
                 case "webviewAsksProviderToConfirmRemove": {
                     console.log("confirmRemove received in DictionaryEditorProvider", e.count);
                     const confirmed = await vscode.window.showInformationMessage(
-                        `Are you sure you want to remove ${e.count} item${e.count > 1 ? 's' : ''}?`,
+                        `Are you sure you want to remove ${e.count} item${e.count > 1 ? "s" : ""}?`,
                         { modal: true },
                         "Yes",
-                        "No",
+                        "No"
                     );
                     if (confirmed === "Yes") {
                         webviewPanel.webview.postMessage({
@@ -95,14 +97,31 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
     }
 
     private getHtmlForWebview(webview: vscode.Webview): string {
-        const styleResetUri = webview.asWebviewUri(vscode.Uri.joinPath(
-            this.context.extensionUri, "src", "assets", "reset.css"));
-        const styleVSCodeUri = webview.asWebviewUri(vscode.Uri.joinPath(
-            this.context.extensionUri, "src", "assets", "vscode.css"));
-        const codiconsUri = webview.asWebviewUri(vscode.Uri.joinPath(
-            this.context.extensionUri, "node_modules", "@vscode/codicons", "dist", "codicon.css"));
-        const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(
-            this.context.extensionUri, "webviews", "codex-webviews", "dist", "EditableReactTable", "index.js"));
+        const styleResetUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "reset.css")
+        );
+        const styleVSCodeUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "vscode.css")
+        );
+        const codiconsUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(
+                this.context.extensionUri,
+                "node_modules",
+                "@vscode/codicons",
+                "dist",
+                "codicon.css"
+            )
+        );
+        const scriptUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(
+                this.context.extensionUri,
+                "webviews",
+                "codex-webviews",
+                "dist",
+                "EditableReactTable",
+                "index.js"
+            )
+        );
 
         const nonce = getNonce();
 
@@ -134,9 +153,9 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
         try {
             // Try parsing as JSONL (each line is a JSON entry)
             const entries = text
-                .split('\n')
-                .filter(line => line.trim().length > 0)
-                .map(line => JSON.parse(line) as DictionaryEntry);
+                .split("\n")
+                .filter((line) => line.trim().length > 0)
+                .map((line) => JSON.parse(line) as DictionaryEntry);
 
             return { id: "", label: "", entries, metadata: {} };
         } catch (jsonlError) {
@@ -146,7 +165,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
                 if (parsed.entries) {
                     return parsed;
                 } else {
-                    throw new Error('Invalid JSON format: missing entries.');
+                    throw new Error("Invalid JSON format: missing entries.");
                 }
             } catch (jsonError) {
                 throw new Error("Could not parse document as JSONL or JSON. Content is not valid.");
@@ -157,15 +176,9 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
     private updateTextDocument(document: vscode.TextDocument, dictionary: Dictionary) {
         const edit = new vscode.WorkspaceEdit();
 
-        const content = dictionary.entries
-            .map(entry => JSON.stringify(entry))
-            .join('\n');
+        const content = dictionary.entries.map((entry) => JSON.stringify(entry)).join("\n");
 
-        edit.replace(
-            document.uri,
-            new vscode.Range(0, 0, document.lineCount, 0),
-            content
-        );
+        edit.replace(document.uri, new vscode.Range(0, 0, document.lineCount, 0), content);
 
         return vscode.workspace.applyEdit(edit);
     }
@@ -177,7 +190,11 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
                 if (!workspaceFolderUri) {
                     throw new Error("Workspace folder not found.");
                 }
-                const dictionaryUri = vscode.Uri.joinPath(workspaceFolderUri, "files", "project.dictionary");
+                const dictionaryUri = vscode.Uri.joinPath(
+                    workspaceFolderUri,
+                    "files",
+                    "project.dictionary"
+                );
                 const fileContent = await vscode.workspace.fs.readFile(dictionaryUri);
                 const content = new TextDecoder().decode(fileContent);
                 const dictionary = this.parseDictionary(content);
@@ -185,7 +202,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
                 // Create a temporary TextDocument from the dictionary content
                 const tempDocument = await vscode.workspace.openTextDocument({
                     content: JSON.stringify(dictionary, null, 2),
-                    language: 'json'
+                    language: "json",
                 });
 
                 await this.updateTextDocument(tempDocument, dictionary);
@@ -200,7 +217,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
                     },
                     redo: () => {
                         // Implement redo logic if needed
-                    }
+                    },
                 });
             } catch (error) {
                 vscode.window.showErrorMessage(`Failed to refresh dictionary: ${error}`);
@@ -208,7 +225,10 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
         }
     }
 
-    public saveCustomDocument(document: Dictionary, cancellation: vscode.CancellationToken): Thenable<void> {
+    public saveCustomDocument(
+        document: Dictionary,
+        cancellation: vscode.CancellationToken
+    ): Thenable<void> {
         // Serialize the document content
         const content = this.serializeDictionary(document);
 
@@ -220,19 +240,24 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
             console.error("Workspace folder not found. Aborting save of dictionary.");
             return Promise.reject(new Error("Workspace folder not found"));
         }
-        const dictionaryUri = vscode.Uri.joinPath(workspaceFolderUri, "files", "project.dictionary");
+        const dictionaryUri = vscode.Uri.joinPath(
+            workspaceFolderUri,
+            "files",
+            "project.dictionary"
+        );
         return vscode.workspace.fs.writeFile(dictionaryUri, array);
     }
 
     private serializeDictionary(document: Dictionary): string {
         // Convert the dictionary entries to JSON Lines
-        return document.entries.map(entry => JSON.stringify(entry)).join('\n');
+        return document.entries.map((entry) => JSON.stringify(entry)).join("\n");
     }
 
     private parseDictionary(content: string): Dictionary {
-        const entries = content.split('\n')
-            .filter(line => line.trim() !== '')
-            .map(line => JSON.parse(line) as DictionaryEntry);
+        const entries = content
+            .split("\n")
+            .filter((line) => line.trim() !== "")
+            .map((line) => JSON.parse(line) as DictionaryEntry);
         return { id: "", label: "", entries, metadata: {} };
     }
 }

@@ -14,10 +14,12 @@ const vscode = acquireVsCodeApi();
 
 const CodexCellEditor: React.FC = () => {
     const [translationUnits, setTranslationUnits] = useState<CellContent[]>([]);
-    const [spellCheckResponse, setSpellCheckResponse] =
-        useState<CustomNotebookData>({} as CustomNotebookData);
-    const [contentBeingUpdated, setContentBeingUpdated] =
-        useState<EditorVerseContent>({} as EditorVerseContent);
+    const [spellCheckResponse, setSpellCheckResponse] = useState<CustomNotebookData>(
+        {} as CustomNotebookData
+    );
+    const [contentBeingUpdated, setContentBeingUpdated] = useState<EditorVerseContent>(
+        {} as EditorVerseContent
+    );
     const [chapterNumber, setChapterNumber] = useState<number>(1);
 
     useVSCodeMessageHandler({
@@ -40,8 +42,7 @@ const CodexCellEditor: React.FC = () => {
         return verseChapterNumber === chapterNumber.toString();
     });
 
-    const handleCloseEditor = () =>
-        setContentBeingUpdated({} as EditorVerseContent);
+    const handleCloseEditor = () => setContentBeingUpdated({} as EditorVerseContent);
 
     const handleSaveMarkdown = () => {
         vscode.postMessage({
@@ -53,20 +54,12 @@ const CodexCellEditor: React.FC = () => {
 
     return (
         <div className="codex-cell-editor">
-            <h1>
-                {
-                    translationUnitsForChapter[0]?.verseMarkers?.[0]?.split(
-                        ":"
-                    )[0]
-                }
-            </h1>
+            <h1>{translationUnitsForChapter[0]?.verseMarkers?.[0]?.split(":")[0]}</h1>
             <div className="editor-container">
                 <ChapterNavigation
                     chapterNumber={chapterNumber}
                     setChapterNumber={setChapterNumber}
-                    scriptureCellsLength={
-                        translationUnitsForChapter?.length || 0
-                    }
+                    scriptureCellsLength={translationUnitsForChapter?.length || 0}
                     unsavedChanges={!!contentBeingUpdated.content}
                 />
                 <VerseList

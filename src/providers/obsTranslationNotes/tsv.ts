@@ -10,7 +10,7 @@ export const parseObsTsv = <T>(tsv: string) => {
                 acc[header] = line[i];
                 return acc;
             },
-            {} as Record<string, string>,
+            {} as Record<string, string>
         );
     }) as (T extends object ? T : ObsTsv)[];
 
@@ -22,7 +22,7 @@ export const tsvToStoryParagraphRef = <
         Reference: string;
     },
 >(
-    obsTsv: T[],
+    obsTsv: T[]
 ) => {
     const storyParagraphRef: storyParagraphRef<T> = {};
     obsTsv.forEach((row) => {

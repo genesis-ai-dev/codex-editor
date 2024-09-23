@@ -6,7 +6,7 @@ import { parseTwlTsv, tsvToChapterVerseRef } from "../translationWordsList/tsv";
 
 export const getVerseTranslationQuestions = async (
     resource: DownloadedResource,
-    verseRef: string,
+    verseRef: string
 ) => {
     const { bookID, chapter, verse } = extractBookChapterVerse(verseRef);
     if (!vscode.workspace.workspaceFolders?.[0]) {
@@ -15,7 +15,7 @@ export const getVerseTranslationQuestions = async (
     }
     const resourceDirUri = vscode.Uri.joinPath(
         vscode.workspace.workspaceFolders?.[0].uri as vscode.Uri,
-        resource.localPath,
+        resource.localPath
     );
 
     const bookUri = vscode.Uri.joinPath(resourceDirUri, `tq_${bookID}.tsv`);

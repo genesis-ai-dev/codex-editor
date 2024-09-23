@@ -1,44 +1,44 @@
 {
-  "*": {
     "*": {
-      "tagName": "span"
+        "*": {
+            "tagName": "span"
+        },
+        "sequence": {
+            "tagName": "section"
+        }
     },
-    "sequence": {
-      "tagName": "section"
-    }
-  },
-  "graft": {
-    "title": {
-      "tagName": "p"
+    "graft": {
+        "title": {
+            "tagName": "p"
+        },
+        "footnote": {
+            "tagName": "span"
+        }
     },
-    "footnote":{
-      "tagName":"span"
-    }
-  },
-  "ms": {
+    "ms": {
+        "paragraph": {
+            "tagName": "h3"
+        }
+    },
     "paragraph": {
-      "tagName": "h3"
-    }
-  },
-  "paragraph": {
-    "usfm:mt": {
-      "classList": ["major-title paragraph mt"],
-      "tagName": "h2"
+        "usfm:mt": {
+            "classList": ["major-title paragraph mt"],
+            "tagName": "h2"
+        },
+        "usfm:ms": {
+            "classList": ["major-section-heading paragraph ms"],
+            "tagName": "h3"
+        },
+        "*": {
+            "tagName": "p"
+        }
     },
-    "usfm:ms": {
-      "classList": ["major-section-heading paragraph ms"],
-      "tagName": "h3"
-    },
-    "*": {
-      "tagName": "p"
+    "mark": {
+        "chapter": {
+            "tagName": "sub"
+        },
+        "verses": {
+            "tagName": "sup"
+        }
     }
-  },
-  "mark": {
-    "chapter": {
-      "tagName": "sub"
-    },
-    "verses": {
-      "tagName": "sup"
-    }
-  }
 }

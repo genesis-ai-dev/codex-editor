@@ -8,7 +8,7 @@ import { tsvToStoryParagraphRef } from "../obsTranslationNotes/tsv";
 
 export const getTranslationWordsListByObsRef = async (
     resource: DownloadedResource,
-    ref: OBSRef,
+    ref: OBSRef
 ) => {
     if (!vscode.workspace.workspaceFolders?.[0]) {
         console.error("No workspace is open. Please open a workspace.");
@@ -16,7 +16,7 @@ export const getTranslationWordsListByObsRef = async (
     }
     const resourceDirUri = vscode.Uri.joinPath(
         vscode.workspace.workspaceFolders?.[0].uri as vscode.Uri,
-        resource.localPath,
+        resource.localPath
     );
 
     const tsvFileUri = vscode.Uri.joinPath(resourceDirUri, `twl_OBS.tsv`);
@@ -29,10 +29,8 @@ export const getTranslationWordsListByObsRef = async (
     const tsvDataWithTwUriPromises = await Promise.allSettled(
         tsvData.map(async (row) => ({
             ...row,
-            twUriPath: (
-                await convertTwlRCUriToScribeResourceUri(resource, row.TWLink)
-            ).path,
-        })),
+            twUriPath: (await convertTwlRCUriToScribeResourceUri(resource, row.TWLink)).path,
+        }))
     );
 
     const TsvDataWithTwUri = tsvDataWithTwUriPromises
@@ -40,7 +38,7 @@ export const getTranslationWordsListByObsRef = async (
         .filter(Boolean);
 
     const obsRefData = tsvToStoryParagraphRef(
-        TsvDataWithTwUri as NonNullable<(typeof TsvDataWithTwUri)[number]>[],
+        TsvDataWithTwUri as NonNullable<(typeof TsvDataWithTwUri)[number]>[]
     );
 
     // Removing the ones which don't have files on the disk
@@ -48,9 +46,9 @@ export const getTranslationWordsListByObsRef = async (
         obsRefData[ref.storyId]?.[ref.paragraph]?.map(async (word) => ({
             ...word,
             existsOnDisk: await fileExists(
-                vscode.Uri.from({ path: word.twUriPath, scheme: "file" }),
+                vscode.Uri.from({ path: word.twUriPath, scheme: "file" })
             ),
-        })),
+        }))
     );
 
     return wordsWithExistsOnDisk ?? [];

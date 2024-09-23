@@ -17,7 +17,7 @@ const vscode = acquireVsCodeApi();
 function ParallelView() {
     const [verses, setVerses] = useState<TranslationPair[]>([]);
     const [lastQuery, setLastQuery] = useState<string>("");
-    
+
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             const message = event.data;
@@ -50,12 +50,7 @@ function ParallelView() {
         });
     };
 
-    const handleSaveClick = (
-        index: number,
-        before: string,
-        after: string,
-        uri: string,
-    ) => {
+    const handleSaveClick = (index: number, before: string, after: string, uri: string) => {
         vscode.postMessage({
             command: "applyEdit",
             uri: uri,
@@ -65,11 +60,14 @@ function ParallelView() {
 
         setVerses((prevVerses) => {
             const newVerses = [...prevVerses];
-            newVerses[index] = { ...newVerses[index], targetVerse: { ...newVerses[index].targetVerse, content: after } };
+            newVerses[index] = {
+                ...newVerses[index],
+                targetVerse: { ...newVerses[index].targetVerse, content: after },
+            };
             return newVerses;
         });
     };
-   
+
     return (
         <VSCodePanels>
             <VSCodePanelTab id="tab1">Parallel Passages</VSCodePanelTab>
@@ -100,7 +98,9 @@ function ParallelView() {
                             ))}
                         </div>
                     ) : (
-                        <p className="no-results">No results found. Try a different search query.</p>
+                        <p className="no-results">
+                            No results found. Try a different search query.
+                        </p>
                     )}
                 </div>
             </VSCodePanelView>

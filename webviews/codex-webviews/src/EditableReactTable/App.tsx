@@ -15,10 +15,7 @@ import {
 import update from "immutability-helper";
 import { Dictionary } from "codex-types";
 import Trash from "./img/Trash";
-import {
-    DictionaryPostMessages,
-    DictionaryReceiveMessages,
-} from "../../../../types";
+import { DictionaryPostMessages, DictionaryReceiveMessages } from "../../../../types";
 import { TableColumn, TableData, TableEntry } from "./tableTypes";
 import debounce from "lodash/debounce";
 
@@ -59,9 +56,7 @@ function reducer(state: any, action: any) {
             );
             switch (action.dataType) {
                 case DataTypes.NUMBER:
-                    if (
-                        state.columns[typeIndex].dataType === DataTypes.NUMBER
-                    ) {
+                    if (state.columns[typeIndex].dataType === DataTypes.NUMBER) {
                         return state;
                     } else {
                         return update(state, {
@@ -75,21 +70,15 @@ function reducer(state: any, action: any) {
                                 $apply: (data: any) =>
                                     data.map((row: any) => ({
                                         ...row,
-                                        [action.columnId]: isNaN(
-                                            row[action.columnId]
-                                        )
+                                        [action.columnId]: isNaN(row[action.columnId])
                                             ? ""
-                                            : Number.parseInt(
-                                                  row[action.columnId]
-                                              ),
+                                            : Number.parseInt(row[action.columnId]),
                                     })),
                             },
                         });
                     }
                 case DataTypes.SELECT:
-                    if (
-                        state.columns[typeIndex].dataType === DataTypes.SELECT
-                    ) {
+                    if (state.columns[typeIndex].dataType === DataTypes.SELECT) {
                         return state;
                     } else {
                         const options: any = [];
@@ -114,9 +103,7 @@ function reducer(state: any, action: any) {
                 case DataTypes.TEXT:
                     if (state.columns[typeIndex].dataType === DataTypes.TEXT) {
                         return state;
-                    } else if (
-                        state.columns[typeIndex].dataType === DataTypes.SELECT
-                    ) {
+                    } else if (state.columns[typeIndex].dataType === DataTypes.SELECT) {
                         return update(state, {
                             skipReset: { $set: true },
                             columns: {
@@ -137,8 +124,7 @@ function reducer(state: any, action: any) {
                                 $apply: (data: any) =>
                                     data.map((row: any) => ({
                                         ...row,
-                                        [action.columnId]:
-                                            row[action.columnId] + "",
+                                        [action.columnId]: row[action.columnId] + "",
                                     })),
                             },
                         });
@@ -148,9 +134,7 @@ function reducer(state: any, action: any) {
             }
 
         case ActionTypes.UPDATE_COLUMN_HEADER:
-            const index = state.columns.findIndex(
-                (column: any) => column.id === action.columnId
-            );
+            const index = state.columns.findIndex((column: any) => column.id === action.columnId);
             return update(state, {
                 skipReset: { $set: true },
                 columns: { [index]: { label: { $set: action.label } } },
@@ -258,9 +242,7 @@ function reducer(state: any, action: any) {
         case ActionTypes.REMOVE_CHECKED_ROWS:
             return {
                 ...state,
-                data: state.data.filter(
-                    (row: any) => !row[Constants.CHECKBOX_COLUMN_ID]
-                ),
+                data: state.data.filter((row: any) => !row[Constants.CHECKBOX_COLUMN_ID]),
             };
 
         case ActionTypes.RESIZE_COLUMN_WIDTHS:
@@ -314,14 +296,9 @@ function App() {
         },
     };
 
-    const [state, dispatch] = useReducer<React.Reducer<AppState, Action>>(
-        reducer,
-        initialState
-    );
+    const [state, dispatch] = useReducer<React.Reducer<AppState, Action>>(reducer, initialState);
 
-    const [searchBarWidth, setSearchBarWidth] = useState(
-        window.innerWidth - 20
-    );
+    const [searchBarWidth, setSearchBarWidth] = useState(window.innerWidth - 20);
 
     useEffect(() => {
         dispatch({ type: ActionTypes.ENABLE_RESET });
@@ -347,10 +324,7 @@ function App() {
             );
 
             // Add a check to prevent unnecessary updates
-            if (
-                JSON.stringify(lastSentDictionary) !==
-                JSON.stringify(dictionaryData)
-            ) {
+            if (JSON.stringify(lastSentDictionary) !== JSON.stringify(dictionaryData)) {
                 lastSentDictionary = dictionaryData;
                 vscode.postMessage({
                     command: "webviewTellsProviderToUpdateData",
@@ -363,9 +337,7 @@ function App() {
     useEffect(() => {
         // Define a debounced version of a function that dispatches a resize action
         const calculateNewMinWidth = (windowWidth: number) => {
-            const numColumns = state.columns.filter(
-                (column) => column.visible
-            ).length;
+            const numColumns = state.columns.filter((column) => column.visible).length;
             return (windowWidth - 60) / (numColumns - 1);
         };
 
@@ -392,9 +364,7 @@ function App() {
     }, [dispatch, state.columns.length]); // Only re-run the effect if `dispatch` changes
 
     useEffect(() => {
-        const handleReceiveMessage = (
-            event: MessageEvent<DictionaryReceiveMessages>
-        ) => {
+        const handleReceiveMessage = (event: MessageEvent<DictionaryReceiveMessages>) => {
             console.log("Received event:", event);
             const message = event.data;
             switch (message.command) {
@@ -410,14 +380,8 @@ function App() {
                     }
 
                     // Add a check to prevent unnecessary updates
-                    if (
-                        JSON.stringify(state.dictionary) !==
-                        JSON.stringify(dictionary)
-                    ) {
-                        console.log(
-                            "Dictionary before transformation:",
-                            dictionary
-                        );
+                    if (JSON.stringify(state.dictionary) !== JSON.stringify(dictionary)) {
+                        console.log("Dictionary before transformation:", dictionary);
                         const tableData = transformToTableData(dictionary);
                         dispatch({
                             type: ActionTypes.LOAD_DATA,
@@ -472,9 +436,7 @@ function App() {
             count: checkedRowsCount,
         } as DictionaryPostMessages);
     };
-    const deleteOptionShouldShow = state.data.some(
-        (row: any) => row[Constants.CHECKBOX_COLUMN_ID]
-    );
+    const deleteOptionShouldShow = state.data.some((row: any) => row[Constants.CHECKBOX_COLUMN_ID]);
     // console.log({ state });
 
     const [searchQuery, setSearchQuery] = useState("");
@@ -486,8 +448,7 @@ function App() {
     const filteredData = state.data.filter((row: any) => {
         return Object.values(row).some(
             (value) =>
-                typeof value === "string" &&
-                value.toLowerCase().includes(searchQuery.toLowerCase())
+                typeof value === "string" && value.toLowerCase().includes(searchQuery.toLowerCase())
         );
     });
 
@@ -545,9 +506,7 @@ function App() {
             <div className="app-container">
                 <div className="table-container">
                     <Table
-                        columns={state.columns.filter(
-                            (column) => column.visible
-                        )}
+                        columns={state.columns.filter((column) => column.visible)}
                         // data={state.data} 888
                         data={filteredData}
                         dispatch={dispatch}

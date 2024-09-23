@@ -5,5 +5,5 @@ import "./vscode.css";
 import "./App.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>{/* <Sidebar /> */}</React.StrictMode>
+    <React.StrictMode>{/* <Sidebar /> */}</React.StrictMode>
 );

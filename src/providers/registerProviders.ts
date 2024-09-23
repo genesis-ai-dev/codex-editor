@@ -18,7 +18,8 @@ export function registerProviders(context: vscode.ExtensionContext) {
     context.subscriptions.push(ObsEditorProvider.register(context));
 
     // Register TranslationNotesProvider
-    const { providerRegistration, commandRegistration } = TranslationNotesProvider.register(context);
+    const { providerRegistration, commandRegistration } =
+        TranslationNotesProvider.register(context);
     context.subscriptions.push(providerRegistration, commandRegistration);
 
     // Register DownloadedResourcesProvider

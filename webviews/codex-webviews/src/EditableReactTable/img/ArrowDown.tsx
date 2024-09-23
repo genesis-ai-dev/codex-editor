@@ -1,7 +1,7 @@
-import React from 'react';
+import React from "react";
 
 const ArrowDown: React.FC = () => {
-  return <span className="codicon codicon-chevron-down"></span>;
+    return <span className="codicon codicon-chevron-down"></span>;
 };
 
 export default ArrowDown;

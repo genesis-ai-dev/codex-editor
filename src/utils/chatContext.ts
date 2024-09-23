@@ -1,4 +1,4 @@
-import * as vscode from 'vscode';
+import * as vscode from "vscode";
 
 interface Note {
     note: string;
@@ -38,10 +38,13 @@ class VerseDataReader {
     private path: string = "no";
 
     constructor(private extensionContext: vscode.ExtensionContext) {
-        const filePath = vscode.Uri.joinPath(this.extensionContext.extensionUri, "src/utils/chat_context.json").fsPath;
+        const filePath = vscode.Uri.joinPath(
+            this.extensionContext.extensionUri,
+            "src/utils/chat_context.json"
+        ).fsPath;
         this.loadJSON(filePath)
             .then(() => console.log("JSON loaded successfully"))
-            .catch(error => console.error("Error loading JSON:", error));
+            .catch((error) => console.error("Error loading JSON:", error));
         this.path = filePath;
     }
 
@@ -68,7 +71,8 @@ class VerseDataReader {
         let result = `Notes for ${book} ${verse}:\n`;
 
         for (const note of verseData.notes) {
-            const refContent = this.data.references[note.ref_id]?.content || 'Reference content not found';
+            const refContent =
+                this.data.references[note.ref_id]?.content || "Reference content not found";
             result += `- Note: ${note.note}\n  Reference: ${refContent}\n`;
         }
 

@@ -18,9 +18,7 @@ function App() {
     const [frequentWords, setFrequentWords] = useState<string[]>([]);
 
     useEffect(() => {
-        const handleReceiveMessage = (
-            event: MessageEvent<DictionarySummaryPostMessages>
-        ) => {
+        const handleReceiveMessage = (event: MessageEvent<DictionarySummaryPostMessages>) => {
             const message = event.data;
             switch (message.command) {
                 case "providerSendsDataToWebview": {
@@ -29,9 +27,7 @@ function App() {
                     break;
                 }
                 case "providerSendsUpdatedWordFrequenciesToWebview": {
-                    setWordsInProjectDraft(
-                        Object.keys(message.wordFrequencies).length
-                    );
+                    setWordsInProjectDraft(Object.keys(message.wordFrequencies).length);
                     console.log(
                         "Entry count updated to:",
                         Object.keys(message.wordFrequencies).length
@@ -67,16 +63,13 @@ function App() {
     return (
         <div className="vscode-panel p-4 max-w-sm mx-auto">
             <VSCodePanels>
-                <VSCodePanelTab id="dictionary-summary">
-                    Dictionary Summary
-                </VSCodePanelTab>
+                <VSCodePanelTab id="dictionary-summary">Dictionary Summary</VSCodePanelTab>
                 <VSCodePanelView id="dictionary-summary">
                     <div className="flex flex-col items-center justify-center gap-2">
                         <p className="text-2xl font-bold mb-4">
                             Entries in dictionary: {entries}
                             <br />
-                            Words not in dictionary:{" "}
-                            {wordsInProjectDraft - entries}
+                            Words not in dictionary: {wordsInProjectDraft - entries}
                         </p>
                         <div className="space-y-2">
                             <VSCodeButton
@@ -94,9 +87,7 @@ function App() {
                         </div>
                     </div>
                 </VSCodePanelView>
-                <VSCodePanelTab id="word-frequency">
-                    Word Frequency
-                </VSCodePanelTab>
+                <VSCodePanelTab id="word-frequency">Word Frequency</VSCodePanelTab>
                 <VSCodePanelView>
                     <div className="space-y-2 mb-4 flex flex-col items-center justify-center gap-2">
                         <VSCodeButton

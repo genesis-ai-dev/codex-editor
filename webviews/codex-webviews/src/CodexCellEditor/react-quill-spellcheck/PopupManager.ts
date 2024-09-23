@@ -21,11 +21,7 @@ export default class PopupManager {
     }
 
     public initialize() {
-        if (
-            !this.eventListenerAdded &&
-            this.parent.quill &&
-            this.parent.quill.root
-        ) {
+        if (!this.eventListenerAdded && this.parent.quill && this.parent.quill.root) {
             this.addEventHandler();
             this.eventListenerAdded = true;
         }
@@ -67,7 +63,7 @@ export default class PopupManager {
         const length = parseInt(suggestion.getAttribute("data-length") || "0");
         const id = suggestion?.id?.replace("match-", "");
         const rule = this.parent.matches.find(
-            (r) => r.offset === offset && r.length === length && r.id === id,
+            (r) => r.offset === offset && r.length === length && r.id === id
         );
         if (!rule) {
             return;
@@ -75,10 +71,7 @@ export default class PopupManager {
         this.createSuggestionPopup(rule, suggestion);
     }
 
-    private createSuggestionPopup(
-        match: MatchesEntity,
-        suggestion: HTMLElement,
-    ) {
+    private createSuggestionPopup(match: MatchesEntity, suggestion: HTMLElement) {
         if (this.openPopup) {
             this.closePopup();
         }
@@ -86,17 +79,10 @@ export default class PopupManager {
 
         const applySuggestion = (replacement: string) => {
             this.parent.preventLoop();
-            this.parent.quill.setSelection(
-                match.offset,
-                match.length,
-                "silent",
-            );
+            this.parent.quill.setSelection(match.offset, match.length, "silent");
             this.parent.quill.deleteText(match.offset, match.length, "silent");
             this.parent.quill.insertText(match.offset, replacement, "silent");
-            this.parent.quill.setSelection(
-                match.offset + replacement.length,
-                "silent",
-            );
+            this.parent.quill.setSelection(match.offset + replacement.length, "silent");
             this.parent.boxes.removeCurrentSuggestionBox(match, replacement);
 
             this.closePopup();
@@ -125,10 +111,7 @@ export default class PopupManager {
         // button.setAttribute("data-replacement", replacement.value);
         button.textContent = `${match.text} → 📖`;
         button.onclick = () => {
-            console.log(
-                "add to dictionary spellcheck.addWord",
-                window.vscodeApi,
-            );
+            console.log("add to dictionary spellcheck.addWord", window.vscodeApi);
             try {
                 window.vscodeApi.postMessage({
                     command: "addWord",
@@ -139,10 +122,7 @@ export default class PopupManager {
                 // Trigger a spell check refresh
                 this.parent.checkSpelling();
             } catch (error) {
-                console.error(
-                    "spellcheck.addWord Error adding word to dictionary:",
-                    error,
-                );
+                console.error("spellcheck.addWord Error adding word to dictionary:", error);
                 // Optionally, you could show an error message to the user here
             }
         };

@@ -40,8 +40,7 @@ const CommentViewSlashEditorSlashDelete: React.FC<CommentProps> = ({
                     style={{
                         width: "100%",
                         border: "0",
-                        borderBottom:
-                            "1px solid var(--vscode-editor-foreground)",
+                        borderBottom: "1px solid var(--vscode-editor-foreground)",
                         margin: "10px 0",
                     }}
                 />
@@ -87,10 +86,7 @@ const CommentViewSlashEditorSlashDelete: React.FC<CommentProps> = ({
                             />
                             <DeleteButtonWithConfirmation
                                 handleDeleteButtonClick={() =>
-                                    handleCommentDeletion(
-                                        comment.id,
-                                        commentThreadId,
-                                    )
+                                    handleCommentDeletion(comment.id, commentThreadId)
                                 }
                             />
                         </div>

@@ -20,10 +20,7 @@ export const generateFiles = async ({
     }
 
     const newFilePath = vscode.Uri.file(
-        path.join(
-            workspaceFolder,
-            filepath.startsWith("/") ? filepath : `/${filepath}`,
-        ),
+        path.join(workspaceFolder, filepath.startsWith("/") ? filepath : `/${filepath}`)
     );
     let fileSuccessfullyCreated: boolean = false;
 
@@ -40,9 +37,9 @@ export const generateFiles = async ({
                     (err) => {
                         console.error(`Error: ${err}`);
                         vscode.window.showErrorMessage(
-                            `Error overwriting ${filepath} file: ${err.message}`,
+                            `Error overwriting ${filepath} file: ${err.message}`
                         );
-                    },
+                    }
                 );
             } else {
                 // vscode.window.showInformationMessage(
@@ -61,19 +58,16 @@ export const generateFiles = async ({
                 (err) => {
                     console.error(`Error: ${err}`);
                     vscode.window.showErrorMessage(
-                        `Error creating new ${filepath} file: ${err.message}`,
+                        `Error creating new ${filepath} file: ${err.message}`
                     );
-                },
+                }
             );
-        },
+        }
     );
     return fileSuccessfullyCreated;
 };
 
-export async function writeSerializedData(
-    serializedData: string,
-    filename: string,
-) {
+export async function writeSerializedData(serializedData: string, filename: string) {
     const fileHandler = new FileHandler();
 
     try {
@@ -121,9 +115,7 @@ export class FileHandler {
     }
 }
 
-export const getCommentsFromFile = async (
-    fileName: string,
-): Promise<NotebookCommentThread[]> => {
+export const getCommentsFromFile = async (fileName: string): Promise<NotebookCommentThread[]> => {
     try {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         console.log({ workspaceFolders });
@@ -141,9 +133,7 @@ export const getCommentsFromFile = async (
     }
 };
 
-export const getChatMessagesFromFile = async (
-    fileName: string,
-): Promise<ChatMessageThread[]> => {
+export const getChatMessagesFromFile = async (fileName: string): Promise<ChatMessageThread[]> => {
     try {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         const filePath = workspaceFolders
@@ -167,13 +157,10 @@ export const projectFileExists = async () => {
     if (!workspaceFolder) {
         return false;
     }
-    const projectFilePath = vscode.Uri.joinPath(
-        workspaceFolder.uri,
-        "metadata.json",
-    );
+    const projectFilePath = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
     const fileExists = await vscode.workspace.fs.stat(projectFilePath).then(
         () => true,
-        () => false,
+        () => false
     );
     return fileExists;
 };

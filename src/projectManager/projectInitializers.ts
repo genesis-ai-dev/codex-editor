@@ -336,15 +336,12 @@ export async function initializeProject(shouldImportUSFM: boolean) {
         vscode.window.showErrorMessage(
             "No workspace folder found. Please open a folder to store your project in."
         );
-      }
+    }
 
-      try {
-        await vscode.commands.executeCommand(
-          "translation-navigation.refreshNavigationTreeView"
-        );
-      } catch (error) {
+    try {
+        await vscode.commands.executeCommand("translation-navigation.refreshNavigationTreeView");
+    } catch (error) {
         console.log("Error calling commands of outside extension", error);
-      }
     }
 
     vscode.window.withProgress(
@@ -357,6 +354,15 @@ export async function initializeProject(shouldImportUSFM: boolean) {
             progress.report({ increment: 0, message: "Starting initialization..." });
 
             try {
+                const workspaceFolder = vscode.workspace.workspaceFolders
+                    ? vscode.workspace.workspaceFolders[0]
+                    : undefined;
+                if (!workspaceFolder) {
+                    vscode.window.showErrorMessage(
+                        "No workspace folder found. Please open a folder to store your project in."
+                    );
+                    return;
+                }
                 const projectFilePath = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
                 const fileData = await vscode.workspace.fs.readFile(projectFilePath);
                 const metadata = JSON.parse(fileData.toString());

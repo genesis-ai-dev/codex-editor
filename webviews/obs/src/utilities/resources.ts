@@ -14,7 +14,6 @@ export const RESOURCE_TYPES = [
 ] as const;
 
 export const handleOrgImage = (organization: string) => {
-    const icon =
-        resourceOrgIcons.find((org) => org.org === organization)?.icon || "";
+    const icon = resourceOrgIcons.find((org) => org.org === organization)?.icon || "";
     return icon;
 };

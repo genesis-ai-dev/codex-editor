@@ -77,16 +77,11 @@ export class SuggestionBoxes {
      *
      * This uses the matches stored in the parent class
      */
-    public removeCurrentSuggestionBox(
-        currentMatch: MatchesEntity,
-        replacement: string,
-    ) {
+    public removeCurrentSuggestionBox(currentMatch: MatchesEntity, replacement: string) {
         const start = currentMatch.offset + currentMatch.length;
         const diff = replacement.length - currentMatch.length;
         this.parent.matches = this.parent.matches
-            .filter(
-                (match) => match.replacements && match.replacements.length > 0,
-            )
+            .filter((match) => match.replacements && match.replacements.length > 0)
             .filter((match) => match.offset !== currentMatch.offset)
             .map((match) => {
                 if (match.offset >= start) {

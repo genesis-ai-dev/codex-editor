@@ -1,1169 +1,1657 @@
 [
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-11.jpg", "text": "" },
-      { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-12.jpg", "text": "" },
-      { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-13.jpg", "text": "" },
-      { "id": 14, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-14.jpg", "text": "" },
-      { "id": 15, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-15.jpg", "text": "" },
-      { "id": 16, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-16.jpg", "text": "" }
-    ],
-    "storyId": 1,
-    "title": "1. The Creation",
-    "end": "A Bible story from: Genesis 1-2",
-    "scope": {
-      "GEN": ["1-2"]
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-10.jpg",
+                "text": ""
+            },
+            {
+                "id": 11,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-11.jpg",
+                "text": ""
+            },
+            {
+                "id": 12,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-12.jpg",
+                "text": ""
+            },
+            {
+                "id": 13,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-13.jpg",
+                "text": ""
+            },
+            {
+                "id": 14,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-14.jpg",
+                "text": ""
+            },
+            {
+                "id": 15,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-15.jpg",
+                "text": ""
+            },
+            { "id": 16, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-01-16.jpg", "text": "" }
+        ],
+        "storyId": 1,
+        "title": "1. The Creation",
+        "end": "A Bible story from: Genesis 1-2",
+        "scope": {
+            "GEN": ["1-2"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-02-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-02-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-02-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-02-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-02-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-02-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-02-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-02-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-02-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-02-10.jpg",
+                "text": ""
+            },
+            {
+                "id": 11,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-02-11.jpg",
+                "text": ""
+            },
+            { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-02-12.jpg", "text": "" }
+        ],
+        "storyId": 2,
+        "title": "2. Sin Enters the World",
+        "end": "A Bible story from: Genesis 3",
+        "scope": {
+            "GEN": ["3"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-10.jpg",
+                "text": ""
+            },
+            {
+                "id": 11,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-11.jpg",
+                "text": ""
+            },
+            {
+                "id": 12,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-12.jpg",
+                "text": ""
+            },
+            {
+                "id": 13,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-13.jpg",
+                "text": ""
+            },
+            {
+                "id": 14,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-14.jpg",
+                "text": ""
+            },
+            {
+                "id": 15,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-15.jpg",
+                "text": ""
+            },
+            { "id": 16, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-16.jpg", "text": "" }
+        ],
+        "storyId": 3,
+        "title": "3. The Flood",
+        "end": "A Bible story from: Genesis 6-8",
+        "scope": {
+            "GEN": ["6-8"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-04-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-04-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-04-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-04-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-04-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-04-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-04-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-04-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-04-09.jpg", "text": "" }
+        ],
+        "storyId": 4,
+        "title": "4. God’s Covenant with Abraham",
+        "end": "A Bible story from: Genesis 11-15",
+        "scope": {
+            "GEN": ["11-15"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-05-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-05-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-05-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-05-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-05-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-05-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-05-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-05-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-05-09.jpg", "text": "" },
+            { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-05-10.jpg", "text": "" }
+        ],
+        "storyId": 5,
+        "title": "5. The Son of Promise",
+        "end": "A Bible story from: Genesis 16-22",
+        "scope": {
+            "GEN": ["16-22"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-06-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-06-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-06-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-06-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-06-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-06-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-06-07.jpg", "text": "" }
+        ],
+        "storyId": 6,
+        "title": "6. God Provides for Isaac",
+        "end": "A Bible story from: Genesis 24:1-25:26",
+        "scope": {
+            "GEN": ["24:1-25:26"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-07-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-07-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-07-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-07-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-07-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-07-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-07-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-07-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-07-09.jpg", "text": "" },
+            { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-07-10.jpg", "text": "" }
+        ],
+        "storyId": 7,
+        "title": "7. God Blesses Jacob",
+        "end": "A Bible story from: Genesis 25:27-35:29",
+        "scope": {
+            "GEN": ["25:27-35:29"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-10.jpg",
+                "text": ""
+            },
+            {
+                "id": 11,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-11.jpg",
+                "text": ""
+            },
+            {
+                "id": 12,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-12.jpg",
+                "text": ""
+            },
+            {
+                "id": 13,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-13.jpg",
+                "text": ""
+            },
+            {
+                "id": 14,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-14.jpg",
+                "text": ""
+            },
+            { "id": 15, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-15.jpg", "text": "" }
+        ],
+        "storyId": 8,
+        "title": "8. God Saves Joseph and His Family",
+        "end": "A Bible story from: Genesis 37-50",
+        "scope": {
+            "GEN": ["37-50"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-10.jpg",
+                "text": ""
+            },
+            {
+                "id": 11,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-11.jpg",
+                "text": ""
+            },
+            {
+                "id": 12,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-12.jpg",
+                "text": ""
+            },
+            {
+                "id": 13,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-13.jpg",
+                "text": ""
+            },
+            {
+                "id": 14,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-14.jpg",
+                "text": ""
+            },
+            { "id": 15, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-15.jpg", "text": "" }
+        ],
+        "storyId": 9,
+        "title": "9. God Calls Moses",
+        "end": "A Bible story from: Exodus 1-4",
+        "scope": {
+            "EXO": ["1-4"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-10-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-10-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-10-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-10-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-10-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-10-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-10-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-10-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-10-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-10-10.jpg",
+                "text": ""
+            },
+            {
+                "id": 11,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-10-11.jpg",
+                "text": ""
+            },
+            { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-10-12.jpg", "text": "" }
+        ],
+        "storyId": 10,
+        "title": "10. The Ten Plagues",
+        "end": "A Bible story from: Exodus 5-10",
+        "scope": {
+            "EXO": ["5-10"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-11-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-11-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-11-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-11-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-11-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-11-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-11-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-11-08.jpg", "text": "" }
+        ],
+        "storyId": 11,
+        "title": "11. The Passover",
+        "end": "A Bible story from: Exodus 11:1-12:32",
+        "scope": {
+            "EXO": ["11:1-12:32"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-10.jpg",
+                "text": ""
+            },
+            {
+                "id": 11,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-11.jpg",
+                "text": ""
+            },
+            {
+                "id": 12,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-12.jpg",
+                "text": ""
+            },
+            {
+                "id": 13,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-13.jpg",
+                "text": ""
+            },
+            { "id": 14, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-14.jpg", "text": "" }
+        ],
+        "storyId": 12,
+        "title": "12. The Exodus",
+        "end": "A Bible story from: Exodus 12:33-15:21",
+        "scope": {
+            "EXO": ["12:33-15:21"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-10.jpg",
+                "text": ""
+            },
+            {
+                "id": 11,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-11.jpg",
+                "text": ""
+            },
+            {
+                "id": 12,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-12.jpg",
+                "text": ""
+            },
+            {
+                "id": 13,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-13.jpg",
+                "text": ""
+            },
+            {
+                "id": 14,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-14.jpg",
+                "text": ""
+            },
+            { "id": 15, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-15.jpg", "text": "" }
+        ],
+        "storyId": 13,
+        "title": "13. God’s Covenant with Israel",
+        "end": "A Bible story from: Exodus 19-34",
+        "scope": {
+            "EXO": ["19-34"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-10.jpg",
+                "text": ""
+            },
+            {
+                "id": 11,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-11.jpg",
+                "text": ""
+            },
+            {
+                "id": 12,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-12.jpg",
+                "text": ""
+            },
+            {
+                "id": 13,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-13.jpg",
+                "text": ""
+            },
+            {
+                "id": 14,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-14.jpg",
+                "text": ""
+            },
+            { "id": 15, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-15.jpg", "text": "" }
+        ],
+        "storyId": 14,
+        "title": "14. Wandering in the Wilderness",
+        "end": "A Bible story from: Exodus 16-17; Numbers 10-14; 20; 27; Deuteronomy 34",
+        "scope": {
+            "EXO": ["16-17"],
+            "NUM": ["10-14", "20", "27"],
+            "DEU": ["34"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-15-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-15-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-15-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-15-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-15-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-15-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-15-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-15-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-15-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-15-10.jpg",
+                "text": ""
+            },
+            {
+                "id": 11,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-15-11.jpg",
+                "text": ""
+            },
+            {
+                "id": 12,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-15-12.jpg",
+                "text": ""
+            },
+            { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-15-13.jpg", "text": "" }
+        ],
+        "storyId": 15,
+        "title": "15. The Promised Land",
+        "end": "A Bible story from: Joshua 1-24",
+        "scope": {
+            "JOS": ["1-24"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-10.jpg",
+                "text": ""
+            },
+            {
+                "id": 11,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-11.jpg",
+                "text": ""
+            },
+            {
+                "id": 12,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-12.jpg",
+                "text": ""
+            },
+            {
+                "id": 13,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-13.jpg",
+                "text": ""
+            },
+            {
+                "id": 14,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-14.jpg",
+                "text": ""
+            },
+            {
+                "id": 15,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-15.jpg",
+                "text": ""
+            },
+            {
+                "id": 16,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-16.jpg",
+                "text": ""
+            },
+            {
+                "id": 17,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-17.jpg",
+                "text": ""
+            },
+            { "id": 18, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-18.jpg", "text": "" }
+        ],
+        "storyId": 16,
+        "title": "16. The Deliverers",
+        "end": "A Bible story from: Judges 1-3; 6-8; 1 Samuel 1-10",
+        "scope": {
+            "JDG": ["1-3", "6-8"],
+            "1SA": ["1-10"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-10.jpg",
+                "text": ""
+            },
+            {
+                "id": 11,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-11.jpg",
+                "text": ""
+            },
+            {
+                "id": 12,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-12.jpg",
+                "text": ""
+            },
+            {
+                "id": 13,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-13.jpg",
+                "text": ""
+            },
+            { "id": 14, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-14.jpg", "text": "" }
+        ],
+        "storyId": 17,
+        "title": "17. God’s Covenant with David",
+        "end": "A Bible story from: 1 Samuel 10; 15-19; 24; 31; 2 Samuel 5; 7; 11-12",
+        "scope": {
+            "1SA": ["10", "15-19", "24", "31"],
+            "2SA": ["5", "7", "11-12"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-18-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-18-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-18-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-18-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-18-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-18-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-18-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-18-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-18-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-18-10.jpg",
+                "text": ""
+            },
+            {
+                "id": 11,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-18-11.jpg",
+                "text": ""
+            },
+            {
+                "id": 12,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-18-12.jpg",
+                "text": ""
+            },
+            { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-18-13.jpg", "text": "" }
+        ],
+        "storyId": 18,
+        "title": "18. The Divided Kingdom",
+        "end": "A Bible story from: 1 Kings 1-6; 11-12",
+        "scope": {
+            "1KI": ["1-6", "11-12"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-10.jpg",
+                "text": ""
+            },
+            {
+                "id": 11,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-11.jpg",
+                "text": ""
+            },
+            {
+                "id": 12,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-12.jpg",
+                "text": ""
+            },
+            {
+                "id": 13,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-13.jpg",
+                "text": ""
+            },
+            {
+                "id": 14,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-14.jpg",
+                "text": ""
+            },
+            {
+                "id": 15,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-15.jpg",
+                "text": ""
+            },
+            {
+                "id": 16,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-16.jpg",
+                "text": ""
+            },
+            {
+                "id": 17,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-17.jpg",
+                "text": ""
+            },
+            { "id": 18, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-18.jpg", "text": "" }
+        ],
+        "storyId": 19,
+        "title": "19. The Prophets",
+        "end": "A Bible story from: 1 Kings 16-18; 2 Kings 5; Jeremiah 38",
+        "scope": {
+            "1KI": ["16-18"],
+            "2KI": ["5"],
+            "JER": ["38"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-20-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-20-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-20-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-20-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-20-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-20-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-20-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-20-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-20-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-20-10.jpg",
+                "text": ""
+            },
+            {
+                "id": 11,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-20-11.jpg",
+                "text": ""
+            },
+            {
+                "id": 12,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-20-12.jpg",
+                "text": ""
+            },
+            { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-20-13.jpg", "text": "" }
+        ],
+        "storyId": 20,
+        "title": "20. The Exile and Return",
+        "end": "A Bible story from: 2 Kings 17; 24-25; 2 Chronicles 36; Ezra 1-10; Nehemiah 1-13",
+        "scope": {
+            "2KI": ["17", "24-25"],
+            "2CH": ["36"],
+            "EZR": ["1-10"],
+            "NEH": ["1-13"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-10.jpg",
+                "text": ""
+            },
+            {
+                "id": 11,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-11.jpg",
+                "text": ""
+            },
+            {
+                "id": 12,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-12.jpg",
+                "text": ""
+            },
+            {
+                "id": 13,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-13.jpg",
+                "text": ""
+            },
+            {
+                "id": 14,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-14.jpg",
+                "text": ""
+            },
+            { "id": 15, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-15.jpg", "text": "" }
+        ],
+        "storyId": 21,
+        "title": "21. God Promises the Messiah",
+        "end": "A Bible story from: Genesis 3; 12; Deuteronomy 18:15; 2 Samuel 7; Psalm 16; 22; 35; 69; 41; Isaiah 7:14; 9:1-7; 61; 53; 50:6; 59:16; Jeremiah 31; Daniel 7; Micah 5:2; Zechariah 11:12-13; Malachi 4:5",
+        "scope": {
+            "GEN": ["3:15", "12:1-3"],
+            "DEU": ["18:15"],
+            "2SA": ["7"],
+            "JER": ["31"],
+            "ISA": ["59:16", "7:14", "9:1-7", "35:3-5", "61", "53", "50:6"],
+            "DAN": ["7"],
+            "MAL": ["4:5"],
+            "MIC": ["5:2"],
+            "PSA": ["22:18", "35:19", "69:4", "41:9", "16:10-11"],
+            "ZEC": ["11:12-13"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-22-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-22-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-22-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-22-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-22-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-22-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-22-07.jpg", "text": "" }
+        ],
+        "storyId": 22,
+        "title": "22. The Birth of John",
+        "end": "A Bible story from: Luke 1",
+        "scope": {
+            "LUK": ["1"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-23-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-23-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-23-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-23-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-23-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-23-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-23-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-23-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-23-09.jpg", "text": "" },
+            { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-23-10.jpg", "text": "" }
+        ],
+        "storyId": 23,
+        "title": "23. The Birth of Jesus",
+        "end": "A Bible story from: Matthew 1-2; Luke 2",
+        "scope": {
+            "MAT": ["1"],
+            "LUK": ["2"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-24-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-24-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-24-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-24-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-24-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-24-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-24-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-24-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-24-09.jpg", "text": "" }
+        ],
+        "storyId": 24,
+        "title": "24. John Baptizes Jesus",
+        "end": "A Bible story from: Matthew 3; Mark 1; Luke 3; John 1:15-37",
+        "scope": {
+            "MAT": ["3"],
+            "MRK": ["1:9-11"],
+            "LUK": ["3:1-23"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-25-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-25-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-25-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-25-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-25-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-25-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-25-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-25-08.jpg", "text": "" }
+        ],
+        "storyId": 25,
+        "title": "25. Satan Tempts Jesus",
+        "end": "A Bible story from: Matthew 4:1-11; Mark 1:12-13; Luke 4:1-13",
+        "scope": {
+            "MAT": ["4:1-11"],
+            "MRK": ["1:12-13"],
+            "LUK": ["4:1-13"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-26-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-26-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-26-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-26-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-26-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-26-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-26-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-26-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-26-09.jpg", "text": "" },
+            { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-26-10.jpg", "text": "" }
+        ],
+        "storyId": 26,
+        "title": "26. Jesus Starts His Ministry",
+        "end": "A Bible story from: Matthew 4:12-25; Mark 1-3; Luke 4",
+        "scope": {
+            "MAT": ["4:12-25"],
+            "MRK": ["1:14-15", "35-39", "3:13-21"],
+            "LUK": ["4:14-30", "38-44"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-27-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-27-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-27-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-27-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-27-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-27-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-27-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-27-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-27-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-27-10.jpg",
+                "text": ""
+            },
+            { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-27-11.jpg", "text": "" }
+        ],
+        "storyId": 27,
+        "title": "27. The Story of the Good Samaritan",
+        "end": "A Bible story from: Luke 10:25-37",
+        "scope": {
+            "LUK": ["10:25-37"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-28-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-28-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-28-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-28-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-28-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-28-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-28-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-28-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-28-09.jpg", "text": "" },
+            { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-28-10.jpg", "text": "" }
+        ],
+        "storyId": 28,
+        "title": "28. The Rich Young Ruler",
+        "end": "A Bible story from: Matthew 19:16-30; Mark 10:17-31; Luke 18:18-30",
+        "scope": {
+            "MAT": ["19:16-30"],
+            "MRK": ["10:17-31"],
+            "LUK": ["18:18-30"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-29-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-29-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-29-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-29-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-29-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-29-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-29-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-29-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-29-09.jpg", "text": "" }
+        ],
+        "storyId": 29,
+        "title": "29. The Story of the Unmerciful Servant",
+        "end": "A Bible story from: Matthew 18:21-35",
+        "scope": {
+            "MAT": ["18:21-35"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-30-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-30-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-30-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-30-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-30-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-30-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-30-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-30-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-30-09.jpg", "text": "" }
+        ],
+        "storyId": 30,
+        "title": "30. Jesus Feeds Thousands of People",
+        "end": "A Bible story from: Matthew 14:13-21; Mark 6:31-44; Luke 9:10-17; John 6:5-15",
+        "scope": {
+            "MAT": ["14:13-21"],
+            "MRK": ["6:31-44"],
+            "LUK": ["9:10-17"],
+            "JHN": ["6:5-15"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-31-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-31-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-31-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-31-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-31-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-31-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-31-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-31-08.jpg", "text": "" }
+        ],
+        "storyId": 31,
+        "title": "31. Jesus Walks on Water",
+        "end": "A Bible story from: Matthew 14:22-33; Mark 6:45-52; John 6:16-21",
+        "scope": {
+            "MAT": ["14:22-33"],
+            "MRK": ["6:45-52"],
+            "JHN": ["6:16-21"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-10.jpg",
+                "text": ""
+            },
+            {
+                "id": 11,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-11.jpg",
+                "text": ""
+            },
+            {
+                "id": 12,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-12.jpg",
+                "text": ""
+            },
+            {
+                "id": 13,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-13.jpg",
+                "text": ""
+            },
+            {
+                "id": 14,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-14.jpg",
+                "text": ""
+            },
+            {
+                "id": 15,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-15.jpg",
+                "text": ""
+            },
+            { "id": 16, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-16.jpg", "text": "" }
+        ],
+        "storyId": 32,
+        "title": "32. Jesus Heals a Demon-Possessed Man & a Sick Woman",
+        "end": "A Bible story from: Matthew 8:28-34; 9:20-22; Mark 5; Luke 8:26-48",
+        "scope": {
+            "MAT": ["8:28-34", "9:20-22"],
+            "MRK": ["5:1-20", "5:24-34"],
+            "LUK": ["8:26-39", "8:42-48"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-33-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-33-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-33-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-33-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-33-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-33-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-33-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-33-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-33-09.jpg", "text": "" }
+        ],
+        "storyId": 33,
+        "title": "33. The Story of the Farmer",
+        "end": "A Bible story from: Matthew 13:1-23; Mark 4:1-20; Luke 8:4-15",
+        "scope": {
+            "MAT": ["13:1-8", "18-23"],
+            "MRK": ["4:1-8", "13-20"],
+            "LUK": ["8:4-15"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-34-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-34-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-34-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-34-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-34-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-34-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-34-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-34-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-34-09.jpg", "text": "" },
+            { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-34-10.jpg", "text": "" }
+        ],
+        "storyId": 34,
+        "title": "34. Jesus Teaches Other Stories",
+        "end": "A Bible story from: Matthew 13:31-46; Mark 4:26-34; Luke 13:18-21; 18:9-14",
+        "scope": {
+            "MAT": ["13:31-33", "44-46"],
+            "MRK": ["4:30-32"],
+            "LUK": ["13:18-21", "18:9-14"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-35-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-35-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-35-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-35-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-35-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-35-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-35-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-35-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-35-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-35-10.jpg",
+                "text": ""
+            },
+            {
+                "id": 11,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-35-11.jpg",
+                "text": ""
+            },
+            {
+                "id": 12,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-35-12.jpg",
+                "text": ""
+            },
+            { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-35-13.jpg", "text": "" }
+        ],
+        "storyId": 35,
+        "title": "35. The Story of the Compassionate Father",
+        "end": "A Bible story from: Luke 15",
+        "scope": {
+            "LUK": ["15:11-32"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-36-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-36-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-36-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-36-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-36-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-36-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-36-07.jpg", "text": "" }
+        ],
+        "storyId": 36,
+        "title": "36. The Transfiguration",
+        "end": "A Bible story from: Matthew 17:1-9; Mark 9:2-8; Luke 9:28-36",
+        "scope": {
+            "MAT": ["17:1-9"],
+            "MRK": ["9:2-8"],
+            "LUK": ["9:28-36"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-37-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-37-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-37-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-37-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-37-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-37-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-37-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-37-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-37-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-37-10.jpg",
+                "text": ""
+            },
+            { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-37-11.jpg", "text": "" }
+        ],
+        "storyId": 37,
+        "title": "37. Jesus Raises Lazarus from the Dead",
+        "end": "A Bible story from: John 11:1-46",
+        "scope": {
+            "JHN": ["11:1-46"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-10.jpg",
+                "text": ""
+            },
+            {
+                "id": 11,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-11.jpg",
+                "text": ""
+            },
+            {
+                "id": 12,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-12.jpg",
+                "text": ""
+            },
+            {
+                "id": 13,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-13.jpg",
+                "text": ""
+            },
+            {
+                "id": 14,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-14.jpg",
+                "text": ""
+            },
+            { "id": 15, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-15.jpg", "text": "" }
+        ],
+        "storyId": 38,
+        "title": "38. Jesus Is Betrayed",
+        "end": "A Bible story from: Matthew 26:14-56; Mark 14:10-50; Luke 22:1-53; John 18:1-11",
+        "scope": {
+            "MAT": ["26:14-56"],
+            "MRK": ["14:10-50"],
+            "LUK": ["22:1-53"],
+            "JHN": ["12:6", "18:1-11"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-39-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-39-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-39-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-39-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-39-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-39-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-39-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-39-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-39-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-39-10.jpg",
+                "text": ""
+            },
+            {
+                "id": 11,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-39-11.jpg",
+                "text": ""
+            },
+            { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-39-12.jpg", "text": "" }
+        ],
+        "storyId": 39,
+        "title": "39. Jesus Is Put on Trial",
+        "end": "A Bible story from: Matthew 26:57-27:26; Mark 14:53-15:15; Luke 22:54-23:25; John 18:12-19:16",
+        "scope": {
+            "MAT": ["26:57-27:26"],
+            "MRK": ["14:53-15:15"],
+            "LUK": ["22:54-23:25"],
+            "JHN": ["18:12-19:16"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-40-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-40-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-40-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-40-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-40-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-40-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-40-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-40-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-40-09.jpg", "text": "" }
+        ],
+        "storyId": 40,
+        "title": "40. Jesus Is Crucified",
+        "end": "A Bible story from: Matthew 27:27-61; Mark 15:16-47; Luke 23:26-56; John 19:17-42",
+        "scope": {
+            "MAT": ["27:27-61"],
+            "MRK": ["15:16-47"],
+            "LUK": ["23:26-56"],
+            "JHN": ["19:17-42"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-41-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-41-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-41-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-41-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-41-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-41-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-41-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-41-08.jpg", "text": "" }
+        ],
+        "storyId": 41,
+        "title": "41. God Raises Jesus from the Dead",
+        "end": "A Bible story from: Matthew 27:62-28:15; Mark 16:1-11; Luke 24:1-12; John 20:1-18",
+        "scope": {
+            "MAT": ["27:62-28:15"],
+            "MRK": ["16:1-11"],
+            "LUK": ["24:1-12"],
+            "JHN": ["20:1-18"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-42-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-42-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-42-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-42-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-42-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-42-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-42-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-42-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-42-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-42-10.jpg",
+                "text": ""
+            },
+            { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-42-11.jpg", "text": "" }
+        ],
+        "storyId": 42,
+        "title": "42. Jesus Returns to Heaven",
+        "end": "A Bible story from: Matthew 28:16-20; Mark 16:12-20; Luke 24:13-53; John 20:19-23; Acts 1:1-11",
+        "scope": {
+            "MAT": ["28:16-20"],
+            "MRK": ["16:12-20"],
+            "LUK": ["24:13-53"],
+            "JHN": ["20:19-23"],
+            "ACT": ["1:1-11"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-43-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-43-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-43-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-43-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-43-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-43-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-43-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-43-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-43-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-43-10.jpg",
+                "text": ""
+            },
+            {
+                "id": 11,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-43-11.jpg",
+                "text": ""
+            },
+            {
+                "id": 12,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-43-12.jpg",
+                "text": ""
+            },
+            { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-43-13.jpg", "text": "" }
+        ],
+        "storyId": 43,
+        "title": "43. The Church Begins",
+        "end": "A Bible story from: Acts 1:12-14; 2",
+        "scope": {
+            "ACT": ["2"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-44-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-44-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-44-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-44-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-44-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-44-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-44-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-44-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-44-09.jpg", "text": "" }
+        ],
+        "storyId": 44,
+        "title": "44. Peter and John Heal a Beggar",
+        "end": "A Bible story from: Acts 3-4:22",
+        "scope": {
+            "ACT": ["3:1-4:22"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-45-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-45-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-45-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-45-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-45-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-45-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-45-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-45-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-45-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-45-10.jpg",
+                "text": ""
+            },
+            {
+                "id": 11,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-45-11.jpg",
+                "text": ""
+            },
+            {
+                "id": 12,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-45-12.jpg",
+                "text": ""
+            },
+            { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-45-13.jpg", "text": "" }
+        ],
+        "storyId": 45,
+        "title": "45. Stephen and Philip",
+        "end": "A Bible story from: Acts 6-8",
+        "scope": {
+            "ACT": ["6:8-8:5", "8:26-40"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-46-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-46-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-46-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-46-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-46-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-46-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-46-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-46-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-46-09.jpg", "text": "" },
+            { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-46-10.jpg", "text": "" }
+        ],
+        "storyId": 46,
+        "title": "46. Saul Becomes a Follower of Jesus",
+        "end": "A Bible story from: Acts 8:1-3; 9:1-31; 11:19-26; 13-14",
+        "scope": {
+            "ACT": ["8:3", "9:1-31", "11:19-26", "13:1-3"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-10.jpg",
+                "text": ""
+            },
+            {
+                "id": 11,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-11.jpg",
+                "text": ""
+            },
+            {
+                "id": 12,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-12.jpg",
+                "text": ""
+            },
+            {
+                "id": 13,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-13.jpg",
+                "text": ""
+            },
+            { "id": 14, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-14.jpg", "text": "" }
+        ],
+        "storyId": 47,
+        "title": "47. Paul and Silas in Philippi",
+        "end": "A Bible story from: Acts 16:11-40",
+        "scope": {
+            "ACT": ["16:11-40"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-10.jpg",
+                "text": ""
+            },
+            {
+                "id": 11,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-11.jpg",
+                "text": ""
+            },
+            {
+                "id": 12,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-12.jpg",
+                "text": ""
+            },
+            {
+                "id": 13,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-13.jpg",
+                "text": ""
+            },
+            { "id": 14, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-14.jpg", "text": "" }
+        ],
+        "storyId": 48,
+        "title": "48. Jesus Is the Promised Messiah",
+        "end": "A Bible story from: Genesis 1-3, 6, 14, 22; Exodus 12, 20; 2 Samuel 7; Hebrews 3:1-6, 4:14-5:10, 7:1-8:13, 9:11-10:18; Revelation 21",
+        "scope": {
+            "GEN": ["1-3", "6", "14", "22"],
+            "EXO": ["12", "20"],
+            "2SA": ["7"],
+            "HEB": ["3:1-6", "4:14-5:10", "7:1-8:13", "9:11-10:18"],
+            "REV": ["21"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-10.jpg",
+                "text": ""
+            },
+            {
+                "id": 11,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-11.jpg",
+                "text": ""
+            },
+            {
+                "id": 12,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-12.jpg",
+                "text": ""
+            },
+            {
+                "id": 13,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-13.jpg",
+                "text": ""
+            },
+            {
+                "id": 14,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-14.jpg",
+                "text": ""
+            },
+            {
+                "id": 15,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-15.jpg",
+                "text": ""
+            },
+            {
+                "id": 16,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-16.jpg",
+                "text": ""
+            },
+            {
+                "id": 17,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-17.jpg",
+                "text": ""
+            },
+            { "id": 18, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-18.jpg", "text": "" }
+        ],
+        "storyId": 49,
+        "title": "49. God’s New Covenant",
+        "end": "A Bible story from: Genesis 3; Matthew 13-14; Mark 10:17-31; Luke 2; 10:25-37; 15; John 3:16; Romans 3:21-26, 5:1-11; 2 Corinthians 5:17-21; Colossians 1:13-14; 1 John 1:5-10",
+        "scope": {
+            "ROM": ["3:21-26", "5:1-11"],
+            "JHN": ["3:16"],
+            "MRK": ["16:16"],
+            "COL": ["1:13-14"],
+            "2CO": ["5:17-21"],
+            "1JN": ["1:5-10"]
+        }
+    },
+    {
+        "story": [
+            { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-01.jpg", "text": "" },
+            { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-02.jpg", "text": "" },
+            { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-03.jpg", "text": "" },
+            { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-04.jpg", "text": "" },
+            { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-05.jpg", "text": "" },
+            { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-06.jpg", "text": "" },
+            { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-07.jpg", "text": "" },
+            { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-08.jpg", "text": "" },
+            { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-09.jpg", "text": "" },
+            {
+                "id": 10,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-10.jpg",
+                "text": ""
+            },
+            {
+                "id": 11,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-11.jpg",
+                "text": ""
+            },
+            {
+                "id": 12,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-12.jpg",
+                "text": ""
+            },
+            {
+                "id": 13,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-13.jpg",
+                "text": ""
+            },
+            {
+                "id": 14,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-14.jpg",
+                "text": ""
+            },
+            {
+                "id": 15,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-15.jpg",
+                "text": ""
+            },
+            {
+                "id": 16,
+                "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-16.jpg",
+                "text": ""
+            },
+            { "id": 17, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-17.jpg", "text": "" }
+        ],
+        "storyId": 50,
+        "title": "50. Jesus Returns",
+        "end": "A Bible story from: Matthew 13:24-42; 22:13; 24:14; 28:18; John 4:35; 15:20; 16:33; 1 Thessalonians 4:13-5:11; James 1:12; Revelation 2:10; 20:10; 21-22",
+        "scope": {
+            "MAT": ["24:14", "28:18", "13:24-30", "13:36-42", "22:13"],
+            "JHN": ["15:20", "16:33"],
+            "REV": ["2:10", "20:10", "21:1-22:21"],
+            "1TH": ["4:13-5:11"],
+            "JAS": ["1:12"]
+        }
     }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-02-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-02-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-02-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-02-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-02-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-02-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-02-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-02-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-02-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-02-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-02-11.jpg", "text": "" },
-      { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-02-12.jpg", "text": "" }
-    ],
-    "storyId": 2,
-    "title": "2. Sin Enters the World",
-    "end": "A Bible story from: Genesis 3",
-    "scope": {
-      "GEN": ["3"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-11.jpg", "text": "" },
-      { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-12.jpg", "text": "" },
-      { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-13.jpg", "text": "" },
-      { "id": 14, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-14.jpg", "text": "" },
-      { "id": 15, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-15.jpg", "text": "" },
-      { "id": 16, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-03-16.jpg", "text": "" }
-    ],
-    "storyId": 3,
-    "title": "3. The Flood",
-    "end": "A Bible story from: Genesis 6-8",
-    "scope": {
-      "GEN": ["6-8"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-04-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-04-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-04-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-04-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-04-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-04-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-04-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-04-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-04-09.jpg", "text": "" }
-    ],
-    "storyId": 4,
-    "title": "4. God’s Covenant with Abraham",
-    "end": "A Bible story from: Genesis 11-15",
-    "scope": {
-      "GEN": ["11-15"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-05-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-05-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-05-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-05-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-05-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-05-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-05-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-05-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-05-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-05-10.jpg", "text": "" }
-    ],
-    "storyId": 5,
-    "title": "5. The Son of Promise",
-    "end": "A Bible story from: Genesis 16-22",
-    "scope": {
-      "GEN": ["16-22"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-06-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-06-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-06-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-06-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-06-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-06-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-06-07.jpg", "text": "" }
-    ],
-    "storyId": 6,
-    "title": "6. God Provides for Isaac",
-    "end": "A Bible story from: Genesis 24:1-25:26",
-    "scope": {
-      "GEN": ["24:1-25:26"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-07-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-07-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-07-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-07-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-07-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-07-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-07-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-07-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-07-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-07-10.jpg", "text": "" }
-    ],
-    "storyId": 7,
-    "title": "7. God Blesses Jacob",
-    "end": "A Bible story from: Genesis 25:27-35:29",
-    "scope": {
-      "GEN": ["25:27-35:29"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-11.jpg", "text": "" },
-      { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-12.jpg", "text": "" },
-      { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-13.jpg", "text": "" },
-      { "id": 14, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-14.jpg", "text": "" },
-      { "id": 15, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-08-15.jpg", "text": "" }
-    ],
-    "storyId": 8,
-    "title": "8. God Saves Joseph and His Family",
-    "end": "A Bible story from: Genesis 37-50",
-    "scope": {
-      "GEN": ["37-50"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-11.jpg", "text": "" },
-      { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-12.jpg", "text": "" },
-      { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-13.jpg", "text": "" },
-      { "id": 14, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-14.jpg", "text": "" },
-      { "id": 15, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-09-15.jpg", "text": "" }
-    ],
-    "storyId": 9,
-    "title": "9. God Calls Moses",
-    "end": "A Bible story from: Exodus 1-4",
-    "scope": {
-      "EXO": ["1-4"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-10-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-10-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-10-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-10-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-10-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-10-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-10-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-10-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-10-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-10-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-10-11.jpg", "text": "" },
-      { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-10-12.jpg", "text": "" }
-    ],
-    "storyId": 10,
-    "title": "10. The Ten Plagues",
-    "end": "A Bible story from: Exodus 5-10",
-    "scope": {
-      "EXO": ["5-10"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-11-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-11-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-11-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-11-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-11-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-11-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-11-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-11-08.jpg", "text": "" }
-    ],
-    "storyId": 11,
-    "title": "11. The Passover",
-    "end": "A Bible story from: Exodus 11:1-12:32",
-    "scope": {
-      "EXO": ["11:1-12:32"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-11.jpg", "text": "" },
-      { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-12.jpg", "text": "" },
-      { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-13.jpg", "text": "" },
-      { "id": 14, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-12-14.jpg", "text": "" }
-    ],
-    "storyId": 12,
-    "title": "12. The Exodus",
-    "end": "A Bible story from: Exodus 12:33-15:21",
-    "scope": {
-      "EXO": ["12:33-15:21"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-11.jpg", "text": "" },
-      { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-12.jpg", "text": "" },
-      { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-13.jpg", "text": "" },
-      { "id": 14, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-14.jpg", "text": "" },
-      { "id": 15, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-13-15.jpg", "text": "" }
-    ],
-    "storyId": 13,
-    "title": "13. God’s Covenant with Israel",
-    "end": "A Bible story from: Exodus 19-34",
-    "scope": {
-      "EXO": ["19-34"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-11.jpg", "text": "" },
-      { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-12.jpg", "text": "" },
-      { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-13.jpg", "text": "" },
-      { "id": 14, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-14.jpg", "text": "" },
-      { "id": 15, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-14-15.jpg", "text": "" }
-    ],
-    "storyId": 14,
-    "title": "14. Wandering in the Wilderness",
-    "end": "A Bible story from: Exodus 16-17; Numbers 10-14; 20; 27; Deuteronomy 34",
-    "scope": {
-      "EXO": ["16-17"],
-      "NUM": ["10-14", "20", "27"],
-      "DEU": ["34"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-15-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-15-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-15-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-15-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-15-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-15-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-15-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-15-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-15-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-15-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-15-11.jpg", "text": "" },
-      { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-15-12.jpg", "text": "" },
-      { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-15-13.jpg", "text": "" }
-    ],
-    "storyId": 15,
-    "title": "15. The Promised Land",
-    "end": "A Bible story from: Joshua 1-24",
-    "scope": {
-      "JOS": ["1-24"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-11.jpg", "text": "" },
-      { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-12.jpg", "text": "" },
-      { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-13.jpg", "text": "" },
-      { "id": 14, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-14.jpg", "text": "" },
-      { "id": 15, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-15.jpg", "text": "" },
-      { "id": 16, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-16.jpg", "text": "" },
-      { "id": 17, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-17.jpg", "text": "" },
-      { "id": 18, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-16-18.jpg", "text": "" }
-    ],
-    "storyId": 16,
-    "title": "16. The Deliverers",
-    "end": "A Bible story from: Judges 1-3; 6-8; 1 Samuel 1-10",
-    "scope": {
-      "JDG": ["1-3", "6-8"],
-      "1SA": ["1-10"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-11.jpg", "text": "" },
-      { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-12.jpg", "text": "" },
-      { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-13.jpg", "text": "" },
-      { "id": 14, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-17-14.jpg", "text": "" }
-    ],
-    "storyId": 17,
-    "title": "17. God’s Covenant with David",
-    "end": "A Bible story from: 1 Samuel 10; 15-19; 24; 31; 2 Samuel 5; 7; 11-12",
-    "scope": {
-      "1SA": ["10", "15-19", "24", "31"],
-      "2SA": ["5", "7", "11-12"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-18-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-18-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-18-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-18-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-18-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-18-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-18-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-18-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-18-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-18-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-18-11.jpg", "text": "" },
-      { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-18-12.jpg", "text": "" },
-      { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-18-13.jpg", "text": "" }
-    ],
-    "storyId": 18,
-    "title": "18. The Divided Kingdom",
-    "end": "A Bible story from: 1 Kings 1-6; 11-12",
-    "scope": {
-      "1KI": ["1-6", "11-12"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-11.jpg", "text": "" },
-      { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-12.jpg", "text": "" },
-      { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-13.jpg", "text": "" },
-      { "id": 14, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-14.jpg", "text": "" },
-      { "id": 15, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-15.jpg", "text": "" },
-      { "id": 16, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-16.jpg", "text": "" },
-      { "id": 17, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-17.jpg", "text": "" },
-      { "id": 18, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-19-18.jpg", "text": "" }
-    ],
-    "storyId": 19,
-    "title": "19. The Prophets",
-    "end": "A Bible story from: 1 Kings 16-18; 2 Kings 5; Jeremiah 38",
-    "scope": {
-      "1KI": ["16-18"],
-      "2KI": ["5"],
-      "JER": ["38"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-20-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-20-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-20-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-20-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-20-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-20-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-20-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-20-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-20-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-20-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-20-11.jpg", "text": "" },
-      { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-20-12.jpg", "text": "" },
-      { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-20-13.jpg", "text": "" }
-    ],
-    "storyId": 20,
-    "title": "20. The Exile and Return",
-    "end": "A Bible story from: 2 Kings 17; 24-25; 2 Chronicles 36; Ezra 1-10; Nehemiah 1-13",
-    "scope": {
-      "2KI": ["17", "24-25"],
-      "2CH": ["36"],
-      "EZR": ["1-10"],
-      "NEH": ["1-13"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-11.jpg", "text": "" },
-      { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-12.jpg", "text": "" },
-      { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-13.jpg", "text": "" },
-      { "id": 14, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-14.jpg", "text": "" },
-      { "id": 15, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-21-15.jpg", "text": "" }
-    ],
-    "storyId": 21,
-    "title": "21. God Promises the Messiah",
-    "end": "A Bible story from: Genesis 3; 12; Deuteronomy 18:15; 2 Samuel 7; Psalm 16; 22; 35; 69; 41; Isaiah 7:14; 9:1-7; 61; 53; 50:6; 59:16; Jeremiah 31; Daniel 7; Micah 5:2; Zechariah 11:12-13; Malachi 4:5",
-    "scope": {
-      "GEN": ["3:15", "12:1-3"],
-      "DEU": ["18:15"],
-      "2SA": ["7"],
-      "JER": ["31"],
-      "ISA": ["59:16", "7:14", "9:1-7", "35:3-5", "61", "53", "50:6"],
-      "DAN": ["7"],
-      "MAL": ["4:5"],
-      "MIC": ["5:2"],
-      "PSA": ["22:18", "35:19", "69:4", "41:9", "16:10-11"],
-      "ZEC": ["11:12-13"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-22-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-22-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-22-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-22-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-22-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-22-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-22-07.jpg", "text": "" }
-    ],
-    "storyId": 22,
-    "title": "22. The Birth of John",
-    "end": "A Bible story from: Luke 1",
-    "scope": {
-      "LUK": ["1"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-23-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-23-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-23-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-23-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-23-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-23-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-23-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-23-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-23-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-23-10.jpg", "text": "" }
-    ],
-    "storyId": 23,
-    "title": "23. The Birth of Jesus",
-    "end": "A Bible story from: Matthew 1-2; Luke 2",
-    "scope": {
-      "MAT": ["1"],
-      "LUK": ["2"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-24-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-24-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-24-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-24-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-24-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-24-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-24-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-24-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-24-09.jpg", "text": "" }
-    ],
-    "storyId": 24,
-    "title": "24. John Baptizes Jesus",
-    "end": "A Bible story from: Matthew 3; Mark 1; Luke 3; John 1:15-37",
-    "scope": {
-      "MAT": ["3"],
-      "MRK": ["1:9-11"],
-      "LUK": ["3:1-23"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-25-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-25-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-25-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-25-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-25-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-25-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-25-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-25-08.jpg", "text": "" }
-    ],
-    "storyId": 25,
-    "title": "25. Satan Tempts Jesus",
-    "end": "A Bible story from: Matthew 4:1-11; Mark 1:12-13; Luke 4:1-13",
-    "scope": {
-      "MAT": ["4:1-11"],
-      "MRK": ["1:12-13"],
-      "LUK": ["4:1-13"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-26-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-26-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-26-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-26-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-26-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-26-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-26-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-26-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-26-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-26-10.jpg", "text": "" }
-    ],
-    "storyId": 26,
-    "title": "26. Jesus Starts His Ministry",
-    "end": "A Bible story from: Matthew 4:12-25; Mark 1-3; Luke 4",
-    "scope": {
-      "MAT": ["4:12-25"],
-      "MRK": ["1:14-15", "35-39", "3:13-21"],
-      "LUK": ["4:14-30", "38-44"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-27-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-27-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-27-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-27-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-27-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-27-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-27-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-27-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-27-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-27-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-27-11.jpg", "text": "" }
-    ],
-    "storyId": 27,
-    "title": "27. The Story of the Good Samaritan",
-    "end": "A Bible story from: Luke 10:25-37",
-    "scope": {
-      "LUK": ["10:25-37"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-28-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-28-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-28-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-28-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-28-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-28-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-28-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-28-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-28-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-28-10.jpg", "text": "" }
-    ],
-    "storyId": 28,
-    "title": "28. The Rich Young Ruler",
-    "end": "A Bible story from: Matthew 19:16-30; Mark 10:17-31; Luke 18:18-30",
-    "scope": {
-      "MAT": ["19:16-30"],
-      "MRK": ["10:17-31"],
-      "LUK": ["18:18-30"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-29-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-29-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-29-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-29-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-29-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-29-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-29-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-29-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-29-09.jpg", "text": "" }
-    ],
-    "storyId": 29,
-    "title": "29. The Story of the Unmerciful Servant",
-    "end": "A Bible story from: Matthew 18:21-35",
-    "scope": {
-      "MAT": ["18:21-35"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-30-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-30-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-30-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-30-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-30-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-30-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-30-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-30-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-30-09.jpg", "text": "" }
-    ],
-    "storyId": 30,
-    "title": "30. Jesus Feeds Thousands of People",
-    "end": "A Bible story from: Matthew 14:13-21; Mark 6:31-44; Luke 9:10-17; John 6:5-15",
-    "scope": {
-      "MAT": ["14:13-21"],
-      "MRK": ["6:31-44"],
-      "LUK": ["9:10-17"],
-      "JHN": ["6:5-15"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-31-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-31-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-31-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-31-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-31-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-31-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-31-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-31-08.jpg", "text": "" }
-    ],
-    "storyId": 31,
-    "title": "31. Jesus Walks on Water",
-    "end": "A Bible story from: Matthew 14:22-33; Mark 6:45-52; John 6:16-21",
-    "scope": {
-      "MAT": ["14:22-33"],
-      "MRK": ["6:45-52"],
-      "JHN": ["6:16-21"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-11.jpg", "text": "" },
-      { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-12.jpg", "text": "" },
-      { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-13.jpg", "text": "" },
-      { "id": 14, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-14.jpg", "text": "" },
-      { "id": 15, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-15.jpg", "text": "" },
-      { "id": 16, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-32-16.jpg", "text": "" }
-    ],
-    "storyId": 32,
-    "title": "32. Jesus Heals a Demon-Possessed Man & a Sick Woman",
-    "end": "A Bible story from: Matthew 8:28-34; 9:20-22; Mark 5; Luke 8:26-48",
-    "scope": {
-      "MAT": ["8:28-34", "9:20-22"],
-      "MRK": ["5:1-20", "5:24-34"],
-      "LUK": ["8:26-39", "8:42-48"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-33-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-33-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-33-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-33-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-33-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-33-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-33-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-33-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-33-09.jpg", "text": "" }
-    ],
-    "storyId": 33,
-    "title": "33. The Story of the Farmer",
-    "end": "A Bible story from: Matthew 13:1-23; Mark 4:1-20; Luke 8:4-15",
-    "scope": {
-      "MAT": ["13:1-8", "18-23"],
-      "MRK": ["4:1-8", "13-20"],
-      "LUK": ["8:4-15"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-34-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-34-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-34-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-34-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-34-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-34-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-34-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-34-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-34-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-34-10.jpg", "text": "" }
-    ],
-    "storyId": 34,
-    "title": "34. Jesus Teaches Other Stories",
-    "end": "A Bible story from: Matthew 13:31-46; Mark 4:26-34; Luke 13:18-21; 18:9-14",
-    "scope": {
-      "MAT": ["13:31-33", "44-46"],
-      "MRK": ["4:30-32"],
-      "LUK": ["13:18-21", "18:9-14"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-35-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-35-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-35-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-35-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-35-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-35-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-35-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-35-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-35-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-35-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-35-11.jpg", "text": "" },
-      { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-35-12.jpg", "text": "" },
-      { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-35-13.jpg", "text": "" }
-    ],
-    "storyId": 35,
-    "title": "35. The Story of the Compassionate Father",
-    "end": "A Bible story from: Luke 15",
-    "scope": {
-      "LUK": ["15:11-32"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-36-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-36-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-36-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-36-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-36-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-36-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-36-07.jpg", "text": "" }
-    ],
-    "storyId": 36,
-    "title": "36. The Transfiguration",
-    "end": "A Bible story from: Matthew 17:1-9; Mark 9:2-8; Luke 9:28-36",
-    "scope": {
-      "MAT": ["17:1-9"],
-      "MRK": ["9:2-8"],
-      "LUK": ["9:28-36"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-37-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-37-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-37-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-37-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-37-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-37-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-37-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-37-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-37-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-37-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-37-11.jpg", "text": "" }
-    ],
-    "storyId": 37,
-    "title": "37. Jesus Raises Lazarus from the Dead",
-    "end": "A Bible story from: John 11:1-46",
-    "scope": {
-      "JHN": ["11:1-46"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-11.jpg", "text": "" },
-      { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-12.jpg", "text": "" },
-      { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-13.jpg", "text": "" },
-      { "id": 14, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-14.jpg", "text": "" },
-      { "id": 15, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-38-15.jpg", "text": "" }
-    ],
-    "storyId": 38,
-    "title": "38. Jesus Is Betrayed",
-    "end": "A Bible story from: Matthew 26:14-56; Mark 14:10-50; Luke 22:1-53; John 18:1-11",
-    "scope": {
-      "MAT": ["26:14-56"],
-      "MRK": ["14:10-50"],
-      "LUK": ["22:1-53"],
-      "JHN": ["12:6", "18:1-11"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-39-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-39-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-39-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-39-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-39-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-39-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-39-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-39-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-39-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-39-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-39-11.jpg", "text": "" },
-      { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-39-12.jpg", "text": "" }
-    ],
-    "storyId": 39,
-    "title": "39. Jesus Is Put on Trial",
-    "end": "A Bible story from: Matthew 26:57-27:26; Mark 14:53-15:15; Luke 22:54-23:25; John 18:12-19:16",
-    "scope": {
-      "MAT": ["26:57-27:26"],
-      "MRK": ["14:53-15:15"],
-      "LUK": ["22:54-23:25"],
-      "JHN": ["18:12-19:16"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-40-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-40-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-40-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-40-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-40-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-40-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-40-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-40-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-40-09.jpg", "text": "" }
-    ],
-    "storyId": 40,
-    "title": "40. Jesus Is Crucified",
-    "end": "A Bible story from: Matthew 27:27-61; Mark 15:16-47; Luke 23:26-56; John 19:17-42",
-    "scope": {
-      "MAT": ["27:27-61"],
-      "MRK": ["15:16-47"],
-      "LUK": ["23:26-56"],
-      "JHN": ["19:17-42"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-41-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-41-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-41-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-41-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-41-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-41-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-41-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-41-08.jpg", "text": "" }
-    ],
-    "storyId": 41,
-    "title": "41. God Raises Jesus from the Dead",
-    "end": "A Bible story from: Matthew 27:62-28:15; Mark 16:1-11; Luke 24:1-12; John 20:1-18",
-    "scope": {
-      "MAT": ["27:62-28:15"],
-      "MRK": ["16:1-11"],
-      "LUK": ["24:1-12"],
-      "JHN": ["20:1-18"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-42-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-42-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-42-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-42-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-42-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-42-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-42-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-42-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-42-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-42-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-42-11.jpg", "text": "" }
-    ],
-    "storyId": 42,
-    "title": "42. Jesus Returns to Heaven",
-    "end": "A Bible story from: Matthew 28:16-20; Mark 16:12-20; Luke 24:13-53; John 20:19-23; Acts 1:1-11",
-    "scope": {
-      "MAT": ["28:16-20"],
-      "MRK": ["16:12-20"],
-      "LUK": ["24:13-53"],
-      "JHN": ["20:19-23"],
-      "ACT": ["1:1-11"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-43-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-43-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-43-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-43-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-43-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-43-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-43-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-43-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-43-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-43-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-43-11.jpg", "text": "" },
-      { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-43-12.jpg", "text": "" },
-      { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-43-13.jpg", "text": "" }
-    ],
-    "storyId": 43,
-    "title": "43. The Church Begins",
-    "end": "A Bible story from: Acts 1:12-14; 2",
-    "scope": {
-      "ACT": ["2"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-44-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-44-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-44-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-44-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-44-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-44-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-44-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-44-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-44-09.jpg", "text": "" }
-    ],
-    "storyId": 44,
-    "title": "44. Peter and John Heal a Beggar",
-    "end": "A Bible story from: Acts 3-4:22",
-    "scope": {
-      "ACT": ["3:1-4:22"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-45-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-45-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-45-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-45-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-45-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-45-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-45-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-45-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-45-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-45-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-45-11.jpg", "text": "" },
-      { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-45-12.jpg", "text": "" },
-      { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-45-13.jpg", "text": "" }
-    ],
-    "storyId": 45,
-    "title": "45. Stephen and Philip",
-    "end": "A Bible story from: Acts 6-8",
-    "scope": {
-      "ACT": ["6:8-8:5", "8:26-40"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-46-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-46-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-46-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-46-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-46-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-46-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-46-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-46-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-46-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-46-10.jpg", "text": "" }
-    ],
-    "storyId": 46,
-    "title": "46. Saul Becomes a Follower of Jesus",
-    "end": "A Bible story from: Acts 8:1-3; 9:1-31; 11:19-26; 13-14",
-    "scope": {
-      "ACT": ["8:3", "9:1-31", "11:19-26", "13:1-3"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-11.jpg", "text": "" },
-      { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-12.jpg", "text": "" },
-      { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-13.jpg", "text": "" },
-      { "id": 14, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-47-14.jpg", "text": "" }
-    ],
-    "storyId": 47,
-    "title": "47. Paul and Silas in Philippi",
-    "end": "A Bible story from: Acts 16:11-40",
-    "scope": {
-      "ACT": ["16:11-40"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-11.jpg", "text": "" },
-      { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-12.jpg", "text": "" },
-      { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-13.jpg", "text": "" },
-      { "id": 14, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-48-14.jpg", "text": "" }
-    ],
-    "storyId": 48,
-    "title": "48. Jesus Is the Promised Messiah",
-    "end": "A Bible story from: Genesis 1-3, 6, 14, 22; Exodus 12, 20; 2 Samuel 7; Hebrews 3:1-6, 4:14-5:10, 7:1-8:13, 9:11-10:18; Revelation 21",
-    "scope": {
-      "GEN": ["1-3", "6", "14", "22"],
-      "EXO": ["12", "20"],
-      "2SA": ["7"],
-      "HEB": ["3:1-6", "4:14-5:10", "7:1-8:13", "9:11-10:18"],
-      "REV": ["21"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-11.jpg", "text": "" },
-      { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-12.jpg", "text": "" },
-      { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-13.jpg", "text": "" },
-      { "id": 14, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-14.jpg", "text": "" },
-      { "id": 15, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-15.jpg", "text": "" },
-      { "id": 16, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-16.jpg", "text": "" },
-      { "id": 17, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-17.jpg", "text": "" },
-      { "id": 18, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-49-18.jpg", "text": "" }
-    ],
-    "storyId": 49,
-    "title": "49. God’s New Covenant",
-    "end": "A Bible story from: Genesis 3; Matthew 13-14; Mark 10:17-31; Luke 2; 10:25-37; 15; John 3:16; Romans 3:21-26, 5:1-11; 2 Corinthians 5:17-21; Colossians 1:13-14; 1 John 1:5-10",
-    "scope": {
-      "ROM": ["3:21-26", "5:1-11"],
-      "JHN": ["3:16"],
-      "MRK": ["16:16"],
-      "COL": ["1:13-14"],
-      "2CO": ["5:17-21"],
-      "1JN": ["1:5-10"]
-    }
-  },
-  {
-    "story": [
-      { "id": 1, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-01.jpg", "text": "" },
-      { "id": 2, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-02.jpg", "text": "" },
-      { "id": 3, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-03.jpg", "text": "" },
-      { "id": 4, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-04.jpg", "text": "" },
-      { "id": 5, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-05.jpg", "text": "" },
-      { "id": 6, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-06.jpg", "text": "" },
-      { "id": 7, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-07.jpg", "text": "" },
-      { "id": 8, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-08.jpg", "text": "" },
-      { "id": 9, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-09.jpg", "text": "" },
-      { "id": 10, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-10.jpg", "text": "" },
-      { "id": 11, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-11.jpg", "text": "" },
-      { "id": 12, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-12.jpg", "text": "" },
-      { "id": 13, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-13.jpg", "text": "" },
-      { "id": 14, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-14.jpg", "text": "" },
-      { "id": 15, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-15.jpg", "text": "" },
-      { "id": 16, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-16.jpg", "text": "" },
-      { "id": 17, "url": "https://cdn.door43.org/obs/jpg/360px/obs-en-50-17.jpg", "text": "" }
-    ],
-    "storyId": 50,
-    "title": "50. Jesus Returns",
-    "end": "A Bible story from: Matthew 13:24-42; 22:13; 24:14; 28:18; John 4:35; 15:20; 16:33; 1 Thessalonians 4:13-5:11; James 1:12; Revelation 2:10; 20:10; 21-22",
-    "scope": {
-      "MAT": ["24:14", "28:18", "13:24-30", "13:36-42", "22:13"],
-      "JHN": ["15:20", "16:33"],
-      "REV": ["2:10", "20:10", "21:1-22:21"],
-      "1TH": ["4:13-5:11"],
-      "JAS": ["1:12"]
-    }
-  }
 ]

@@ -1,8 +1,8 @@
-import * as vscode from 'vscode';
-import { CompletionConfig } from './inlineCompletionsProvider';
-import { extractVerseRefFromLine, verseRefRegex } from '../../utils/verseRefUtils';
-import { callLLM } from '../../utils/llmUtils';
-import { ChatMessage, MiniSearchVerseResult, TranslationPair } from '../../../types';
+import * as vscode from "vscode";
+import { CompletionConfig } from "./inlineCompletionsProvider";
+import { extractVerseRefFromLine, verseRefRegex } from "../../utils/verseRefUtils";
+import { callLLM } from "../../utils/llmUtils";
+import { ChatMessage, MiniSearchVerseResult, TranslationPair } from "../../../types";
 
 export async function llmCompletion(
     document: vscode.TextDocument,
@@ -10,54 +10,67 @@ export async function llmCompletion(
     completionConfig: CompletionConfig,
     token: vscode.CancellationToken
 ): Promise<{ completion: string; context: any }> {
-    const {
-        contextSize,
-        numberOfFewShotExamples,
-        debugMode,
-        chatSystemMessage
-    } = completionConfig;
+    const { contextSize, numberOfFewShotExamples, debugMode, chatSystemMessage } = completionConfig;
 
     const lineContent = document.lineAt(position.line).text;
     const currentLineVref = extractVerseRefFromLine(lineContent);
     // Get the source content for the current verse
-    const sourceVerse: MiniSearchVerseResult | null = await vscode.commands.executeCommand('translators-copilot.getSourceVerseByVrefFromAllSourceVerses', currentLineVref);
-    const sourceContent = sourceVerse?.content || '';
+    const sourceVerse: MiniSearchVerseResult | null = await vscode.commands.executeCommand(
+        "translators-copilot.getSourceVerseByVrefFromAllSourceVerses",
+        currentLineVref
+    );
+    const sourceContent = sourceVerse?.content || "";
 
     // Get similar source verses
 
-    const similarSourceVerses: TranslationPair[] = await vscode.commands.executeCommand('translators-copilot.getTranslationPairsFromSourceVerseQuery', sourceContent, numberOfFewShotExamples);
+    const similarSourceVerses: TranslationPair[] = await vscode.commands.executeCommand(
+        "translators-copilot.getTranslationPairsFromSourceVerseQuery",
+        sourceContent,
+        numberOfFewShotExamples
+    );
 
     if (!similarSourceVerses || similarSourceVerses.length === 0) {
         showNoResultsWarning();
-        return { completion: '', context: null };
+        return { completion: "", context: null };
     }
 
     // Get preceding content
-    const precedingContentLimit = contextSize === 'small' ? 100 : contextSize === 'medium' ? 200 : 500;
-    const precedingContent = document.getText(new vscode.Range(0, 0, position.line, position.character)).slice(0, precedingContentLimit);
+    const precedingContentLimit =
+        contextSize === "small" ? 100 : contextSize === "medium" ? 200 : 500;
+    const precedingContent = document
+        .getText(new vscode.Range(0, 0, position.line, position.character))
+        .slice(0, precedingContentLimit);
     const precedingVrefs = precedingContent.match(verseRefRegex) || [];
-    const allPrecedingVrefs = precedingVrefs.filter(vref => vref !== currentLineVref);
+    const allPrecedingVrefs = precedingVrefs.filter((vref) => vref !== currentLineVref);
 
     // Get the target language
-    const projectConfig = vscode.workspace.getConfiguration('codex-project-manager');
-    const targetLanguage = projectConfig.get<any>('targetLanguage')?.tag || null;
+    const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
+    const targetLanguage = projectConfig.get<any>("targetLanguage")?.tag || null;
 
     try {
         if (similarSourceVerses.length > 0) {
-            const currentVref = currentLineVref || '';
-            const currentVrefSourceContent = sourceVerse?.content || '';
+            const currentVref = currentLineVref || "";
+            const currentVrefSourceContent = sourceVerse?.content || "";
 
             // Generate few-shot examples
             const fewShotExamples = similarSourceVerses
                 .slice(0, numberOfFewShotExamples)
-                .map(pair => `${pair.targetVerse.vref}: ${pair.targetVerse.content} -> ${pair.targetVerse.content}`)
-                .join('\n');
+                .map(
+                    (pair) =>
+                        `${pair.targetVerse.vref}: ${pair.targetVerse.content} -> ${pair.targetVerse.content}`
+                )
+                .join("\n");
 
             // Get preceding translation pairs
             const precedingTranslationPairs = await Promise.all(
-                allPrecedingVrefs.slice(-5).map(async vref => {
-                    const pair: TranslationPair = await vscode.commands.executeCommand('translators-copilot.getTranslationPairFromProject', vref);
-                    return pair ? `${vref}: ${pair.sourceVerse.content} -> ${pair.targetVerse.content}` : null;
+                allPrecedingVrefs.slice(-5).map(async (vref) => {
+                    const pair: TranslationPair = await vscode.commands.executeCommand(
+                        "translators-copilot.getTranslationPairFromProject",
+                        vref
+                    );
+                    return pair
+                        ? `${vref}: ${pair.sourceVerse.content} -> ${pair.targetVerse.content}`
+                        : null;
                 })
             );
 
@@ -69,12 +82,14 @@ export async function llmCompletion(
                 "4. Provide only the completed translation without any additional commentary or metadata.",
                 `5. Translate only into the target language ${targetLanguage}.`,
                 "6. Pay careful attention to the provided reference data.",
-                "7. If in doubt, err on the side of literalness."
-            ].join('\n');
+                "7. If in doubt, err on the side of literalness.",
+            ].join("\n");
 
             let systemMessage = chatSystemMessage || `You are a helpful assistant`;
 
-            systemMessage = systemMessage + `\n\nAlways translate from the source language to the target language, ${targetLanguage}, relying strictly on reference data and context provided by the user. The language may be an ultra-low resource language, so it is critical to follow the patterns and style of the provided reference data closely.`;
+            systemMessage =
+                systemMessage +
+                `\n\nAlways translate from the source language to the target language, ${targetLanguage}, relying strictly on reference data and context provided by the user. The language may be an ultra-low resource language, so it is critical to follow the patterns and style of the provided reference data closely.`;
 
             systemMessage = systemMessage + `\n\n${userMessageInstructions}`;
 
@@ -84,13 +99,13 @@ export async function llmCompletion(
                 "## Translation Memory",
                 fewShotExamples,
                 "## Current Context",
-                precedingTranslationPairs.filter(Boolean).join('\n'),
-                `${currentVref} ${currentVrefSourceContent} -> `
-            ].join('\n\n');
+                precedingTranslationPairs.filter(Boolean).join("\n"),
+                `${currentVref} ${currentVrefSourceContent} -> `,
+            ].join("\n\n");
 
             const messages = [
-                { role: 'system', content: systemMessage },
-                { role: 'user', content: userMessage }
+                { role: "system", content: systemMessage },
+                { role: "user", content: userMessage },
             ] as ChatMessage[];
 
             const completion = await callLLM(messages, completionConfig);
@@ -105,17 +120,19 @@ export async function llmCompletion(
                 context: {
                     similarVerses: similarSourceVerses.length,
                     currentVref: currentVref,
-                    precedingVerses: allPrecedingVrefs
-                }
+                    precedingVerses: allPrecedingVrefs,
+                },
             };
         } else {
             // Show warning for no results
             showNoResultsWarning();
-            return { completion: '', context: null };
+            return { completion: "", context: null };
         }
     } catch (error) {
         console.error("Error in llmCompletion:", error);
-        throw new Error(`An error occurred while generating the completion. ${JSON.stringify(error)}`);
+        throw new Error(
+            `An error occurred while generating the completion. ${JSON.stringify(error)}`
+        );
     }
 }
 
@@ -124,43 +141,61 @@ export async function llmCompletion(
 async function logDebugMessages(messages: ChatMessage[], completion: string) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
-        throw new Error('No workspace folder is open.');
+        throw new Error("No workspace folder is open.");
     }
-    const messagesFilePath = vscode.Uri.joinPath(workspaceFolders[0].uri, 'copilot-messages.log');
-    const messagesContent = messages.map(message => `${message.role}: ${message.content}`).join('\n\n');
+    const messagesFilePath = vscode.Uri.joinPath(workspaceFolders[0].uri, "copilot-messages.log");
+    const messagesContent = messages
+        .map((message) => `${message.role}: ${message.content}`)
+        .join("\n\n");
 
     try {
-        await vscode.workspace.fs.writeFile(messagesFilePath, new TextEncoder().encode(messagesContent + "\n\nAPI Response:\n" + completion));
-        console.log('Messages written to copilot-messages.log');
+        await vscode.workspace.fs.writeFile(
+            messagesFilePath,
+            new TextEncoder().encode(messagesContent + "\n\nAPI Response:\n" + completion)
+        );
+        console.log("Messages written to copilot-messages.log");
 
-        vscode.window.showInformationMessage(`Debug messages stored in ${messagesFilePath.fsPath}`, 'Open Log', 'Disable Debug Mode')
-            .then(selection => {
-                if (selection === 'Open Log') {
-                    vscode.workspace.openTextDocument(messagesFilePath).then(doc => {
+        vscode.window
+            .showInformationMessage(
+                `Debug messages stored in ${messagesFilePath.fsPath}`,
+                "Open Log",
+                "Disable Debug Mode"
+            )
+            .then((selection) => {
+                if (selection === "Open Log") {
+                    vscode.workspace.openTextDocument(messagesFilePath).then((doc) => {
                         vscode.window.showTextDocument(doc);
                     });
-                } else if (selection === 'Disable Debug Mode') {
-                    vscode.commands.executeCommand('workbench.action.openSettings', 'translators-copilot.debugMode');
-                    vscode.window.showInformationMessage('Opening settings for debug mode.');
+                } else if (selection === "Disable Debug Mode") {
+                    vscode.commands.executeCommand(
+                        "workbench.action.openSettings",
+                        "translators-copilot.debugMode"
+                    );
+                    vscode.window.showInformationMessage("Opening settings for debug mode.");
                 }
             });
     } catch (error) {
-        console.error('Error writing messages to copilot-messages.log:', error);
-        throw new Error('Failed to write messages to copilot-messages.log');
+        console.error("Error writing messages to copilot-messages.log:", error);
+        throw new Error("Failed to write messages to copilot-messages.log");
     }
 }
 
 function showNoResultsWarning() {
-    const warningMessage = 'No relevant translated sentences found for context.';
-    const detailedWarning = 'Unable to find any relevant sentences that have already been translated. This may affect the quality of the translation suggestion.';
+    const warningMessage = "No relevant translated sentences found for context.";
+    const detailedWarning =
+        "Unable to find any relevant sentences that have already been translated. This may affect the quality of the translation suggestion.";
 
-    vscode.window.showWarningMessage(warningMessage, 'More Info', 'Dismiss').then(selection => {
-        if (selection === 'More Info') {
-            vscode.window.showInformationMessage(detailedWarning, 'How to Fix').then(selection => {
-                if (selection === 'How to Fix') {
-                    vscode.window.showInformationMessage('Try translating more sentences in nearby verses or chapters to provide better context for future suggestions.');
-                }
-            });
+    vscode.window.showWarningMessage(warningMessage, "More Info", "Dismiss").then((selection) => {
+        if (selection === "More Info") {
+            vscode.window
+                .showInformationMessage(detailedWarning, "How to Fix")
+                .then((selection) => {
+                    if (selection === "How to Fix") {
+                        vscode.window.showInformationMessage(
+                            "Try translating more sentences in nearby verses or chapters to provide better context for future suggestions."
+                        );
+                    }
+                });
         }
     });
 }

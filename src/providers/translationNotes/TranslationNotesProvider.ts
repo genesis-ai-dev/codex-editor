@@ -15,10 +15,7 @@ import { tsvStringToScriptureTSV } from "./utilities/tsvFileConversions";
 import { TranslationNotesPanel } from "./TranslationNotesPanel";
 import { initializeStateStore } from "../../stateStore";
 import { extractBookChapterVerse } from "../../utils/extractBookChapterVerse";
-import {
-    VerseRefGlobalState,
-    TranslationNotePostMessages,
-} from "../../../types";
+import { VerseRefGlobalState, TranslationNotePostMessages } from "../../../types";
 import { ScriptureTSV } from "../../../types/TsvTypes";
 
 type CommandToFunctionMap = Record<string, (text: string) => void>;
@@ -28,7 +25,7 @@ const getTnUri = (bookID: string): Uri => {
     return Uri.joinPath(
         workspaceRootUri,
         // `resources/unfoldingWord/tn_${bookID}.tsv`,
-        `.project/resources/en_tn/tn_${bookID}.tsv`,
+        `.project/resources/en_tn/tn_${bookID}.tsv`
     );
 };
 
@@ -47,7 +44,7 @@ export class TranslationNotesProvider implements CustomTextEditorProvider {
         const provider = new TranslationNotesProvider(context);
         const providerRegistration = window.registerCustomEditorProvider(
             TranslationNotesProvider.viewType,
-            provider,
+            provider
         );
 
         const commandRegistration = commands.registerCommand(
@@ -64,9 +61,9 @@ export class TranslationNotesProvider implements CustomTextEditorProvider {
                         viewColumn: ViewColumn.Beside,
                         preserveFocus: true,
                         preview: true,
-                    },
+                    }
                 );
-            },
+            }
         );
 
         return { providerRegistration, commandRegistration };
@@ -82,7 +79,7 @@ export class TranslationNotesProvider implements CustomTextEditorProvider {
     public async resolveCustomTextEditor(
         document: TextDocument,
         webviewPanel: WebviewPanel,
-        _token: CancellationToken,
+        _token: CancellationToken
     ): Promise<void> {
         // Setup initial content for the webview
         webviewPanel.webview.options = {
@@ -121,16 +118,14 @@ export class TranslationNotesProvider implements CustomTextEditorProvider {
         new TranslationNotesPanel(
             webviewPanel,
             this.context.extensionUri,
-            messageEventHandlers,
+            messageEventHandlers
         ).initializeWebviewContent();
-        
-        const changeDocumentSubscription = workspace.onDidChangeTextDocument(
-            (e) => {
-                if (e.document.uri.toString() === document.uri.toString()) {
-                    updateWebview();
-                }
-            },
-        );
+
+        const changeDocumentSubscription = workspace.onDidChangeTextDocument((e) => {
+            if (e.document.uri.toString() === document.uri.toString()) {
+                updateWebview();
+            }
+        });
 
         webviewPanel.onDidDispose(() => {
             changeDocumentSubscription.dispose();
@@ -151,7 +146,7 @@ export class TranslationNotesProvider implements CustomTextEditorProvider {
     }
 
     /**
-     * 
+     *
      * Try to get a current document as a scripture TSV object
      *
      * @TODO Use this function to turn doc text into ScriptureTSV!
@@ -165,9 +160,7 @@ export class TranslationNotesProvider implements CustomTextEditorProvider {
         try {
             return tsvStringToScriptureTSV(text);
         } catch {
-            throw new Error(
-                "Could not get document as json. Content is not valid scripture TSV",
-            );
+            throw new Error("Could not get document as json. Content is not valid scripture TSV");
         }
     }
 

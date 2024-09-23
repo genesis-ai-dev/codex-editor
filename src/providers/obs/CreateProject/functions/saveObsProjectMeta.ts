@@ -39,17 +39,13 @@ export const saveObsProjectMeta = async (projectMetaObj: {
     const currentUser = projectMetaObj.username;
     // handle spaces
     // trim the leading spaces
-    projectMetaObj.newProjectFields.projectName =
-        projectMetaObj.newProjectFields.projectName
-            .trim()
-            .replace(/(^_+)?(_+$)?/gm, "");
+    projectMetaObj.newProjectFields.projectName = projectMetaObj.newProjectFields.projectName
+        .trim()
+        .replace(/(^_+)?(_+$)?/gm, "");
 
     // OBS burrito creation and checks
     const obsBurritoChecksAndCreation = async () => {
-        const key =
-            currentUser +
-            projectMetaObj.newProjectFields.projectName +
-            moment().format();
+        const key = currentUser + projectMetaObj.newProjectFields.projectName + moment().format();
         const id = uuidV5(key, environment.uuidToken);
 
         // Create New burrito
@@ -58,7 +54,7 @@ export const saveObsProjectMeta = async (projectMetaObj: {
         const newProjectUri = currentDirUri.with({
             path: path.join(
                 currentDirUri.path,
-                `${projectMetaObj.newProjectFields.projectName}_${id}`,
+                `${projectMetaObj.newProjectFields.projectName}_${id}`
             ),
         });
 
@@ -69,7 +65,7 @@ export const saveObsProjectMeta = async (projectMetaObj: {
             projectMetaObj.importedFiles,
             projectMetaObj.copyright as any,
             projectMetaObj.call as any,
-            newProjectUri,
+            newProjectUri
         );
 
         const burritoFile = createObsSB(
@@ -78,17 +74,14 @@ export const saveObsProjectMeta = async (projectMetaObj: {
             projectMetaObj.language.refName,
             projectMetaObj.language.tag,
             projectMetaObj.language.scriptDirection ?? "ltr",
-            id,
+            id
         );
         burritoFile.ingredients = ingredient;
 
         const metadataFileUri = newProjectUri.with({
             path: path.join(newProjectUri.path, "metadata.json"),
         });
-        await fs.writeFile(
-            metadataFileUri,
-            Buffer.from(JSON.stringify(burritoFile)),
-        );
+        await fs.writeFile(metadataFileUri, Buffer.from(JSON.stringify(burritoFile)));
 
         return newProjectUri;
     };

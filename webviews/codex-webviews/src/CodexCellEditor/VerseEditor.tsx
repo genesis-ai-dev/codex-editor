@@ -10,9 +10,7 @@ interface VerseEditorProps {
     verseIndex: number;
     spellCheckResponse: CustomNotebookData;
     contentBeingUpdated: EditorVerseContent;
-    setContentBeingUpdated: React.Dispatch<
-        React.SetStateAction<EditorVerseContent>
-    >;
+    setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorVerseContent>>;
     handleCloseEditor: () => void;
     handleSaveMarkdown: () => void;
 }
@@ -46,15 +44,10 @@ const VerseEditor: React.FC<VerseEditorProps> = ({
                             gap: "0.5rem",
                         }}
                     >
-                        <button
-                            onClick={handleSaveMarkdown}
-                            className="vscode-button-confirm"
-                        >
+                        <button onClick={handleSaveMarkdown} className="vscode-button-confirm">
                             <i className="codicon codicon-save"></i>
                         </button>
-                        <CloseButtonWithConfirmation
-                            handleDeleteButtonClick={handleCloseEditor}
-                        />
+                        <CloseButtonWithConfirmation handleDeleteButtonClick={handleCloseEditor} />
                     </div>
                 ) : (
                     <button

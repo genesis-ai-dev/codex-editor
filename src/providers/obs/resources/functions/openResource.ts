@@ -17,19 +17,13 @@ enum ViewTypes {
     TN = "codex.translationNotesEditor",
 }
 
-export const openOBS = async (
-    context: vscode.ExtensionContext,
-    resource: DownloadedResource,
-) => {
+export const openOBS = async (context: vscode.ExtensionContext, resource: DownloadedResource) => {
     const obsResource = new ObsResourceProvider(context, resource);
 
     return await obsResource.startWebview();
 };
 
-export const openBible = async (
-    context: vscode.ExtensionContext,
-    resource: DownloadedResource,
-) => {
+export const openBible = async (context: vscode.ExtensionContext, resource: DownloadedResource) => {
     const usfmProvider = new USFMViewerProvider(context, resource);
     const usfmViewer = await usfmProvider.startWebview();
 
@@ -43,47 +37,32 @@ export const openTranslationHelper = async (resource: DownloadedResource) => {
     if (!workspaceRootUri) {
         return;
     }
-    const resourceRootUri = vscode.Uri.joinPath(
-        workspaceRootUri,
-        resource.localPath,
-    );
+    const resourceRootUri = vscode.Uri.joinPath(workspaceRootUri, resource.localPath);
 
-    const translationHelperUri = vscode.Uri.joinPath(
-        resourceRootUri,
-        "metadata.json",
-    );
+    const translationHelperUri = vscode.Uri.joinPath(resourceRootUri, "metadata.json");
     // .with({ scheme: ViewTypes.TRANSLATION_HELPER });
 
-    const existingViewCols = vscode.window.tabGroups.all.map(
-        (editor) => editor.viewColumn,
-    );
+    const existingViewCols = vscode.window.tabGroups.all.map((editor) => editor.viewColumn);
 
     await vscode.commands.executeCommand(
         "vscode.openWith",
         translationHelperUri,
         ViewTypes.TRANSLATION_HELPER, // use resource type to load the according view
-        { viewColumn: vscode.ViewColumn.Beside, preview: true },
+        { viewColumn: vscode.ViewColumn.Beside, preview: true }
     );
 
     // get the view cols and tab id of the opened resource
 
-    const newViewCols = vscode.window.tabGroups.all.map(
-        (tabGroup) => tabGroup.viewColumn,
-    );
+    const newViewCols = vscode.window.tabGroups.all.map((tabGroup) => tabGroup.viewColumn);
 
-    const newViewCol = newViewCols.find(
-        (col) => !existingViewCols.includes(col),
-    );
+    const newViewCol = newViewCols.find((col) => !existingViewCols.includes(col));
 
     return {
         viewColumn: newViewCol,
     };
 };
 
-export const openTn = async (
-    context: vscode.ExtensionContext,
-    resource: DownloadedResource,
-) => {
+export const openTn = async (context: vscode.ExtensionContext, resource: DownloadedResource) => {
     const tnProvider = new TnProvider(context, resource);
     const tn = await tnProvider.startWebviewPanel();
 
@@ -92,19 +71,13 @@ export const openTn = async (
     };
 };
 
-export const openTw = async (
-    context: vscode.ExtensionContext,
-    resource: DownloadedResource,
-) => {
+export const openTw = async (context: vscode.ExtensionContext, resource: DownloadedResource) => {
     const twProvider = new TranslationWordsProvider(context, resource);
 
     return await twProvider.startWebview();
 };
 
-export const openTwl = async (
-    context: vscode.ExtensionContext,
-    resource: DownloadedResource,
-) => {
+export const openTwl = async (context: vscode.ExtensionContext, resource: DownloadedResource) => {
     const twlProvider = new TranslationWordsListProvider(context, resource);
     const twl = await twlProvider.startWebview();
 
@@ -113,35 +86,23 @@ export const openTwl = async (
     };
 };
 
-export const openTq = async (
-    context: vscode.ExtensionContext,
-    resource: DownloadedResource,
-) => {
+export const openTq = async (context: vscode.ExtensionContext, resource: DownloadedResource) => {
     const tqProvider = new TranslationQuestionsProvider(context, resource);
 
     return await tqProvider.startWebview();
 };
 
 export const openTnAcademy = async (resource: DownloadedResource) => {
-    await vscode.commands.executeCommand(
-        "codex-editor-extension.openTnAcademy",
-        resource,
-    );
+    await vscode.commands.executeCommand("codex-editor-extension.openTnAcademy", resource);
 };
 
-export const openObsTn = async (
-    context: vscode.ExtensionContext,
-    resource: DownloadedResource,
-) => {
+export const openObsTn = async (context: vscode.ExtensionContext, resource: DownloadedResource) => {
     const obsTnProvider = new ObsTranslationNotesProvider(context, resource);
 
     return await obsTnProvider.startWebview();
 };
 
-export const openObsTq = async (
-    context: vscode.ExtensionContext,
-    resource: DownloadedResource,
-) => {
+export const openObsTq = async (context: vscode.ExtensionContext, resource: DownloadedResource) => {
     const obsTqProvider = new ObsTranslationQuestions(context, resource);
 
     return await obsTqProvider.startWebview();
@@ -149,12 +110,9 @@ export const openObsTq = async (
 
 export const openObsTwl = async (
     context: vscode.ExtensionContext,
-    resource: DownloadedResource,
+    resource: DownloadedResource
 ) => {
-    const obsTwlProvider = new ObsTranslationWordsListProvider(
-        context,
-        resource,
-    );
+    const obsTwlProvider = new ObsTranslationWordsListProvider(context, resource);
 
     return await obsTwlProvider.startWebview();
 };

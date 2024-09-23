@@ -12,10 +12,7 @@ interface USFMDocument {
     verse: number;
 }
 
-export const getUSFMDocument = async (
-    resource: DownloadedResource,
-    verseRef: string,
-) => {
+export const getUSFMDocument = async (resource: DownloadedResource, verseRef: string) => {
     console.log("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
     const { bookID, chapter, verse } = extractBookChapterVerse(verseRef);
     console.log({ bookID, chapter, verse });
@@ -23,14 +20,12 @@ export const getUSFMDocument = async (
     console.log({ bookName });
     if (!vscode.workspace.workspaceFolders?.[0]) {
         console.log("No workspace is open. Please open a workspace.");
-        vscode.window.showErrorMessage(
-            "No workspace is open. Please open a workspace.",
-        );
+        vscode.window.showErrorMessage("No workspace is open. Please open a workspace.");
         return;
     }
     const resourceDirUri = vscode.Uri.joinPath(
         vscode.workspace.workspaceFolders?.[0].uri as vscode.Uri,
-        resource.localPath,
+        resource.localPath
     );
     console.log({ resourceDirUri });
     const bookUri = vscode.Uri.joinPath(resourceDirUri, `${bookName}.usfm`);

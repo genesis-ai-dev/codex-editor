@@ -7,11 +7,7 @@ class SmartEditClient {
         this.vscode = vscode;
     }
 
-    private async sendMessage(
-        before: string,
-        after: string,
-        query: string,
-    ): Promise<string> {
+    private async sendMessage(before: string, after: string, query: string): Promise<string> {
         return new Promise((resolve, reject) => {
             // Generate a unique ID for this request
             const requestId = Date.now().toString();
@@ -42,11 +38,7 @@ class SmartEditClient {
             });
         });
     }
-    private async sendRequest(
-        before: string,
-        after: string,
-        query: string,
-    ): Promise<any> {
+    private async sendRequest(before: string, after: string, query: string): Promise<any> {
         try {
             const response = await this.sendMessage(before, after, query);
             console.log("Received response:", response);
@@ -57,12 +49,11 @@ class SmartEditClient {
         }
     }
 
-  async getSmartEdit(before: string, after: string, query: string): Promise<any> {
-    const result = await this.sendRequest(before, after, query);
-    console.log(`Result: ${result}`)
-    return result;
-  
-  }
+    async getSmartEdit(before: string, after: string, query: string): Promise<any> {
+        const result = await this.sendRequest(before, after, query);
+        console.log(`Result: ${result}`);
+        return result;
+    }
 }
 
 export { SmartEditClient };

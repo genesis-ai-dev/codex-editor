@@ -33,16 +33,11 @@ export class SourceControlProvider implements vscode.Disposable {
                 this.startInterval();
             }
 
-            const configChangeDisposable =
-                vscode.workspace.onDidChangeConfiguration((e) => {
-                    if (
-                        e.affectsConfiguration(
-                            "codex-editor-extension.scm.remoteUrl",
-                        )
-                    ) {
-                        syncUtils.checkConfigRemoteAndUpdateIt();
-                    }
-                });
+            const configChangeDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
+                if (e.affectsConfiguration("codex-editor-extension.scm.remoteUrl")) {
+                    syncUtils.checkConfigRemoteAndUpdateIt();
+                }
+            });
 
             this.disposables.push(configChangeDisposable);
             setTimeout(() => {
@@ -54,65 +49,28 @@ export class SourceControlProvider implements vscode.Disposable {
     }
 
     private initializeAutoCommit() {
-        const configChangeDisposable = vscode.workspace.onDidChangeConfiguration(e => {
+        const configChangeDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration("codex-editor-extension.scm.autoCommit")) {
                 const updatedConfiguration = vscode.workspace.getConfiguration(
                     "codex-editor-extension.scm"
                 );
-                this.autoCommitEnabled = updatedConfiguration.get<boolean>("autoCommit", this.autoCommitEnabled);
+                this.autoCommitEnabled = updatedConfiguration.get<boolean>(
+                    "autoCommit",
+                    this.autoCommitEnabled
+                );
                 vscode.window.showInformationMessage(
                     `Auto-commit is now ${this.autoCommitEnabled ? "enabled" : "disabled"}.`
                 );
 
-            const configChangeDisposable =
-                vscode.workspace.onDidChangeConfiguration((e) => {
-                    if (
-                        e.affectsConfiguration(
-                            "codex-editor-extension.scm.autoCommit",
-                        )
-                    ) {
-                        try {
-                            const updatedConfiguration =
-                                vscode.workspace.getConfiguration(
-                                    "codex-editor-extension.scm",
-                                );
-                            const updatedAutoCommit =
-                                updatedConfiguration.get<boolean>(
-                                    "autoCommit",
-                                    this.autoCommitEnabled,
-                                );
+                if (this.autoCommitEnabled) {
+                    this.startInterval();
+                } else {
+                    this.stopInterval();
+                }
+            }
+        });
 
-                            console.log("autoCommit", { updatedAutoCommit });
-                            this.autoCommitEnabled = updatedAutoCommit;
-                            vscode.window.showInformationMessage(
-                                `Auto-commit is now ${
-                                    this.autoCommitEnabled
-                                        ? "enabled"
-                                        : "disabled"
-                                }.`,
-                            );
-
-                            if (this.autoCommitEnabled) {
-                                this.startInterval();
-                            } else {
-                                this.stopInterval();
-                            }
-                        } catch (error) {
-                            console.error(
-                                "Failed to update auto-commit configuration:",
-                                error,
-                            );
-                        }
-                    }
-                });
-
-            this.disposables.push(configChangeDisposable);
-        } catch (error) {
-            console.error(
-                "Failed to initialize auto-commit configuration:",
-                error,
-            );
-        }
+        this.disposables.push(configChangeDisposable);
     }
 
     private startInterval() {

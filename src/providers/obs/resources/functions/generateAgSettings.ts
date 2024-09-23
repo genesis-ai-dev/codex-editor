@@ -16,8 +16,7 @@ export const generateAgSettings = ({
         version: environment.AG_SETTING_VERSION,
         project: {
             [resourceBurrito.type.flavorType.flavor.name]: {
-                scriptDirection:
-                    resourceMetadata?.dublin_core?.language?.direction,
+                scriptDirection: resourceMetadata?.dublin_core?.language?.direction,
                 starred: false,
                 description: resourceMetadata?.dublin_core?.description,
                 copyright: resourceMetadata?.dublin_core?.rights,

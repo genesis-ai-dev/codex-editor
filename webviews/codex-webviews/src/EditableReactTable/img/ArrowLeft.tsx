@@ -1,7 +1,7 @@
-import React from 'react';
+import React from "react";
 
 const ArrowLeft: React.FC = () => {
-  return <span className="codicon codicon-chevron-left"></span>;
+    return <span className="codicon codicon-chevron-left"></span>;
 };
 
 export default ArrowLeft;

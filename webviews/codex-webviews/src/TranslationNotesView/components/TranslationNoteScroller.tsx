@@ -24,11 +24,7 @@ const TranslationNoteScroller = ({
             {/* Container for the three elements side by side */}
             <div className="column-container">
                 {/* Left Button */}
-                <VSCodeButton
-                    onClick={decrementIndex}
-                    appearance="icon"
-                    aria-label="left"
-                >
+                <VSCodeButton onClick={decrementIndex} appearance="icon" aria-label="left">
                     <span className="arrow-button codicon codicon-chevron-left"></span>
                 </VSCodeButton>
 
@@ -38,11 +34,7 @@ const TranslationNoteScroller = ({
                 </div>
 
                 {/* Right Button */}
-                <VSCodeButton
-                    onClick={incrementIndex}
-                    appearance="icon"
-                    aria-label="right"
-                >
+                <VSCodeButton onClick={incrementIndex} appearance="icon" aria-label="right">
                     <span className="arrow-button codicon codicon-chevron-right"></span>
                 </VSCodeButton>
             </div>

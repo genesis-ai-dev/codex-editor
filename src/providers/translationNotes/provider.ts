@@ -1,11 +1,4 @@
-import {
-    ExtensionContext,
-    Uri,
-    ViewColumn,
-    commands,
-    window,
-    workspace,
-} from "vscode";
+import { ExtensionContext, Uri, ViewColumn, commands, window, workspace } from "vscode";
 import { Disposable } from "vscode-languageclient";
 import { extractBookChapterVerse } from "../../utils/extractBookChapterVerse";
 import { DownloadedResource } from "../obs/resources/types";
@@ -46,7 +39,7 @@ export class TnProvider {
             {
                 enableScripts: true,
                 localResourceRoots: [this.context.extensionUri],
-            },
+            }
         );
 
         const verseRefStore = await this.stateStore?.getStoreState("verseRef");
@@ -62,8 +55,7 @@ export class TnProvider {
             const { command, text } = message;
 
             const commandToFunctionMapping: CommandToFunctionMap = {
-                ["loaded"]: () =>
-                    updateWebview(verseRefStore?.verseRef ?? "GEN 1:1"),
+                ["loaded"]: () => updateWebview(verseRefStore?.verseRef ?? "GEN 1:1"),
             };
 
             commandToFunctionMapping[command](text);
@@ -72,24 +64,21 @@ export class TnProvider {
         new TranslationNotesPanel(
             panel,
             this.context.extensionUri,
-            messageEventHandlers,
+            messageEventHandlers
         ).initializeWebviewContent();
 
-        const disposeFunction = this.stateStore.storeListener(
-            "verseRef",
-            async (value) => {
-                if (value) {
-                    await updateWebview(value.verseRef);
-                    panel.webview.postMessage({
-                        command: "changeRef",
-                        data: {
-                            verseRef: value.verseRef,
-                            uri: value.uri,
-                        },
-                    } as TranslationNotePostMessages);
-                }
-            },
-        );
+        const disposeFunction = this.stateStore.storeListener("verseRef", async (value) => {
+            if (value) {
+                await updateWebview(value.verseRef);
+                panel.webview.postMessage({
+                    command: "changeRef",
+                    data: {
+                        verseRef: value.verseRef,
+                        uri: value.uri,
+                    },
+                } as TranslationNotePostMessages);
+            }
+        });
         panel.onDidDispose(() => {
             disposeFunction();
         });
@@ -104,20 +93,16 @@ export class TnProvider {
      *
      * @TODO Use this function to turn doc text into ScriptureTSV!
      */
-    private async getDocumentAsScriptureTSV(
-        verseRef: string,
-    ): Promise<ScriptureTSV> {
+    private async getDocumentAsScriptureTSV(verseRef: string): Promise<ScriptureTSV> {
         const { bookID } = extractBookChapterVerse(verseRef);
 
         if (!workspace.workspaceFolders) {
-            throw new Error(
-                "Could not get document. No workspace folders found",
-            );
+            throw new Error("Could not get document. No workspace folders found");
         }
 
         const resourceUri = Uri.joinPath(
             workspace.workspaceFolders[0].uri,
-            this.resource.localPath,
+            this.resource.localPath
         );
 
         const docUri = Uri.joinPath(resourceUri, `tn_${bookID}.tsv`);
@@ -133,9 +118,7 @@ export class TnProvider {
         try {
             return tsvStringToScriptureTSV(text);
         } catch {
-            throw new Error(
-                "Could not get document as json. Content is not valid scripture TSV",
-            );
+            throw new Error("Could not get document as json. Content is not valid scripture TSV");
         }
     }
 }

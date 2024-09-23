@@ -6,9 +6,4 @@ export const projectTypes = [
     },
 ];
 
-export const categoryOptions = [
-    "Scripture",
-    "Gloss",
-    "Parascriptural",
-    "Peripheral",
-];
+export const categoryOptions = ["Scripture", "Gloss", "Parascriptural", "Peripheral"];

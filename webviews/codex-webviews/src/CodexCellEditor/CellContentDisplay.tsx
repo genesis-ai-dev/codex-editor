@@ -1,9 +1,5 @@
 import React from "react";
-import {
-    EditorVerseContent,
-    EditorPostMessages,
-    CodexCellTypes,
-} from "../../../../types";
+import { EditorVerseContent, EditorPostMessages, CodexCellTypes } from "../../../../types";
 import { HACKY_removeContiguousSpans } from "./utils";
 
 interface CellContentDisplayProps {
@@ -11,9 +7,7 @@ interface CellContentDisplayProps {
     cellContent: string;
     cellIndex: number;
     cellType: CodexCellTypes;
-    setContentBeingUpdated: React.Dispatch<
-        React.SetStateAction<EditorVerseContent>
-    >;
+    setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorVerseContent>>;
     vscode: any;
 }
 

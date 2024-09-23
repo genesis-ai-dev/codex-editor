@@ -19,13 +19,16 @@ export class Node extends vscode.TreeItem {
     }
 }
 
-export class CodexNotebookTreeViewProvider implements vscode.TreeDataProvider<Node>, vscode.Disposable {
+export class CodexNotebookTreeViewProvider
+    implements vscode.TreeDataProvider<Node>, vscode.Disposable
+{
     private _onDidChangeTreeData: vscode.EventEmitter<Node | undefined | void> =
         new vscode.EventEmitter<Node | undefined | void>();
     readonly onDidChangeTreeData: vscode.Event<Node | undefined | void> =
         this._onDidChangeTreeData.event;
 
-    private notebookMetadata: Map<string, { navigation: NavigationCell[], corpusMarker?: string }> = new Map();
+    private notebookMetadata: Map<string, { navigation: NavigationCell[]; corpusMarker?: string }> =
+        new Map();
 
     private fileWatcher: vscode.FileSystemWatcher | undefined;
 
@@ -35,7 +38,7 @@ export class CodexNotebookTreeViewProvider implements vscode.TreeDataProvider<No
         if (this.workspaceRoot) {
             const pattern = new vscode.RelativePattern(
                 vscode.Uri.file(this.workspaceRoot),
-                'files/target/**/*.codex'
+                "files/target/**/*.codex"
             );
 
             this.fileWatcher = vscode.workspace.createFileSystemWatcher(pattern);
@@ -51,7 +54,11 @@ export class CodexNotebookTreeViewProvider implements vscode.TreeDataProvider<No
             return;
         }
 
-        const notebooksUri = vscode.Uri.joinPath(vscode.Uri.file(this.workspaceRoot), "files", "target");
+        const notebooksUri = vscode.Uri.joinPath(
+            vscode.Uri.file(this.workspaceRoot),
+            "files",
+            "target"
+        );
         const files = await vscode.workspace.fs.readDirectory(notebooksUri);
 
         for (const [file, type] of files) {
@@ -64,14 +71,14 @@ export class CodexNotebookTreeViewProvider implements vscode.TreeDataProvider<No
                         notebookJson = JSON.parse(notebookContent.toString());
                     } catch (parseError) {
                         console.error(`Error parsing JSON for file ${file}:`, parseError);
-                        console.log('Content causing the error:', notebookContent.toString());
+                        console.log("Content causing the error:", notebookContent.toString());
                         continue;
                     }
                     const metadata = notebookJson?.metadata as NotebookMetadata;
 
                     this.notebookMetadata.set(notebookUri.fsPath, {
                         navigation: metadata?.navigation || [],
-                        corpusMarker: metadata?.data?.corpusMarker
+                        corpusMarker: metadata?.data?.corpusMarker,
                     });
                 } catch (error) {
                     console.error(`Error processing file ${file}:`, error);
@@ -107,18 +114,26 @@ export class CodexNotebookTreeViewProvider implements vscode.TreeDataProvider<No
     }
 
     private async getNotebooksByCorpus(): Promise<Node[]> {
-        console.time('getNotebooksByCorpus');
+        console.time("getNotebooksByCorpus");
         try {
             const corpora: Record<string, Node> = {
-                "Old Testament": new Node("Old Testament", "corpus", vscode.TreeItemCollapsibleState.Expanded),
-                "New Testament": new Node("New Testament", "corpus", vscode.TreeItemCollapsibleState.Expanded)
+                "Old Testament": new Node(
+                    "Old Testament",
+                    "corpus",
+                    vscode.TreeItemCollapsibleState.Expanded
+                ),
+                "New Testament": new Node(
+                    "New Testament",
+                    "corpus",
+                    vscode.TreeItemCollapsibleState.Expanded
+                ),
             };
             corpora["Old Testament"].children = [];
             corpora["New Testament"].children = [];
             const ungroupedNotebooks: Node[] = [];
 
             for (const [notebookPath, metadata] of this.notebookMetadata) {
-                const fileName = vscode.Uri.parse(notebookPath).path.split('/').pop() || '';
+                const fileName = vscode.Uri.parse(notebookPath).path.split("/").pop() || "";
                 const fileNameWithoutExtension = fileName.slice(0, -6);
                 const notebookUri = vscode.Uri.file(notebookPath);
                 const notebookNode = new Node(
@@ -129,12 +144,16 @@ export class CodexNotebookTreeViewProvider implements vscode.TreeDataProvider<No
 
                 // Create the child nodes from navigation data
                 if (metadata.navigation) {
-                    notebookNode.children = this.createNodesFromNavigation(metadata.navigation, notebookUri);
+                    notebookNode.children = this.createNodesFromNavigation(
+                        metadata.navigation,
+                        notebookUri
+                    );
                 }
 
                 const bookData = vrefData[fileNameWithoutExtension];
                 if (bookData) {
-                    const testament = bookData.testament === "OT" ? "Old Testament" : "New Testament";
+                    const testament =
+                        bookData.testament === "OT" ? "Old Testament" : "New Testament";
                     corpora[testament].children?.push(notebookNode);
                 } else if (metadata.corpusMarker) {
                     // Add notebook to the corpus if it's not in vrefData but has a corpusMarker
@@ -172,22 +191,27 @@ export class CodexNotebookTreeViewProvider implements vscode.TreeDataProvider<No
             vscode.window.showErrorMessage(`Error processing notebooks: ${error}`);
             return [];
         } finally {
-            console.timeEnd('getNotebooksByCorpus');
+            console.timeEnd("getNotebooksByCorpus");
         }
     }
 
-    private createNodesFromNavigation(navigationCells: NavigationCell[], notebookUri: vscode.Uri): Node[] {
-        return navigationCells.map(navCell => {
+    private createNodesFromNavigation(
+        navigationCells: NavigationCell[],
+        notebookUri: vscode.Uri
+    ): Node[] {
+        return navigationCells.map((navCell) => {
             const node = new Node(
                 navCell.label,
                 navCell.children.length > 0 ? "section" : "cell",
-                navCell.children.length > 0 ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
+                navCell.children.length > 0
+                    ? vscode.TreeItemCollapsibleState.Collapsed
+                    : vscode.TreeItemCollapsibleState.None,
                 navCell.cellId
                     ? {
-                        command: "translation-navigation.openSection",
-                        title: "$(arrow-right)",
-                        arguments: [notebookUri.fsPath, navCell.cellId],
-                    }
+                          command: "translation-navigation.openSection",
+                          title: "$(arrow-right)",
+                          arguments: [notebookUri.fsPath, navCell.cellId],
+                      }
                     : undefined,
                 navCell.cellId
             );

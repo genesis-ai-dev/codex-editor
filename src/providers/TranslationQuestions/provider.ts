@@ -12,10 +12,7 @@ export class TranslationQuestionsProvider {
     context: vscode.ExtensionContext;
     stateStore?: Awaited<ReturnType<typeof initializeStateStore>>;
 
-    constructor(
-        context: vscode.ExtensionContext,
-        resource: DownloadedResource,
-    ) {
+    constructor(context: vscode.ExtensionContext, resource: DownloadedResource) {
         this.resource = resource;
         this.context = context;
         initializeStateStore().then((stateStore) => {
@@ -23,9 +20,7 @@ export class TranslationQuestionsProvider {
         });
     }
 
-    async startWebview(
-        viewColumn: vscode.ViewColumn = vscode.ViewColumn.Beside,
-    ) {
+    async startWebview(viewColumn: vscode.ViewColumn = vscode.ViewColumn.Beside) {
         if (!this.stateStore) {
             this.stateStore = await initializeStateStore();
         }
@@ -37,31 +32,25 @@ export class TranslationQuestionsProvider {
             {
                 enableScripts: true,
                 localResourceRoots: [this.context.extensionUri],
-            },
+            }
         );
         this.webview = panel;
 
-        panel.webview.html = this._getWebviewContent(
-            panel.webview,
-            this.context.extensionUri,
-        );
+        panel.webview.html = this._getWebviewContent(panel.webview, this.context.extensionUri);
 
-        panel.webview.onDidReceiveMessage(
-            async (e: { type: MessageType; payload: unknown }) => {
-                switch (e.type) {
-                    default:
-                        break;
-                }
-            },
-        );
+        panel.webview.onDidReceiveMessage(async (e: { type: MessageType; payload: unknown }) => {
+            switch (e.type) {
+                default:
+                    break;
+            }
+        });
 
         const onDidChangeViewState = panel.onDidChangeViewState(async (e) => {
             if (e.webviewPanel.visible) {
-                const verseRefStore =
-                    await this.stateStore?.getStoreState("verseRef");
+                const verseRefStore = await this.stateStore?.getStoreState("verseRef");
                 const translationQuestions = await getVerseTranslationQuestions(
                     this.resource,
-                    verseRefStore?.verseRef ?? "GEN 1:1",
+                    verseRefStore?.verseRef ?? "GEN 1:1"
                 );
 
                 e.webviewPanel.webview.postMessage({
@@ -78,15 +67,11 @@ export class TranslationQuestionsProvider {
             async (value) => {
                 console.log("state update: verseRef ---------> ", value);
                 if (value) {
-                    const translationQuestions =
-                        await getVerseTranslationQuestions(
-                            this.resource,
-                            value.verseRef,
-                        );
-                    console.log(
-                        "state update: translationQuestions",
-                        translationQuestions,
+                    const translationQuestions = await getVerseTranslationQuestions(
+                        this.resource,
+                        value.verseRef
                     );
+                    console.log("state update: translationQuestions", translationQuestions);
                     panel.webview.postMessage({
                         type: "update-tq",
                         payload: {
@@ -94,7 +79,7 @@ export class TranslationQuestionsProvider {
                         },
                     });
                 }
-            },
+            }
         );
         panel.onDidDispose(() => {
             onDidChangeViewState.dispose();
@@ -106,10 +91,7 @@ export class TranslationQuestionsProvider {
         };
     }
 
-    private _getWebviewContent(
-        webview: vscode.Webview,
-        extensionUri: vscode.Uri,
-    ) {
+    private _getWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri) {
         // The CSS file from the React build output
         const stylesUri = getUri(webview, extensionUri, [
             "webviews",

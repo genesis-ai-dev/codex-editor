@@ -18,14 +18,11 @@ class ScriptureReferenceCodeLensProvider {
     }
     provideCodeLenses(
         document: vscode.TextDocument,
-        token: vscode.CancellationToken,
+        token: vscode.CancellationToken
     ): vscode.CodeLens[] {
         const lenses: vscode.CodeLens[] = [];
         const activeEditor = vscode.window.activeTextEditor;
-        if (
-            activeEditor &&
-            activeEditor.document.uri.toString() === document.uri.toString()
-        ) {
+        if (activeEditor && activeEditor.document.uri.toString() === document.uri.toString()) {
             const cursorPosition = activeEditor.selection.active;
             const line = document.lineAt(cursorPosition.line);
             const verseRef = extractVerseRefFromLine(line.text);
@@ -41,20 +38,19 @@ class ScriptureReferenceCodeLensProvider {
                     cursorPosition.line,
                     0,
                     cursorPosition.line,
-                    line.text.length,
+                    line.text.length
                 );
                 lenses.push(
                     new vscode.CodeLens(range, {
                         title: "📚 Resources",
                         command: `codex-editor-extension.${showReferencesCommandName}`,
                         arguments: [verseRef, document.uri.toString()],
-                    }),
+                    })
                 );
                 if (
                     activeFileIsACodexFile &&
-                    vscode.extensions.getExtension(
-                        "project-accelerate.codex-scripture-viewer",
-                    )?.isActive
+                    vscode.extensions.getExtension("project-accelerate.codex-scripture-viewer")
+                        ?.isActive
                 ) {
                     // Fixme: Scripture display is only for codex notebook files. The file content of the .bible would need to be converted to a codex notebook manually or a virtual file would need to be created
                     lenses.push(
@@ -62,7 +58,7 @@ class ScriptureReferenceCodeLensProvider {
                             title: "📄 Preview",
                             command: `codex-editor-extension.viewScriptureDisplay`,
                             arguments: [verseRef, document.uri.toString()],
-                        }),
+                        })
                     );
                 }
                 if (SHOW_DISCUSS_COMMAND) {
@@ -71,7 +67,7 @@ class ScriptureReferenceCodeLensProvider {
                             title: "💬 Discuss",
                             command: `codex-editor-extension.discuss`,
                             arguments: [verseRef, document.uri.toString()],
-                        }),
+                        })
                     );
                 }
             }
@@ -84,13 +80,12 @@ export const showReferencesCommandName = "showReferences";
 const registerReferences = (context: vscode.ExtensionContext) => {
     const provider = new ScriptureReferenceCodeLensProvider();
 
-    
     context.subscriptions.push(
-        vscode.languages.registerCodeLensProvider({ language: "*" }, provider),
+        vscode.languages.registerCodeLensProvider({ language: "*" }, provider)
     );
 
     context.subscriptions.push(
-        vscode.window.onDidChangeTextEditorSelection(() => provider.refresh()),
+        vscode.window.onDidChangeTextEditorSelection(() => provider.refresh())
     );
     context.subscriptions.push(
         vscode.commands.registerCommand(
@@ -102,12 +97,9 @@ const registerReferences = (context: vscode.ExtensionContext) => {
                         value: { verseRef, uri },
                     });
                 });
-                await vscode.commands.executeCommand(
-                    "translationNotes.openTnEditor",
-                    verseRef,
-                );
-            },
-        ),
+                await vscode.commands.executeCommand("translationNotes.openTnEditor", verseRef);
+            }
+        )
     );
     context.subscriptions.push(
         vscode.commands.registerCommand(
@@ -121,13 +113,13 @@ const registerReferences = (context: vscode.ExtensionContext) => {
                 });
 
                 vscode.commands.executeCommand(
-                    "workbench.view.extension.genesis-translator-sidebar-view",
+                    "workbench.view.extension.genesis-translator-sidebar-view"
                 );
                 // vscode.window.showInformationMessage(
                 //     `Discussing ${verseRef}...`,
                 // );
-            },
-        ),
+            }
+        )
     );
 };
 

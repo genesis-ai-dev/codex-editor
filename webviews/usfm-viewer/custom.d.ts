@@ -1,1 +1,1 @@
-declare module '@xelah/type-perf-html';
+declare module "@xelah/type-perf-html";

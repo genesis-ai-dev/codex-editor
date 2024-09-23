@@ -12,7 +12,10 @@ import { registerLanguageServer } from "./tsServer/registerLanguageServer";
 import { registerClientCommands } from "./tsServer/registerClientCommands";
 import { LanguageClient } from "vscode-languageclient/node";
 import { registerProjectManager } from "./projectManager";
-import { temporaryMigrationScript_checkMatthewNotebook, migration_changeDraftFolderToFilesFolder } from "./projectManager/utils/migrationUtils";
+import {
+    temporaryMigrationScript_checkMatthewNotebook,
+    migration_changeDraftFolderToFilesFolder,
+} from "./projectManager/utils/migrationUtils";
 import { createIndexWithContext } from "./activationHelpers/contextAware/miniIndex/indexes";
 
 let client: LanguageClient;
@@ -51,9 +54,7 @@ function registerCodeLensProviders(context: vscode.ExtensionContext) {
 async function executeCommandsAfter() {
     vscode.commands.executeCommand("workbench.action.focusAuxiliaryBar");
     vscode.commands.executeCommand("translation-navigation.refreshEntry");
-    vscode.commands.executeCommand(
-        "codex-editor-extension.setEditorFontToTargetLanguage",
-    );
+    vscode.commands.executeCommand("codex-editor-extension.setEditorFontToTargetLanguage");
 }
 
 export function deactivate() {

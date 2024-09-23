@@ -1,5 +1,11 @@
 interface TokenizeTextOptions {
-    method: "whitespace" | "whitespace_and_punctuation" | "words" | "words_and_punctuation" | "lines" | "lines_and_punctuation";
+    method:
+        | "whitespace"
+        | "whitespace_and_punctuation"
+        | "words"
+        | "words_and_punctuation"
+        | "lines"
+        | "lines_and_punctuation";
     text: string;
 }
 

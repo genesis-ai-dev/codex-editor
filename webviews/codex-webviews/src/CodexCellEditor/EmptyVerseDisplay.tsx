@@ -4,9 +4,7 @@ import { EditorVerseContent } from "../../../../types";
 interface EmptyVerseDisplayProps {
     verseMarkers: string[];
     verseIndex: number;
-    setContentBeingUpdated: React.Dispatch<
-        React.SetStateAction<EditorVerseContent>
-    >;
+    setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorVerseContent>>;
 }
 
 const EmptyVerseDisplay: React.FC<EmptyVerseDisplayProps> = ({

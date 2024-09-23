@@ -15,10 +15,7 @@ export class USFMViewerProvider {
     context: vscode.ExtensionContext;
     stateStore?: Awaited<ReturnType<typeof initializeStateStore>>;
 
-    constructor(
-        context: vscode.ExtensionContext,
-        resource: DownloadedResource,
-    ) {
+    constructor(context: vscode.ExtensionContext, resource: DownloadedResource) {
         this.resource = resource;
         this.context = context;
         initializeStateStore().then((stateStore) => {
@@ -26,9 +23,7 @@ export class USFMViewerProvider {
         });
     }
 
-    async startWebview(
-        viewColumn: vscode.ViewColumn = vscode.ViewColumn.Beside,
-    ) {
+    async startWebview(viewColumn: vscode.ViewColumn = vscode.ViewColumn.Beside) {
         if (!this.stateStore) {
             this.stateStore = await initializeStateStore();
             console.log("stateStore3", this.stateStore);
@@ -39,18 +34,14 @@ export class USFMViewerProvider {
             viewColumn,
             {
                 enableScripts: true,
-            },
+            }
         );
         this.webview = panel;
         console.log("updating webview");
 
         const updateWebview = async () => {
-            const verseRefStore =
-                await this.stateStore?.getStoreState("verseRef");
-            const usfm = await getUSFMDocument(
-                this.resource,
-                verseRefStore?.verseRef ?? "GEN 1:1",
-            );
+            const verseRefStore = await this.stateStore?.getStoreState("verseRef");
+            const usfm = await getUSFMDocument(this.resource, verseRefStore?.verseRef ?? "GEN 1:1");
             console.log(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>usfm", { usfm });
 
             panel.webview.postMessage({
@@ -72,32 +63,22 @@ export class USFMViewerProvider {
             console.error("Error updating webview:", error);
         }
 
-        panel.webview.html = this._getWebviewContent(
-            panel.webview,
-            this.context.extensionUri,
-        );
+        panel.webview.html = this._getWebviewContent(panel.webview, this.context.extensionUri);
 
-        panel.webview.onDidReceiveMessage(
-            async (e: { type: MessageType; payload: unknown }) => {
-                console.log(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>onDidReceiveMessage");
-                switch (e.type) {
-                    case MessageType.GET_USFM:
-                        {
-                            console.log("GET_USFM", e.payload);
-                        }
-                        break;
-                    default:
-                        break;
-                }
-            },
-        );
-        const updateUSFMFromFile = async (
-            verseRefStore: VerseRefGlobalState,
-        ) => {
-            const usfm = await getUSFMDocument(
-                this.resource,
-                verseRefStore?.verseRef ?? "GEN 1:1",
-            );
+        panel.webview.onDidReceiveMessage(async (e: { type: MessageType; payload: unknown }) => {
+            console.log(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>onDidReceiveMessage");
+            switch (e.type) {
+                case MessageType.GET_USFM:
+                    {
+                        console.log("GET_USFM", e.payload);
+                    }
+                    break;
+                default:
+                    break;
+            }
+        });
+        const updateUSFMFromFile = async (verseRefStore: VerseRefGlobalState) => {
+            const usfm = await getUSFMDocument(this.resource, verseRefStore?.verseRef ?? "GEN 1:1");
             console.log(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>usfm", usfm);
             panel.webview.postMessage({
                 type: "update-usfm",
@@ -112,8 +93,7 @@ export class USFMViewerProvider {
 
         const onDidChangeViewState = panel.onDidChangeViewState(async (e) => {
             if (e.webviewPanel.visible) {
-                const verseRefStore =
-                    await this.stateStore?.getStoreState("verseRef");
+                const verseRefStore = await this.stateStore?.getStoreState("verseRef");
                 verseRefStore && updateUSFMFromFile(verseRefStore);
                 // const usfm = await getUSFMDocument(
                 //     this.resource,
@@ -155,7 +135,7 @@ export class USFMViewerProvider {
                     //     },
                     // });
                 }
-            },
+            }
         );
         panel.onDidDispose(() => {
             onDidChangeViewState.dispose();
@@ -167,10 +147,7 @@ export class USFMViewerProvider {
         };
     }
 
-    private _getWebviewContent(
-        webview: vscode.Webview,
-        extensionUri: vscode.Uri,
-    ) {
+    private _getWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri) {
         // The CSS file from the React build output
         const stylesUri = getUri(webview, extensionUri, [
             "webviews",

@@ -11,43 +11,44 @@ const GIT_IGNORE_CONTENT = `
 .project/*
 `;
 
-export const initProject = async (
-    name: string,
-    email: string,
-    projectUri?: vscode.Uri,
-) => {
-
-    const gitExtension = vscode.extensions.getExtension('vscode.git');
+export const initProject = async (name: string, email: string, projectUri?: vscode.Uri) => {
+    const gitExtension = vscode.extensions.getExtension("vscode.git");
 
     if (!gitExtension) {
         const installGitExtension = await vscode.window.showInformationMessage(
-            'Git extension not found. This is required for cloud syncing. Would you like to install it now?',
+            "Git extension not found. This is required for cloud syncing. Would you like to install it now?",
             { modal: true },
-            'Yes',
-            'No'
+            "Yes",
+            "No"
         );
 
-        if (installGitExtension === 'Yes') {
-            await vscode.commands.executeCommand('workbench.extensions.installExtension', 'vscode.git');
-            vscode.window.showInformationMessage('Git extension installed successfully. Please reload the window.', 'Reload Window').then((value) => {
-                if (value === 'Reload Window') {
-                    vscode.commands.executeCommand('workbench.action.reloadWindow');
-                }
-            });
+        if (installGitExtension === "Yes") {
+            await vscode.commands.executeCommand(
+                "workbench.extensions.installExtension",
+                "vscode.git"
+            );
+            vscode.window
+                .showInformationMessage(
+                    "Git extension installed successfully. Please reload the window.",
+                    "Reload Window"
+                )
+                .then((value) => {
+                    if (value === "Reload Window") {
+                        vscode.commands.executeCommand("workbench.action.reloadWindow");
+                    }
+                });
         } else {
-            vscode.window.showErrorMessage('Git extension is required for this feature. Please install it and try again.');
+            vscode.window.showErrorMessage(
+                "Git extension is required for this feature. Please install it and try again."
+            );
             return;
         }
     }
 
-    const gitApi = vscode.extensions
-        .getExtension<GitExtension>("vscode.git")
-        ?.exports.getAPI(1);
+    const gitApi = vscode.extensions.getExtension<GitExtension>("vscode.git")?.exports.getAPI(1);
 
     if (!gitApi) {
-        vscode.window.showErrorMessage(
-            "Git extension not found. Please install it and try again.",
-        );
+        vscode.window.showErrorMessage("Git extension not found. Please install it and try again.");
         return;
     }
 
@@ -55,7 +56,7 @@ export const initProject = async (
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
         vscode.window.showErrorMessage(
-            "No workspace folder found. Please open a folder and try again.",
+            "No workspace folder found. Please open a folder and try again."
         );
         return;
     }
@@ -63,23 +64,15 @@ export const initProject = async (
     const repository = await gitApi.init(projectUri ?? workspaceFolders[0].uri);
 
     if (!repository) {
-        vscode.window.showErrorMessage(
-            "Failed to initialize project. Please try again.",
-        );
+        vscode.window.showErrorMessage("Failed to initialize project. Please try again.");
         return;
     }
 
     // Create .gitignore file
-    const gitIgnoreUri = vscode.Uri.joinPath(
-        projectUri ?? workspaceFolders[0].uri,
-        ".gitignore",
-    );
+    const gitIgnoreUri = vscode.Uri.joinPath(projectUri ?? workspaceFolders[0].uri, ".gitignore");
 
     if (!(await fileExists(gitIgnoreUri))) {
-        await vscode.workspace.fs.writeFile(
-            gitIgnoreUri,
-            Buffer.from(GIT_IGNORE_CONTENT),
-        );
+        await vscode.workspace.fs.writeFile(gitIgnoreUri, Buffer.from(GIT_IGNORE_CONTENT));
     }
 
     if (name && email) {
@@ -103,9 +96,7 @@ const sleep = async (ms: number) => {
 
 export const stageAndCommit = async () => {
     try {
-        const gitApi: API = vscode.extensions
-            .getExtension("vscode.git")
-            ?.exports.getAPI(1);
+        const gitApi: API = vscode.extensions.getExtension("vscode.git")?.exports.getAPI(1);
         if (!gitApi || gitApi.repositories.length === 0) {
             console.error("Git API not found or no repositories available.");
             return;
@@ -126,9 +117,7 @@ export const stageAndCommit = async () => {
 };
 
 export const sync = async () => {
-    const gitApi: API = vscode.extensions
-        .getExtension("vscode.git")
-        ?.exports.getAPI(1);
+    const gitApi: API = vscode.extensions.getExtension("vscode.git")?.exports.getAPI(1);
     if (!gitApi || gitApi.repositories.length === 0) {
         console.error("Git API not found or no repositories available.");
         return;
@@ -143,9 +132,7 @@ export const addRemote = async (url: string) => {
     const configuration = vscode.workspace.getConfiguration("codex-editor-extension.scm");
     const remoteFromConfig = await configuration.get("remoteUrl");
 
-    const gitApi: API = vscode.extensions
-        .getExtension("vscode.git")
-        ?.exports.getAPI(1);
+    const gitApi: API = vscode.extensions.getExtension("vscode.git")?.exports.getAPI(1);
     if (!gitApi || gitApi.repositories.length === 0) {
         console.error("Git API not found or no repositories available.");
         return;
@@ -168,9 +155,7 @@ export const addRemote = async (url: string) => {
 };
 
 export const isRemoteDiff = async () => {
-    const gitApi: API = vscode.extensions
-        .getExtension("vscode.git")
-        ?.exports.getAPI(1);
+    const gitApi: API = vscode.extensions.getExtension("vscode.git")?.exports.getAPI(1);
     if (!gitApi || gitApi.repositories.length === 0) {
         console.error("Git API not found or no repositories available.");
         return;
@@ -207,13 +192,9 @@ export const isRemoteDiff = async () => {
 };
 
 export const hasRemote = async () => {
-    const gitApi: API = vscode.extensions
-        .getExtension("vscode.git")
-        ?.exports.getAPI(1);
+    const gitApi: API = vscode.extensions.getExtension("vscode.git")?.exports.getAPI(1);
     if (!gitApi || gitApi.repositories.length === 0) {
-        console.error(
-            "Git API not found or no repositories available at `hasRemote`.",
-        );
+        console.error("Git API not found or no repositories available at `hasRemote`.");
         return false;
     }
     const repository = gitApi?.repositories[0];
@@ -224,13 +205,9 @@ export const hasRemote = async () => {
 };
 
 export const hasPendingChanges = async () => {
-    const gitApi: API = vscode.extensions
-        .getExtension("vscode.git")
-        ?.exports.getAPI(1);
+    const gitApi: API = vscode.extensions.getExtension("vscode.git")?.exports.getAPI(1);
     if (!gitApi || gitApi.repositories.length === 0) {
-        console.error(
-            "Git API not found or no repositories available at `hasPendingChanges`.",
-        );
+        console.error("Git API not found or no repositories available at `hasPendingChanges`.");
         return false;
     }
     const repository = gitApi?.repositories[0];
@@ -241,9 +218,7 @@ export const hasPendingChanges = async () => {
 };
 
 export const addUser = async (name: string, email: string) => {
-    const gitApi: API = vscode.extensions
-        .getExtension("vscode.git")
-        ?.exports.getAPI(1);
+    const gitApi: API = vscode.extensions.getExtension("vscode.git")?.exports.getAPI(1);
     const repository = gitApi.repositories[0];
     await repository.setConfig("user.name", name);
     await repository.setConfig("user.email", email);
@@ -253,9 +228,7 @@ export const promptForLocalSync = async () => {
     if (!(await projectFileExists())) {
         return;
     }
-    const gitApi: API = vscode.extensions
-        .getExtension("vscode.git")
-        ?.exports.getAPI(1);
+    const gitApi: API = vscode.extensions.getExtension("vscode.git")?.exports.getAPI(1);
     const repository = gitApi.repositories[0];
 
     if (repository.state.workingTreeChanges.length === 0) {
@@ -265,7 +238,7 @@ export const promptForLocalSync = async () => {
     const commitChoice = await vscode.window.showInformationMessage(
         "You have unsynced local changes. Do you to sync them locally?",
         "Yes",
-        "No",
+        "No"
     );
 
     if (commitChoice === "No") {
@@ -281,19 +254,16 @@ export const checkConfigRemoteAndUpdateIt = async () => {
     }
     const configuration = vscode.workspace.getConfiguration("codex-editor-extension.scm"); // FIXME: why is this empty
     const remoteFromConfig = (await configuration.get("remoteUrl")) as string;
-    const gitApi: API = vscode.extensions
-        .getExtension("vscode.git")
-        ?.exports.getAPI(1);
+    const gitApi: API = vscode.extensions.getExtension("vscode.git")?.exports.getAPI(1);
     const repository = gitApi.repositories[0];
 
     if (!repository) {
         return;
     }
 
-    const backupRemote = repository.state.remotes.find(
-        (r) => r.name === "origin",
-    )?.fetchUrl;
-    if (backupRemote === remoteFromConfig) { // FIXME: both seem to be empty
+    const backupRemote = repository.state.remotes.find((r) => r.name === "origin")?.fetchUrl;
+    if (backupRemote === remoteFromConfig) {
+        // FIXME: both seem to be empty
 
         return;
     }
@@ -301,7 +271,7 @@ export const checkConfigRemoteAndUpdateIt = async () => {
     const remoteChangeChoice = await vscode.window.showInformationMessage(
         "Remote URL has changed. Do you want to update it?",
         "Yes",
-        "No",
+        "No"
     );
 
     if (remoteChangeChoice === "No") {
@@ -312,7 +282,7 @@ export const checkConfigRemoteAndUpdateIt = async () => {
 
     await repository.addRemote("origin", remoteFromConfig).catch(async () => {
         await vscode.window.showErrorMessage(
-            "Failed to update remote URL. Reverting to previous URL.",
+            "Failed to update remote URL. Reverting to previous URL."
         );
         await repository.addRemote("origin", backupRemote!);
     });
@@ -321,14 +291,10 @@ export const checkConfigRemoteAndUpdateIt = async () => {
         await stageAndCommit();
     }
 
-    await repository
-        .push("origin", repository.state.HEAD?.name, true)
-        .catch((err) => {
-            console.error(err);
-            vscode.window.showErrorMessage(
-                "Failed to sync changes remote URL.",
-            );
-        });
+    await repository.push("origin", repository.state.HEAD?.name, true).catch((err) => {
+        console.error(err);
+        vscode.window.showErrorMessage("Failed to sync changes remote URL.");
+    });
 
     await vscode.window.showInformationMessage("Remote URL updated & synced.");
 };

@@ -24,9 +24,7 @@ type Resource = Meta;
 
 export const downloadResource = async (resource: Resource) => {
     try {
-        vscode.window.showInformationMessage(
-            "Download started, please wait...",
-        );
+        vscode.window.showInformationMessage("Download started, please wait...");
 
         const selectResource = getResourceType(resource.subject);
         if (!resource) {
@@ -38,11 +36,7 @@ export const downloadResource = async (resource: Resource) => {
         if (!currentFolderURI) {
             throw new Error("No workspace opened");
         }
-        const resourcesFolder = vscode.Uri.joinPath(
-            currentFolderURI,
-            ".project",
-            "resources",
-        );
+        const resourcesFolder = vscode.Uri.joinPath(currentFolderURI, ".project", "resources");
         const resourcesFolderExists = await directoryExists(resourcesFolder);
         if (!resourcesFolderExists) {
             await vscode.workspace.fs.createDirectory(resourcesFolder);
@@ -55,26 +49,23 @@ export const downloadResource = async (resource: Resource) => {
             });
 
             if (selectResource === "twl" || selectResource === "obs-twl") {
-                const linkedResource = await getLinkedTwResource(
-                    results?.resourceMeta,
-                );
+                const linkedResource = await getLinkedTwResource(results?.resourceMeta);
 
                 if (!linkedResource) {
                     await vscode.workspace.fs.delete(results.folder);
 
                     await vscode.window.showErrorMessage(
-                        "No linked Translation Words resource found! unable to download the resource!",
+                        "No linked Translation Words resource found! unable to download the resource!"
                     );
                     throw new Error(
-                        "No linked Translation Words resource found! unable to download the resource!",
+                        "No linked Translation Words resource found! unable to download the resource!"
                     );
                 }
 
-                const linkedResourceResults =
-                    await downloadSBTranslationResources({
-                        projectResource: linkedResource,
-                        resourcesFolder,
-                    });
+                const linkedResourceResults = await downloadSBTranslationResources({
+                    projectResource: linkedResource,
+                    resourcesFolder,
+                });
 
                 return [
                     {
@@ -99,8 +90,7 @@ export const downloadResource = async (resource: Resource) => {
 
         // create the resource burrito file
         const resourceMetadataRequest = await fetch(resource.metadata_json_url);
-        const resourceMetadata =
-            (await resourceMetadataRequest.json()) as AnyObject;
+        const resourceMetadata = (await resourceMetadataRequest.json()) as AnyObject;
         const resourceBurritoFile = createDownloadedResourceSB({
             resourceMetadata,
             resource: resource as AnyObject,
@@ -118,7 +108,7 @@ export const downloadResource = async (resource: Resource) => {
         const zipBuffer = await zipResponse.arrayBuffer();
         await vscode.workspace.fs.writeFile(
             vscode.Uri.joinPath(resourcesFolder, `${currentProjectName}.zip`),
-            Buffer.from(zipBuffer),
+            Buffer.from(zipBuffer)
         );
 
         // unzip the resource
@@ -129,33 +119,27 @@ export const downloadResource = async (resource: Resource) => {
             const item = contents.files[key];
             if (item.dir) {
                 await vscode.workspace.fs.createDirectory(
-                    vscode.Uri.joinPath(resourcesFolder, item.name),
+                    vscode.Uri.joinPath(resourcesFolder, item.name)
                 );
             } else {
-                const bufferContent = Buffer.from(
-                    await item.async("arraybuffer"),
-                );
+                const bufferContent = Buffer.from(await item.async("arraybuffer"));
                 // save the resource to the local disk in the current project folder named .project/resources
                 await vscode.workspace.fs.writeFile(
                     vscode.Uri.joinPath(resourcesFolder, item.name),
-                    bufferContent,
+                    bufferContent
                 );
             }
             if (key.toLowerCase().includes("license")) {
                 licenseFileFound = true;
-                if (
-                    await fileExists(vscode.Uri.joinPath(resourcesFolder, key))
-                ) {
+                if (await fileExists(vscode.Uri.joinPath(resourcesFolder, key))) {
                     const licenseContent = await vscode.workspace.fs.readFile(
-                        vscode.Uri.joinPath(resourcesFolder, key),
+                        vscode.Uri.joinPath(resourcesFolder, key)
                     );
                     const checksum = md5(licenseContent);
                     const stats = await vscode.workspace.fs.stat(
-                        vscode.Uri.joinPath(resourcesFolder, key),
+                        vscode.Uri.joinPath(resourcesFolder, key)
                     );
-                    resourceBurritoFile.ingredients[
-                        key.replace(resource.name, ".")
-                    ] = {
+                    resourceBurritoFile.ingredients[key.replace(resource.name, ".")] = {
                         checksum: { md5: checksum },
                         mimeType: "text/md",
                         size: stats.size,
@@ -169,13 +153,12 @@ export const downloadResource = async (resource: Resource) => {
         let customLicenseContent = "";
         switch (selectResource) {
             case "bible":
-                finalBurritoFile =
-                    await generateResourceIngredientsTextTranslation({
-                        resource,
-                        resourceMetadata,
-                        folder: resourcesFolder,
-                        resourceBurrito: resourceBurritoFile,
-                    });
+                finalBurritoFile = await generateResourceIngredientsTextTranslation({
+                    resource,
+                    resourceMetadata,
+                    folder: resourcesFolder,
+                    resourceBurrito: resourceBurritoFile,
+                });
                 customLicenseContent = customLicense;
                 break;
             case "obs":
@@ -189,26 +172,15 @@ export const downloadResource = async (resource: Resource) => {
                 customLicenseContent = OBSLicense;
                 break;
             default:
-                throw new Error(
-                    " can not process :Invalid Type of Resource requested",
-                );
+                throw new Error(" can not process :Invalid Type of Resource requested");
         }
 
-        const downloadResourceUri = vscode.Uri.joinPath(
-            resourcesFolder,
-            `${resource.name}`,
-        );
+        const downloadResourceUri = vscode.Uri.joinPath(resourcesFolder, `${resource.name}`);
 
         if (!licenseFileFound) {
             if (await directoryExists(downloadResourceUri)) {
-                const mdUri = vscode.Uri.joinPath(
-                    downloadResourceUri,
-                    "LICENSE.md",
-                );
-                await vscode.workspace.fs.writeFile(
-                    mdUri,
-                    Buffer.from(customLicenseContent),
-                );
+                const mdUri = vscode.Uri.joinPath(downloadResourceUri, "LICENSE.md");
+                await vscode.workspace.fs.writeFile(mdUri, Buffer.from(customLicenseContent));
                 const stats = await vscode.workspace.fs.stat(mdUri);
                 finalBurritoFile.ingredients["./LICENSE.md"] = {
                     checksum: { md5: md5(customLicenseContent) },
@@ -227,13 +199,10 @@ export const downloadResource = async (resource: Resource) => {
 
         const settingsUri = vscode.Uri.joinPath(
             downloadResourceUri,
-            environment.PROJECT_SETTING_FILE,
+            environment.PROJECT_SETTING_FILE
         );
 
-        await vscode.workspace.fs.writeFile(
-            settingsUri,
-            Buffer.from(JSON.stringify(settings)),
-        );
+        await vscode.workspace.fs.writeFile(settingsUri, Buffer.from(JSON.stringify(settings)));
 
         const checksum = md5(JSON.stringify(settings));
 
@@ -255,25 +224,20 @@ export const downloadResource = async (resource: Resource) => {
             }
         });
 
-        const metadataUri = vscode.Uri.joinPath(
-            downloadResourceUri,
-            "metadata.json",
-        );
+        const metadataUri = vscode.Uri.joinPath(downloadResourceUri, "metadata.json");
 
         await vscode.workspace.fs.writeFile(
             metadataUri,
-            Buffer.from(JSON.stringify(finalBurritoFile)),
+            Buffer.from(JSON.stringify(finalBurritoFile))
         );
 
         // delete the downloaded zip file
 
         await vscode.workspace.fs.delete(
-            vscode.Uri.joinPath(resourcesFolder, `${currentProjectName}.zip`),
+            vscode.Uri.joinPath(resourcesFolder, `${currentProjectName}.zip`)
         );
 
-        vscode.window.showInformationMessage(
-            `Resource ${resource.name} downloaded successfully`,
-        );
+        vscode.window.showInformationMessage(`Resource ${resource.name} downloaded successfully`);
         // add to the global store of resources
 
         // return the local path to the resource

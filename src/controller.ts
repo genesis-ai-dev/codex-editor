@@ -1,52 +1,59 @@
-import * as vscode from 'vscode';
-import { NOTEBOOK_TYPE } from './utils/codexNotebookUtils';
+import * as vscode from "vscode";
+import { NOTEBOOK_TYPE } from "./utils/codexNotebookUtils";
 
 export class CodexKernel {
-	private readonly _id = 'codex-kernel';
-	private readonly _label = 'Codex Notebook Kernel';
-	private readonly _supportedLanguages = ['json'];
+    private readonly _id = "codex-kernel";
+    private readonly _label = "Codex Notebook Kernel";
+    private readonly _supportedLanguages = ["json"];
 
-	private _executionOrder = 0;
-	private readonly _controller: vscode.NotebookController;
+    private _executionOrder = 0;
+    private readonly _controller: vscode.NotebookController;
 
-	constructor() {
+    constructor() {
+        this._controller = vscode.notebooks.createNotebookController(
+            this._id,
+            NOTEBOOK_TYPE,
+            this._label
+        );
 
-		this._controller = vscode.notebooks.createNotebookController(this._id,
-			NOTEBOOK_TYPE,
-			this._label);
+        this._controller.supportedLanguages = this._supportedLanguages;
+        this._controller.supportsExecutionOrder = true;
+        this._controller.executeHandler = this._executeAll.bind(this);
+    }
 
-		this._controller.supportedLanguages = this._supportedLanguages;
-		this._controller.supportsExecutionOrder = true;
-		this._controller.executeHandler = this._executeAll.bind(this);
-	}
+    dispose(): void {
+        this._controller.dispose();
+    }
 
-	dispose(): void {
-		this._controller.dispose();
-	}
+    private _executeAll(
+        cells: vscode.NotebookCell[],
+        _notebook: vscode.NotebookDocument,
+        _controller: vscode.NotebookController
+    ): void {
+        for (const cell of cells) {
+            this._doExecution(cell);
+        }
+    }
 
-	private _executeAll(cells: vscode.NotebookCell[], _notebook: vscode.NotebookDocument, _controller: vscode.NotebookController): void {
-		for (const cell of cells) {
-			this._doExecution(cell);
-		}
-	}
+    private async _doExecution(cell: vscode.NotebookCell): Promise<void> {
+        const execution = this._controller.createNotebookCellExecution(cell);
 
-	private async _doExecution(cell: vscode.NotebookCell): Promise<void> {
-		const execution = this._controller.createNotebookCellExecution(cell);
+        execution.executionOrder = ++this._executionOrder;
+        execution.start(Date.now());
 
-		execution.executionOrder = ++this._executionOrder;
-		execution.start(Date.now());
+        try {
+            execution.replaceOutput([
+                new vscode.NotebookCellOutput([
+                    vscode.NotebookCellOutputItem.json(JSON.parse(cell.document.getText())),
+                ]),
+            ]);
 
-		try {
-			execution.replaceOutput([new vscode.NotebookCellOutput([
-				vscode.NotebookCellOutputItem.json(JSON.parse(cell.document.getText()))
-			])]);
-
-			execution.end(true, Date.now());
-		} catch (err) {
-			execution.replaceOutput([new vscode.NotebookCellOutput([
-				vscode.NotebookCellOutputItem.error(err as Error)
-			])]);
-			execution.end(false, Date.now());
-		}
-	}
+            execution.end(true, Date.now());
+        } catch (err) {
+            execution.replaceOutput([
+                new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.error(err as Error)]),
+            ]);
+            execution.end(false, Date.now());
+        }
+    }
 }

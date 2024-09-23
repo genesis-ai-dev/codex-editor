@@ -1,7 +1,4 @@
-import {
-    TRANSLATION_RESOURCE_TYPES,
-    fetchTranslationResource,
-} from "./fetchTranslationResource";
+import { TRANSLATION_RESOURCE_TYPES, fetchTranslationResource } from "./fetchTranslationResource";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export type Language = {
     lc: string;
@@ -66,14 +63,11 @@ const fetchResource = async (
         id: number;
         name: string;
     }[],
-    selectResource:
-        | "bible"
-        | "obs"
-        | (typeof TRANSLATION_RESOURCE_TYPES)[number]["key"],
+    selectResource: "bible" | "obs" | (typeof TRANSLATION_RESOURCE_TYPES)[number]["key"]
 ) => {
     if (!["obs", "bible"].includes(selectResource)) {
         return fetchTranslationResource(
-            selectResource as (typeof TRANSLATION_RESOURCE_TYPES)[number]["key"],
+            selectResource as (typeof TRANSLATION_RESOURCE_TYPES)[number]["key"]
         );
     }
 

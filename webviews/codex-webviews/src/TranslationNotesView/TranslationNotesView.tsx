@@ -1,10 +1,6 @@
 // import { vscode } from "./utilities/vscode";
 import React, { useState, useEffect } from "react";
-import {
-    VSCodePanels,
-    VSCodePanelTab,
-    VSCodePanelView,
-} from "@vscode/webview-ui-toolkit/react";
+import { VSCodePanels, VSCodePanelTab, VSCodePanelView } from "@vscode/webview-ui-toolkit/react";
 import { vscode } from "./utilities/vscode";
 import "./TranslationNotes.css";
 
@@ -23,8 +19,7 @@ function App() {
 
     const changeChapterVerse = (ref: VerseRefGlobalState): void => {
         const { verseRef } = ref;
-        const { chapter: newChapter, verse: newVerse } =
-            extractBookChapterVerse(verseRef);
+        const { chapter: newChapter, verse: newVerse } = extractBookChapterVerse(verseRef);
 
         setChapter(newChapter);
         setVerse(newVerse);
@@ -37,8 +32,7 @@ function App() {
 
         const commandToFunctionMapping: CommandToFunctionMap = {
             ["update"]: (data: TnTSV) => setTranslationNotesObj(data),
-            ["changeRef"]: (data: VerseRefGlobalState) =>
-                changeChapterVerse(data),
+            ["changeRef"]: (data: VerseRefGlobalState) => changeChapterVerse(data),
         };
 
         commandToFunctionMapping[command](data);
@@ -62,14 +56,10 @@ function App() {
 
     const incrementNoteIndex = () =>
         setNoteIndex((prevIndex) =>
-            prevIndex < translationNotesObj[chapter][verse].length - 1
-                ? prevIndex + 1
-                : prevIndex,
+            prevIndex < translationNotesObj[chapter][verse].length - 1 ? prevIndex + 1 : prevIndex
         );
     const decrementNoteIndex = () =>
-        setNoteIndex((prevIndex) =>
-            prevIndex > 0 ? prevIndex - 1 : prevIndex,
-        );
+        setNoteIndex((prevIndex) => (prevIndex > 0 ? prevIndex - 1 : prevIndex));
 
     // TODO: Implement note navigation
     // function handleNoteNavigation() {

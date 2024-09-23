@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { getUri } from "./utilities/getUri";
 import { getNonce } from "./utilities/getNonce";
-import { FileHandler } from './utilities/FileHandler';
+import { FileHandler } from "./utilities/FileHandler";
 import { Dictionary, DictionaryEntry } from "codex-types";
 import { DictionarySummaryPostMessages } from "../../../types";
 
@@ -18,14 +18,14 @@ export class DictionarySummaryProvider implements vscode.WebviewViewProvider {
         this.extensionUri = extensionUri;
         this.setupFileChangeListener();
         this.lastSentDictionary = {
-            id: '',
-            label: '',
+            id: "",
+            label: "",
             entries: [],
             metadata: {},
         };
 
         // Register the command to update entry count
-        vscode.commands.registerCommand('dictionaryTable.updateEntryCount', (count: number) => {
+        vscode.commands.registerCommand("dictionaryTable.updateEntryCount", (count: number) => {
             this._view?.webview.postMessage({
                 command: "updateEntryCount",
                 count: count,
@@ -33,7 +33,7 @@ export class DictionarySummaryProvider implements vscode.WebviewViewProvider {
         });
 
         // Listen for dictionary updates
-        vscode.commands.registerCommand('spellcheck.dictionaryUpdated', () => {
+        vscode.commands.registerCommand("spellcheck.dictionaryUpdated", () => {
             this.refreshDictionary();
         });
     }
@@ -51,8 +51,8 @@ export class DictionarySummaryProvider implements vscode.WebviewViewProvider {
         let dictionary: Dictionary;
         if (!data) {
             dictionary = {
-                id: '',
-                label: '',
+                id: "",
+                label: "",
                 entries: [],
                 metadata: {},
             };
@@ -70,9 +70,11 @@ export class DictionarySummaryProvider implements vscode.WebviewViewProvider {
 
             let wordFrequencies;
             try {
-                wordFrequencies = await vscode.commands.executeCommand('translators-copilot.getWordFrequencies');
+                wordFrequencies = await vscode.commands.executeCommand(
+                    "translators-copilot.getWordFrequencies"
+                );
             } catch (error) {
-                console.error('Error fetching word frequencies:', error);
+                console.error("Error fetching word frequencies:", error);
                 wordFrequencies = [];
             }
             this._view?.webview.postMessage({
@@ -81,11 +83,17 @@ export class DictionarySummaryProvider implements vscode.WebviewViewProvider {
             } as DictionarySummaryPostMessages);
 
             // Get frequent words
-            const allFrequentWords = await vscode.commands.executeCommand('translators-copilot.getWordsAboveThreshold') as string[];
+            const allFrequentWords = (await vscode.commands.executeCommand(
+                "translators-copilot.getWordsAboveThreshold"
+            )) as string[];
 
             // Filter out words that are already in the dictionary
-            const existingWords = new Set(dictionary.entries.map(entry => entry.headWord.toLowerCase()));
-            const newFrequentWords = allFrequentWords.filter(word => !existingWords.has(word.toLowerCase()));
+            const existingWords = new Set(
+                dictionary.entries.map((entry) => entry.headWord.toLowerCase())
+            );
+            const newFrequentWords = allFrequentWords.filter(
+                (word) => !existingWords.has(word.toLowerCase())
+            );
 
             this._view?.webview.postMessage({
                 command: "providerSendsFrequentWordsToWebview",
@@ -97,7 +105,7 @@ export class DictionarySummaryProvider implements vscode.WebviewViewProvider {
     public resolveWebviewView(
         webviewView: vscode.WebviewView,
         context: vscode.WebviewViewResolveContext,
-        token: vscode.CancellationToken,
+        token: vscode.CancellationToken
     ): void | Thenable<void> {
         this._view = webviewView;
 
@@ -177,7 +185,9 @@ export class DictionarySummaryProvider implements vscode.WebviewViewProvider {
                     case "refreshWordFrequency": {
                         vscode.window.showInformationMessage("Refreshing word frequency");
                         // Refresh the word index
-                        await vscode.commands.executeCommand('translators-copilot.refreshWordIndex');
+                        await vscode.commands.executeCommand(
+                            "translators-copilot.refreshWordIndex"
+                        );
                         // Update the webview data
                         await this.updateWebviewData();
                         return;
@@ -185,12 +195,19 @@ export class DictionarySummaryProvider implements vscode.WebviewViewProvider {
                     case "addFrequentWordsToDictionary": {
                         const words = message.words;
                         for (const word of words) {
-                            await vscode.commands.executeCommand('spellcheck.addToDictionary', word);
+                            await vscode.commands.executeCommand(
+                                "spellcheck.addToDictionary",
+                                word
+                            );
                         }
-                        vscode.window.showInformationMessage(`Added ${words.length} words to the dictionary.`);
+                        vscode.window.showInformationMessage(
+                            `Added ${words.length} words to the dictionary.`
+                        );
 
                         // Refresh the word index
-                        await vscode.commands.executeCommand('translators-copilot.refreshWordIndex');
+                        await vscode.commands.executeCommand(
+                            "translators-copilot.refreshWordIndex"
+                        );
 
                         // Update the webview data
                         await this.updateWebviewData();
@@ -199,7 +216,7 @@ export class DictionarySummaryProvider implements vscode.WebviewViewProvider {
                 }
             },
             undefined,
-            [],
+            []
         );
     }
 
@@ -207,12 +224,12 @@ export class DictionarySummaryProvider implements vscode.WebviewViewProvider {
         try {
             // Try parsing as JSONL first
             const entries = data
-                .split('\n')
-                .filter(line => line.trim().length > 0)
-                .map(line => JSON.parse(line) as DictionaryEntry);
+                .split("\n")
+                .filter((line) => line.trim().length > 0)
+                .map((line) => JSON.parse(line) as DictionaryEntry);
             return {
-                id: '',
-                label: '',
+                id: "",
+                label: "",
                 entries,
                 metadata: {},
             };
@@ -223,13 +240,13 @@ export class DictionarySummaryProvider implements vscode.WebviewViewProvider {
                 if (Array.isArray(parsed.entries)) {
                     return parsed as Dictionary;
                 } else {
-                    throw new Error('Invalid JSON format: missing or invalid entries array.');
+                    throw new Error("Invalid JSON format: missing or invalid entries array.");
                 }
             } catch (jsonError) {
                 console.error("Could not parse dictionary as JSONL or JSON:", jsonError);
                 return {
-                    id: '',
-                    label: '',
+                    id: "",
+                    label: "",
                     entries: [],
                     metadata: {},
                 };

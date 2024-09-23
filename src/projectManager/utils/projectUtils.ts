@@ -18,28 +18,20 @@ export interface ProjectDetails {
     targetLanguage?: LanguageMetadata;
 }
 
-export async function promptForTargetLanguage(): Promise<
-    ProjectDetails | undefined
-> {
+export async function promptForTargetLanguage(): Promise<ProjectDetails | undefined> {
     const languages = LanguageCodes;
 
     function getLanguageDisplayName(lang: LanguageMetadata): string {
         return `${lang.refName} (${lang.tag})`;
     }
 
-    const quickPickItems = [
-        ...languages.map(getLanguageDisplayName),
-        "$(add) Custom Language",
-    ];
+    const quickPickItems = [...languages.map(getLanguageDisplayName), "$(add) Custom Language"];
 
-    const targetLanguagePick = await vscode.window.showQuickPick(
-        quickPickItems,
-        {
-            placeHolder: "Select the target language or choose custom",
-            matchOnDescription: true,
-            matchOnDetail: true,
-        },
-    );
+    const targetLanguagePick = await vscode.window.showQuickPick(quickPickItems, {
+        placeHolder: "Select the target language or choose custom",
+        matchOnDescription: true,
+        matchOnDetail: true,
+    });
 
     if (!targetLanguagePick) {
         return;
@@ -67,8 +59,7 @@ export async function promptForTargetLanguage(): Promise<
         };
     } else {
         const selectedLanguage = languages.find(
-            (lang: LanguageMetadata) =>
-                getLanguageDisplayName(lang) === targetLanguagePick,
+            (lang: LanguageMetadata) => getLanguageDisplayName(lang) === targetLanguagePick
         );
 
         if (!selectedLanguage) {
@@ -86,28 +77,20 @@ export async function promptForTargetLanguage(): Promise<
     };
 }
 
-export async function promptForSourceLanguage(): Promise<
-    ProjectDetails | undefined
-> {
+export async function promptForSourceLanguage(): Promise<ProjectDetails | undefined> {
     const languages = LanguageCodes;
 
     function getLanguageDisplayName(lang: LanguageMetadata): string {
         return `${lang.refName} (${lang.tag})`;
     }
 
-    const quickPickItems = [
-        ...languages.map(getLanguageDisplayName),
-        "$(add) Custom Language",
-    ];
+    const quickPickItems = [...languages.map(getLanguageDisplayName), "$(add) Custom Language"];
 
-    const sourceLanguagePick = await vscode.window.showQuickPick(
-        quickPickItems,
-        {
-            placeHolder: "Select the source language or choose custom",
-            matchOnDescription: true,
-            matchOnDetail: true,
-        },
-    );
+    const sourceLanguagePick = await vscode.window.showQuickPick(quickPickItems, {
+        placeHolder: "Select the source language or choose custom",
+        matchOnDescription: true,
+        matchOnDetail: true,
+    });
 
     if (!sourceLanguagePick) {
         return;
@@ -135,8 +118,7 @@ export async function promptForSourceLanguage(): Promise<
         };
     } else {
         const selectedLanguage = languages.find(
-            (lang: LanguageMetadata) =>
-                getLanguageDisplayName(lang) === sourceLanguagePick,
+            (lang: LanguageMetadata) => getLanguageDisplayName(lang) === sourceLanguagePick
         );
 
         if (!selectedLanguage) {
@@ -155,7 +137,7 @@ export async function promptForSourceLanguage(): Promise<
 }
 
 export function generateProjectScope(
-    skipNonCanonical: boolean = true,
+    skipNonCanonical: boolean = true
 ): Project["type"]["flavorType"]["currentScope"] {
     /** For now, we are just setting the scope as all books, but allowing the vref.ts file to determine the books.
      * We could add a feature to allow users to select which books they want to include in the project.
@@ -186,9 +168,7 @@ export async function initializeProjectMetadata(details: ProjectDetails) {
         format: "scripture burrito",
         projectName:
             details.projectName ||
-            vscode.workspace
-                .getConfiguration("codex-project-manager")
-                .get<string>("projectName") ||
+            vscode.workspace.getConfiguration("codex-project-manager").get<string>("projectName") ||
             "", // previously "Codex Project"
         meta: {
             version: "0.0.0",
@@ -256,30 +236,21 @@ export async function initializeProjectMetadata(details: ProjectDetails) {
     }
 
     const WORKSPACE_FOLDER =
-        vscode?.workspace?.workspaceFolders &&
-        vscode?.workspace?.workspaceFolders[0];
+        vscode?.workspace?.workspaceFolders && vscode?.workspace?.workspaceFolders[0];
 
     if (!WORKSPACE_FOLDER) {
         console.error("No workspace folder found.");
         return;
     }
 
-    const projectFilePath = vscode.Uri.joinPath(
-        WORKSPACE_FOLDER.uri,
-        "metadata.json",
-    );
-    const projectFileData = Buffer.from(
-        JSON.stringify(newProject, null, 4),
-        "utf8",
-    );
+    const projectFilePath = vscode.Uri.joinPath(WORKSPACE_FOLDER.uri, "metadata.json");
+    const projectFileData = Buffer.from(JSON.stringify(newProject, null, 4), "utf8");
 
     // FIXME: need to handle the case where the file does not exist
     vscode.workspace.fs
         .writeFile(projectFilePath, projectFileData)
         .then(() =>
-            vscode.window.showInformationMessage(
-                `Project created at ${projectFilePath.fsPath}`,
-            ),
+            vscode.window.showInformationMessage(`Project created at ${projectFilePath.fsPath}`)
         );
     return newProject;
 }
@@ -292,24 +263,18 @@ export async function updateMetadataFile() {
         return;
     }
 
-    const projectFilePath = vscode.Uri.joinPath(
-        vscode.Uri.file(workspaceFolder),
-        "metadata.json",
-    );
+    const projectFilePath = vscode.Uri.joinPath(vscode.Uri.file(workspaceFolder), "metadata.json");
 
     let project;
     try {
-        const projectFileData =
-            await vscode.workspace.fs.readFile(projectFilePath);
+        const projectFileData = await vscode.workspace.fs.readFile(projectFilePath);
         project = JSON.parse(projectFileData.toString());
     } catch (error) {
         console.warn("Metadata file does not exist, creating a new one.");
         project = {}; // Initialize an empty project object if the file does not exist
     }
 
-    const projectSettings = vscode.workspace.getConfiguration(
-        "codex-project-manager",
-    );
+    const projectSettings = vscode.workspace.getConfiguration("codex-project-manager");
     const projectName = projectSettings.get("projectName", "");
     console.log("Project name loaded:", projectName);
 
@@ -323,17 +288,9 @@ export async function updateMetadataFile() {
     project.meta.abbreviation = projectSettings.get("abbreviation", "");
     // Update other fields as needed
     console.log("Project settings loaded:", { projectSettings, project });
-    const updatedProjectFileData = Buffer.from(
-        JSON.stringify(project, null, 4),
-        "utf8",
-    );
-    await vscode.workspace.fs.writeFile(
-        projectFilePath,
-        updatedProjectFileData,
-    );
-    vscode.window.showInformationMessage(
-        `Project metadata updated at ${projectFilePath.fsPath}`,
-    );
+    const updatedProjectFileData = Buffer.from(JSON.stringify(project, null, 4), "utf8");
+    await vscode.workspace.fs.writeFile(projectFilePath, updatedProjectFileData);
+    vscode.window.showInformationMessage(`Project metadata updated at ${projectFilePath.fsPath}`);
 }
 
 export const projectFileExists = async () => {
@@ -343,13 +300,10 @@ export const projectFileExists = async () => {
     if (!workspaceFolder) {
         return false;
     }
-    const projectFilePath = vscode.Uri.joinPath(
-        workspaceFolder.uri,
-        "metadata.json",
-    );
+    const projectFilePath = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
     const fileExists = await vscode.workspace.fs.stat(projectFilePath).then(
         () => true,
-        () => false,
+        () => false
     );
     return fileExists;
 };
@@ -505,19 +459,14 @@ export const projectFileExists = async () => {
 //     }
 // }
 
-export async function getProjectOverview(): Promise<
-    ProjectOverview | undefined
-> {
+export async function getProjectOverview(): Promise<ProjectOverview | undefined> {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
         console.error("No workspace folder found");
         return undefined;
     }
 
-    const metadataUri = vscode.Uri.joinPath(
-        workspaceFolder.uri,
-        "metadata.json",
-    );
+    const metadataUri = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
 
     try {
         const metadataContent = await vscode.workspace.fs.readFile(metadataUri);
@@ -526,24 +475,21 @@ export async function getProjectOverview(): Promise<
         // Get a list of URIs for the downloaded source and target Bibles in the project, if any
         const sourceTextBiblesPath = vscode.Uri.joinPath(
             workspaceFolder.uri,
-            ".project/sourceTextBibles",
+            ".project/sourceTextBibles"
         );
         const targetTextBiblesPath = vscode.Uri.joinPath(
             workspaceFolder.uri,
-            ".project/targetTextBibles",
+            ".project/targetTextBibles"
         );
 
         const sourceTextBibles: vscode.Uri[] = [];
         const targetTextBibles: vscode.Uri[] = [];
 
         try {
-            const sourceEntries =
-                await vscode.workspace.fs.readDirectory(sourceTextBiblesPath);
+            const sourceEntries = await vscode.workspace.fs.readDirectory(sourceTextBiblesPath);
             for (const [name] of sourceEntries) {
                 if (name.endsWith(".bible")) {
-                    sourceTextBibles.push(
-                        vscode.Uri.joinPath(sourceTextBiblesPath, name),
-                    );
+                    sourceTextBibles.push(vscode.Uri.joinPath(sourceTextBiblesPath, name));
                 }
             }
         } catch (error) {
@@ -551,13 +497,10 @@ export async function getProjectOverview(): Promise<
         }
 
         try {
-            const targetEntries =
-                await vscode.workspace.fs.readDirectory(targetTextBiblesPath);
+            const targetEntries = await vscode.workspace.fs.readDirectory(targetTextBiblesPath);
             for (const [name] of targetEntries) {
                 if (name.endsWith(".bible")) {
-                    targetTextBibles.push(
-                        vscode.Uri.joinPath(targetTextBiblesPath, name),
-                    );
+                    targetTextBibles.push(vscode.Uri.joinPath(targetTextBiblesPath, name));
                 }
             }
         } catch (error) {
@@ -576,20 +519,16 @@ export async function getProjectOverview(): Promise<
             }
         }
 
-        const config = vscode.workspace.getConfiguration(
-            "codex-project-manager",
-        );
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
 
         return {
             projectName: metadata.projectName,
             abbreviation: metadata.meta.abbreviation,
             sourceLanguage: metadata.languages.find(
-                (lang: LanguageMetadata) =>
-                    lang.projectStatus === LanguageProjectStatus.SOURCE,
+                (lang: LanguageMetadata) => lang.projectStatus === LanguageProjectStatus.SOURCE
             ),
             targetLanguage: metadata.languages.find(
-                (lang: LanguageMetadata) =>
-                    lang.projectStatus === LanguageProjectStatus.TARGET,
+                (lang: LanguageMetadata) => lang.projectStatus === LanguageProjectStatus.TARGET
             ),
             category: metadata.meta.category,
             userName: metadata.meta.generator.userName,
@@ -606,7 +545,7 @@ export async function getProjectOverview(): Promise<
 export const checkIfMetadataIsInitialized = async (): Promise<boolean> => {
     const metadataUri = vscode.Uri.joinPath(
         vscode.workspace.workspaceFolders![0].uri,
-        "metadata.json",
+        "metadata.json"
     );
     try {
         await vscode.workspace.fs.stat(metadataUri);
@@ -617,46 +556,30 @@ export const checkIfMetadataIsInitialized = async (): Promise<boolean> => {
     }
 };
 
-export const createProjectFiles = async ({
-    shouldImportUSFM,
-}: {
-    shouldImportUSFM: boolean;
-}) => {
+export const createProjectFiles = async ({ shouldImportUSFM }: { shouldImportUSFM: boolean }) => {
     try {
         await initializeProject(shouldImportUSFM);
     } catch (error) {
-        console.error(
-            "Error initializing project or checking for missing files:",
-            error,
-        );
+        console.error("Error initializing project or checking for missing files:", error);
     }
 };
 
-export async function accessMetadataFile(): Promise<
-    ProjectMetadata | undefined
-> {
+export async function accessMetadataFile(): Promise<ProjectMetadata | undefined> {
     // Accessing the metadata file
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
-        console.log(
-            "No workspace folder found. Please open a folder to store your project in.",
-        );
+        console.log("No workspace folder found. Please open a folder to store your project in.");
         return;
     }
     const workspaceFolder = workspaceFolders[0];
-    const metadataFilePath = vscode.Uri.joinPath(
-        workspaceFolder.uri,
-        "metadata.json",
-    );
+    const metadataFilePath = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
     try {
         const fileData = await vscode.workspace.fs.readFile(metadataFilePath);
         const metadata = JSON.parse(fileData.toString());
         return metadata;
     } catch (error) {
         // File doesn't exist or can't be read, which is expected for a new project
-        console.log(
-            "Metadata file not found or cannot be read. This is normal for a new project.",
-        );
+        console.log("Metadata file not found or cannot be read. This is normal for a new project.");
         return;
     }
 }
@@ -666,65 +589,62 @@ export async function reopenWalkthrough() {
 
     await vscode.window.showInformationMessage(
         "Please complete the walkthrough before proceeding.",
-        "OK",
+        "OK"
     );
 
     //reopens the walkthrough in the current editor group
     await vscode.commands.executeCommand(
         "workbench.action.openWalkthrough",
         {
-            category:
-                "project-accelerate.codex-project-manager#codexWalkthrough",
+            category: "project-accelerate.codex-project-manager#codexWalkthrough",
             step: "project-accelerate.codex-project-manager#openFolder",
         },
-        false,
+        false
     );
 }
 
 export async function updateProjectSettings(projectDetails: ProjectDetails) {
-    const projectSettings = vscode.workspace.getConfiguration(
-        "codex-project-manager",
-    );
+    const projectSettings = vscode.workspace.getConfiguration("codex-project-manager");
     if (projectDetails.projectName) {
         await projectSettings.update(
             "projectName",
             projectDetails.projectName,
-            vscode.ConfigurationTarget.Workspace,
+            vscode.ConfigurationTarget.Workspace
         );
     }
     if (projectDetails.projectCategory) {
         await projectSettings.update(
             "projectCategory",
             projectDetails.projectCategory,
-            vscode.ConfigurationTarget.Workspace,
+            vscode.ConfigurationTarget.Workspace
         );
     }
     if (projectDetails.userName) {
         await projectSettings.update(
             "userName",
             projectDetails.userName,
-            vscode.ConfigurationTarget.Workspace,
+            vscode.ConfigurationTarget.Workspace
         );
     }
     if (projectDetails.abbreviation) {
         await projectSettings.update(
             "abbreviation",
             projectDetails.abbreviation,
-            vscode.ConfigurationTarget.Workspace,
+            vscode.ConfigurationTarget.Workspace
         );
     }
     if (projectDetails.sourceLanguage) {
         await projectSettings.update(
             "sourceLanguage",
             projectDetails.sourceLanguage,
-            vscode.ConfigurationTarget.Workspace,
+            vscode.ConfigurationTarget.Workspace
         );
     }
     if (projectDetails.targetLanguage) {
         await projectSettings.update(
             "targetLanguage",
             projectDetails.targetLanguage,
-            vscode.ConfigurationTarget.Workspace,
+            vscode.ConfigurationTarget.Workspace
         );
     }
 }

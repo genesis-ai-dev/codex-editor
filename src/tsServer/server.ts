@@ -44,14 +44,10 @@ connection.onInitialize((params: InitializeParams) => {
 
     if (workspaceFolder) {
         const fsPath = URI.parse(workspaceFolder).fsPath;
-        console.log(
-            `Creating WordSuggestionProvider with workspace folder: ${fsPath}`,
-        );
+        console.log(`Creating WordSuggestionProvider with workspace folder: ${fsPath}`);
         wordSuggestionProvider = new WordSuggestionProvider(fsPath);
     } else {
-        console.warn(
-            "No workspace folder provided. WordSuggestionProvider not initialized.",
-        );
+        console.warn("No workspace folder provided. WordSuggestionProvider not initialized.");
     }
 
     const result: InitializeResult = {
@@ -65,10 +61,7 @@ connection.onInitialize((params: InitializeParams) => {
             hoverProvider: true,
             documentSymbolProvider: true,
             executeCommandProvider: {
-                commands: [
-                    "spellcheck.addToDictionary",
-                    "server.getSimilarWords",
-                ],
+                commands: ["spellcheck.addToDictionary", "server.getSimilarWords"],
             },
         },
     };
@@ -87,7 +80,7 @@ connection.onCompletion((params: TextDocumentPositionParams) => {
     // Create a dummy CancellationToken since we don't have one in this context
     const dummyToken = {
         isCancellationRequested: false,
-        onCancellationRequested: () => ({ dispose: () => { } }),
+        onCancellationRequested: () => ({ dispose: () => {} }),
     };
 
     // Create a default CompletionContext
@@ -100,13 +93,13 @@ connection.onCompletion((params: TextDocumentPositionParams) => {
         document,
         params.position,
         dummyToken,
-        defaultContext,
+        defaultContext
     );
     const wordSuggestions = wordSuggestionProvider.provideCompletionItems(
         document,
         params.position,
         dummyToken,
-        defaultContext,
+        defaultContext
     );
     return [...spellCheckSuggestions, ...wordSuggestions];
 });
@@ -115,11 +108,7 @@ connection.onCodeAction((params: CodeActionParams) => {
     const document = documents.get(params.textDocument.uri);
     if (!document) return [];
 
-    return codeActionProvider.provideCodeActions(
-        document,
-        params.range,
-        params.context,
-    );
+    return codeActionProvider.provideCodeActions(document, params.range, params.context);
 });
 
 // TODO: Implement other handlers (hover, document symbols, etc.)
@@ -142,8 +131,7 @@ connection.onExecuteCommand(async (params) => {
         if (typeof word === "string") {
             try {
                 console.log(`Getting similar words for: ${word}`);
-                const similarWords =
-                    wordSuggestionProvider.getSimilarWords(word);
+                const similarWords = wordSuggestionProvider.getSimilarWords(word);
                 console.log("Similar words:", similarWords);
                 return similarWords;
             } catch (error) {

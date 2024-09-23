@@ -23,7 +23,7 @@ const LanguageSearch = ({
     const textFieldRef = useRef<HTMLTextAreaElement>(null);
 
     const [textFieldWidth, setTextFieldWidth] = useState<number>(
-        textFieldRef.current?.offsetWidth ?? 300,
+        textFieldRef.current?.offsetWidth ?? 300
     );
     const handleResize = () => {
         setTextFieldWidth(textFieldRef?.current?.offsetWidth ?? 300);
@@ -78,11 +78,7 @@ const LanguageSearch = ({
                             <VSCodeTextField
                                 placeholder={`Search ${label.toLowerCase()}...`}
                                 value={value}
-                                onInput={(e) =>
-                                    setQuery(
-                                        (e.target as HTMLInputElement).value,
-                                    )
-                                }
+                                onInput={(e) => setQuery((e.target as HTMLInputElement).value)}
                                 className="rounded text-sm w-full"
                             />
                         </div>
@@ -106,8 +102,7 @@ const LanguageSearch = ({
                                                 setLanguage(language);
                                             }}
                                         >
-                                            {language?.refName} ({language?.tag}
-                                            )
+                                            {language?.refName} ({language?.tag})
                                         </div>
                                     </Popover.Close>
                                 );

@@ -1,6 +1,6 @@
-import * as vscode from 'vscode';
-import * as zlib from 'zlib';
-import { promisify } from 'util';
+import * as vscode from "vscode";
+import * as zlib from "zlib";
+import { promisify } from "util";
 
 export interface Verse {
     id: string;
@@ -172,22 +172,38 @@ let bibleDataIdIndex: Map<string, { category: string; record: any }> | null = nu
 
 export async function initializeBibleData(context: vscode.ExtensionContext) {
     try {
-        const fileUri = vscode.Uri.joinPath(context.extensionUri, 'src', 'assets', 'bible_data_with_vref_keys.json.gz');
+        const fileUri = vscode.Uri.joinPath(
+            context.extensionUri,
+            "src",
+            "assets",
+            "bible_data_with_vref_keys.json.gz"
+        );
         const compressedData = await vscode.workspace.fs.readFile(fileUri);
-        const decompressed = await gunzip(compressedData) as Buffer;
+        const decompressed = (await gunzip(compressedData)) as Buffer;
         bibleData = JSON.parse(decompressed.toString()) as BibleData;
 
         if (bibleData) {
-            bibleDataIdIndex = new Map<string, { category: string; record: Verse | Easton | Event | Person | PeopleGroup | Period | Place }>();
+            bibleDataIdIndex = new Map<
+                string,
+                {
+                    category: string;
+                    record: Verse | Easton | Event | Person | PeopleGroup | Period | Place;
+                }
+            >();
             for (const [category, records] of Object.entries(bibleData)) {
                 for (const record of Object.values(records)) {
-                    if (typeof record === 'object' && record !== null && 'id' in record && typeof record.id === 'string') {
+                    if (
+                        typeof record === "object" &&
+                        record !== null &&
+                        "id" in record &&
+                        typeof record.id === "string"
+                    ) {
                         bibleDataIdIndex.set(record.id, { category, record });
                     }
                 }
             }
         }
-        console.log('Bible data loaded successfully!', { bibleDataIdIndex });
+        console.log("Bible data loaded successfully!", { bibleDataIdIndex });
     } catch (error) {
         vscode.window.showErrorMessage(`Failed to load Bible data: ${error}`);
     }
@@ -222,26 +238,18 @@ const getLinkedBibleDataRecords = (vref: string): { category: string; record: an
     return linkedRecords;
 };
 
-
-export async function getBibleDataRecordById(id: string): Promise<{ record: any, /* prose: string */ } | null> {
+export async function getBibleDataRecordById(
+    id: string
+): Promise<{ record: any /* prose: string */ } | null> {
     if (!bibleDataIdIndex) {
-        throw new Error('Bible data not loaded');
+        throw new Error("Bible data not loaded");
     }
     const record = bibleDataIdIndex.get(id) || null;
     // const prose = generateVerseContext(id, bibleDataIdIndex);
     return { record };
 }
 
-
-
-
-
-
 // Rendering functions
-
-
-
-
 
 /**
  * Renders a verse and its related data as prose.
@@ -260,12 +268,12 @@ export async function getBibleDataRecordById(id: string): Promise<{ record: any,
 // }
 
 function renderEventsDescribed(verse: Verse): string {
-    if (!verse.fields.eventsDescribed) return '';
+    if (!verse.fields.eventsDescribed) return "";
     return `Events described in this verse:\n- ${verse.fields.eventsDescribed}\n\n`;
 }
 
 function renderEventDetails(event: Event): string {
-    if (!event || !bibleDataIdIndex) return '';
+    if (!event || !bibleDataIdIndex) return "";
 
     let prose = `Details of the event: ${event.fields.title}\n`;
 
@@ -278,7 +286,7 @@ function renderEventDetails(event: Event): string {
 
     // Render participants
     if (event.fields.participants && event.fields.participants.length > 0) {
-        prose += '  Participants:\n';
+        prose += "  Participants:\n";
         for (const participantId of event.fields.participants) {
             const participant = bibleDataIdIndex.get(participantId)?.record as Person;
             if (participant) {
@@ -289,7 +297,7 @@ function renderEventDetails(event: Event): string {
 
     // Render locations
     if (event.fields.locations && event.fields.locations.length > 0) {
-        prose += '  Locations:\n';
+        prose += "  Locations:\n";
         for (const locationId of event.fields.locations) {
             const location = bibleDataIdIndex.get(locationId)?.record as Place;
             if (location) {
@@ -300,14 +308,14 @@ function renderEventDetails(event: Event): string {
 
     // Render verses involved in this event
     if (event.fields.verses && event.fields.verses.length > 0) {
-        prose += `  Verses in this event: ${event.fields.verses.join(', ')}\n`;
+        prose += `  Verses in this event: ${event.fields.verses.join(", ")}\n`;
     }
 
     return prose;
 }
 
 function renderPersonInVerse(person: Person): string {
-    if (!person) return '';
+    if (!person) return "";
 
     let prose = `- ${person.fields.displayTitle || person.fields.name} (${person.fields.gender})`;
 
@@ -330,16 +338,15 @@ function renderPersonInVerse(person: Person): string {
     return prose;
 }
 
-
 function renderPlaceInVerse(place: Place): string {
-    let prose = '';
+    let prose = "";
     if (!place) return prose;
 
     prose += `- ${place.fields.displayTitle} (${place.fields.featureType}`;
     if (place.fields.featureSubType) {
         prose += ` (${place.fields.featureSubType})`;
     }
-    prose += ')\n';
+    prose += ")\n";
 
     if (place.fields.comment) {
         prose += `  Comment: ${place.fields.comment}\n`;
@@ -349,7 +356,6 @@ function renderPlaceInVerse(place: Place): string {
 
 // Additional functions can be added here for rendering other types of data
 // such as people, people groups, periods, etc., as needed.
-
 
 export interface TheographicBibleDataRecord {
     verse: Verse | null;
@@ -367,26 +373,32 @@ export interface TheographicBibleDataRecord {
 export async function generateVerseContext(vref: string): Promise<TheographicBibleDataRecord> {
     const verseRecord = bibleDataIdIndex?.get(vref);
     const verse = verseRecord?.record as Verse;
-    if (!verse || !bibleDataIdIndex) return {
-        verse: null,
-        people: [],
-        places: [],
-        events: [],
-        eventsDescribed: '',
-    };
+    if (!verse || !bibleDataIdIndex)
+        return {
+            verse: null,
+            people: [],
+            places: [],
+            events: [],
+            eventsDescribed: "",
+        };
 
     const { peopleCount, people, placesCount, places, timeline, eventsDescribed } = verse.fields;
 
     const peopleIdsInVerse = peopleCount > 0 ? verse.fields.people || [] : [];
     const placeIdsInVerse = placesCount > 0 ? verse.fields.places || [] : [];
-    const eventsDescribedInVerse = eventsDescribed || '';
+    const eventsDescribedInVerse = eventsDescribed || "";
     const eventIdsInVerse = timeline || [];
 
-    const fetchAndProcessRecords = async <T>(ids: string[], renderFunction: (record: T) => string): Promise<string[]> => {
+    const fetchAndProcessRecords = async <T>(
+        ids: string[],
+        renderFunction: (record: T) => string
+    ): Promise<string[]> => {
         try {
-            const records = await Promise.all(ids.map(id => getBibleDataRecordById(id)));
+            const records = await Promise.all(ids.map((id) => getBibleDataRecordById(id)));
             return records
-                .filter((record): record is { record: T } => record !== null && record !== undefined)
+                .filter(
+                    (record): record is { record: T } => record !== null && record !== undefined
+                )
                 .map(({ record }) => renderFunction(record as T));
         } catch (error) {
             console.error(`Error fetching records: ${error}`);
@@ -397,7 +409,7 @@ export async function generateVerseContext(vref: string): Promise<TheographicBib
     const [peopleStrings, placesStrings, eventsStrings] = await Promise.all([
         fetchAndProcessRecords<Person>(peopleIdsInVerse, renderPersonInVerse),
         fetchAndProcessRecords<Place>(placeIdsInVerse, renderPlaceInVerse),
-        fetchAndProcessRecords<Event>(eventIdsInVerse, renderEventDetails)
+        fetchAndProcessRecords<Event>(eventIdsInVerse, renderEventDetails),
     ]);
 
     return {

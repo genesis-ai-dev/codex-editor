@@ -39,11 +39,7 @@ export const createObsProject = async (projectFields: ProjectFields) => {
 
     const { createdProjectURI } = res;
 
-    await initProject(
-        projectFields.name,
-        projectFields.email,
-        createdProjectURI,
-    );
+    await initProject(projectFields.name, projectFields.email, createdProjectURI);
 
     const CURRENT_WINDOW = {
         title: "Current Window",
@@ -68,7 +64,7 @@ export const createObsProject = async (projectFields: ProjectFields) => {
         },
         CURRENT_WINDOW,
         NEW_WINDOW,
-        CANCEL,
+        CANCEL
     );
 
     if (choice?.key === CURRENT_WINDOW.key) {

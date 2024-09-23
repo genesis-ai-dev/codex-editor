@@ -6,11 +6,8 @@ import { MessageType } from "../types";
 
 const StoriesOutline = () => {
     const storyNumbers = useMemo(
-        () =>
-            new Array(50)
-                .fill(0)
-                .map((_, idx) => (idx + 1).toString().padStart(2, "0")),
-        [],
+        () => new Array(50).fill(0).map((_, idx) => (idx + 1).toString().padStart(2, "0")),
+        []
     );
 
     const handleClickStory = (storyNumber: string) => {
@@ -29,9 +26,7 @@ const StoriesOutline = () => {
                     className="flex flex-row items-center"
                     onClick={() => handleClickStory(storyNumber)}
                 >
-                    <div className="text-md font-medium">
-                        Story {storyNumber}
-                    </div>
+                    <div className="text-md font-medium">Story {storyNumber}</div>
                 </button>
             ))}
         </div>

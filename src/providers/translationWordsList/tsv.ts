@@ -10,7 +10,7 @@ export const parseTwlTsv = (tsv: string) => {
                 acc[header] = line[i];
                 return acc;
             },
-            {} as Record<string, string>,
+            {} as Record<string, string>
         );
     }) as TwlTsvRow[];
 

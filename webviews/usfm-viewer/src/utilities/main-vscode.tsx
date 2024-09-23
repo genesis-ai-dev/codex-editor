@@ -4,9 +4,9 @@ import "../App.css";
 import Providers from "../components/Providers";
 
 export const renderToPage = (element: JSX.Element) => {
-  ReactDOM.createRoot(document.getElementById("root")!).render(
-    <React.StrictMode>
-      <Providers>{element}</Providers>
-    </React.StrictMode>
-  );
+    ReactDOM.createRoot(document.getElementById("root")!).render(
+        <React.StrictMode>
+            <Providers>{element}</Providers>
+        </React.StrictMode>
+    );
 };

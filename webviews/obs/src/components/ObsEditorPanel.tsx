@@ -16,8 +16,7 @@ export type ObsStory = Record<string, any>;
 const autoResizeVscodeTextarea = (vscodeTextArea: HTMLElement) => {
     // This is a little hacky... we have to reach in and get the text area
     // element since we can't directly access the height with Vscode's text area
-    const textAreaElement =
-        vscodeTextArea.shadowRoot?.querySelector("textarea");
+    const textAreaElement = vscodeTextArea.shadowRoot?.querySelector("textarea");
     if (textAreaElement) {
         textAreaElement.style.height = "auto";
         textAreaElement.style.height = `${textAreaElement.scrollHeight}px`;
@@ -46,14 +45,10 @@ const ObsEditorPanel = ({
         });
     }, [obsStory]);
 
-    const handleChange: ((e: globalThis.Event) => unknown) &
-        FormEventHandler = (e) => {
+    const handleChange: ((e: globalThis.Event) => unknown) & FormEventHandler = (e) => {
         autoResizeVscodeTextarea(e.currentTarget as HTMLTextAreaElement);
-        const index =
-            Number((e.target as HTMLElement)?.getAttribute("data-id")) ?? 0;
-        const value = (e.target as HTMLInputElement)?.value
-            ?.toString()
-            .replace(/[\n\r]/gm, "");
+        const index = Number((e.target as HTMLElement)?.getAttribute("data-id")) ?? 0;
+        const value = (e.target as HTMLInputElement)?.value?.toString().replace(/[\n\r]/gm, "");
         const story = obsStory[index - 1];
         let newStory = {};
         if (Object.prototype.hasOwnProperty.call(story, "title")) {
@@ -92,10 +87,7 @@ const ObsEditorPanel = ({
             {obsStory.map((story, index: number) => (
                 <div className="flex items-center w-full">
                     {Object.prototype.hasOwnProperty.call(story, "title") && (
-                        <div
-                            className="flex m-4 rounded-md w-full"
-                            key={story.id}
-                        >
+                        <div className="flex m-4 rounded-md w-full" key={story.id}>
                             <VSCodeTextArea
                                 name={story.title}
                                 onInput={handleChange}
@@ -106,22 +98,13 @@ const ObsEditorPanel = ({
                         </div>
                     )}
                     {Object.prototype.hasOwnProperty.call(story, "text") && (
-                        <div
-                            className="flex m-4 rounded-md w-full gap-2"
-                            key={story.id}
-                        >
+                        <div className="flex m-4 rounded-md w-full gap-2" key={story.id}>
                             <span className="w-10 h-10 bg-gray-800 rounded-full flex justify-center text-md text-white items-center p-6 ">
                                 {index}
                             </span>
 
-                            {Object.prototype.hasOwnProperty.call(
-                                story,
-                                "img",
-                            ) && (
-                                <div
-                                    className="rounded-md w-2/5"
-                                    key={story.id}
-                                >
+                            {Object.prototype.hasOwnProperty.call(story, "img") && (
+                                <div className="rounded-md w-2/5" key={story.id}>
                                     <img src={story.img} alt={story.title} />
                                 </div>
                             )}
@@ -137,10 +120,7 @@ const ObsEditorPanel = ({
                         </div>
                     )}
                     {Object.prototype.hasOwnProperty.call(story, "end") && (
-                        <div
-                            className="flex m-4 rounded-md w-full"
-                            key={story.id}
-                        >
+                        <div className="flex m-4 rounded-md w-full" key={story.id}>
                             <VSCodeTextArea
                                 name={story.end}
                                 onInput={handleChange}

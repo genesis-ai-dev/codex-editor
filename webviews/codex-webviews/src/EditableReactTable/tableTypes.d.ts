@@ -1,29 +1,29 @@
-import { ActionTypes } from './utils';
+import { ActionTypes } from "./utils";
 
 type TableColumn = {
-  id?:
-    | 'headWord'
-    | 'id'
-    | 'hash'
-    | 'definition'
-    | 'translationEquivalents'
-    | 'links'
-    | 'linkedEntries'
-    | 'metadata'
-    | 'notes'
-    | 'extra'
-    | 'checkbox_column';
-  label?: string;
-  accessor?: string;
-  minWidth?: number;
-  width?: number;
-  maxWidth?: number;
-  dataType?: string; // Could be more specific if there are only certain values allowed
-  options?: any[]; // Define this more specifically if possible
-  Cell?: any;
-  Header?: any;
-  sortType?: string;
-  visible?: boolean;
+    id?:
+        | "headWord"
+        | "id"
+        | "hash"
+        | "definition"
+        | "translationEquivalents"
+        | "links"
+        | "linkedEntries"
+        | "metadata"
+        | "notes"
+        | "extra"
+        | "checkbox_column";
+    label?: string;
+    accessor?: string;
+    minWidth?: number;
+    width?: number;
+    maxWidth?: number;
+    dataType?: string; // Could be more specific if there are only certain values allowed
+    options?: any[]; // Define this more specifically if possible
+    Cell?: any;
+    Header?: any;
+    sortType?: string;
+    visible?: boolean;
 };
 // type DictionaryTableColumn = TableColumn & {
 //   id:
@@ -41,43 +41,43 @@ type TableColumn = {
 // };
 
 type TableEntry = {
-  metadata: string | Record<string, any>; // Assuming metadata can be string or object
-  dataDispatch?: React.Dispatch<any> | undefined;
-  [key: string]: any; // For additional properties
+    metadata: string | Record<string, any>; // Assuming metadata can be string or object
+    dataDispatch?: React.Dispatch<any> | undefined;
+    [key: string]: any; // For additional properties
 };
 
 type TableData = {
-  columns: TableColumn[];
-  data: TableEntry[];
-  dispatch?: React.Dispatch<any>;
-  skipReset?: boolean;
+    columns: TableColumn[];
+    data: TableEntry[];
+    dispatch?: React.Dispatch<any>;
+    skipReset?: boolean;
 };
 
 type CellData = {
-  value: any;
-  row: RowData;
-  column: ColumnData;
-  dataDispatch: React.Dispatch<any>;
+    value: any;
+    row: RowData;
+    column: ColumnData;
+    dataDispatch: React.Dispatch<any>;
 };
 
 type CellTypeData = {
-  initialValue: any;
-  options?: { label: string; backgroundColor: string }[]; // For SelectCell
-  rowIndex: number;
-  columnId: string;
-  dataDispatch?: React.Dispatch<DataAction>;
-  // dataDispatch: React.Dispatch<any>;
+    initialValue: any;
+    options?: { label: string; backgroundColor: string }[]; // For SelectCell
+    rowIndex: number;
+    columnId: string;
+    dataDispatch?: React.Dispatch<DataAction>;
+    // dataDispatch: React.Dispatch<any>;
 };
 
 interface DataAction {
-  type: ActionTypes;
-  columnId: string;
-  label?: string;
-  rowIndex?: number;
-  value?: any;
-  dataType?: any;
-  option?: any;
-  backgroundColor?: string;
+    type: ActionTypes;
+    columnId: string;
+    label?: string;
+    rowIndex?: number;
+    value?: any;
+    dataType?: any;
+    option?: any;
+    backgroundColor?: string;
 }
 
 // enum DataTypes {
@@ -88,18 +88,18 @@ interface DataAction {
 // };
 
 type RowData = {
-  index: number;
+    index: number;
 };
 
 type ColumnData = {
-  id: string;
-  dataType: string;
-  options: any[];
+    id: string;
+    dataType: string;
+    options: any[];
 };
 
 type ValueState = {
-  value: any;
-  update: boolean;
+    value: any;
+    update: boolean;
 };
 
 // declare module 'react-table' {

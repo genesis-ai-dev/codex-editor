@@ -24,7 +24,7 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
 
     public async deserializeNotebook(
         data: Uint8Array,
-        token: vscode.CancellationToken,
+        token: vscode.CancellationToken
     ): Promise<vscode.NotebookData> {
         const contents = new TextDecoder().decode(data); // convert to String
 
@@ -37,11 +37,7 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
         }
         // Create array of Notebook cells for the VS Code API from file contents
         const cells = raw.cells.map((item) => {
-            const cell = new vscode.NotebookCellData(
-                item.kind,
-                item.value,
-                item.language,
-            );
+            const cell = new vscode.NotebookCellData(item.kind, item.value, item.language);
             cell.metadata = item.metadata || {}; // Ensure metadata is included if available
             if (item.metadata && item.metadata.id) {
                 // @ts-expect-error: metadata is added above
@@ -57,12 +53,12 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
 
     public async serializeNotebook(
         data: vscode.NotebookData,
-        token: vscode.CancellationToken,
+        token: vscode.CancellationToken
     ): Promise<Uint8Array> {
         // Map the Notebook data into the format we want to save the Notebook data as
-        const contents: RawNotebookData = { 
+        const contents: RawNotebookData = {
             cells: [],
-            metadata: data.metadata
+            metadata: data.metadata,
         };
 
         for (const cell of data.cells) {

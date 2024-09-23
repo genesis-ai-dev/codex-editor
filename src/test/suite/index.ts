@@ -11,32 +11,28 @@ export function run(): Promise<void> {
 
     const testsRoot = path.resolve(__dirname, "..");
     return new Promise((resolve, reject) => {
-        glob(
-            "**/**.test.js",
-            { cwd: testsRoot },
-            (err: Error | null, files: string[]) => {
-                if (err) {
-                    reject(err);
-                } else {
-                    files.forEach((file: string) => {
-                        mocha.addFile(path.resolve(testsRoot, file));
-                    });
+        glob("**/**.test.js", { cwd: testsRoot }, (err: Error | null, files: string[]) => {
+            if (err) {
+                reject(err);
+            } else {
+                files.forEach((file: string) => {
+                    mocha.addFile(path.resolve(testsRoot, file));
+                });
 
-                    try {
-                        // Run the mocha test
-                        mocha.run((failures: number) => {
-                            if (failures > 0) {
-                                reject(new Error(`${failures} tests failed.`));
-                            } else {
-                                resolve();
-                            }
-                        });
-                    } catch (err) {
-                        console.error(err);
-                        reject(err);
-                    }
+                try {
+                    // Run the mocha test
+                    mocha.run((failures: number) => {
+                        if (failures > 0) {
+                            reject(new Error(`${failures} tests failed.`));
+                        } else {
+                            resolve();
+                        }
+                    });
+                } catch (err) {
+                    console.error(err);
+                    reject(err);
                 }
-            },
-        );
+            }
+        });
     });
 }

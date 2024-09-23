@@ -6,10 +6,7 @@ interface HideOptionsButtonProps {
     outerDivStyles?: React.CSSProperties;
 }
 
-const HideOptionsButton: React.FC<HideOptionsButtonProps> = ({
-    children,
-    outerDivStyles,
-}) => {
+const HideOptionsButton: React.FC<HideOptionsButtonProps> = ({ children, outerDivStyles }) => {
     const [isHidden, setIsHidden] = useState(true);
 
     const handleButtonClick = () => {

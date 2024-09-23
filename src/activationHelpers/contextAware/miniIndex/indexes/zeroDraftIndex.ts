@@ -1,8 +1,8 @@
-import MiniSearch from 'minisearch';
-import * as vscode from 'vscode';
-import { StatusBarHandler } from '../statusBarHandler';
-import { zeroDraftDocumentLoader } from '../../../../utils/zeroDraftUtils';
-import { verseRefRegex } from '../../../../utils/verseRefUtils';
+import MiniSearch from "minisearch";
+import * as vscode from "vscode";
+import { StatusBarHandler } from "../statusBarHandler";
+import { zeroDraftDocumentLoader } from "../../../../utils/zeroDraftUtils";
+import { verseRefRegex } from "../../../../utils/verseRefUtils";
 
 export interface ZeroDraftIndexRecord {
     id: string;
@@ -19,7 +19,10 @@ export interface VerseWithMetadata {
     metadata?: { [key: string]: any };
 }
 
-async function processZeroDraftFile(uri: vscode.Uri, zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>): Promise<number> {
+async function processZeroDraftFile(
+    uri: vscode.Uri,
+    zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>
+): Promise<number> {
     const document = await vscode.workspace.openTextDocument(uri);
     const records = zeroDraftDocumentLoader(document);
 
@@ -31,12 +34,14 @@ async function processZeroDraftFile(uri: vscode.Uri, zeroDraftIndex: MiniSearch<
 
     for (const record of records) {
         recordsProcessed++;
-        record.verses.forEach(verse => {
+        record.verses.forEach((verse) => {
             verse.originalFileCreatedAt = originalFileCreatedAt;
             verse.originalFileModifiedAt = originalFileModifiedAt;
         });
 
-        const existingRecord = zeroDraftIndex.getStoredFields(record.vref) as ZeroDraftIndexRecord | undefined;
+        const existingRecord = zeroDraftIndex.getStoredFields(record.vref) as
+            | ZeroDraftIndexRecord
+            | undefined;
 
         if (existingRecord) {
             // Update existing record
@@ -44,39 +49,48 @@ async function processZeroDraftFile(uri: vscode.Uri, zeroDraftIndex: MiniSearch<
             zeroDraftIndex.replace({
                 id: record.vref,
                 vref: record.vref,
-                verses: updatedVerses
+                verses: updatedVerses,
             });
         } else {
             // Add new record
             zeroDraftIndex.add({
                 id: record.vref,
                 vref: record.vref,
-                verses: record.verses
+                verses: record.verses,
             });
         }
     }
 
-    console.log(`Processed file ${uri.fsPath}, current document count: ${zeroDraftIndex.documentCount}`);
+    console.log(
+        `Processed file ${uri.fsPath}, current document count: ${zeroDraftIndex.documentCount}`
+    );
     return recordsProcessed;
 }
 
-export async function processZeroDraftFileWithoutIndexing(uri: vscode.Uri): Promise<ZeroDraftIndexRecord[]> {
+export async function processZeroDraftFileWithoutIndexing(
+    uri: vscode.Uri
+): Promise<ZeroDraftIndexRecord[]> {
     const document = await vscode.workspace.openTextDocument(uri);
     const records = zeroDraftDocumentLoader(document);
     console.log(`Processed file ${uri.fsPath}, current document count: ${records.length}`);
     return records;
 }
 
-export async function createZeroDraftIndex(zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>, force: boolean = false): Promise<void> {
+export async function createZeroDraftIndex(
+    zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>,
+    force: boolean = false
+): Promise<void> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        console.error('No workspace folder found');
+        console.error("No workspace folder found");
         return;
     }
 
-    const zeroDraftFolder = vscode.Uri.joinPath(workspaceFolders[0].uri, 'files', 'zero_drafts');
-    const zeroDraftFiles = await vscode.workspace.findFiles(new vscode.RelativePattern(zeroDraftFolder, '*.{jsonl,json,tsv,txt}'));
-    console.log('Found', zeroDraftFiles.length, 'Zero Draft files');
+    const zeroDraftFolder = vscode.Uri.joinPath(workspaceFolders[0].uri, "files", "zero_drafts");
+    const zeroDraftFiles = await vscode.workspace.findFiles(
+        new vscode.RelativePattern(zeroDraftFolder, "*.{jsonl,json,tsv,txt}")
+    );
+    console.log("Found", zeroDraftFiles.length, "Zero Draft files");
 
     let totalRecordsProcessed = 0;
 
@@ -84,32 +98,40 @@ export async function createZeroDraftIndex(zeroDraftIndex: MiniSearch<ZeroDraftI
     const batchSize = 10;
     for (let i = 0; i < zeroDraftFiles.length; i += batchSize) {
         const batch = zeroDraftFiles.slice(i, i + batchSize);
-        const results = await Promise.all(batch.map(file => processZeroDraftFile(file, zeroDraftIndex)));
+        const results = await Promise.all(
+            batch.map((file) => processZeroDraftFile(file, zeroDraftIndex))
+        );
         totalRecordsProcessed += results.reduce((sum, count) => sum + count, 0);
     }
 
-    console.log(`Zero Draft index created with ${zeroDraftIndex.documentCount} unique verses from ${totalRecordsProcessed} total records`);
-    console.log('Zero Draft index contents:', zeroDraftIndex.search('*').length, 'records');
+    console.log(
+        `Zero Draft index created with ${zeroDraftIndex.documentCount} unique verses from ${totalRecordsProcessed} total records`
+    );
+    console.log("Zero Draft index contents:", zeroDraftIndex.search("*").length, "records");
 
     // Set up file system watcher
     const watcher = vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(zeroDraftFolder, '*.{jsonl,json,tsv,txt}')
+        new vscode.RelativePattern(zeroDraftFolder, "*.{jsonl,json,tsv,txt}")
     );
     watcher.onDidChange(async (uri) => await updateIndex(uri, zeroDraftIndex));
     watcher.onDidCreate(async (uri) => await updateIndex(uri, zeroDraftIndex));
     watcher.onDidDelete(async (uri) => await removeFromIndex(uri, zeroDraftIndex));
 
-    console.log('Watching for changes to zero_draft directory in workspace');
+    console.log("Watching for changes to zero_draft directory in workspace");
 }
 
-async function updateIndex(uri: vscode.Uri, zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>, force: boolean = false) {
+async function updateIndex(
+    uri: vscode.Uri,
+    zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>,
+    force: boolean = false
+) {
     await processZeroDraftFile(uri, zeroDraftIndex);
     console.log(`Updated Zero Draft index for file: ${uri.fsPath}`);
 }
 
 async function removeFromIndex(uri: vscode.Uri, zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>) {
-    const recordsToRemove = Array.from(zeroDraftIndex.search('*')).filter(
-        record => record.verses.some((verse: VerseWithMetadata) => verse.source === uri.fsPath)
+    const recordsToRemove = Array.from(zeroDraftIndex.search("*")).filter((record) =>
+        record.verses.some((verse: VerseWithMetadata) => verse.source === uri.fsPath)
     );
 
     for (const record of recordsToRemove) {
@@ -120,7 +142,10 @@ async function removeFromIndex(uri: vscode.Uri, zeroDraftIndex: MiniSearch<ZeroD
 }
 
 // New function to get content options for a given vref
-export function getContentOptionsForVref(zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>, vref: string): Partial<ZeroDraftIndexRecord> | null {
+export function getContentOptionsForVref(
+    zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>,
+    vref: string
+): Partial<ZeroDraftIndexRecord> | null {
     const result = zeroDraftIndex.getStoredFields(vref);
     if (!result) {
         return null;
@@ -135,13 +160,15 @@ export function getContentOptionsForVref(zeroDraftIndex: MiniSearch<ZeroDraftInd
 
 export async function insertDraftsIntoTargetNotebooks({
     zeroDraftFilePath,
-    forceInsert = false
+    forceInsert = false,
 }: {
     zeroDraftFilePath: string; // which file to use
     forceInsert?: boolean;
 }): Promise<void> {
-    const notebookFiles = await vscode.workspace.findFiles('**/*.codex');
-    const relevantRecords = await processZeroDraftFileWithoutIndexing(vscode.Uri.file(zeroDraftFilePath));
+    const notebookFiles = await vscode.workspace.findFiles("**/*.codex");
+    const relevantRecords = await processZeroDraftFileWithoutIndexing(
+        vscode.Uri.file(zeroDraftFilePath)
+    );
 
     let insertedCount = 0;
     let skippedCount = 0;
@@ -149,7 +176,7 @@ export async function insertDraftsIntoTargetNotebooks({
     // Create a map for quick lookup of zero drafts grouped by book
     const zeroDraftMap = new Map<string, Map<string, string>>();
     for (const record of relevantRecords) {
-        const book = record.vref.split(' ')[0];
+        const book = record.vref.split(" ")[0];
         if (!zeroDraftMap.has(book)) {
             zeroDraftMap.set(book, new Map());
         }
@@ -166,15 +193,18 @@ export async function insertDraftsIntoTargetNotebooks({
 
             for (let cellIndex = 0; cellIndex < notebook.cellCount; cellIndex++) {
                 const cell = notebook.cellAt(cellIndex);
-                if (cell.kind === vscode.NotebookCellKind.Code && cell.document.languageId === 'scripture') {
+                if (
+                    cell.kind === vscode.NotebookCellKind.Code &&
+                    cell.document.languageId === "scripture"
+                ) {
                     const cellContent = cell.document.getText().trim();
                     const zeroDraft = drafts.get(cell.metadata?.id);
                     if (zeroDraft) {
-                        if (forceInsert || cellContent === '') {
+                        if (forceInsert || cellContent === "") {
                             const updatedCell = new vscode.NotebookCellData(
                                 vscode.NotebookCellKind.Code,
                                 zeroDraft,
-                                'scripture'
+                                "scripture"
                             );
                             updatedCell.metadata = { ...cell.metadata };
 
@@ -202,10 +232,13 @@ export async function insertDraftsIntoTargetNotebooks({
     );
 }
 
-export async function insertDraftsInCurrentEditor(zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>, forceInsert: boolean = false): Promise<void> {
+export async function insertDraftsInCurrentEditor(
+    zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>,
+    forceInsert: boolean = false
+): Promise<void> {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
-        vscode.window.showErrorMessage('No active editor found');
+        vscode.window.showErrorMessage("No active editor found");
         return;
     }
 

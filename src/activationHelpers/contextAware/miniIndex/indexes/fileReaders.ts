@@ -1,5 +1,5 @@
-import * as vscode from 'vscode';
-import { getWorkSpaceUri } from '../../../../utils';
+import * as vscode from "vscode";
+import { getWorkSpaceUri } from "../../../../utils";
 
 export interface FileData {
     uri: vscode.Uri;
@@ -12,14 +12,20 @@ export interface FileData {
     }>;
 }
 
-export async function readSourceAndTargetFiles(): Promise<{ sourceFiles: FileData[], targetFiles: FileData[] }> {
+export async function readSourceAndTargetFiles(): Promise<{
+    sourceFiles: FileData[];
+    targetFiles: FileData[];
+}> {
     const workspaceFolder = getWorkSpaceUri();
     if (!workspaceFolder) {
-        throw new Error('Workspace folder not found');
+        throw new Error("Workspace folder not found");
     }
 
-    const sourcePattern = new vscode.RelativePattern(workspaceFolder, '.project/sourceTextBibles/*.bible');
-    const targetPattern = new vscode.RelativePattern(workspaceFolder, 'files/target/*.codex');
+    const sourcePattern = new vscode.RelativePattern(
+        workspaceFolder,
+        ".project/sourceTextBibles/*.bible"
+    );
+    const targetPattern = new vscode.RelativePattern(workspaceFolder, "files/target/*.codex");
 
     const sourceUris = await vscode.workspace.findFiles(sourcePattern);
     const targetUris = await vscode.workspace.findFiles(targetPattern);

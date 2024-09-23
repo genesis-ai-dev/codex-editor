@@ -20,10 +20,7 @@ class VSCodeAPIWrapper {
      *
      * @param message Abitrary data (must be JSON serializable) to send to the extension context.
      */
-    public postMessage(message: {
-        readonly type: MessageType;
-        readonly payload: unknown;
-    }) {
+    public postMessage(message: { readonly type: MessageType; readonly payload: unknown }) {
         if (this.vsCodeApi) {
             this.vsCodeApi.postMessage(message);
         }
@@ -41,7 +38,7 @@ class VSCodeAPIWrapper {
                               case MessageType.showDialog:
                                   return;
                           }
-                      },
+                      }
             );
         } else {
             console.error("NO VSCODE API FOUND");

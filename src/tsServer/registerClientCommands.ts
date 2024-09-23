@@ -31,16 +31,13 @@ export function registerClientCommands(
     );
 
     disposables.push(
-        vscode.commands.registerCommand(
-            "spellcheck.addWord",
-            async (word: string) => {
-                console.log("spellcheck.addWord", { word });
-                if (client) {
-                    console.log("sending request inside addWord");
-                    return client.sendRequest("spellcheck/addWord", { word });
-                }
+        vscode.commands.registerCommand("spellcheck.addWord", async (word: string) => {
+            console.log("spellcheck.addWord", { word });
+            if (client) {
+                console.log("sending request inside addWord");
+                return client.sendRequest("spellcheck/addWord", { word });
             }
-        )
+        })
     );
 
     // Add all disposables to the extension context

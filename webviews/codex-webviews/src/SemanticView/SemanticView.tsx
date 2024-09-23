@@ -1,9 +1,5 @@
 import React, { useState, useEffect } from "react";
-import {
-    VSCodeButton,
-    VSCodeTextField,
-    VSCodeDivider,
-} from "@vscode/webview-ui-toolkit/react";
+import { VSCodeButton, VSCodeTextField, VSCodeDivider } from "@vscode/webview-ui-toolkit/react";
 
 const vscode = acquireVsCodeApi();
 
@@ -22,15 +18,11 @@ function App() {
                     if (Array.isArray(message.data)) {
                         setSimilarWords(
                             message.data.filter(
-                                (word: string) =>
-                                    word.toLowerCase() !== query.toLowerCase()
+                                (word: string) => word.toLowerCase() !== query.toLowerCase()
                             )
                         );
                     } else {
-                        console.error(
-                            "Received invalid data for similarWords:",
-                            message.data
-                        );
+                        console.error("Received invalid data for similarWords:", message.data);
                         setSimilarWords([]);
                     }
                     break;
@@ -80,10 +72,7 @@ function App() {
                     onChange={(e: any) => setQuery(e.target.value)}
                     style={{ flexGrow: 1, marginRight: "1em" }}
                 />
-                <VSCodeButton
-                    appearance="primary"
-                    onClick={() => searchSimilarWords(query)}
-                >
+                <VSCodeButton appearance="primary" onClick={() => searchSimilarWords(query)}>
                     Search
                 </VSCodeButton>
             </div>
@@ -141,8 +130,8 @@ function App() {
                             color: "var(--vscode-descriptionForeground)",
                         }}
                     >
-                        The thesaurus is still being built. Please try a
-                        different word or check back later.
+                        The thesaurus is still being built. Please try a different word or check
+                        back later.
                     </div>
                 )
             )}

@@ -24,10 +24,8 @@ export const CommentTextForm: React.FC<CommentTextFormProps> = ({
     commentValue,
     titleValue,
 }) => {
-    const [commentFieldIsPopulated, setCommentFieldIsPopulated] =
-        useState<boolean>(false);
-    const [titleFieldIsPopulated, setTitleFieldIsPopulated] =
-        useState<boolean>(false);
+    const [commentFieldIsPopulated, setCommentFieldIsPopulated] = useState<boolean>(false);
+    const [titleFieldIsPopulated, setTitleFieldIsPopulated] = useState<boolean>(false);
     return (
         <form
             className="comments-input"
@@ -35,8 +33,7 @@ export const CommentTextForm: React.FC<CommentTextFormProps> = ({
                 width: "100%",
                 display: "flex",
                 flexDirection: "column",
-                boxShadow:
-                    "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
+                boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
                 padding: "20px",
                 borderRadius: "5px",
                 backgroundColor: "var(--vscode-dropdown-background)",
@@ -61,10 +58,7 @@ export const CommentTextForm: React.FC<CommentTextFormProps> = ({
                         marginBottom: "1em",
                     }}
                 >
-                    <label
-                        htmlFor="title"
-                        style={{ display: "block", marginBottom: "0.5em" }}
-                    >
+                    <label htmlFor="title" style={{ display: "block", marginBottom: "0.5em" }}>
                         Title:
                     </label>
                     <WrappedVSCodeTextField
@@ -81,10 +75,7 @@ export const CommentTextForm: React.FC<CommentTextFormProps> = ({
                 </div>
             )}
             <div style={{ marginBottom: "1em" }}>
-                <label
-                    htmlFor="comment"
-                    style={{ display: "block", marginBottom: "0.5em" }}
-                >
+                <label htmlFor="comment" style={{ display: "block", marginBottom: "0.5em" }}>
                     Comment:
                 </label>
                 <WrappedVSCodeTextField

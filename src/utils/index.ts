@@ -37,35 +37,27 @@ export async function getProjectMetadata(): Promise<Project> {
         return Promise.reject("No workspace found");
     }
 
-    const projectMetadataPath = vscode.Uri.file(
-        `${workspaceFolder}/metadata.json`,
-    );
+    const projectMetadataPath = vscode.Uri.file(`${workspaceFolder}/metadata.json`);
     try {
         await vscode.workspace.fs.stat(projectMetadataPath);
     } catch {
         return Promise.reject("Project metadata file does not exist");
     }
 
-    const projectMetadata = await vscode.workspace.fs
-        .readFile(projectMetadataPath)
-        .then(
-            (projectMetadata) => {
-                try {
-                    return JSON.parse(
-                        Buffer.from(projectMetadata).toString(),
-                    ) as Project;
-                } catch (error: any) {
-                    vscode.window.showErrorMessage(
-                        `Failed to parse project metadata: ${error.message}`,
-                    );
-                }
-            },
-            (err) => {
+    const projectMetadata = await vscode.workspace.fs.readFile(projectMetadataPath).then(
+        (projectMetadata) => {
+            try {
+                return JSON.parse(Buffer.from(projectMetadata).toString()) as Project;
+            } catch (error: any) {
                 vscode.window.showErrorMessage(
-                    `Failed to read project metadata: ${err.message}`,
+                    `Failed to parse project metadata: ${error.message}`
                 );
-            },
-        );
+            }
+        },
+        (err) => {
+            vscode.window.showErrorMessage(`Failed to read project metadata: ${err.message}`);
+        }
+    );
 
     if (!projectMetadata) {
         return Promise.reject("No project metadata found");
@@ -76,7 +68,7 @@ export async function getProjectMetadata(): Promise<Project> {
 export async function jumpToCellInNotebook(
     context: vscode.ExtensionContext,
     notebookPath: string,
-    cellIdToJumpTo: string,
+    cellIdToJumpTo: string
 ) {
     const notebookUri = vscode.Uri.file(notebookPath);
 
@@ -86,17 +78,13 @@ export async function jumpToCellInNotebook(
             value: cellIdToJumpTo,
         });
     } catch (error: any) {
-        vscode.window.showErrorMessage(
-            `Failed to open notebook: ${error.message}`,
-        );
+        vscode.window.showErrorMessage(`Failed to open notebook: ${error.message}`);
     }
 }
 
 // Abstracted functions to get all book references, chapter references, and complete vrefs
 export function getAllBookRefs(): string[] {
-    return Object.keys(vrefData).filter(
-        (ref) => !nonCanonicalBookRefs.includes(ref),
-    );
+    return Object.keys(vrefData).filter((ref) => !nonCanonicalBookRefs.includes(ref));
 }
 
 export function getAllBookChapterRefs(book: string): string[] {
@@ -106,7 +94,7 @@ export function getAllBookChapterRefs(book: string): string[] {
 export function getAllVrefs(
     book: string,
     chapter: string,
-    numberOfVrefsForChapter: number,
+    numberOfVrefsForChapter: number
 ): string {
     return Array.from(Array(numberOfVrefsForChapter).keys())
         .map((_, i) => `${book} ${chapter}:${i + 1}`)
@@ -120,8 +108,7 @@ export const getFullListOfOrgVerseRefs = (): string[] => {
     allBookRefs.forEach((book) => {
         const chapters = Object.keys(vrefData[book].chapterVerseCountPairings);
         chapters.forEach((chapter) => {
-            const numberOfVerses =
-                vrefData[book].chapterVerseCountPairings[chapter];
+            const numberOfVerses = vrefData[book].chapterVerseCountPairings[chapter];
             for (let verse = 1; verse <= numberOfVerses; verse++) {
                 orgVerseRefs.push(`${book} ${chapter}:${verse}`);
             }

@@ -21,9 +21,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
             <i className="codicon codicon-chevron-left"></i>
         </button>
         <button
-            disabled={
-                chapterNumber === scriptureCellsLength - 1 || unsavedChanges
-            }
+            disabled={chapterNumber === scriptureCellsLength - 1 || unsavedChanges}
             onClick={() => setChapterNumber(chapterNumber + 1)}
         >
             <i className="codicon codicon-chevron-right"></i>

@@ -4,17 +4,12 @@ import fetchResource, { resourceOrgIcons } from "../utilities/fetchResources";
 import { vscode } from "../utilities/vscode";
 import { useDownloadedResource } from "../hooks/useDownloadedResources";
 import { useState } from "react";
-import {
-    VSCodeButton,
-    VSCodeDropdown,
-    VSCodeOption,
-} from "@vscode/webview-ui-toolkit/react";
+import { VSCodeButton, VSCodeDropdown, VSCodeOption } from "@vscode/webview-ui-toolkit/react";
 import { MessageType } from "../types";
 import { RESOURCE_TYPES } from "../utilities/resources";
 
 const ResourcesTable = () => {
-    const [resourceType, setResourceType] =
-        useState<(typeof RESOURCE_TYPES)[number]["key"]>("obs");
+    const [resourceType, setResourceType] = useState<(typeof RESOURCE_TYPES)[number]["key"]>("obs");
     const { data: resources } = useQuery({
         queryKey: ["resources", resourceType],
         queryFn: () => {
@@ -28,9 +23,7 @@ const ResourcesTable = () => {
         ?.map((resource: any) => {
             return {
                 ...resource,
-                isDownloaded: downloadedResources.some(
-                    (item) => item.id === resource.id,
-                ),
+                isDownloaded: downloadedResources.some((item) => item.id === resource.id),
             };
         })
         .sort((a: any, b: any) => {
@@ -122,9 +115,7 @@ const ResourcesTable = () => {
                                 {resource.release.tag_name}
                             </td>
                             <td className="flex items-center justify-center px-2">
-                                {downloadedResources.find(
-                                    (item) => item.id === resource.id,
-                                ) ? (
+                                {downloadedResources.find((item) => item.id === resource.id) ? (
                                     <VSCodeButton
                                         title="Open Resource"
                                         appearance="primary"
@@ -132,9 +123,8 @@ const ResourcesTable = () => {
                                         onClick={() =>
                                             handleOpenResource(
                                                 downloadedResources.find(
-                                                    (item) =>
-                                                        item.id === resource.id,
-                                                ),
+                                                    (item) => item.id === resource.id
+                                                )
                                             )
                                         }
                                     >

@@ -6,7 +6,7 @@ const workspaceStateEmitter = new WorkspaceStateEmitter();
 type WorkspaceStateUpdate = { key: string; value: any };
 function updateWorkspaceState(
     context: vscode.ExtensionContext,
-    update: WorkspaceStateUpdate,
+    update: WorkspaceStateUpdate
 ): void {
     context.workspaceState.update(update.key, update.value).then(() => {
         workspaceStateEmitter.emit("changed", update);
@@ -15,16 +15,13 @@ function updateWorkspaceState(
 
 async function getWorkspaceState(
     context: vscode.ExtensionContext,
-    key: "cellToJumpTo",
+    key: "cellToJumpTo"
 ): Promise<any> {
     const value = await context.workspaceState.get(key);
     return value;
 }
 
-const workspaceStoreListener = (
-    keyForListener: string,
-    callBack: (value: any) => void,
-) => {
+const workspaceStoreListener = (keyForListener: string, callBack: (value: any) => void) => {
     // Define the listener function with a reference so it can be removed later
     const listener = ({ key, value }: { key: string; value: any }) => {
         if (key === keyForListener) {

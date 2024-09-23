@@ -1,4 +1,4 @@
-import * as vscode from 'vscode';
+import * as vscode from "vscode";
 
 export class StatusBarHandler {
     private static instance: StatusBarHandler;
@@ -7,8 +7,14 @@ export class StatusBarHandler {
     private progressBarItem: vscode.StatusBarItem;
 
     private constructor() {
-        this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-        this.indexCountsItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
+        this.statusBarItem = vscode.window.createStatusBarItem(
+            vscode.StatusBarAlignment.Right,
+            100
+        );
+        this.indexCountsItem = vscode.window.createStatusBarItem(
+            vscode.StatusBarAlignment.Right,
+            99
+        );
         this.progressBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
         this.statusBarItem.show();
         this.indexCountsItem.show();
@@ -34,9 +40,9 @@ export class StatusBarHandler {
 
     public updateTranslationProgress(percentage: number): void {
         const barLength = 10;
-        const filledLength = Math.round(percentage / 100 * barLength);
+        const filledLength = Math.round((percentage / 100) * barLength);
         const emptyLength = barLength - filledLength;
-        const progressBar = '█'.repeat(filledLength) + '░'.repeat(emptyLength);
+        const progressBar = "█".repeat(filledLength) + "░".repeat(emptyLength);
         this.progressBarItem.text = `$(book) ${progressBar} ${percentage}%`;
         this.progressBarItem.tooltip = `Translation progress: ${percentage}%`;
     }

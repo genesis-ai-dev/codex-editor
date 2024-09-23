@@ -1,23 +1,16 @@
 import { renderToPage } from "@/utilities/main-vscode";
 import { markdownToHTML } from "../../../codex-webviews/src/TranslationNotesView/utilities/markdownToHTML";
-import {
-    VSCodeButton,
-    VSCodeDropdown,
-    VSCodeOption,
-} from "@vscode/webview-ui-toolkit/react";
+import { VSCodeButton, VSCodeDropdown, VSCodeOption } from "@vscode/webview-ui-toolkit/react";
 import { vscode } from "@/utilities/vscode";
 import { MessageType } from "@/types";
 import { useEffect, useState } from "react";
 
 const MarkdownViewer = () => {
-    const { taDirectories, taSubDirectories, taContent } =
-        useTranslationAcademyDirectories();
+    const { taDirectories, taSubDirectories, taContent } = useTranslationAcademyDirectories();
 
-    const [selectedDirectory, setSelectedDirectory] = useState<string>(
-        taDirectories[0] ?? "",
-    );
+    const [selectedDirectory, setSelectedDirectory] = useState<string>(taDirectories[0] ?? "");
     const [selectedSubDirectory, setSelectedSubDirectory] = useState<string>(
-        taSubDirectories[0] ?? "",
+        taSubDirectories[0] ?? ""
     );
 
     return (
@@ -30,9 +23,7 @@ const MarkdownViewer = () => {
                             type: MessageType.GET_TA_FOLDER_CONTENT,
                             payload: (e.target as HTMLSelectElement)?.value,
                         });
-                        setSelectedDirectory(
-                            (e.target as HTMLSelectElement)?.value,
-                        );
+                        setSelectedDirectory((e.target as HTMLSelectElement)?.value);
                     }}
                     className="w-fit"
                 >
@@ -44,9 +35,7 @@ const MarkdownViewer = () => {
                 </VSCodeDropdown>
                 <VSCodeDropdown
                     onChange={(e) => {
-                        setSelectedSubDirectory(
-                            (e.target as HTMLSelectElement)?.value,
-                        );
+                        setSelectedSubDirectory((e.target as HTMLSelectElement)?.value);
                     }}
                     value={selectedSubDirectory}
                     className="w-fit"

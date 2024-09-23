@@ -1,8 +1,5 @@
-import { Dictionary } from 'codex-types';
-
+import { Dictionary } from "codex-types";
 
 export function numberOfEntries(dictionary: Dictionary): number {
-  return dictionary.entries.length;
+    return dictionary.entries.length;
 }
-
-

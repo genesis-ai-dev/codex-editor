@@ -30,8 +30,7 @@ export async function registerLanguageServer(
             { notebook: NOTEBOOK_TYPE, language: "*" },
         ],
         synchronize: {
-            fileEvents:
-                vscode.workspace.createFileSystemWatcher("**/.clientrc"),
+            fileEvents: vscode.workspace.createFileSystemWatcher("**/.clientrc"),
         },
     };
 
@@ -59,13 +58,15 @@ export async function registerLanguageServer(
         console.log("Attempting to restart the Codex Copilot Language Server...");
         try {
             await client.stop();
-            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for 1 second
+            await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait for 1 second
             await client.start();
             console.log("Codex Copilot Language Server restarted successfully.");
             context.subscriptions.push(client);
         } catch (restartError: any) {
             console.error("Failed to restart the Codex Copilot Language Server:", restartError);
-            vscode.window.showErrorMessage(`Failed to restart Codex Copilot Language Server: ${restartError.message}`);
+            vscode.window.showErrorMessage(
+                `Failed to restart Codex Copilot Language Server: ${restartError.message}`
+            );
         }
     }
 
@@ -80,6 +81,6 @@ export function deactivate(client: LanguageClient): Thenable<void> | undefined {
     console.log("Stopping Codex Copilot Language Server...");
     return client.stop().then(
         () => console.log("Codex Copilot Language Server stopped successfully."),
-        error => console.error("Error stopping Codex Copilot Language Server:", error)
+        (error) => console.error("Error stopping Codex Copilot Language Server:", error)
     );
 }

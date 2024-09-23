@@ -1,21 +1,13 @@
 import * as vscode from "vscode";
 import { getLookupStringsForBook, vrefData } from "./verseData";
 
-export function getOrderedBookNames(
-    fileNames: Array<string>
-  ){
+export function getOrderedBookNames(fileNames: Array<string>) {
     return Object.entries(vrefData)
-      .filter(([fileName]) => fileNames.includes(fileName))
-      ?.map(([fileName, bookName]) => ({ bookName, fileName }));
-  }
+        .filter(([fileName]) => fileNames.includes(fileName))
+        ?.map(([fileName, bookName]) => ({ bookName, fileName }));
+}
 
-export const findVerseRef = ({
-    verseRef,
-    content,
-}: {
-    verseRef: string;
-    content: string,
-}) => {
+export const findVerseRef = ({ verseRef, content }: { verseRef: string; content: string }) => {
     // Utilize expanded strings for lookup
     const lookupStrings = getLookupStringsForBook(verseRef.split(" ")[0]);
     let verseRefWasFound = false;
@@ -54,15 +46,11 @@ export async function findReferences({
     }
 
     for (const folder of workspaceFolders) {
-        const normalizedFileType = fileType?.startsWith(".")
-            ? fileType.substring(1)
-            : fileType;
+        const normalizedFileType = fileType?.startsWith(".") ? fileType.substring(1) : fileType;
         const pattern = normalizedFileType
             ? `resources/**/*.${normalizedFileType}`
             : "resources/**";
-        const files = await vscode.workspace.findFiles(
-            new vscode.RelativePattern(folder, pattern),
-        );
+        const files = await vscode.workspace.findFiles(new vscode.RelativePattern(folder, pattern));
 
         console.log({ files });
 
@@ -87,4 +75,3 @@ export function extractVerseRefFromLine(line: string): string | null {
     const match = line.match(verseRefRegex);
     return match ? match[0] : null;
 }
-

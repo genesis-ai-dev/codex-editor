@@ -7,10 +7,7 @@ interface VerseRefNavigationProps {
     callback: (updatedVerseRef: string) => void;
 }
 
-const VerseRefNavigation: React.FC<VerseRefNavigationProps> = ({
-    verseRef,
-    callback,
-}) => {
+const VerseRefNavigation: React.FC<VerseRefNavigationProps> = ({ verseRef, callback }) => {
     // Split the verseRef into book, chapter, and verse
     const [book, chapterAndVerse] = verseRef.split(" ");
     const [chapter, verse] = chapterAndVerse.split(":");
@@ -21,25 +18,17 @@ const VerseRefNavigation: React.FC<VerseRefNavigationProps> = ({
     }, [verseRef]);
 
     const [selectedBook, setSelectedBook] = useState<string | undefined>(book);
-    const [selectedChapter, setSelectedChapter] = useState<string | undefined>(
-        chapter,
-    );
-    const [selectedVerse, setSelectedVerse] = useState<string | undefined>(
-        verse,
-    );
+    const [selectedChapter, setSelectedChapter] = useState<string | undefined>(chapter);
+    const [selectedVerse, setSelectedVerse] = useState<string | undefined>(verse);
 
     const booksOfTheBible = bibleBooksLookup.map((book) => book.abbr);
     const bookData = bibleBooksLookup.find((b) => b.abbr === selectedBook);
-    const chaptersBasedOnBook = bookData
-        ? Object.keys(bookData.chapters).map(Number)
-        : [];
+    const chaptersBasedOnBook = bookData ? Object.keys(bookData.chapters).map(Number) : [];
 
     // @ts-expect-error Selected chapter will always match the chapter data
     const verserInChapter = bookData.chapters[selectedChapter];
     const versesBasedOnChapter =
-        bookData && verserInChapter
-            ? Array.from({ length: verserInChapter }, (_, i) => i + 1)
-            : [];
+        bookData && verserInChapter ? Array.from({ length: verserInChapter }, (_, i) => i + 1) : [];
 
     useEffect(() => {
         if (selectedBook && selectedChapter && selectedVerse) {
@@ -89,10 +78,7 @@ const VerseRefNavigation: React.FC<VerseRefNavigationProps> = ({
                 }}
             >
                 {chaptersBasedOnBook.map((chapterNumber) => (
-                    <VSCodeOption
-                        key={chapterNumber}
-                        selected={`${chapterNumber}` === chapter}
-                    >
+                    <VSCodeOption key={chapterNumber} selected={`${chapterNumber}` === chapter}>
                         {chapterNumber}
                     </VSCodeOption>
                 ))}
@@ -107,10 +93,7 @@ const VerseRefNavigation: React.FC<VerseRefNavigationProps> = ({
                 }}
             >
                 {versesBasedOnChapter.map((verseNumber) => (
-                    <VSCodeOption
-                        key={verseNumber}
-                        selected={`${verseNumber}` === verse}
-                    >
+                    <VSCodeOption key={verseNumber} selected={`${verseNumber}` === verse}>
                         {verseNumber}
                     </VSCodeOption>
                 ))}

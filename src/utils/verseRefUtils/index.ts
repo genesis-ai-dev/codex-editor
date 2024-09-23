@@ -1,13 +1,7 @@
 import * as vscode from "vscode";
 import { getLookupStringsForBook } from "./verseData";
 
-export const findVerseRef = ({
-    verseRef,
-    content,
-}: {
-    verseRef: string;
-    content: string;
-}) => {
+export const findVerseRef = ({ verseRef, content }: { verseRef: string; content: string }) => {
     // Utilize expanded strings for lookup
     const lookupStrings = getLookupStringsForBook(verseRef.split(" ")[0]);
     let verseRefWasFound = false;
@@ -15,14 +9,10 @@ export const findVerseRef = ({
 
     // Check each lookup string to see if it's present in the content
     for (const lookupString of lookupStrings) {
-        const tsvVerseRef = `${lookupString}\t${verseRef.split(" ")[1]}\t${
-            verseRef.split(" ")[2]
-        }`;
+        const tsvVerseRef = `${lookupString}\t${verseRef.split(" ")[1]}\t${verseRef.split(" ")[2]}`;
         if (content.includes(verseRef) || content.includes(tsvVerseRef)) {
             verseRefWasFound = true;
-            verseRefInContentFormat = content.includes(verseRef)
-                ? verseRef
-                : tsvVerseRef;
+            verseRefInContentFormat = content.includes(verseRef) ? verseRef : tsvVerseRef;
             break;
         }
     }
@@ -50,15 +40,11 @@ export async function findReferences({
     }
 
     for (const folder of workspaceFolders) {
-        const normalizedFileType = fileType?.startsWith(".")
-            ? fileType.substring(1)
-            : fileType;
+        const normalizedFileType = fileType?.startsWith(".") ? fileType.substring(1) : fileType;
         const pattern = normalizedFileType
             ? `.project/resources/**/*.${normalizedFileType}`
             : ".project/resources/**";
-        const files = await vscode.workspace.findFiles(
-            new vscode.RelativePattern(folder, pattern),
-        );
+        const files = await vscode.workspace.findFiles(new vscode.RelativePattern(folder, pattern));
 
         console.log({ files });
 

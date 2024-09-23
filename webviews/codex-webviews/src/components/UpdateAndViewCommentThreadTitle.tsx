@@ -33,9 +33,7 @@ const UpdateAndViewCommentThreadTitle: React.FC<CommentProps> = ({
             }}
         >
             {!editMode ? (
-                <h3 style={{ margin: "0 0 10px 0" }}>
-                    {commentThread.threadTitle || "Note:"}
-                </h3>
+                <h3 style={{ margin: "0 0 10px 0" }}>{commentThread.threadTitle || "Note:"}</h3>
             ) : (
                 <CommentTextForm
                     showTitleInput={true}
@@ -52,9 +50,8 @@ const UpdateAndViewCommentThreadTitle: React.FC<CommentProps> = ({
                     threadId={commentThread.id}
                     titleValue={commentThread.threadTitle}
                     commentValue={
-                        commentThread.comments.find(
-                            (comment) => comment.id === idOfFirstComment,
-                        )?.body
+                        commentThread.comments.find((comment) => comment.id === idOfFirstComment)
+                            ?.body
                     }
                 />
             )}

@@ -10,15 +10,15 @@ import {
     Position,
     TextEdit,
     CancellationToken,
-    CompletionContext
-} from 'vscode-languageserver/node';
+    CompletionContext,
+} from "vscode-languageserver/node";
 import { verseRefRegex } from "./types";
 import { Dictionary, DictionaryEntry, SpellCheckResult } from "./types";
-import * as fs from 'fs';
-import * as path from 'path';
-import { URI } from 'vscode-uri';
-import { Connection } from 'vscode-languageserver/node';
-import { cleanWord } from '../utils/cleaningUtils';
+import * as fs from "fs";
+import * as path from "path";
+import { URI } from "vscode-uri";
+import { Connection } from "vscode-languageserver/node";
+import { cleanWord } from "../utils/cleaningUtils";
 
 export class SpellChecker {
     private dictionary: Dictionary | null = null;
@@ -27,10 +27,10 @@ export class SpellChecker {
     constructor(workspaceFolder: string | undefined) {
         if (workspaceFolder) {
             const folderUri = URI.parse(workspaceFolder);
-            this.dictionaryPath = path.join(folderUri.fsPath, 'files', 'project.dictionary');
+            this.dictionaryPath = path.join(folderUri.fsPath, "files", "project.dictionary");
         } else {
             // Fallback to a default path if no workspace folder is provided
-            this.dictionaryPath = path.join(process.cwd(), 'files', 'project.dictionary');
+            this.dictionaryPath = path.join(process.cwd(), "files", "project.dictionary");
         }
         console.log("Dictionary path: " + this.dictionaryPath);
         this.ensureDictionaryExists();
@@ -54,7 +54,7 @@ export class SpellChecker {
             await fs.promises.mkdir(path.dirname(this.dictionaryPath), { recursive: true });
             await fs.promises.writeFile(
                 this.dictionaryPath,
-                JSON.stringify(emptyDictionary) + '\n'
+                JSON.stringify(emptyDictionary) + "\n"
             );
             console.log("Created new empty dictionary.");
         }
@@ -62,7 +62,7 @@ export class SpellChecker {
 
     private async loadDictionary() {
         console.log(this.dictionaryPath);
-        const content = await fs.promises.readFile(this.dictionaryPath, 'utf-8');
+        const content = await fs.promises.readFile(this.dictionaryPath, "utf-8");
 
         // Try parsing as JSON first (for older dictionaries)
         try {
@@ -70,7 +70,7 @@ export class SpellChecker {
         } catch {
             // If JSON parsing fails, assume it's JSONL
             const entries: DictionaryEntry[] = [];
-            const lines = content.split('\n').filter(line => line.trim() !== '');
+            const lines = content.split("\n").filter((line) => line.trim() !== "");
             for (const line of lines) {
                 try {
                     const entry = JSON.parse(line);
@@ -85,7 +85,12 @@ export class SpellChecker {
         if (this.dictionary && Array.isArray(this.dictionary.entries)) {
             const wordCount = this.dictionary.entries.length;
             console.log(`Dictionary loaded with ${wordCount} words.`);
-            console.log(`First few words: ${this.dictionary.entries.slice(0, 5).map(e => e.headWord).join(', ')}`);
+            console.log(
+                `First few words: ${this.dictionary.entries
+                    .slice(0, 5)
+                    .map((e) => e.headWord)
+                    .join(", ")}`
+            );
         } else {
             this.dictionary = { entries: [] };
             console.log("Initialized empty dictionary.");
@@ -99,8 +104,8 @@ export class SpellChecker {
 
         const originalWord = word;
         const cleanedWord = cleanWord(word);
-        const isInDictionary = this.dictionary.entries.some(entry => {
-            const entryWithoutPunctuation = entry.headWord.replace(/[^\p{L}\p{N}'-]/gu, '');
+        const isInDictionary = this.dictionary.entries.some((entry) => {
+            const entryWithoutPunctuation = entry.headWord.replace(/[^\p{L}\p{N}'-]/gu, "");
             return entryWithoutPunctuation === cleanedWord;
         });
 
@@ -118,17 +123,19 @@ export class SpellChecker {
         }
 
         const cleanedWord = cleanWord(word);
-        const leadingPunctuation = word.match(/^[^\p{L}\p{N}]+/u)?.[0] || '';
-        const trailingPunctuation = word.match(/[^\p{L}\p{N}]+$/u)?.[0] || '';
+        const leadingPunctuation = word.match(/^[^\p{L}\p{N}]+/u)?.[0] || "";
+        const trailingPunctuation = word.match(/[^\p{L}\p{N}]+$/u)?.[0] || "";
 
-        return this.dictionary!.entries
-            .map(entry => ({
-                word: entry.headWord,
-                distance: this.levenshteinDistance(cleanedWord.toLowerCase(), entry.headWord.toLowerCase())
-            }))
+        return this.dictionary!.entries.map((entry) => ({
+            word: entry.headWord,
+            distance: this.levenshteinDistance(
+                cleanedWord.toLowerCase(),
+                entry.headWord.toLowerCase()
+            ),
+        }))
             .sort((a, b) => a.distance - b.distance)
             .slice(0, 3)
-            .map(suggestion => {
+            .map((suggestion) => {
                 let result = suggestion.word;
 
                 // Preserve original capitalization
@@ -176,36 +183,38 @@ export class SpellChecker {
             this.dictionary = { entries: [] };
         }
 
-        if (this.dictionary.entries.some(entry => entry.headWord === word)) {
+        if (this.dictionary.entries.some((entry) => entry.headWord === word)) {
             return;
         }
 
         const newEntry: DictionaryEntry = {
             id: this.generateUniqueId(),
             headWord: word,
-            hash: this.generateHash(word)
+            hash: this.generateHash(word),
         };
         this.dictionary.entries.push(newEntry);
 
         try {
             // Check if the file ends with a newline
-            let content = '';
+            let content = "";
             try {
-                content = await fs.promises.readFile(this.dictionaryPath, 'utf8');
+                content = await fs.promises.readFile(this.dictionaryPath, "utf8");
             } catch (error: any) {
-                if (error.code !== 'ENOENT') {
+                if (error.code !== "ENOENT") {
                     throw error;
                 }
             }
 
             const serializedEntry = JSON.stringify(newEntry);
-            const dataToAppend = content.endsWith('\n') ? serializedEntry + '\n' : '\n' + serializedEntry + '\n';
+            const dataToAppend = content.endsWith("\n")
+                ? serializedEntry + "\n"
+                : "\n" + serializedEntry + "\n";
 
-            await fs.promises.writeFile(this.dictionaryPath, content + dataToAppend, 'utf8');
+            await fs.promises.writeFile(this.dictionaryPath, content + dataToAppend, "utf8");
             // Reload the dictionary after adding a new word
             await this.loadDictionary();
         } catch (error) {
-            console.error('Error saving dictionary:', error);
+            console.error("Error saving dictionary:", error);
         }
     }
 
@@ -215,7 +224,10 @@ export class SpellChecker {
 
     private generateHash(word: string): string {
         // FIXME: this should be an image hash
-        return word.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0).toString();
+        return word
+            .split("")
+            .reduce((acc, char) => acc + char.charCodeAt(0), 0)
+            .toString();
     }
 }
 
@@ -233,7 +245,7 @@ export class SpellCheckDiagnosticsProvider {
     private provideDiagnostics(document: TextDocument): Diagnostic[] {
         const diagnostics: Diagnostic[] = [];
         const text = document.getText();
-        const lines = text.split('\n');
+        const lines = text.split("\n");
 
         lines.forEach((line, lineIndex) => {
             const trimmedLine = line.trimStart();
@@ -243,19 +255,19 @@ export class SpellCheckDiagnosticsProvider {
             const words = line.slice(startIndex).split(/\s+/);
             let editWindow = startIndex;
 
-            words.forEach(word => {
+            words.forEach((word) => {
                 if (word.length > 0) {
                     const spellCheckResult = this.spellChecker.spellCheck(word);
                     if (spellCheckResult.corrections.length > 0) {
                         const range: Range = {
                             start: { line: lineIndex, character: editWindow },
-                            end: { line: lineIndex, character: editWindow + word.length }
+                            end: { line: lineIndex, character: editWindow + word.length },
                         };
                         diagnostics.push({
                             range,
-                            message: `Possible spelling mistake. Suggestions: ${spellCheckResult.corrections.join(', ')}`,
+                            message: `Possible spelling mistake. Suggestions: ${spellCheckResult.corrections.join(", ")}`,
                             severity: DiagnosticSeverity.Information,
-                            source: 'Spell-Check'
+                            source: "Spell-Check",
                         });
                     }
                 }
@@ -268,13 +280,13 @@ export class SpellCheckDiagnosticsProvider {
             while ((match2 = repeatedPunctuationRegex.exec(line)) !== null) {
                 const range: Range = {
                     start: { line: lineIndex, character: match2.index },
-                    end: { line: lineIndex, character: match2.index + match2[0].length }
+                    end: { line: lineIndex, character: match2.index + match2[0].length },
                 };
                 diagnostics.push({
                     range,
                     message: `Repeated punctuation: "${match2[0]}"`,
                     severity: DiagnosticSeverity.Information,
-                    source: 'Punctuation-Check'
+                    source: "Punctuation-Check",
                 });
             }
 
@@ -283,13 +295,13 @@ export class SpellCheckDiagnosticsProvider {
             while ((match2 = whitespaceAroundPunctuationRegex.exec(line)) !== null) {
                 const range: Range = {
                     start: { line: lineIndex, character: match2.index },
-                    end: { line: lineIndex, character: match2.index + match2[0].length }
+                    end: { line: lineIndex, character: match2.index + match2[0].length },
                 };
                 diagnostics.push({
                     range,
                     message: `Whitespace around punctuation: "${match2[0]}"`,
                     severity: DiagnosticSeverity.Information,
-                    source: 'Punctuation-Check'
+                    source: "Punctuation-Check",
                 });
             }
         });
@@ -305,14 +317,20 @@ export class SpellCheckCodeActionProvider {
         this.spellChecker = spellChecker;
     }
 
-    provideCodeActions(document: TextDocument, range: Range, context: { diagnostics: Diagnostic[] }): CodeAction[] {
+    provideCodeActions(
+        document: TextDocument,
+        range: Range,
+        context: { diagnostics: Diagnostic[] }
+    ): CodeAction[] {
         const actions: CodeAction[] = [];
-        const diagnostics = context.diagnostics.filter(diag => diag.source === 'Spell-Check' || diag.source === 'Punctuation-Check');
+        const diagnostics = context.diagnostics.filter(
+            (diag) => diag.source === "Spell-Check" || diag.source === "Punctuation-Check"
+        );
 
-        diagnostics.forEach(diagnostic => {
+        diagnostics.forEach((diagnostic) => {
             const word = document.getText(diagnostic.range);
             const cleanedWord = cleanWord(word);
-            if (diagnostic.source === 'Spell-Check') {
+            if (diagnostic.source === "Spell-Check") {
                 const spellCheckResult = this.spellChecker.spellCheck(word);
 
                 spellCheckResult.corrections.forEach((correction: string) => {
@@ -321,9 +339,9 @@ export class SpellCheckCodeActionProvider {
                         kind: CodeActionKind.QuickFix,
                         edit: {
                             changes: {
-                                [document.uri]: [TextEdit.replace(diagnostic.range, correction)]
-                            }
-                        }
+                                [document.uri]: [TextEdit.replace(diagnostic.range, correction)],
+                            },
+                        },
                     };
                     actions.push(action);
                 });
@@ -333,35 +351,39 @@ export class SpellCheckCodeActionProvider {
                     title: `Add '${cleanedWord}' to dictionary`,
                     kind: CodeActionKind.QuickFix,
                     command: {
-                        title: 'Add to Dictionary',
-                        command: 'spellcheck.addToDictionary',
-                        arguments: [cleanedWord]
-                    }
+                        title: "Add to Dictionary",
+                        command: "spellcheck.addToDictionary",
+                        arguments: [cleanedWord],
+                    },
                 };
                 actions.push(addToDictionaryAction);
-            } else if (diagnostic.source === 'Punctuation-Check') {
-                if (diagnostic.message.startsWith('Repeated punctuation')) {
+            } else if (diagnostic.source === "Punctuation-Check") {
+                if (diagnostic.message.startsWith("Repeated punctuation")) {
                     const correctedPunctuation = word[0]; // Just keep the first punctuation mark
                     const action: CodeAction = {
                         title: `Fix repeated punctuation`,
                         kind: CodeActionKind.QuickFix,
                         edit: {
                             changes: {
-                                [document.uri]: [TextEdit.replace(diagnostic.range, correctedPunctuation)]
-                            }
-                        }
+                                [document.uri]: [
+                                    TextEdit.replace(diagnostic.range, correctedPunctuation),
+                                ],
+                            },
+                        },
                     };
                     actions.push(action);
-                } else if (diagnostic.message.startsWith('Whitespace around punctuation')) {
+                } else if (diagnostic.message.startsWith("Whitespace around punctuation")) {
                     const correctedPunctuation = word.trim(); // Remove whitespace around punctuation
                     const action: CodeAction = {
                         title: `Fix whitespace around punctuation`,
                         kind: CodeActionKind.QuickFix,
                         edit: {
                             changes: {
-                                [document.uri]: [TextEdit.replace(diagnostic.range, correctedPunctuation)]
-                            }
-                        }
+                                [document.uri]: [
+                                    TextEdit.replace(diagnostic.range, correctedPunctuation),
+                                ],
+                            },
+                        },
                     };
                     actions.push(action);
                 }
@@ -396,10 +418,10 @@ export class SpellCheckCompletionItemProvider {
         const currentWord = wordMatch[0];
         const spellCheckResult = this.spellChecker.spellCheck(currentWord);
 
-        return spellCheckResult.corrections.map(suggestion => ({
+        return spellCheckResult.corrections.map((suggestion) => ({
             label: suggestion,
             kind: CompletionItemKind.Text,
-            detail: 'Spelling suggestion'
+            detail: "Spelling suggestion",
         }));
     }
 }

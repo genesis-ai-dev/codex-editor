@@ -1,7 +1,4 @@
-import {
-    VSCodeButton,
-    VSCodeTextField,
-} from "@vscode/webview-ui-toolkit/react";
+import { VSCodeButton, VSCodeTextField } from "@vscode/webview-ui-toolkit/react";
 import { List } from "react-virtualized";
 import { MessageType, TranslationWord } from "../types";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -28,7 +25,7 @@ const TranslationWordsDropdown = ({
     const textFieldRef = useRef<HTMLTextAreaElement>(null);
 
     const [textFieldWidth, setTextFieldWidth] = useState<number>(
-        textFieldRef.current?.offsetWidth ?? 300,
+        textFieldRef.current?.offsetWidth ?? 300
     );
     useEffect(() => {
         if (textFieldRef.current) {
@@ -93,30 +90,20 @@ const TranslationWordsDropdown = ({
                                 <div>
                                     <VSCodeButton
                                         onClick={() => setTwCategory("all")}
-                                        appearance={
-                                            twCategory === "all"
-                                                ? "primary"
-                                                : "secondary"
-                                        }
+                                        appearance={twCategory === "all" ? "primary" : "secondary"}
                                     >
                                         All
                                     </VSCodeButton>
                                     <VSCodeButton
                                         onClick={() => setTwCategory("kt")}
-                                        appearance={
-                                            twCategory === "kt"
-                                                ? "primary"
-                                                : "secondary"
-                                        }
+                                        appearance={twCategory === "kt" ? "primary" : "secondary"}
                                     >
                                         KT
                                     </VSCodeButton>
                                     <VSCodeButton
                                         onClick={() => setTwCategory("names")}
                                         appearance={
-                                            twCategory === "names"
-                                                ? "primary"
-                                                : "secondary"
+                                            twCategory === "names" ? "primary" : "secondary"
                                         }
                                     >
                                         Names
@@ -124,9 +111,7 @@ const TranslationWordsDropdown = ({
                                     <VSCodeButton
                                         onClick={() => setTwCategory("other")}
                                         appearance={
-                                            twCategory === "other"
-                                                ? "primary"
-                                                : "secondary"
+                                            twCategory === "other" ? "primary" : "secondary"
                                         }
                                     >
                                         Other
@@ -138,11 +123,7 @@ const TranslationWordsDropdown = ({
                             <VSCodeTextField
                                 placeholder={`Search translation word ...`}
                                 value={query}
-                                onInput={(e) =>
-                                    setQuery(
-                                        (e.target as HTMLInputElement).value,
-                                    )
-                                }
+                                onInput={(e) => setQuery((e.target as HTMLInputElement).value)}
                                 className="rounded text-sm w-full"
                             />
                         </div>
@@ -162,9 +143,7 @@ const TranslationWordsDropdown = ({
                                             style={style}
                                             onClick={(e) => {
                                                 e.stopPropagation();
-                                                setTranslationWord(
-                                                    translationWord,
-                                                );
+                                                setTranslationWord(translationWord);
                                             }}
                                         >
                                             {translationWord?.name}
@@ -181,9 +160,7 @@ const TranslationWordsDropdown = ({
 };
 
 export const useTranslationWords = () => {
-    const [translationWords, setTranslationWords] = useState<TranslationWord[]>(
-        [],
-    );
+    const [translationWords, setTranslationWords] = useState<TranslationWord[]>([]);
 
     useEffect(() => {
         vscode.setMessageListeners((event) => {
@@ -195,16 +172,13 @@ export const useTranslationWords = () => {
         });
     }, []);
 
-    const searchTranslationWords = useCallback(
-        (category: TWCategory, query: string) => {
-            console.log("QUERY LENGTH", query?.length);
-            vscode.postMessage({
-                type: MessageType.SEARCH_TW,
-                payload: { query, category },
-            });
-        },
-        [],
-    );
+    const searchTranslationWords = useCallback((category: TWCategory, query: string) => {
+        console.log("QUERY LENGTH", query?.length);
+        vscode.postMessage({
+            type: MessageType.SEARCH_TW,
+            payload: { query, category },
+        });
+    }, []);
 
     return { translationWords, searchTranslationWords };
 };

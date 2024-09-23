@@ -1,4 +1,4 @@
-import React from 'react';
+import React from "react";
 import { VSCodeTextField, VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 
 interface SearchBarProps {
@@ -15,9 +15,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ query, onQueryChange, onSearch })
                 value={query}
                 onChange={(e) => onQueryChange((e.target as HTMLInputElement).value)}
             />
-            <VSCodeButton type="submit">
-                Search
-            </VSCodeButton>
+            <VSCodeButton type="submit">Search</VSCodeButton>
         </form>
     );
 };

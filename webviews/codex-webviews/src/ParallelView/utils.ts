@@ -1,4 +1,4 @@
-import { Item, SearchResults } from './types';
+import { Item, SearchResults } from "./types";
 
 export const compareVerses = (searchResults: SearchResults): Item[] => {
     if (searchResults.bibleResults.length === 0) {
@@ -16,9 +16,7 @@ export const compareVerses = (searchResults: SearchResults): Item[] => {
 
     const uniqueCodexVerses = searchResults.codexResults.filter(
         (codexVerse) =>
-            !searchResults.bibleResults.some(
-                (bibleVerse) => bibleVerse.ref === codexVerse.ref
-            )
+            !searchResults.bibleResults.some((bibleVerse) => bibleVerse.ref === codexVerse.ref)
     );
 
     return [...combinedVerses, ...uniqueCodexVerses];

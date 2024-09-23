@@ -1,8 +1,8 @@
-import * as vscode from 'vscode';
+import * as vscode from "vscode";
 
 export class FileHandler {
     static async readFile(
-        filePath: string,
+        filePath: string
     ): Promise<{ data: string | undefined; uri: vscode.Uri | undefined }> {
         try {
             if (!vscode.workspace.workspaceFolders) {
@@ -18,12 +18,12 @@ export class FileHandler {
                 // print error message with printed description prepending
                 console.error(`Error reading file: ${filePath}`);
                 console.error({ error });
-                if ((error as Error).message.includes('ENOENT')) {
-                    console.log('File does not exist, creating an empty file');
-                    await vscode.workspace.fs.writeFile(fileUri, new TextEncoder().encode(''));
+                if ((error as Error).message.includes("ENOENT")) {
+                    console.log("File does not exist, creating an empty file");
+                    await vscode.workspace.fs.writeFile(fileUri, new TextEncoder().encode(""));
                     fileData = new Uint8Array();
                 } else {
-                    console.error('Error message didn\'t include ENOENT');
+                    console.error("Error message didn't include ENOENT");
                     throw error;
                 }
             }
@@ -47,9 +47,7 @@ export class FileHandler {
             await vscode.workspace.fs.writeFile(fileUri, fileData);
         } catch (error) {
             console.error({ error });
-            vscode.window.showErrorMessage(
-                `Error writing to file: ${filePath}`,
-            );
+            vscode.window.showErrorMessage(`Error writing to file: ${filePath}`);
         }
     }
 }

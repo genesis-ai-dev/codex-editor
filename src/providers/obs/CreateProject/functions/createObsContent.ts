@@ -13,8 +13,7 @@ interface G<s> {
     id: s;
 }
 
-const bookAvailable = <S, T extends G<S>>(list: T[], id: S) =>
-    list.some((obj) => obj.id === id);
+const bookAvailable = <S, T extends G<S>>(list: T[], id: S) => list.some((obj) => obj.id === id);
 
 type F = {
     name: string;
@@ -29,7 +28,7 @@ const environment = {
 
 async function checkAndCreateDirectory(
     fs: { createDirectory: (arg0: any) => any },
-    folderUri: vscode.Uri,
+    folderUri: vscode.Uri
 ) {
     if (!(await directoryExists(folderUri))) {
         await fs.createDirectory(folderUri);
@@ -42,7 +41,7 @@ async function processStoryFiles(
         stat: (arg0: any) => any;
     },
     folderUri: { with: (arg0: { path: string }) => any; path: string },
-    importedFiles: F["files"],
+    importedFiles: F["files"]
 ) {
     const storyIngredients: {
         [key: string]: {
@@ -54,22 +53,14 @@ async function processStoryFiles(
     } = {};
     const ingredientsDirName = "ingredients";
     for (const storyJson of OBSData) {
-        const currentFileName = `${storyJson.storyId
-            .toString()
-            .padStart(2, "0")}.md`;
+        const currentFileName = `${storyJson.storyId.toString().padStart(2, "0")}.md`;
         const fileUri = folderUri.with({
-            path: path.join(
-                folderUri.path,
-                ingredientsDirName,
-                currentFileName,
-            ),
+            path: path.join(folderUri.path, ingredientsDirName, currentFileName),
         });
 
         let fileContents: any;
         if (bookAvailable(importedFiles, currentFileName)) {
-            const file = importedFiles.find(
-                (obj: { id: string }) => obj.id === currentFileName,
-            );
+            const file = importedFiles.find((obj: { id: string }) => obj.id === currentFileName);
             fileContents = file?.content;
         } else {
             fileContents = JsonToMd(storyJson, "");
@@ -95,7 +86,7 @@ async function processFrontAndBackFiles(
         stat: (arg0: any) => any;
     },
     folderUri: { with: (arg0: { path: string }) => any; path: string },
-    importedFiles: any[],
+    importedFiles: any[]
 ) {
     const ingredients: {
         [x: string]: {
@@ -113,9 +104,7 @@ async function processFrontAndBackFiles(
 
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        let fileData = importedFiles.find(
-            (obj: { id: string }) => obj.id === file,
-        );
+        let fileData = importedFiles.find((obj: { id: string }) => obj.id === file);
 
         if (!fileData) {
             fileData = { id: file, content: resources[i] };
@@ -144,7 +133,7 @@ async function processLicenseFile(
         writeFile: (arg0: any, arg1: Buffer) => any;
         stat: (arg0: any) => any;
     },
-    folderUri: { with: (arg0: { path: string }) => any; path: string },
+    folderUri: { with: (arg0: { path: string }) => any; path: string }
 ) {
     const ingredients: {
         [x: string]: {
@@ -189,7 +178,7 @@ async function createSettings(
         };
     },
     copyright: { title: any },
-    call: "new" | "edit",
+    call: "new" | "edit"
 ) {
     const ingredients: {
         [x: string]: {
@@ -205,25 +194,14 @@ async function createSettings(
         project: {
             textStories: {
                 scriptDirection: direction,
-                starred:
-                    call === "edit"
-                        ? currentBurrito.project.textStories.starred
-                        : false,
-                isArchived:
-                    call === "edit"
-                        ? currentBurrito.project.textStories.isArchived
-                        : false,
+                starred: call === "edit" ? currentBurrito.project.textStories.starred : false,
+                isArchived: call === "edit" ? currentBurrito.project.textStories.isArchived : false,
                 description: project.description,
                 copyright: copyright.title,
                 lastSeen: moment().format(),
                 refResources:
-                    call === "edit"
-                        ? currentBurrito.project.textStories.refResources
-                        : [],
-                bookMarks:
-                    call === "edit"
-                        ? currentBurrito.project.textStories.bookMarks
-                        : [],
+                    call === "edit" ? currentBurrito.project.textStories.refResources : [],
+                bookMarks: call === "edit" ? currentBurrito.project.textStories.bookMarks : [],
                 font: "",
             },
         },
@@ -231,21 +209,12 @@ async function createSettings(
     };
 
     const projectSettingFileUri = folderUri.with({
-        path: path.join(
-            folderUri.path,
-            ingredientsDirName,
-            environment.PROJECT_SETTING_FILE,
-        ),
+        path: path.join(folderUri.path, ingredientsDirName, environment.PROJECT_SETTING_FILE),
     });
 
-    await fs.writeFile(
-        projectSettingFileUri,
-        Buffer.from(JSON.stringify(settings)),
-    );
+    await fs.writeFile(projectSettingFileUri, Buffer.from(JSON.stringify(settings)));
     const stats = await fs.stat(projectSettingFileUri);
-    ingredients[
-        path.join(ingredientsDirName, environment.PROJECT_SETTING_FILE)
-    ] = {
+    ingredients[path.join(ingredientsDirName, environment.PROJECT_SETTING_FILE)] = {
         checksum: {
             md5: md5(JSON.stringify(settings)),
         },
@@ -272,24 +241,16 @@ export const createObsContent = async (
     importedFiles: F["files"],
     copyright: { title: any },
     call: "new" | "edit",
-    folderUri: any,
+    folderUri: any
 ) => {
     const fs = vscode.workspace.fs;
     let ingredients = {};
 
     await checkAndCreateDirectory(fs, folderUri);
     if (call === "new") {
-        const storyIngredients = await processStoryFiles(
-            fs,
-            folderUri,
-            importedFiles,
-        );
+        const storyIngredients = await processStoryFiles(fs, folderUri, importedFiles);
         ingredients = { ...ingredients, ...storyIngredients };
-        const frontBackIngredients = await processFrontAndBackFiles(
-            fs,
-            folderUri,
-            importedFiles,
-        );
+        const frontBackIngredients = await processFrontAndBackFiles(fs, folderUri, importedFiles);
         ingredients = { ...ingredients, ...frontBackIngredients };
         const licenseIngredients = await processLicenseFile(fs, folderUri);
         ingredients = { ...ingredients, ...licenseIngredients };
@@ -302,7 +263,7 @@ export const createObsContent = async (
         direction,
         currentBurrito,
         copyright,
-        call,
+        call
     );
     ingredients = { ...ingredients, ...settingsIngredients };
 

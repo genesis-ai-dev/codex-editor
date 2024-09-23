@@ -22,10 +22,7 @@ export default class PlainClipboard extends Clipboard {
             .trim();
         console.log("spell-checker-debug: Processed pasted text", { text });
         console.log("spell-checker-debug: Delta", Delta);
-        const delta = new Delta()
-            .retain(range.index)
-            .delete(range.length)
-            .insert(text);
+        const delta = new Delta().retain(range.index).delete(range.length).insert(text);
         console.log("spell-checker-debug: Created delta", { delta });
         const index = text.length + range.index;
         const length = 0;

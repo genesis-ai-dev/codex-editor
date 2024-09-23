@@ -46,15 +46,16 @@ export class QuillSpellChecker {
      * @param quill Instance of the Qill editor.
      * @param params Options for the QuillSpellChecker instance.
      */
-    constructor(public quill: Quill, public params: QuillSpellCheckerParams) {
+    constructor(
+        public quill: Quill,
+        public params: QuillSpellCheckerParams
+    ) {
         debug("spell-checker-debug: QuillSpellChecker constructor", {
             quill,
             params,
         });
         if (!quill || !quill.root) {
-            console.error(
-                "spell-checker-debug: Quill instance or its root is not available"
-            );
+            console.error("spell-checker-debug: Quill instance or its root is not available");
             return;
         }
 
@@ -157,10 +158,7 @@ export class QuillSpellChecker {
             this.quill.setSelection(match.offset, match.length, "silent");
             this.quill.deleteText(match.offset, match.length, "silent");
             this.quill.insertText(match.offset, replacement, "silent");
-            this.quill.setSelection(
-                match.offset + replacement.length,
-                "silent"
-            );
+            this.quill.setSelection(match.offset + replacement.length, "silent");
             this.boxes.removeCurrentSuggestionBox(match, replacement);
         }
     }
@@ -223,10 +221,7 @@ export class QuillSpellChecker {
         debug("spell-checker-debug: checkSpelling json", { results });
         if (results && results.length > 0) {
             this.matches = results
-                .filter(
-                    (match) =>
-                        match.replacements && match.replacements.length > 0
-                )
+                .filter((match) => match.replacements && match.replacements.length > 0)
                 .map((match, index) => ({
                     ...match,
                     id: index.toString(),
@@ -243,9 +238,7 @@ export class QuillSpellChecker {
         this.onRequestComplete();
     }
 
-    private async getSpellCheckerResults(
-        text: string
-    ): Promise<MatchesEntity[] | null> {
+    private async getSpellCheckerResults(text: string): Promise<MatchesEntity[] | null> {
         debug("spell-checker-debug: getSpellCheckerResults", { text });
         try {
             if (window.vscodeApi) {
@@ -254,10 +247,7 @@ export class QuillSpellChecker {
                     const messageListener = (event: MessageEvent) => {
                         const message = event.data;
                         if (message.type === "from-provider-getSpellCheckResponse") {
-                            window.removeEventListener(
-                                "message",
-                                messageListener
-                            );
+                            window.removeEventListener("message", messageListener);
                             debug(
                                 "spell-checker-debug: from-provider-getSpellCheckResponse",
                                 message.content
@@ -287,10 +277,7 @@ export class QuillSpellChecker {
                 return null;
             }
         } catch (e) {
-            console.error(
-                "spell-checker-debug: getSpellCheckerResults error",
-                e
-            );
+            console.error("spell-checker-debug: getSpellCheckerResults error", e);
             return null;
         }
     }

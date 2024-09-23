@@ -1,7 +1,7 @@
-import React from 'react';
+import React from "react";
 
 const Plus: React.FC = () => {
-  return <span className="codicon codicon-add"></span>;
+    return <span className="codicon codicon-add"></span>;
 };
 
 export default Plus;
