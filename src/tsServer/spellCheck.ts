@@ -188,8 +188,20 @@ export class SpellChecker {
         this.dictionary.entries.push(newEntry);
 
         try {
-            const serializedEntry = JSON.stringify(newEntry) + '\n';
-            await fs.promises.appendFile(this.dictionaryPath, serializedEntry);
+            // Check if the file ends with a newline
+            let content = '';
+            try {
+                content = await fs.promises.readFile(this.dictionaryPath, 'utf8');
+            } catch (error: any) {
+                if (error.code !== 'ENOENT') {
+                    throw error;
+                }
+            }
+
+            const serializedEntry = JSON.stringify(newEntry);
+            const dataToAppend = content.endsWith('\n') ? serializedEntry + '\n' : '\n' + serializedEntry + '\n';
+
+            await fs.promises.writeFile(this.dictionaryPath, content + dataToAppend, 'utf8');
             // Reload the dictionary after adding a new word
             await this.loadDictionary();
         } catch (error) {
