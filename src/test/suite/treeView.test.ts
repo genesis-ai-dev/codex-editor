@@ -1,7 +1,7 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import {
-    CodexNotebookProvider,
+    CodexNotebookTreeViewProvider,
     Node,
 } from "../../providers/treeViews/scriptureTreeViewProvider";
 
@@ -12,7 +12,7 @@ suite("ScriptureTreeViewProvider Test Suite", () => {
 
     test("Initialization of CodexNotebookProvider", () => {
         const folderPath = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
-        const provider = new CodexNotebookProvider(folderPath);
+        const provider = new CodexNotebookTreeViewProvider(folderPath);
         assert.ok(
             provider,
             "CodexNotebookProvider should be initialized successfully",
@@ -21,7 +21,7 @@ suite("ScriptureTreeViewProvider Test Suite", () => {
 
     test("getTreeItem should return a Node", () => {
         const folderPath = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
-        const provider = new CodexNotebookProvider(folderPath);
+        const provider = new CodexNotebookTreeViewProvider(folderPath);
         const testNode = new Node(
             "Genesis",
             "notebook",

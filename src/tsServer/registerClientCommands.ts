@@ -53,14 +53,3 @@ export function registerClientCommands(
         },
     };
 }
-
-async function getLanguageClient(): Promise<LanguageClient | undefined> {
-    const extension = vscode.extensions.getExtension("codex-editor-extension");
-    if (extension) {
-        if (!extension.isActive) {
-            await extension.activate();
-        }
-        return extension.exports.languageClient;
-    }
-    return undefined;
-}

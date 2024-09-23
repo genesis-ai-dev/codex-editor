@@ -164,7 +164,7 @@
         "menus": {
             "view/title": [
                 {
-                    "command": "translation-navigation.refreshEntry",
+                    "command": "translation-navigation.refreshNavigationTreeView",
                     "when": "view == translation-navigation",
                     "group": "navigation"
                 },
@@ -507,7 +507,7 @@
                 "command": "codex-editor-extension.initializeNewProject"
             },
             {
-                "command": "codex-editor-extension.downloadSourceTextBibles",
+                "command": "codex-project-manager.downloadSourceTextBibles",
                 "title": "Download Source Text Bible"
             },
             {
@@ -543,7 +543,7 @@
                 "title": "Create Codex Project"
             },
             {
-                "command": "translation-navigation.refreshEntry",
+                "command": "translation-navigation.refreshNavigationTreeView",
                 "title": "Refresh",
                 "icon": "$(refresh)"
             },

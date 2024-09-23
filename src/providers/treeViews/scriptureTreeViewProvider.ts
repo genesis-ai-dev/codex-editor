@@ -19,7 +19,7 @@ export class Node extends vscode.TreeItem {
     }
 }
 
-export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
+export class CodexNotebookTreeViewProvider implements vscode.TreeDataProvider<Node>, vscode.Disposable {
     private _onDidChangeTreeData: vscode.EventEmitter<Node | undefined | void> =
         new vscode.EventEmitter<Node | undefined | void>();
     readonly onDidChangeTreeData: vscode.Event<Node | undefined | void> =
@@ -27,8 +27,23 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
 
     private notebookMetadata: Map<string, { navigation: NavigationCell[], corpusMarker?: string }> = new Map();
 
+    private fileWatcher: vscode.FileSystemWatcher | undefined;
+
     constructor(private workspaceRoot: string | undefined) {
         this.initializeNotebookMetadata();
+
+        if (this.workspaceRoot) {
+            const pattern = new vscode.RelativePattern(
+                vscode.Uri.file(this.workspaceRoot),
+                'files/target/**/*.codex'
+            );
+
+            this.fileWatcher = vscode.workspace.createFileSystemWatcher(pattern);
+
+            this.fileWatcher.onDidCreate((uri) => this.onFileChanged(uri));
+            this.fileWatcher.onDidChange((uri) => this.onFileChanged(uri));
+            this.fileWatcher.onDidDelete((uri) => this.onFileChanged(uri));
+        }
     }
 
     private async initializeNotebookMetadata(): Promise<void> {
@@ -63,6 +78,11 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
                 }
             }
         }
+    }
+
+    private onFileChanged(uri: vscode.Uri): void {
+        // Re-initialize metadata and refresh the tree view
+        this.initializeNotebookMetadata().then(() => this.refresh());
     }
 
     refresh(): void {
@@ -178,5 +198,11 @@ export class CodexNotebookProvider implements vscode.TreeDataProvider<Node> {
 
             return node;
         });
+    }
+
+    public dispose(): void {
+        if (this.fileWatcher) {
+            this.fileWatcher.dispose();
+        }
     }
 }

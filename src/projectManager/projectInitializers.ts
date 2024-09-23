@@ -458,7 +458,7 @@ export async function initializeProject(shouldImportUSFM: boolean) {
 
       try {
         await vscode.commands.executeCommand(
-          "translation-navigation.refreshEntry" // Note: command registered in codex-editor-extension 
+          "translation-navigation.refreshNavigationTreeView"
         );
       } catch (error) {
         console.log("Error calling commands of outside extension", error);

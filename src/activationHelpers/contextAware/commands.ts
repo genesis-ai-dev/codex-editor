@@ -15,7 +15,7 @@ import { DownloadedResource } from "../../providers/obs/resources/types";
 import { translationAcademy } from "../../providers/translationAcademy/provider";
 import { downloadBible, setTargetFont } from "../../projectManager/projectInitializers";
 
-import { CodexNotebookProvider } from "../../providers/treeViews/scriptureTreeViewProvider";
+import { CodexNotebookTreeViewProvider } from "../../providers/treeViews/scriptureTreeViewProvider";
 import { getWorkSpaceFolder } from "../../utils";
 import {
     generateVerseContext,
@@ -28,15 +28,14 @@ import { exportCodexContent } from "../../commands/exportHandler";
 const ROOT_PATH = getWorkSpaceFolder();
 
 export async function registerCommands(context: vscode.ExtensionContext) {
-    const scriptureTreeViewProvider = new CodexNotebookProvider(ROOT_PATH);
-    const scriptureExplorerTreeDataProvider =
-        vscode.window.registerTreeDataProvider(
-            "translation-navigation",
-            scriptureTreeViewProvider,
-        );
+    const scriptureTreeViewProvider = new CodexNotebookTreeViewProvider(ROOT_PATH);
+    vscode.window.registerTreeDataProvider(
+        "translation-navigation",
+        scriptureTreeViewProvider,
+    );
 
     const scriptureExplorerRefreshCommand = vscode.commands.registerCommand(
-        "translation-navigation.refreshEntry",
+        "translation-navigation.refreshNavigationTreeView",
         () => scriptureTreeViewProvider.refresh(),
     );
 
@@ -180,7 +179,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        scriptureExplorerTreeDataProvider,
+        scriptureTreeViewProvider,
         scriptureExplorerRefreshCommand,
         scriptureExplorerOpenChapterCommand,
         indexVrefsCommand,
