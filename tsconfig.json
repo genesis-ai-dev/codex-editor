@@ -7,7 +7,7 @@
         "outDir": "out",
         "lib": ["ES2020", "DOM"],
         "sourceMap": true,
-        "rootDir": "src",
+        "rootDir": ".",
         "resolveJsonModule": true,
         "strict": true /* enable all strict type-checking options */
         /* Additional Checks */
@@ -15,6 +15,6 @@
         // "noFallthroughCasesInSwitch": true, /* Report errors for fallthrough cases in switch statement. */
         // "noUnusedParameters": true,  /* Report errors on unused parameters. */
     },
-    "include": ["src/**/*"],
+    "include": ["src/**/*", "types/**/*"],
     "exclude": ["node_modules", "webviews"]
 }
