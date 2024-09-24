@@ -102,7 +102,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
             );
         })
     );
-    vscode.commands.registerCommand("codex-project-manager.downloadSourceTextBibles", () =>
+    vscode.commands.registerCommand("codex-project-manager.downloadSourceText", () =>
         downloadBible("source")
     );
     // vscode.commands.registerCommand(

@@ -291,7 +291,7 @@ enum ConfirmationOptions {
 //     "codex-project-manager.setEditorFontToTargetLanguage"
 //   );
 //   await vscode.commands.executeCommand(
-//     "codex-project-manager.downloadSourceTextBibles"
+//     "codex-project-manager.downloadSourceText"
 //   );
 // }
 // export async function setSourceLanguage() {
@@ -324,7 +324,7 @@ enum ConfirmationOptions {
 //     "codex-project-manager.setEditorFontToTargetLanguage"
 //   );
 //   await vscode.commands.executeCommand(
-//     "codex-project-manager.downloadSourceTextBibles"
+//     "codex-project-manager.downloadSourceText"
 //   );
 // }
 

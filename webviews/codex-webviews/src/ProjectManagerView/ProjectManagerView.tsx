@@ -5,7 +5,7 @@ import {
     VSCodeDataGridCell,
     VSCodeDataGridRow,
 } from "@vscode/webview-ui-toolkit/react";
-import { ProjectOverview } from "../../../types";
+import { ProjectOverview } from "../../../../types";
 
 const vscode = acquireVsCodeApi();
 
@@ -382,7 +382,7 @@ function App() {
                             )}
                         </VSCodeDataGridCell>
                         <VSCodeDataGridCell grid-column="3">
-                            <VSCodeButton onClick={() => handleAction("downloadSourceTextBibles")}>
+                            <VSCodeButton onClick={() => handleAction("downloadSourceText")}>
                                 <i className="codicon codicon-cloud-download"></i>
                             </VSCodeButton>
                         </VSCodeDataGridCell>
