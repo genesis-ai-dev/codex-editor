@@ -6,17 +6,19 @@ interface SearchBarProps {
     onQueryChange: (query: string) => void;
     onSearch: (event: React.FormEvent) => void;
 }
+
 const SearchBar: React.FC<SearchBarProps> = ({ query, onQueryChange, onSearch }) => {
     return (
         <form className="search-bar" onSubmit={onSearch}>
             <VSCodeTextField
-                placeholder="Search anything or highlight text."
-                style={{ flexGrow: 1 }}
+                placeholder="Search anything or highlight text"
                 value={query}
                 onChange={(e) => onQueryChange((e.target as HTMLInputElement).value)}
+                style={{ flexGrow: 1, minWidth: 0 }}
             />
             <VSCodeButton type="submit">Search</VSCodeButton>
         </form>
     );
 };
+
 export default SearchBar;

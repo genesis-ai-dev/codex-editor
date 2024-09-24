@@ -28,6 +28,9 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
     const styleVSCodeUri = webviewView.webview.asWebviewUri(
         vscode.Uri.joinPath(extensionUri, "src", "assets", "vscode.css")
     );
+    const codiconsUri = webviewView.webview.asWebviewUri(
+        vscode.Uri.joinPath(extensionUri, "node_modules", "@vscode/codicons", "dist", "codicon.css")
+    );
 
     const scriptUri = webviewView.webview.asWebviewUri(
         vscode.Uri.joinPath(
@@ -73,15 +76,16 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="${styleResetUri}" rel="stylesheet">
     <link href="${styleVSCodeUri}" rel="stylesheet">
+    <link href="${codiconsUri}" rel="stylesheet">
     <script nonce="${nonce}">
     //   const vscode = acquireVsCodeApi();
-      const apiBaseUrl = ${JSON.stringify("http://localhost:3002")}
+    const apiBaseUrl = ${JSON.stringify("http://localhost:3002")}
     </script>
     </head>
     <body>
     <div id="root"></div>
     <script nonce="${nonce}" src="${scriptUri}"></script>
-  </body>
+    </body>
   </html>`;
 
     webviewView.webview.html = html;

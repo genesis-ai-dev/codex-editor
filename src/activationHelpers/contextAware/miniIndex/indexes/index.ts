@@ -395,7 +395,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
     const searchParallelVersesCommand = vscode.commands.registerCommand(
         "translators-copilot.searchParallelVerses",
-        async (query?: string, k: number = 5, showInfo: boolean = false) => {
+        async (query?: string, k: number = 10, showInfo: boolean = false) => {
             if (!query) {
                 query = await vscode.window.showInputBox({
                     prompt: "Enter a query to search parallel verses",
@@ -405,18 +405,42 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 showInfo = true;
             }
             const results = searchParallelVerses(translationPairsIndex, sourceBibleIndex, query, k);
+
+            // Remove duplicates based on vref
+            const uniqueResults = results.filter(
+                (v, i, a) => a.findIndex((t) => t.vref === v.vref) === i
+            );
+
+            // If we have fewer unique results than requested, try to get more
+            if (uniqueResults.length < k) {
+                const additionalResults = searchParallelVerses(
+                    translationPairsIndex,
+                    sourceBibleIndex,
+                    query,
+                    k * 2
+                );
+                const allResults = [...uniqueResults, ...additionalResults];
+                uniqueResults.splice(
+                    0,
+                    uniqueResults.length,
+                    ...allResults
+                        .filter((v, i, a) => a.findIndex((t) => t.vref === v.vref) === i)
+                        .slice(0, k)
+                );
+            }
+
             if (showInfo) {
-                const resultsString = results
+                const resultsString = uniqueResults
                     .map(
                         (r) =>
                             `${r.vref}: Source: ${r.sourceVerse.content}, Target: ${r.targetVerse.content}`
                     )
                     .join("\n");
                 vscode.window.showInformationMessage(
-                    `Found ${results.length} parallel verses for query: ${query}\n${resultsString}`
+                    `Found ${uniqueResults.length} unique parallel verses for query: ${query}\n${resultsString}`
                 );
             }
-            return results;
+            return uniqueResults;
         }
     );
 

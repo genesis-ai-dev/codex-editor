@@ -73,8 +73,9 @@ function ParallelView() {
             <VSCodePanelTab id="tab1">Parallel Passages</VSCodePanelTab>
             <VSCodePanelView id="view1">
                 <div className="container">
-                    <h1 className="view-title">Parallel Passages</h1>
-                    <VSCodeDivider />
+                    {/* <h1 className="view-title">
+                        Parallel Passages
+                    </h1> */}
                     <SearchBar
                         query={lastQuery}
                         onQueryChange={setLastQuery}
@@ -86,15 +87,12 @@ function ParallelView() {
                     {verses.length > 0 ? (
                         <div className="verses-container">
                             {verses.map((item, index) => (
-                                <React.Fragment key={index}>
-                                    <VerseItem
-                                        item={item}
-                                        index={index}
-                                        onUriClick={handleUriClick}
-                                        onSaveClick={handleSaveClick}
-                                    />
-                                    {index < verses.length - 1 && <VSCodeDivider />}
-                                </React.Fragment>
+                                <VerseItem
+                                    key={index}
+                                    item={item}
+                                    onUriClick={handleUriClick}
+                                    onSaveClick={handleSaveClick}
+                                />
                             ))}
                         </div>
                     ) : (
