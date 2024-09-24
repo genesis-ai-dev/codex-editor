@@ -328,6 +328,44 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
 
         return vscode.workspace.applyEdit(edit);
     }
+    private updateMetadataEditsWithLLMResponse(
+        document: vscode.TextDocument,
+        data: EditorVerseContent
+    ) {
+        const currentContent = JSON.parse(document.getText()) as CustomNotebookData;
+        // FIXME: Using the deserializing using the custom codex deserializer causes errors if used here
+
+        const edit = new vscode.WorkspaceEdit();
+
+        const indexOfCellToUpdate = currentContent.cells.findIndex(
+            (cell) => cell.metadata?.id === data.verseMarkers[0]
+        );
+
+        if (indexOfCellToUpdate === -1) {
+            throw new Error("Could not find cell to update");
+        }
+        const cellToUpdate = currentContent.cells[indexOfCellToUpdate];
+
+        if (!cellToUpdate.metadata.edits) {
+            cellToUpdate.metadata.edits = [];
+        }
+
+        cellToUpdate.metadata.edits.push({
+            cellValue: data.content,
+            timestamp: Date.now(),
+            type: EditType.LLM_GENERATION,
+        });
+
+        // Just replace the entire document every time for this example extension.
+        // A more complete extension should compute minimal edits instead.
+        edit.replace(
+            document.uri,
+            new vscode.Range(0, 0, document.lineCount, 0),
+            JSON.stringify(currentContent, null, 2)
+        );
+
+        return vscode.workspace.applyEdit(edit);
+    }
 
     private getVerseDataArray(): string[] {
         try {
@@ -373,7 +411,11 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                 completionConfig,
                 new vscode.CancellationTokenSource().token
             );
-
+            const document = await vscode.workspace.openTextDocument(documentUri);
+            this.updateMetadataEditsWithLLMResponse(document, {
+                verseMarkers: [currentCellId],
+                content: result,
+            });
             console.log("LLM completion result", { result });
             return result;
         } catch (error: any) {

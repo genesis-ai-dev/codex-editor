@@ -1,6 +1,7 @@
 import React from "react";
-import { EditorVerseContent, EditorPostMessages, CodexCellTypes } from "../../../../types";
+import { EditorVerseContent, EditorPostMessages } from "../../../../types";
 import { HACKY_removeContiguousSpans } from "./utils";
+import { CodexCellTypes } from "../../../../types/enums";
 
 interface CellContentDisplayProps {
     cellIds: string[];
@@ -14,7 +15,6 @@ interface CellContentDisplayProps {
 const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     cellIds: verseMarkers,
     cellContent: verseContent,
-    cellIndex: verseIndex,
     cellType,
     setContentBeingUpdated,
     vscode,
@@ -23,7 +23,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         setContentBeingUpdated({
             verseMarkers: verseMarkers,
             content: verseContent,
-            verseIndex,
         });
         vscode.postMessage({
             command: "setCurrentIdToGlobalState",
