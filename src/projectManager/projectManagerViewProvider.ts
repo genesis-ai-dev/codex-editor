@@ -166,7 +166,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 case "changeSourceLanguage":
                 case "changeTargetLanguage":
                 case "selectCategory":
-                case "downloadSourceTextBibles":
+                case "downloadSourceText":
                 case "openAISettings":
                     console.log(`${message.command} called`);
                     await vscode.commands.executeCommand(

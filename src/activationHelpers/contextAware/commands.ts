@@ -179,7 +179,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         createCodexNotebookCommand,
         // initializeNewProjectCommand,
         setEditorFontCommand,
-        // downloadSourceTextBiblesCommand,
+        // downloadSourceTextCommand,
         getBibleDataRecordByIdCommand,
         exportCodexContentCommand,
         getContextDataFromVrefCommand,
@@ -200,7 +200,7 @@ async function ensureBibleDownload() {
             1
         );
         if (bibleFiles.length === 0) {
-            vscode.commands.executeCommand("codex-editor-extension.downloadSourceTextBibles");
+            vscode.commands.executeCommand("codex-editor-extension.downloadSourceText");
         }
     }
 }

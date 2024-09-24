@@ -51,7 +51,7 @@ export class CreateProjectProvider implements vscode.WebviewViewProvider {
                         await initializeNewProject(e.payload as ProjectDetails);
                         await initProject((e.payload as any)?.name, (e.payload as any)?.email);
                         await vscode.commands.executeCommand(
-                            "codex-editor-extension.downloadSourceTextBibles"
+                            "codex-editor-extension.downloadSourceText"
                         );
                         indexVerseRefsInSourceText();
                         break;
