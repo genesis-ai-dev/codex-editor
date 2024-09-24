@@ -173,12 +173,9 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                         }
                         return;
                     case "llmCompletion": {
-                        console.log("llmCompletion message received", {
-                            e,
-                        });
                         try {
                             const completionResult = await this.performLLMCompletion(
-                                document,
+                                document.uri,
                                 e.content.currentLineId
                             );
                             console.log("completionResult", {
@@ -371,38 +368,12 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
         });
     }
 
-    private async performLLMCompletion(document: vscode.TextDocument, currentLineId: string) {
+    private async performLLMCompletion(documentUri: vscode.Uri, currentCellId: string) {
         try {
-            console.log("Starting performLLMCompletion", { currentLineId });
-
-            const book = currentLineId.split(" ")[0];
-            const notebookFiles = await vscode.workspace.findFiles(`**/${book}.codex`);
-            console.log("Found notebook files", { notebookFiles });
-
-            if (notebookFiles.length === 0) {
-                throw new Error(`No .codex file found for book ${book}`);
-            }
-            const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
-            const notebookUri = vscode.Uri.file(`${workspaceRoot}/files/target/${book}.codex`);
-
-            const currentNotebookReader = new CodexNotebookReader(notebookUri);
-
-            console.log("Opened notebook", { notebookUri });
-
-            const currentCell = await currentNotebookReader.cellAt(
-                await currentNotebookReader.getCellIndex({ id: currentLineId })
-            );
-
-            if (!currentCell) {
-                throw new Error(`Could not find line with ID ${currentLineId} in the notebook.`);
-            }
-
             const completionConfig = await fetchCompletionConfig();
-            console.log("Fetched completion config", { completionConfig });
-
             const result = await llmCompletion(
-                currentNotebookReader,
-                currentCell,
+                documentUri,
+                currentCellId,
                 completionConfig,
                 new vscode.CancellationTokenSource().token
             );

@@ -48,6 +48,7 @@ export default function Editor(props: EditorProps) {
     }
 
     const revertedValue = useMemo(() => {
+        if (!props.initialValue) return "";
         return props.initialValue
             ?.replace(/^<span>/, "<p>")
             .replace(/<\/span>/, "</p>")
@@ -81,8 +82,6 @@ export default function Editor(props: EditorProps) {
 
             quill.on("text-change", () => {
                 const content = quill.root.innerHTML;
-                // Remove this line to prevent unnecessary state updates
-                // setValue(content);
                 if (props.onChange) {
                     const cleanedContents = getCleanedHtml(content);
 
@@ -143,7 +142,7 @@ export default function Editor(props: EditorProps) {
             },
         } as EditorPostMessages);
 
-        const text: string = await new Promise((resolve) => {
+        const newTextContentFromLLM: string = await new Promise((resolve) => {
             const messageListener = (event: MessageEvent) => {
                 console.log("messageListener", { event });
                 if (event.data.type === "llmCompletionResponse") {
@@ -154,11 +153,22 @@ export default function Editor(props: EditorProps) {
             window.addEventListener("message", messageListener);
         });
 
-        console.log("Received text from LLM completion:", text);
-        if (quillRef.current && text) {
+        console.log("Received text from LLM completion:", newTextContentFromLLM);
+        if (quillRef.current && newTextContentFromLLM) {
             const quill = quillRef.current;
             const length = quill.getLength();
-            quill.insertText(length, text);
+            const trimmedContent = newTextContentFromLLM.trim();
+
+            // If the editor is empty, just set the content
+            if (isQuillEmpty(quill)) {
+                quill.setText(trimmedContent);
+            } else {
+                // If there's existing content, add a space before inserting
+                quill.insertText(length, " " + trimmedContent);
+            }
+
+            // Trigger the text-change event manually
+            quill.update();
         } else {
             console.error("Quill editor not initialized or empty text received");
         }

@@ -5,21 +5,21 @@ import { ChatMessage, MiniSearchVerseResult, TranslationPair } from "../../../ty
 import { CodexNotebookReader, CodexNotebookCell } from "../../serializer";
 
 export async function llmCompletion(
-    currentNotebookReader: CodexNotebookReader,
-    currentCell: CodexNotebookCell,
+    documentUri: vscode.Uri,
+    currentCellId: string,
     completionConfig: CompletionConfig,
     token: vscode.CancellationToken
 ): Promise<string> {
     const { contextSize, numberOfFewShotExamples, debugMode, chatSystemMessage } = completionConfig;
 
-    if (!currentCell) {
-        throw new Error(`Could not find the current cell in the notebook.`);
+    if (!documentUri) {
+        throw new Error(`No document URI provided in llmCompletion().`);
+    }
+    if (!currentCellId) {
+        throw new Error("Current cell has no ID in llmCompletion().");
     }
 
-    const currentCellId = currentCell.metadata?.id;
-    if (!currentCellId) {
-        throw new Error("Current cell has no ID.");
-    }
+    const currentNotebookReader = new CodexNotebookReader(documentUri);
 
     // Get the source content for the current verse
     const sourceVerse: MiniSearchVerseResult | null = await vscode.commands.executeCommand(
@@ -46,7 +46,7 @@ export async function llmCompletion(
     const allPrecedingCells = await currentNotebookReader.cellsUpTo(currentCellIndex);
     const precedingCells = allPrecedingCells.slice(
         Math.max(0, allPrecedingCells.length - contextLimit)
-    );
+    ); // FIXME: by reading from the file, the current editor content is not fresh....
 
     // Filter preceding cells to only include text cells
     const textPrecedingCells = precedingCells.filter(
@@ -72,16 +72,25 @@ export async function llmCompletion(
 
         // Get preceding translation pairs (note - ensure fresh from file)
         const precedingTranslationPairs = await Promise.all(
-            textPrecedingCells.slice(-5).map(async (cell) => {
-                const sourceVerse: MiniSearchVerseResult | null =
+            textPrecedingCells.slice(-5).map(async (cellFromPrecedingContext) => {
+                const sourceContentForPrecedingContextCell: MiniSearchVerseResult | null =
                     await vscode.commands.executeCommand(
                         "translators-copilot.getSourceVerseByVrefFromAllSourceVerses",
                         // NOTE: we use this command to ensure the immediately preceding context is not stale in the translation pairs index, but comes right from the file.
-                        cell.metadata?.id
+                        cellFromPrecedingContext.metadata?.id
                     );
-                return sourceVerse
-                    ? `${cell.metadata?.id}: ${sourceVerse.content} -> ${cell.value}`
-                    : null;
+
+                if (!sourceContentForPrecedingContextCell) {
+                    return null;
+                }
+
+                const cellFromPrecedingContextWithoutHTMLTags = cellFromPrecedingContext.value
+                    .replace(/<[^>]*?>/g, "") // NOTE: we are removing HTML tags here. Otherwise the html gets directly inserted into the final destination context, e.g., the Quill editor, which means it is not rendered html, but raw string tags in the middle of the editor.
+                    .trim();
+
+                const result = `${cellFromPrecedingContext.metadata?.id}: ${sourceContentForPrecedingContextCell.content} -> ${cellFromPrecedingContextWithoutHTMLTags}`;
+                console.log("precedingTranslationPairs", result);
+                return result;
             })
         );
 
@@ -107,7 +116,7 @@ export async function llmCompletion(
             fewShotExamples,
             "## Current Context",
             precedingTranslationPairs.filter(Boolean).join("\n"),
-            `${currentVref} ${currentVrefSourceContent} -> ${currentCell.value}`,
+            `${currentVref} ${currentVrefSourceContent} ->`,
         ].join("\n\n");
 
         const messages = [

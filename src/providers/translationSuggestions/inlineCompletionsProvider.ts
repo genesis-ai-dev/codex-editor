@@ -152,8 +152,8 @@ async function verseCompletion(
     }
 
     const completion = await llmCompletion(
-        currentNotebookReader,
-        currentCell,
+        document.uri,
+        currentCell.metadata?.id,
         completionConfig,
         token
     );
