@@ -14,15 +14,15 @@ export function tokenizeText({ method, text }: TokenizeTextOptions): string[] {
         case "whitespace":
             return text.split(/\s+/);
         case "whitespace_and_punctuation":
-            return text.split(/\s+|[^\w\s]+/);
+            return text.split(/[\s\p{P}]+/u);
         case "words":
-            return text.split(/\b\w+\b/);
+            return text.match(/\b\w+\b/g) || [];
         case "words_and_punctuation":
-            return text.split(/\b\w+\b|[^\w\s]+/);
+            return text.match(/\w+|[^\w\s]/g) || [];
         case "lines":
             return text.split(/\n+/);
         case "lines_and_punctuation":
-            return text.split(/\n+|[^\w\s]+/);
+            return text.match(/[^\n]+|[^\w\s]/g) || [];
         default:
             return text.split(/\s+/);
     }

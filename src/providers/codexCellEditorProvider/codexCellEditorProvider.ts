@@ -322,7 +322,7 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
 
         cellToUpdate.value = data.content;
 
-        // Just replace the entire document every time for this example extension.
+        // FIXME: Just replace the entire document every time for this example extension.
         // A more complete extension should compute minimal edits instead.
         edit.replace(
             document.uri,

@@ -1,3 +1,5 @@
+// FIXME: Any time you programmatically modify the notebook, you should also be updating the notebook's memory/edit history.
+
 import * as vscode from "vscode";
 import { TextDecoder, TextEncoder } from "util";
 
