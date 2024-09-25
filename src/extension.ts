@@ -17,6 +17,8 @@ import {
     migration_changeDraftFolderToFilesFolder,
 } from "./projectManager/utils/migrationUtils";
 import { createIndexWithContext } from "./activationHelpers/contextAware/miniIndex/indexes";
+import { SourceUploadProvider } from "./providers/SourceUpload/SourceUploadProvider";
+import SourceUploadDocumentProvider from "./providers/SourceUpload/SourceUploadDocumentProvider";
 
 let client: LanguageClient | undefined;
 let clientCommandsDisposable: vscode.Disposable;
@@ -29,6 +31,22 @@ export async function activate(context: vscode.ExtensionContext) {
     await registerCommands(context);
     await initializeBibleData(context);
     await initializeWebviews(context);
+    context.subscriptions.push(
+        vscode.window.registerCustomEditorProvider(
+            "sourceUploadProvider",
+            new SourceUploadProvider(context)
+        )
+    );
+    context.subscriptions.push(
+        vscode.workspace.registerTextDocumentContentProvider(
+            "sourceUploadProvider-scheme",
+            new SourceUploadDocumentProvider()
+        )
+    );
+    vscode.commands.registerCommand("myExtension.openVirtualDocument", () => {
+        const uri = vscode.Uri.parse("sourceUploadProvider-scheme:Virtual Document");
+        vscode.commands.executeCommand("vscode.openWith", uri, "sourceUploadProvider");
+    });
 
     client = await registerLanguageServer(context);
 

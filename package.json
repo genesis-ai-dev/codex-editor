@@ -18,6 +18,7 @@
         "Other"
     ],
     "activationEvents": [
+        "onCustomEditor:sourceUploadProvider-scheme",
         "onNotebook:codex-type",
         "onStartupFinished"
     ],
@@ -714,6 +715,10 @@
                 "command": "codex-project-manager.importLocalUsfmSourceBible",
                 "title": "Import Local USFM Source Bible",
                 "category": "Codex Project Management"
+            },
+            {
+                "command": "myExtension.openVirtualDocument",
+                "title": "Open Virtual Document"
             }
         ],
         "notebooks": [
@@ -1013,6 +1018,16 @@
             }
         ],
         "customEditors": [
+            {
+                "viewType": "codex.sourceUploadEditor",
+                "displayName": "Source Upload Editor",
+                "selector": [
+                    {
+                        "scheme": "sourceUploadProvider-scheme"
+                    }
+                ],
+                "priority": "default"
+            },
             {
                 "viewType": "codex.cellEditor",
                 "displayName": "Codex Cell Editor",
