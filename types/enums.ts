@@ -5,7 +5,7 @@ export enum EditType {
 }
 
 export enum CodexCellTypes {
-    VERSE = "verse",
+    TEXT = "text",
     PARATEXT = "paratext",
 }
 
