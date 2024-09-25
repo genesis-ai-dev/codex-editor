@@ -50,7 +50,7 @@ export class SpellChecker {
         try {
             await fs.promises.access(this.dictionaryPath);
         } catch {
-            const emptyDictionary = ''; // Dictionary is JSONL
+            const emptyDictionary = ""; // Dictionary is JSONL
             await fs.promises.mkdir(path.dirname(this.dictionaryPath), { recursive: true });
             await fs.promises.writeFile(this.dictionaryPath, emptyDictionary);
             console.log("Created new empty dictionary.");
@@ -176,6 +176,8 @@ export class SpellChecker {
     private async ensureDictionaryWellFormed() {
         const content = await fs.promises.readFile(this.dictionaryPath, "utf8");
         const lines = content.split(/\n|\}\{/).map((line: string) => line.trim());
+        const validEntries: DictionaryEntry[] = []; // Store valid entries for writing back to the file
+
         for (const line of lines) {
             if (!line) continue;
             try {
@@ -186,9 +188,17 @@ export class SpellChecker {
                 if (!entry.headWord || !entry.hash) {
                     throw new Error("Dictionary entry is missing required fields");
                 }
+                validEntries.push(entry); // Collect valid entries
             } catch (error) {
                 console.error("Error parsing dictionary:", error);
             }
+        }
+
+        // If there are valid entries, write them back to the file
+        if (validEntries.length > 0) {
+            const serializedEntries =
+                validEntries.map((entry) => JSON.stringify(entry)).join("\n") + "\n";
+            await fs.promises.writeFile(this.dictionaryPath, serializedEntries, "utf8");
         }
     }
 

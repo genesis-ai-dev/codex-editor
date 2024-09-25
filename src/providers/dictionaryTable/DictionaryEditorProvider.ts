@@ -14,6 +14,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
     private readonly onDidChangeCustomDocument = new vscode.EventEmitter<
         vscode.CustomDocumentEditEvent<DictionaryDocument>
     >();
+    private fileWatcher: vscode.FileSystemWatcher | undefined;
 
     constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -50,13 +51,20 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
         };
 
         // Watch for changes in the project.dictionary file
-        const watcher = vscode.workspace.createFileSystemWatcher(
-            new vscode.RelativePattern(document.uri.fsPath, "**/project.dictionary")
-        );
+        const workspaceFolderUri = getWorkSpaceUri();
+        if (workspaceFolderUri) {
+            const dictionaryUri = vscode.Uri.joinPath(
+                workspaceFolderUri,
+                "files",
+                "project.dictionary"
+            );
+            this.fileWatcher = vscode.workspace.createFileSystemWatcher(dictionaryUri.fsPath);
 
-        watcher.onDidChange(() => {
-            updateWebview();
-        });
+            this.fileWatcher.onDidChange(() => {
+                this.refreshEditor();
+                updateWebview();
+            });
+        }
 
         const changeDocumentSubscription = vscode.workspace.onDidChangeTextDocument((e) => {
             if (e.document.uri.toString() === document.uri.toString()) {
@@ -65,7 +73,9 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
         });
 
         webviewPanel.onDidDispose(() => {
-            watcher.dispose();
+            if (this.fileWatcher) {
+                this.fileWatcher.dispose();
+            }
             changeDocumentSubscription.dispose();
         });
 
@@ -73,7 +83,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
             switch (e.command) {
                 case "webviewTellsProviderToUpdateData":
                     console.log("updateData received in DictionaryEditorProvider", e.data);
-                    this.updateTextDocument(document, e.data);
+                    await this.updateTextDocument(document, e.data);
                     return;
                 case "webviewAsksProviderToConfirmRemove": {
                     console.log("confirmRemove received in DictionaryEditorProvider", e.count);
@@ -173,18 +183,22 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
         }
     }
 
-    // FIXME: replace this with a function to have the server update the file, so we don't have conflicts.
-    private updateTextDocument(document: vscode.TextDocument, dictionary: Dictionary) {
-        const edit = new vscode.WorkspaceEdit();
+    private async updateTextDocument(document: vscode.TextDocument, dictionary: Dictionary) {
+        const workspaceFolderUri = getWorkSpaceUri();
+        if (!workspaceFolderUri) {
+            throw new Error("Workspace folder not found.");
+        }
+        const dictionaryUri = vscode.Uri.joinPath(
+            workspaceFolderUri,
+            "files",
+            "project.dictionary"
+        );
 
         const content = dictionary.entries.map((entry) => JSON.stringify(entry)).join("\n");
 
-        edit.replace(document.uri, new vscode.Range(0, 0, document.lineCount, 0), content);
-
-        return vscode.workspace.applyEdit(edit);
+        await vscode.workspace.fs.writeFile(dictionaryUri, Buffer.from(content, 'utf-8'));
     }
 
-    // Listen for dictionary updates
     private async refreshEditor() {
         if (this.document) {
             try {
@@ -201,16 +215,8 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
                 const content = new TextDecoder().decode(fileContent);
                 const dictionary = this.parseDictionary(content);
 
-                // Create a temporary TextDocument from the dictionary content
-                const tempDocument = await vscode.workspace.openTextDocument({
-                    content: JSON.stringify(dictionary, null, 2),
-                    language: "json",
-                });
-
-                await this.updateTextDocument(tempDocument, dictionary);
-
                 // Update the custom document
-                Object.assign(this.document, { content: dictionary });
+                this.document.content = dictionary;
 
                 this.onDidChangeCustomDocument.fire({
                     document: this.document,
@@ -259,7 +265,9 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
         const entries = content
             .split("\n")
             .filter((line) => line.trim() !== "")
-            .map((line) => JSON.parse(line) as DictionaryEntry);
+            .map((line) => {
+                return JSON.parse(line) as DictionaryEntry;
+            });
         return { id: "", label: "", entries, metadata: {} };
     }
 }
