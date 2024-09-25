@@ -1,6 +1,7 @@
 import React from "react";
-import { EditorVerseContent, EditorPostMessages, CodexCellTypes } from "../../../../types";
+import { EditorVerseContent, EditorPostMessages } from "../../../../types";
 import { HACKY_removeContiguousSpans } from "./utils";
+import { CodexCellTypes } from "../../../../types/enums";
 
 interface CellContentDisplayProps {
     cellIds: string[];
@@ -12,26 +13,24 @@ interface CellContentDisplayProps {
 }
 
 const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
-    cellIds: verseMarkers,
-    cellContent: verseContent,
-    cellIndex: verseIndex,
+    cellIds,
+    cellContent,
     cellType,
     setContentBeingUpdated,
     vscode,
 }) => {
     const handleVerseClick = () => {
         setContentBeingUpdated({
-            verseMarkers: verseMarkers,
-            content: verseContent,
-            verseIndex,
+            verseMarkers: cellIds,
+            content: cellContent,
         });
         vscode.postMessage({
             command: "setCurrentIdToGlobalState",
-            content: { currentLineId: verseMarkers[0] },
+            content: { currentLineId: cellIds[0] },
         } as EditorPostMessages);
     };
-    const verseMarkerVerseNumbers = verseMarkers.map((verseMarker) => {
-        const parts = verseMarker?.split(":");
+    const verseMarkerVerseNumbers = cellIds.map((cellMarker) => {
+        const parts = cellMarker?.split(":");
         return parts?.[parts.length - 1];
     });
     let verseRefForDisplay = "";
@@ -42,12 +41,19 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             verseMarkerVerseNumbers[verseMarkerVerseNumbers.length - 1]
         }`;
     }
+    console.log("verseRefForDisplay", {
+        cellIds,
+        cellContent,
+        cellType,
+        setContentBeingUpdated,
+        vscode,
+    });
     return (
         <span className="verse-display" onClick={handleVerseClick}>
-            {cellType === "verse" && <sup>{verseRefForDisplay}</sup>}
+            {cellType === CodexCellTypes.TEXT && <sup>{verseRefForDisplay}</sup>}
             <span
                 dangerouslySetInnerHTML={{
-                    __html: HACKY_removeContiguousSpans(verseContent),
+                    __html: HACKY_removeContiguousSpans(cellContent),
                 }}
             />
         </span>

@@ -1,22 +1,15 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
-import {
-    CodexCellTypes,
-    CustomNotebookData,
-    EditorPostMessages,
-    EditorVerseContent,
-} from "../../../types";
+
 import { getUri } from "../translationNotes/utilities/getUri";
 import { initializeStateStore } from "../../stateStore";
 import { fetchCompletionConfig } from "../translationSuggestions/inlineCompletionsProvider";
-import {
-    CodexContentSerializer,
-    CodexNotebookDocument,
-    CodexNotebookReader,
-} from "../../serializer";
+import { CodexContentSerializer } from "../../serializer";
 import { workspaceStoreListener } from "../../utils/workspaceEventListener";
 import { llmCompletion } from "../translationSuggestions/llmCompletion";
+import { CodexCellTypes, EditType } from "../../../types/enums";
+import { CustomNotebookData, EditorPostMessages, EditorVerseContent } from "../../../types";
 
 function getNonce(): string {
     let text = "";
@@ -299,17 +292,10 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
      * Write out the json to a given document.
      */
     private updateTextDocument(document: vscode.TextDocument, data: EditorVerseContent) {
-        const edit = new vscode.WorkspaceEdit();
-
         const currentContent = JSON.parse(document.getText()) as CustomNotebookData;
+        // FIXME: Using the deserializing using the custom codex deserializer causes errors if used here
 
-        const verseDataArray = this.getVerseDataArray(); // FIXME: Calculate the verse data array based on the content instead of using a static file. It will probably be more efficient.
-        console.log("data.verseMarkers[0]", {
-            "data.verseMarkers[0]": data.verseMarkers[0],
-            currentContent,
-        });
-        const verseDataArrayIndex = verseDataArray.indexOf(data.verseMarkers[0]);
-        const nextVerseMarker = verseDataArray[verseDataArrayIndex + 1];
+        const edit = new vscode.WorkspaceEdit();
 
         const indexOfCellToUpdate = currentContent.cells.findIndex(
             (cell) => cell.metadata?.id === data.verseMarkers[0]
@@ -322,7 +308,55 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
 
         cellToUpdate.value = data.content;
 
-        // FIXME: Just replace the entire document every time for this example extension.
+        if (!cellToUpdate.metadata.edits) {
+            cellToUpdate.metadata.edits = [];
+        }
+
+        cellToUpdate.metadata.edits.push({
+            cellValue: data.content,
+            timestamp: Date.now(),
+            type: EditType.USER_EDIT,
+        });
+
+        // Just replace the entire document every time for this example extension.
+        // A more complete extension should compute minimal edits instead.
+        edit.replace(
+            document.uri,
+            new vscode.Range(0, 0, document.lineCount, 0),
+            JSON.stringify(currentContent, null, 2)
+        );
+
+        return vscode.workspace.applyEdit(edit);
+    }
+    private updateMetadataEditsWithLLMResponse(
+        document: vscode.TextDocument,
+        data: EditorVerseContent
+    ) {
+        const currentContent = JSON.parse(document.getText()) as CustomNotebookData;
+        // FIXME: Using the deserializing using the custom codex deserializer causes errors if used here
+
+        const edit = new vscode.WorkspaceEdit();
+
+        const indexOfCellToUpdate = currentContent.cells.findIndex(
+            (cell) => cell.metadata?.id === data.verseMarkers[0]
+        );
+
+        if (indexOfCellToUpdate === -1) {
+            throw new Error("Could not find cell to update");
+        }
+        const cellToUpdate = currentContent.cells[indexOfCellToUpdate];
+
+        if (!cellToUpdate.metadata.edits) {
+            cellToUpdate.metadata.edits = [];
+        }
+
+        cellToUpdate.metadata.edits.push({
+            cellValue: data.content,
+            timestamp: Date.now(),
+            type: EditType.LLM_GENERATION,
+        });
+
+        // Just replace the entire document every time for this example extension.
         // A more complete extension should compute minimal edits instead.
         edit.replace(
             document.uri,
@@ -377,7 +411,11 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                 completionConfig,
                 new vscode.CancellationTokenSource().token
             );
-
+            const document = await vscode.workspace.openTextDocument(documentUri);
+            this.updateMetadataEditsWithLLMResponse(document, {
+                verseMarkers: [currentCellId],
+                content: result,
+            });
             console.log("LLM completion result", { result });
             return result;
         } catch (error: any) {

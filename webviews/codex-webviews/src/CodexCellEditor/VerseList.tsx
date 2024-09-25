@@ -1,9 +1,10 @@
 import React from "react";
-import { EditorVerseContent, CustomNotebookData, CodexCellTypes } from "../../../../types";
+import { EditorVerseContent, CustomNotebookData } from "../../../../types";
 import VerseEditor from "./VerseEditor";
 import CellContentDisplay from "./CellContentDisplay";
 import EmptyVerseDisplay from "./EmptyVerseDisplay";
 import "@vscode/codicons/dist/codicon.css"; // Import codicons
+import { CodexCellTypes } from "../../../../types/enums";
 
 interface VerseListProps {
     translationUnits: {

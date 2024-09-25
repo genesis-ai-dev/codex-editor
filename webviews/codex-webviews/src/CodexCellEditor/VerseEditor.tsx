@@ -67,7 +67,6 @@ const VerseEditor: React.FC<VerseEditorProps> = ({
                     spellCheckResponse={spellCheckResponse}
                     onChange={({ html }) => {
                         setContentBeingUpdated({
-                            verseIndex,
                             verseMarkers,
                             content: html.endsWith("\n") ? html : `${html}\n`,
                         });

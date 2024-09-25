@@ -1,5 +1,4 @@
 import * as vscode from "vscode";
-import { CodexContentSerializer } from "../serializer";
 import { nonCanonicalBookRefs, vrefData } from "./verseRefUtils/verseData";
 import { Project } from "codex-types";
 import { updateWorkspaceState } from "./workspaceEventListener";

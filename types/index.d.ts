@@ -2,6 +2,7 @@ import { Dictionary, LanguageMetadata } from "codex-types";
 import * as vscode from "vscode";
 import { ScriptureTSV } from "./TsvTypes";
 import { ParsedUSFM } from "./usfm-grammar";
+
 interface ChatMessage {
     role: "system" | "user" | "assistant";
     content: string;
@@ -203,7 +204,6 @@ type SourceVerseVersions = {
 type EditorVerseContent = {
     verseMarkers: string[];
     content: string;
-    verseIndex: number;
 };
 
 type EditorPostMessages =
@@ -221,79 +221,27 @@ type EditorPostMessages =
       }
     | { command: "llmCompletion"; content: { currentLineId: string } };
 
-type CustomNotebook = vscode.NotebookCellData & {
-    language: string;
+type CustomNotebookCellData = vscode.NotebookCellData & {
+    metadata: vscode.NotebookCellData["metadata"] & {
+        edits?: {
+            cellValue: string;
+            timestamp: number;
+            type: import("./enums").EditType;
+        }[];
+    };
 };
 
-type CustomNotebookData = {
+type CustomNotebookData = vscode.NotebookDocument & {
     metadata: vscode.NotebookData["metadata"] & {
         id: string;
     };
-    cells: CustomNotebook[];
+    cells: CustomNotebookCellData[];
 };
-export enum CodexCellTypes {
-    VERSE = "verse",
-    PARATEXT = "paratext",
-}
-export interface CellContent {
+
+interface CellContent {
     verseMarkers: string[];
     verseContent: string;
-    cellType: CodexCellTypes;
-}
-export enum MainChatLanguage {
-    English = "English",
-    Tamil = "தமிழ் (Tamil)",
-    Telugu = "తెలుగు (Telugu)",
-    Kannada = "ಕನ್ನಡ (Kannada)",
-    Hindi = "हिन्दी (Hindi)",
-    Gujarati = "ગુજરાતી (Gujarati)",
-    Spanish = "Español (Spanish)",
-    French = "Français (French)",
-    German = "Deutsch (German)",
-    Italian = "Italiano (Italian)",
-    Dutch = "Nederlands (Dutch)",
-    Portuguese = "Português (Portuguese)",
-    Russian = "Русский (Russian)",
-    Chinese = "中文 (Chinese)",
-    Japanese = "日本語 (Japanese)",
-    Korean = "한국어 (Korean)",
-    Arabic = "العربية (Arabic)",
-    Turkish = "Türkçe (Turkish)",
-    Vietnamese = "Tiếng Việt (Vietnamese)",
-    Thai = "ไทย (Thai)",
-    Indonesian = "Bahasa Indonesia (Indonesian)",
-    Malay = "Bahasa Melayu (Malay)",
-    Filipino = "Filipino (Filipino)",
-    Bengali = "বাংলা (Bengali)",
-    Punjabi = "ਪੰਜਾਬੀ (Punjabi)",
-    Marathi = "मराठी (Marathi)",
-    Odia = "ଓଡ଼ିଆ (Odia)",
-    Kiswahili = "Swahili (Kiswahili)",
-    Urdu = "اردو (Urdu)",
-    Persian = "فارسی (Persian)",
-    Hausa = "Hausa",
-    Amharic = "አማርኛ (Amharic)",
-    Javanese = "ꦧꦱꦗꦮ (Javanese)",
-    Burmese = "မြန်မာဘာသာ (Burmese)",
-    Swedish = "Svenska (Swedish)",
-    Norwegian = "Norsk (Norwegian)",
-    Finnish = "Suomi (Finnish)",
-    Danish = "Dansk (Danish)",
-    Hebrew = "עברית (Hebrew)",
-    Ukrainian = "Українська (Ukrainian)",
-    Polish = "Polski (Polish)",
-    Romanian = "Română (Romanian)",
-    Czech = "Čeština (Czech)",
-    Hungarian = "Magyar (Hungarian)",
-    Greek = "Ελληνικά (Greek)",
-    Serbian = "Српски (Serbian)",
-    Croatian = "Hrvatski (Croatian)",
-    Bulgarian = "Български (Bulgarian)",
-    Slovak = "Slovenčina (Slovak)",
-    Malayalam = "മലയാളം (Malayalam)",
-    Sinhala = "සිංහල (Sinhala)",
-    Khmer = "ភាសាខ្មែរ (Khmer)",
-    Lao = "ພາສາລາວ (Lao)",
+    cellType: import("./enums").CodexCellTypes;
 }
 
 /* This is the project overview that populates the project manager webview */
@@ -311,7 +259,7 @@ interface ProjectOverview {
 }
 
 /* This is the project metadata that is saved in the metadata.json file */
-export type ProjectMetadata = {
+type ProjectMetadata = {
     format: string;
     meta: {
         version: string;
