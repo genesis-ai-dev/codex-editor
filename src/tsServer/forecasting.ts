@@ -68,8 +68,6 @@ class MarkovChain {
             .map((entry) => entry[0])
             .filter((w) => w !== word);
 
-        console.log(`Similar words for "${word}":`, result.slice(0, 10));
-
         return result.slice(0, 10);
     }
 }
@@ -78,9 +76,6 @@ export class WordSuggestionProvider {
     private markovChain: MarkovChain;
 
     constructor(workspaceFolder: string) {
-        console.log(
-            `Initializing WordSuggestionProvider with workspace folder: ${workspaceFolder}`
-        );
         this.markovChain = new MarkovChain();
         this.buildMarkovChain(workspaceFolder);
     }
@@ -120,7 +115,7 @@ export class WordSuggestionProvider {
         token: CancellationToken,
         context: CompletionContext
     ): CompletionItem[] {
-        const text = document.getText();
+        const text = document.getText(); // FIXME: is this right for notebooks?
         const offset = document.offsetAt(position);
         const linePrefix = text.substr(0, offset);
         const words = linePrefix.split(/\s+/).filter((word) => word.length > 0);
@@ -148,11 +143,9 @@ export class WordSuggestionProvider {
     }
 
     getSimilarWords(word: string): string[] {
-        console.log(`Getting similar words for: ${word}`);
         const result = this.markovChain.getSimilarWords(
             word.toLowerCase().replace(/[^\p{L}\s]/gu, "")
         );
-        console.log(`Similar words result: ${result}`);
         return result;
     }
 }

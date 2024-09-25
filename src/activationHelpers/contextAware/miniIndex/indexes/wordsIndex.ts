@@ -13,13 +13,14 @@ interface WordFrequency {
 }
 
 // FIXME: name says it all
-const METHOD_SHOULD_BE_STORED_IN_CONFIG = "words";
+const METHOD_SHOULD_BE_STORED_IN_CONFIG = "words_and_punctuation";
 
 export async function initializeWordsIndex(
     initialWordIndex: Map<string, number>,
     targetFiles: FileData[]
 ): Promise<Map<string, number>> {
     const wordIndex = new Map<string, number>();
+    let totalWords = 0;
 
     for (const file of targetFiles) {
         for (const cell of file.cells) {
@@ -27,16 +28,22 @@ export async function initializeWordsIndex(
                 const words = tokenizeText({
                     method: METHOD_SHOULD_BE_STORED_IN_CONFIG,
                     text: cell.value,
-                })
-                    .map(cleanWord)
-                    .filter(Boolean);
+                });
 
                 words.forEach((word: string) => {
-                    wordIndex.set(word, (wordIndex.get(word) || 0) + 1);
+                    const cleanedWord = cleanWord(word);
+                    if (cleanedWord && cleanedWord.length > 1) {
+                        wordIndex.set(cleanedWord, (wordIndex.get(cleanedWord) || 0) + 1);
+                        totalWords++;
+                    }
                 });
             }
         }
     }
+
+    console.log(`Total words processed: ${totalWords}`);
+    console.log(`Unique words indexed: ${wordIndex.size}`);
+    console.log(`Sample of indexed words:`, Array.from(wordIndex.keys()).slice(0, 10));
 
     vscode.window.showInformationMessage(`Indexed ${wordIndex.size} unique words.`);
     return wordIndex;

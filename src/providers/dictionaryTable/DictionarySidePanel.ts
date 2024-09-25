@@ -13,6 +13,8 @@ export class DictionarySummaryProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = "dictionaryTable";
     private extensionUri: vscode.Uri;
     private lastSentDictionary: Dictionary;
+    private debounceTimer: NodeJS.Timeout | null = null;
+    private lastSentDictionaryHash: string = "";
 
     constructor(extensionUri: vscode.Uri) {
         this.extensionUri = extensionUri;
@@ -47,59 +49,67 @@ export class DictionarySummaryProvider implements vscode.WebviewViewProvider {
     }
 
     private async updateWebviewData() {
-        const { data } = await FileHandler.readFile(dictionaryPath);
-        let dictionary: Dictionary;
-        if (!data) {
-            dictionary = {
-                id: "",
-                label: "",
-                entries: [],
-                metadata: {},
-            };
-        } else {
-            dictionary = this.parseDictionaryData(data);
+        if (this.debounceTimer) {
+            clearTimeout(this.debounceTimer);
         }
 
-        // Add a check to prevent unnecessary updates
-        if (JSON.stringify(this.lastSentDictionary) !== JSON.stringify(dictionary)) {
-            this.lastSentDictionary = dictionary;
-            this._view?.webview.postMessage({
-                command: "providerSendsDataToWebview",
-                data: dictionary,
-            } as DictionarySummaryPostMessages);
-
-            let wordFrequencies;
-            try {
-                wordFrequencies = await vscode.commands.executeCommand(
-                    "translators-copilot.getWordFrequencies"
-                );
-            } catch (error) {
-                console.error("Error fetching word frequencies:", error);
-                wordFrequencies = [];
+        this.debounceTimer = setTimeout(async () => {
+            const { data } = await FileHandler.readFile(dictionaryPath);
+            let dictionary: Dictionary;
+            if (!data) {
+                dictionary = {
+                    id: "",
+                    label: "",
+                    entries: [],
+                    metadata: {},
+                };
+            } else {
+                dictionary = this.parseDictionaryData(data);
             }
-            this._view?.webview.postMessage({
-                command: "providerSendsUpdatedWordFrequenciesToWebview",
-                wordFrequencies: wordFrequencies,
-            } as DictionarySummaryPostMessages);
 
-            // Get frequent words
-            const allFrequentWords = (await vscode.commands.executeCommand(
-                "translators-copilot.getWordsAboveThreshold"
-            )) as string[];
+            const newDictionaryHash = this.hashDictionary(dictionary);
 
-            // Filter out words that are already in the dictionary
-            const existingWords = new Set(
-                dictionary.entries.map((entry) => entry.headWord.toLowerCase())
-            );
-            const newFrequentWords = allFrequentWords.filter(
-                (word) => !existingWords.has(word.toLowerCase())
-            );
+            // Only update if the dictionary has changed
+            if (newDictionaryHash !== this.lastSentDictionaryHash) {
+                this.lastSentDictionaryHash = newDictionaryHash;
+                this._view?.webview.postMessage({
+                    command: "providerSendsDataToWebview",
+                    data: dictionary,
+                } as DictionarySummaryPostMessages);
 
-            this._view?.webview.postMessage({
-                command: "providerSendsFrequentWordsToWebview",
-                words: newFrequentWords,
-            } as DictionarySummaryPostMessages);
-        }
+                let wordFrequencies;
+                try {
+                    wordFrequencies = await vscode.commands.executeCommand(
+                        "translators-copilot.getWordFrequencies"
+                    );
+                } catch (error) {
+                    console.error("Error fetching word frequencies:", error);
+                    wordFrequencies = [];
+                }
+                this._view?.webview.postMessage({
+                    command: "providerSendsUpdatedWordFrequenciesToWebview",
+                    wordFrequencies: wordFrequencies,
+                } as DictionarySummaryPostMessages);
+
+                // Get frequent words
+                const allFrequentWords = (await vscode.commands.executeCommand(
+                    "translators-copilot.getWordsAboveThreshold"
+                )) as string[];
+
+                // Filter out words that are already in the dictionary
+                const existingWords = new Set(
+                    dictionary.entries.map((entry) => entry.headWord.toLowerCase())
+                );
+                const newFrequentWords = allFrequentWords.filter(
+                    (word) => !existingWords.has(word.toLowerCase())
+                );
+
+                this._view?.webview.postMessage({
+                    command: "providerSendsFrequentWordsToWebview",
+                    words: newFrequentWords,
+                } as DictionarySummaryPostMessages);
+            }
+        }, 300); // 300ms debounce
     }
 
     public resolveWebviewView(
@@ -193,15 +203,9 @@ export class DictionarySummaryProvider implements vscode.WebviewViewProvider {
                         return;
                     }
                     case "addFrequentWordsToDictionary": {
-                        const words = message.words;
-                        for (const word of words) {
-                            await vscode.commands.executeCommand(
-                                "spellcheck.addToDictionary",
-                                word
-                            );
-                        }
+                        await vscode.commands.executeCommand("spellcheck.addWord", message.words);
                         vscode.window.showInformationMessage(
-                            `Added ${words.length} words to the dictionary.`
+                            `Added ${message.words.length} words to the dictionary.`
                         );
 
                         // Refresh the word index
@@ -226,14 +230,15 @@ export class DictionarySummaryProvider implements vscode.WebviewViewProvider {
             const entries = data
                 .split("\n")
                 .filter((line) => line.trim().length > 0)
-                .map((line) => JSON.parse(line) as DictionaryEntry);
+                .map((line) => JSON.parse(line.trim()) as DictionaryEntry);
             return {
                 id: "",
                 label: "",
                 entries,
                 metadata: {},
             };
-        } catch (jsonlError) {
+        } catch (e: any) {
+            console.log("parseDictionaryData ERROR:", e);
             try {
                 // If JSONL parsing fails, try parsing as a single JSON object
                 const parsed = JSON.parse(data);
@@ -258,5 +263,9 @@ export class DictionarySummaryProvider implements vscode.WebviewViewProvider {
         // Logic to refresh the dictionary view
         // For example, request the latest dictionary data from the server
         this.updateWebviewData();
+    }
+
+    private hashDictionary(dictionary: Dictionary): string {
+        return JSON.stringify(dictionary.entries.map((entry) => entry.headWord));
     }
 }

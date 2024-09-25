@@ -23,6 +23,8 @@ import {
 import { WordSuggestionProvider } from "./forecasting";
 import { URI } from "vscode-uri";
 
+const DEBUG_MODE = false; // Flag for debug mode
+
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
 
@@ -32,20 +34,39 @@ let codeActionProvider: SpellCheckCodeActionProvider;
 let completionItemProvider: SpellCheckCompletionItemProvider;
 let wordSuggestionProvider: WordSuggestionProvider;
 
+// Custom debug function
+function debugLog(...args: any[]) {
+    if (DEBUG_MODE) {
+        console.log(...args);
+    }
+}
+
 connection.onInitialize((params: InitializeParams) => {
     const workspaceFolder = params.workspaceFolders?.[0].uri;
-    console.log(`Initializing with workspace folder: ${workspaceFolder}`);
+    debugLog(`Initializing with workspace folder: ${workspaceFolder}`);
 
     // Initialize services
+    debugLog("Initializing SpellChecker...");
     spellChecker = new SpellChecker(workspaceFolder);
+    debugLog("SpellChecker initialized.");
+
+    debugLog("Initializing SpellCheckDiagnosticsProvider...");
     diagnosticsProvider = new SpellCheckDiagnosticsProvider(spellChecker);
+    debugLog("SpellCheckDiagnosticsProvider initialized.");
+
+    debugLog("Initializing SpellCheckCodeActionProvider...");
     codeActionProvider = new SpellCheckCodeActionProvider(spellChecker);
+    debugLog("SpellCheckCodeActionProvider initialized.");
+
+    debugLog("Initializing SpellCheckCompletionItemProvider...");
     completionItemProvider = new SpellCheckCompletionItemProvider(spellChecker);
+    debugLog("SpellCheckCompletionItemProvider initialized.");
 
     if (workspaceFolder) {
         const fsPath = URI.parse(workspaceFolder).fsPath;
-        console.log(`Creating WordSuggestionProvider with workspace folder: ${fsPath}`);
+        debugLog(`Creating WordSuggestionProvider with workspace folder: ${fsPath}`);
         wordSuggestionProvider = new WordSuggestionProvider(fsPath);
+        debugLog("WordSuggestionProvider initialized.");
     } else {
         console.warn("No workspace folder provided. WordSuggestionProvider not initialized.");
     }
@@ -69,13 +90,21 @@ connection.onInitialize((params: InitializeParams) => {
 });
 
 documents.onDidChangeContent((change) => {
+    debugLog(`Document changed: ${change.document.uri}`);
     const diagnostics = diagnosticsProvider.updateDiagnostics(change.document);
+    debugLog(`Sending diagnostics for: ${change.document.uri}`);
     connection.sendDiagnostics({ uri: change.document.uri, diagnostics });
 });
 
 connection.onCompletion((params: TextDocumentPositionParams) => {
+    debugLog(
+        `Completion requested for document: ${params.textDocument.uri} at position: ${params.position}`
+    );
     const document = documents.get(params.textDocument.uri);
-    if (!document) return [];
+    if (!document) {
+        console.warn(`Document not found: ${params.textDocument.uri}`);
+        return [];
+    }
 
     // Create a dummy CancellationToken since we don't have one in this context
     const dummyToken = {
@@ -89,25 +118,35 @@ connection.onCompletion((params: TextDocumentPositionParams) => {
         triggerCharacter: undefined,
     };
 
+    debugLog("About to get spell check suggestions...");
     const spellCheckSuggestions = completionItemProvider.provideCompletionItems(
         document,
         params.position,
         dummyToken,
         defaultContext
     );
+
+    debugLog("About to get word suggestions...");
     const wordSuggestions = wordSuggestionProvider.provideCompletionItems(
         document,
         params.position,
         dummyToken,
         defaultContext
     );
+
+    debugLog("Returning combined suggestions.");
     return [...spellCheckSuggestions, ...wordSuggestions];
 });
 
 connection.onCodeAction((params: CodeActionParams) => {
+    debugLog(`Code action requested for document: ${params.textDocument.uri}`);
     const document = documents.get(params.textDocument.uri);
-    if (!document) return [];
+    if (!document) {
+        console.warn(`Document not found: ${params.textDocument.uri}`);
+        return [];
+    }
 
+    debugLog("Providing code actions...");
     return codeActionProvider.provideCodeActions(document, params.range, params.context);
 });
 
@@ -115,24 +154,24 @@ connection.onCodeAction((params: CodeActionParams) => {
 
 // Add this new handler
 connection.onExecuteCommand(async (params) => {
-    console.log("Received execute command:", params.command);
+    debugLog("Received execute command:", params.command);
 
-    // FIXME: what's the relation to spellcheck/addWord (below)?
     if (params.command === "spellcheck.addToDictionary" && params.arguments) {
-        const word = params.arguments[0];
-        await spellChecker.addToDictionary(word);
-        // Notify the client that the dictionary has been updated
+        const words = params.arguments as string[];
+        debugLog(`Adding words to dictionary: ${words}`);
+        await spellChecker.addWordsToDictionary(words);
+        debugLog("Words added to dictionary.");
         connection.sendNotification("spellcheck/dictionaryUpdated");
     }
 
     if (params.command === "server.getSimilarWords") {
-        console.log("Handling server.getSimilarWords command");
+        debugLog("Handling server.getSimilarWords command");
         const [word] = params.arguments || [];
         if (typeof word === "string") {
             try {
-                console.log(`Getting similar words for: ${word}`);
+                debugLog(`Getting similar words for: ${word}`);
                 const similarWords = wordSuggestionProvider.getSimilarWords(word);
-                console.log("Similar words:", similarWords);
+                debugLog("Similar words:", similarWords);
                 return similarWords;
             } catch (error) {
                 console.error("Error getting similar words:", error);
@@ -147,13 +186,14 @@ connection.onExecuteCommand(async (params) => {
 });
 
 connection.onRequest("spellcheck/check", async (params: { text: string }) => {
-    console.log("SERVER: Received spellcheck/check request:", { params });
+    debugLog("SERVER: Received spellcheck/check request:", { params });
     const words = params.text.split(/\s+/);
+    debugLog(`Checking spelling for words: ${words}`);
     const matches = words
         .map((word, index) => {
             const spellCheckResult = spellChecker.spellCheck(word);
             const offset = params.text.indexOf(word);
-            console.log("spell-checker-debug: spellCheckResult", {
+            debugLog("spell-checker-debug: spellCheckResult", {
                 spellCheckResult,
             });
             if (spellCheckResult.corrections.length > 0) {
@@ -171,21 +211,27 @@ connection.onRequest("spellcheck/check", async (params: { text: string }) => {
         })
         .filter((match) => match !== null);
 
+    debugLog(`Returning matches: ${matches}`);
     return matches;
 });
 
-connection.onRequest("spellcheck/addWord", async (params: { word: string }) => {
-    console.log("Received addWord request:", params.word);
-    await spellChecker.addToDictionary(params.word.toLowerCase());
+connection.onRequest("spellcheck/addWord", async (params: { words: string[] }) => {
+    debugLog("Received addWord request:", params.words);
+    await spellChecker.addWordsToDictionary(params.words);
+    debugLog("Words added to dictionary.");
     return { success: true };
 });
 
 connection.onHover((params: TextDocumentPositionParams): Hover | null => {
+    debugLog(
+        `Hover requested for document: ${params.textDocument.uri} at position: ${params.position}`
+    );
     // For now, return null to indicate no hover information
     return null;
 });
 
 connection.onDocumentSymbol((params): DocumentSymbol[] => {
+    debugLog(`Document symbol requested for document: ${params.textDocument.uri}`);
     // For now, return an empty array to indicate no document symbols
     return [];
 });

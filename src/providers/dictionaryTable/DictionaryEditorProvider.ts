@@ -173,6 +173,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
         }
     }
 
+    // FIXME: replace this with a function to have the server update the file, so we don't have conflicts.
     private updateTextDocument(document: vscode.TextDocument, dictionary: Dictionary) {
         const edit = new vscode.WorkspaceEdit();
 
@@ -182,6 +183,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
 
         return vscode.workspace.applyEdit(edit);
     }
+
     // Listen for dictionary updates
     private async refreshEditor() {
         if (this.document) {

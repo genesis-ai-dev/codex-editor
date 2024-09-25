@@ -24,11 +24,8 @@ export async function registerLanguageServer(
     };
 
     const clientOptions: LanguageClientOptions = {
-        documentSelector: [
-            { scheme: "file", language: "*" },
-            { scheme: "vscode-notebook-cell", language: "*" },
-            { notebook: NOTEBOOK_TYPE, language: "*" },
-        ],
+        // Let's only select the Codex Notebooks to get language server features
+        documentSelector: [{ notebook: NOTEBOOK_TYPE, language: "*" }],
         synchronize: {
             fileEvents: vscode.workspace.createFileSystemWatcher("**/.clientrc"),
         },

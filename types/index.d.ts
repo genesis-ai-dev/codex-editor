@@ -131,7 +131,8 @@ type DictionarySummaryPostMessages =
     | { command: "updateData" }
     | { command: "showDictionaryTable" }
     | { command: "refreshWordFrequency" }
-    | { command: "addFrequentWordsToDictionary"; words: string[] };
+    | { command: "addFrequentWordsToDictionary"; words: string[] }
+    | { command: "updateEntryCount"; count: number };
 
 type TranslationNotePostMessages =
     | { command: "update"; data: ScriptureTSV }

@@ -50,12 +50,9 @@ export class SpellChecker {
         try {
             await fs.promises.access(this.dictionaryPath);
         } catch {
-            const emptyDictionary = { entries: [] };
+            const emptyDictionary = ''; // Dictionary is JSONL
             await fs.promises.mkdir(path.dirname(this.dictionaryPath), { recursive: true });
-            await fs.promises.writeFile(
-                this.dictionaryPath,
-                JSON.stringify(emptyDictionary) + "\n"
-            );
+            await fs.promises.writeFile(this.dictionaryPath, emptyDictionary);
             console.log("Created new empty dictionary.");
         }
     }
@@ -67,13 +64,14 @@ export class SpellChecker {
         // Try parsing as JSON first (for older dictionaries)
         try {
             this.dictionary = JSON.parse(content);
-        } catch {
+        } catch (e: any) {
+            console.log("hit an error in loadDictionary", e);
             // If JSON parsing fails, assume it's JSONL
             const entries: DictionaryEntry[] = [];
             const lines = content.split("\n").filter((line) => line.trim() !== "");
             for (const line of lines) {
                 try {
-                    const entry = JSON.parse(line);
+                    const entry = JSON.parse(line.trim());
                     entries.push(entry);
                 } catch (error) {
                     console.error(`Error parsing dictionary entry: ${line}`, error);
@@ -175,46 +173,59 @@ export class SpellChecker {
         return matrix[b.length][a.length];
     }
 
-    async addToDictionary(word: string) {
-        // Remove all punctuation except apostrophes and hyphens
-        word = cleanWord(word);
-
-        if (!this.dictionary) {
-            this.dictionary = { entries: [] };
-        }
-
-        if (this.dictionary.entries.some((entry) => entry.headWord === word)) {
-            return;
-        }
-
-        const newEntry: DictionaryEntry = {
-            id: this.generateUniqueId(),
-            headWord: word,
-            hash: this.generateHash(word),
-        };
-        this.dictionary.entries.push(newEntry);
-
-        try {
-            // Check if the file ends with a newline
-            let content = "";
+    private async ensureDictionaryWellFormed() {
+        const content = await fs.promises.readFile(this.dictionaryPath, "utf8");
+        const lines = content.split(/\n|\}\{/).map((line: string) => line.trim());
+        for (const line of lines) {
+            if (!line) continue;
             try {
-                content = await fs.promises.readFile(this.dictionaryPath, "utf8");
-            } catch (error: any) {
-                if (error.code !== "ENOENT") {
-                    throw error;
+                let jsonLine = line;
+                if (!line.startsWith("{")) jsonLine = "{" + jsonLine;
+                if (!line.endsWith("}")) jsonLine = jsonLine + "}";
+                const entry = JSON.parse(jsonLine);
+                if (!entry.headWord || !entry.hash) {
+                    throw new Error("Dictionary entry is missing required fields");
                 }
+            } catch (error) {
+                console.error("Error parsing dictionary:", error);
+            }
+        }
+    }
+
+    async addWordsToDictionary(words: string[]) {
+        console.log("Calling addWordsToDictionary inside server");
+        const newEntries: DictionaryEntry[] = [];
+        await this.ensureDictionaryWellFormed();
+
+        for (let word of words) {
+            word = cleanWord(word);
+
+            if (!this.dictionary) {
+                this.dictionary = { entries: [] };
             }
 
-            const serializedEntry = JSON.stringify(newEntry);
-            const dataToAppend = content.endsWith("\n")
-                ? serializedEntry + "\n"
-                : "\n" + serializedEntry + "\n";
+            if (this.dictionary.entries.some((entry) => entry.headWord === word)) {
+                continue;
+            }
 
-            await fs.promises.writeFile(this.dictionaryPath, content + dataToAppend, "utf8");
-            // Reload the dictionary after adding a new word
-            await this.loadDictionary();
-        } catch (error) {
-            console.error("Error saving dictionary:", error);
+            const newEntry: DictionaryEntry = {
+                id: this.generateUniqueId(),
+                headWord: word,
+                hash: this.generateHash(word),
+            };
+            this.dictionary.entries.push(newEntry);
+            newEntries.push(newEntry);
+        }
+
+        if (newEntries.length > 0) {
+            try {
+                const serializedEntries =
+                    newEntries.map((entry) => JSON.stringify(entry)).join("\n") + "\n";
+                await fs.promises.appendFile(this.dictionaryPath, serializedEntries, "utf8");
+                // No need to reload the dictionary here
+            } catch (error) {
+                console.error("Error saving dictionary:", error);
+            }
         }
     }
 

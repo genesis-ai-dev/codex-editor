@@ -12,7 +12,6 @@ export function registerClientCommands(
             "translators-copilot.spellCheckText",
             async (text: string) => {
                 if (client) {
-                    console.log("CLIENT: Sending spellcheck/check request:", { text });
                     return client.sendRequest("spellcheck/check", { text });
                 }
             }
@@ -24,18 +23,21 @@ export function registerClientCommands(
             "translators-copilot.getSimilarWords",
             async (word: string) => {
                 if (client) {
-                    return client.sendRequest("server.getSimilarWords", [word]);
+                    return client.sendRequest("server.getSimilarWords", [
+                        word,
+                    ]);
                 }
             }
         )
     );
 
     disposables.push(
-        vscode.commands.registerCommand("spellcheck.addWord", async (word: string) => {
-            console.log("spellcheck.addWord", { word });
+        vscode.commands.registerCommand("spellcheck.addWord", async (words: string | string[]) => {
+            console.log("spellcheck.addWord", { words });
             if (client) {
                 console.log("sending request inside addWord");
-                return client.sendRequest("spellcheck/addWord", { word });
+                const wordsArray = Array.isArray(words) ? words : [words];
+                return client.sendRequest("spellcheck/addWord", { words: wordsArray });
             }
         })
     );
