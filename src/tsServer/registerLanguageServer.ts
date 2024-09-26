@@ -9,7 +9,16 @@ import { NOTEBOOK_TYPE } from "../utils/codexNotebookUtils";
 
 export async function registerLanguageServer(
     context: vscode.ExtensionContext
-): Promise<LanguageClient> {
+): Promise<LanguageClient | undefined> {
+    const config = vscode.workspace.getConfiguration("translators-copilot-server");
+    const isCopilotEnabled = config.get<boolean>("enable", true);
+    if (!isCopilotEnabled) {
+        vscode.window.showInformationMessage(
+            "Translators Copilot Server is disabled. Project was not indexed."
+        );
+        return;
+    }
+
     console.log("Registering the Codex Copilot Language Server...");
     const serverModule = context.asAbsolutePath("out/server.js");
     const debugOptions = { execArgv: ["--nolazy", "--inspect=6009"] };
