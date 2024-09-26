@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { CompletionConfig } from "./inlineCompletionsProvider";
 import { callLLM } from "../../utils/llmUtils";
 import { ChatMessage, MiniSearchVerseResult, TranslationPair } from "../../../types";
-import { CodexNotebookReader, CodexNotebookCell } from "../../serializer";
+import { CodexNotebookReader } from "../../serializer";
 
 export async function llmCompletion(
     documentUri: vscode.Uri,
@@ -21,12 +21,22 @@ export async function llmCompletion(
 
     const currentNotebookReader = new CodexNotebookReader(documentUri);
 
-    // Get the source content for the current verse
-    const sourceVerse: MiniSearchVerseResult | null = await vscode.commands.executeCommand(
-        "translators-copilot.getSourceVerseByVrefFromAllSourceVerses",
-        currentCellId
+    // Get the source content for the current verse(s)
+    const currentCellIndex = await currentNotebookReader.getCellIndex({ id: currentCellId });
+    const currentCellIds = await currentNotebookReader.getCellIds(currentCellIndex);
+    const sourceVerses = await Promise.all(
+        currentCellIds.map(
+            (id) =>
+                vscode.commands.executeCommand(
+                    "translators-copilot.getSourceVerseByVrefFromAllSourceVerses",
+                    id
+                ) as Promise<MiniSearchVerseResult | null>
+        )
     );
-    const sourceContent = sourceVerse?.content || "";
+    const sourceContent = sourceVerses
+        .filter(Boolean)
+        .map((verse) => verse!.content)
+        .join(" ");
 
     // Get similar source verses
     const similarSourceVerses: TranslationPair[] = await vscode.commands.executeCommand(
@@ -41,7 +51,6 @@ export async function llmCompletion(
     }
 
     // Get preceding cells and their IDs, limited by context size
-    const currentCellIndex = await currentNotebookReader.getCellIndex({ id: currentCellId });
     const contextLimit = contextSize === "small" ? 5 : contextSize === "medium" ? 10 : 50;
     const allPrecedingCells = await currentNotebookReader.cellsUpTo(currentCellIndex);
     const precedingCells = allPrecedingCells.slice(
@@ -53,13 +62,49 @@ export async function llmCompletion(
         (cell) => cell.metadata?.type === "text" && cell.metadata?.id !== currentCellId
     );
 
+    // The logic to get preceding translation pairs needs to account for range cells
+    const precedingTranslationPairs = await Promise.all(
+        textPrecedingCells.slice(-5).map(async (cellFromPrecedingContext) => {
+            const cellIndex = await currentNotebookReader.getCellIndex({
+                id: cellFromPrecedingContext.metadata?.id,
+            });
+            const cellIds = await currentNotebookReader.getCellIds(cellIndex);
+
+            const sourceContents = await Promise.all(
+                cellIds.map(
+                    (id) =>
+                        vscode.commands.executeCommand(
+                            "translators-copilot.getSourceVerseByVrefFromAllSourceVerses",
+                            id
+                        ) as Promise<MiniSearchVerseResult | null>
+                )
+            );
+
+            if (sourceContents.some((content) => content === null)) {
+                return null;
+            }
+
+            const combinedSourceContent = sourceContents
+                .filter(Boolean)
+                .map((verse) => verse!.content)
+                .join(" ");
+
+            const cellContent = await currentNotebookReader.getEffectiveCellContent(cellIndex);
+            const cellContentWithoutHTMLTags = cellContent.replace(/<[^>]*?>/g, "").trim();
+
+            const result = `${cellIds.join(", ")}: ${combinedSourceContent} -> ${cellContentWithoutHTMLTags}`;
+            console.log("precedingTranslationPairs", result);
+            return result;
+        })
+    );
+
     // Get the target language
     const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
     const targetLanguage = projectConfig.get<any>("targetLanguage")?.tag || null;
 
     try {
-        const currentVref = currentCellId;
-        const currentVrefSourceContent = sourceVerse?.content || "";
+        const currentVref = currentCellIds.join(", ");
+        const currentVrefSourceContent = sourceContent;
 
         // Generate few-shot examples
         const fewShotExamples = similarSourceVerses
@@ -69,30 +114,6 @@ export async function llmCompletion(
                     `${pair.targetVerse.vref}: ${pair.sourceVerse.content} -> ${pair.targetVerse.content}`
             )
             .join("\n");
-
-        // Get preceding translation pairs (note - ensure fresh from file)
-        const precedingTranslationPairs = await Promise.all(
-            textPrecedingCells.slice(-5).map(async (cellFromPrecedingContext) => {
-                const sourceContentForPrecedingContextCell: MiniSearchVerseResult | null =
-                    await vscode.commands.executeCommand(
-                        "translators-copilot.getSourceVerseByVrefFromAllSourceVerses",
-                        // NOTE: we use this command to ensure the immediately preceding context is not stale in the translation pairs index, but comes right from the file.
-                        cellFromPrecedingContext.metadata?.id
-                    );
-
-                if (!sourceContentForPrecedingContextCell) {
-                    return null;
-                }
-
-                const cellFromPrecedingContextWithoutHTMLTags = cellFromPrecedingContext.value
-                    .replace(/<[^>]*?>/g, "") // NOTE: we are removing HTML tags here. Otherwise the html gets directly inserted into the final destination context, e.g., the Quill editor, which means it is not rendered html, but raw string tags in the middle of the editor.
-                    .trim();
-
-                const result = `${cellFromPrecedingContext.metadata?.id}: ${sourceContentForPrecedingContextCell.content} -> ${cellFromPrecedingContextWithoutHTMLTags}`;
-                console.log("precedingTranslationPairs", result);
-                return result;
-            })
-        );
 
         // Create the prompt
         const userMessageInstructions = [
@@ -116,7 +137,7 @@ export async function llmCompletion(
             fewShotExamples,
             "## Current Context",
             precedingTranslationPairs.filter(Boolean).join("\n"),
-            `${currentVref} ${currentVrefSourceContent} ->`,
+            `${currentVref}: ${currentVrefSourceContent} ->`,
         ].join("\n\n");
 
         const messages = [

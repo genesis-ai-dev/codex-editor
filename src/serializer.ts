@@ -108,4 +108,66 @@ export class CodexNotebookReader {
         const cells = await this.getCells();
         return cells.slice(0, index);
     }
+
+    // Check if the cell is a range marker
+    isRangeCell(cell: CustomNotebookCellData | undefined): boolean {
+        if (!cell || cell.value === undefined) {
+            return false; // If cell or its value is undefined, it's not a range cell
+        }
+        return cell.value.trim() === "<range>";
+    }
+
+    // Get the full content for a cell, accounting for ranges
+    async getCellIds(cellIndex: number): Promise<string[]> {
+        const cells = await this.getCells();
+        const ids: string[] = [];
+        // If the current cell is a range marker, find the preceding cell
+        if (cellIndex < 0 || cellIndex >= cells.length) {
+            return ids; // Return empty array if index is out of bounds
+        }
+
+        const currentCell = cells[cellIndex];
+        if (currentCell?.metadata?.id) {
+            ids.push(currentCell.metadata.id);
+        }
+
+        // Check for subsequent range cells
+        let nextIndex = cellIndex + 1;
+        while (nextIndex < cells.length && this.isRangeCell(cells[nextIndex])) {
+            if (cells[nextIndex]?.metadata?.id) {
+                ids.push(cells[nextIndex].metadata.id);
+            }
+            nextIndex++;
+        }
+
+        return ids;
+    }
+
+    // Get cell IDs, including subsequent range cells
+    async getEffectiveCellContent(cellIndex: number): Promise<string> {
+        const cells = await this.getCells();
+        let content = "";
+
+        if (cellIndex < 0 || cellIndex >= cells.length) {
+            return content; // Return empty string if index is out of bounds
+        }
+
+        let currentIndex = cellIndex;
+
+        // If the current cell is a range marker, find the preceding cell
+        if (this.isRangeCell(cells[currentIndex])) {
+            currentIndex = Math.max(0, cellIndex - 1);
+        }
+
+        content += cells[currentIndex]?.value || "";
+
+        // Check for subsequent range markers
+        let nextIndex = currentIndex + 1;
+        while (nextIndex < cells.length && this.isRangeCell(cells[nextIndex])) {
+            content += " " + (cells[nextIndex]?.value || "");
+            nextIndex++;
+        }
+
+        return content;
+    }
 }
