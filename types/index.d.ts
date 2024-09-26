@@ -210,16 +210,25 @@ type EditorPostMessages =
     | { command: "from-quill-spellcheck-getSpellCheckResponse"; content: EditorVerseContent }
     | { command: "addWord"; text: string }
     | { command: "saveHtml"; content: EditorVerseContent }
-    | {
-          command: "updateMetadataWithUnsavedChanges";
-          content: EditorVerseContent;
-      }
     | { command: "getContent" }
     | {
           command: "setCurrentIdToGlobalState";
           content: { currentLineId: string };
       }
-    | { command: "llmCompletion"; content: { currentLineId: string } };
+    | { command: "llmCompletion"; content: { currentLineId: string } }
+    | { command: "requestAutocompleteChapter"; content: QuillCellContent[] };
+
+type EditorReceiveMessages =
+    | { type: "providerSendsInitialContent"; content: QuillCellContent[] }
+    | {
+          type: "providerUpdatesCell";
+          content: { cellId: string; progress: number };
+      }
+    | { type: "providerCompletesChapterAutocompletion" }
+    | { type: "providerSendsSpellCheckResponse"; content: CodexNotebookAsJSONData }
+    | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl" }
+    | { type: "providerSendsLLMCompletionResponse"; content: { completion: string } }
+    | { type: "jumpToSection"; content: string };
 
 type CustomNotebookCellData = vscode.NotebookCellData & {
     metadata: vscode.NotebookCellData["metadata"] & {
@@ -231,14 +240,14 @@ type CustomNotebookCellData = vscode.NotebookCellData & {
     };
 };
 
-type CustomNotebookData = vscode.NotebookDocument & {
+type CodexNotebookAsJSONData = vscode.NotebookDocument & {
     metadata: vscode.NotebookData["metadata"] & {
         id: string;
     };
     cells: CustomNotebookCellData[];
 };
 
-interface CellContent {
+interface QuillCellContent {
     verseMarkers: string[];
     verseContent: string;
     cellType: import("./enums").CodexCellTypes;

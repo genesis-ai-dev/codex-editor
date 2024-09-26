@@ -87,16 +87,16 @@ export default function Editor(props: EditorProps) {
                     const cleanedContents = getCleanedHtml(content);
 
                     const arrayOfParagraphs = cleanedContents
-                        .trim()
-                        .split("</p>")
-                        .map((p) => p.trim());
+                        ?.trim()
+                        ?.split("</p>")
+                        ?.map((p) => p.trim());
                     const finalParagraphs = arrayOfParagraphs
-                        .filter((p) => !!p)
-                        .map((p) => (p.startsWith("<p>") ? `${p}</p>` : `<p>${p}</p>`));
+                        ?.filter((p) => !!p)
+                        ?.map((p) => (p.startsWith("<p>") ? `${p}</p>` : `<p>${p}</p>`));
 
-                    const firstParagraph = finalParagraphs[0];
-                    const restOfParagraphs = finalParagraphs.slice(1) || [];
-                    const firstParagraphWithoutP = firstParagraph.trim().slice(3, -4);
+                    const firstParagraph = finalParagraphs?.[0];
+                    const restOfParagraphs = finalParagraphs?.slice(1) || [];
+                    const firstParagraphWithoutP = firstParagraph?.trim()?.slice(3, -4);
                     const contentIsEmpty = isQuillEmpty(quill);
 
                     console.log("firstParagraphWithoutP", {

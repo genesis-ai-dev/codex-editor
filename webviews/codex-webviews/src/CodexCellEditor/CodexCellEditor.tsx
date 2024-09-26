@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from "react";
 import {
-    CellContent,
-    CustomNotebookData,
+    QuillCellContent,
+    CodexNotebookAsJSONData,
     EditorPostMessages,
     EditorVerseContent,
 } from "../../../../types";
 import ChapterNavigation from "./ChapterNavigation";
 import VerseList from "./VerseList";
 import { useVSCodeMessageHandler } from "./hooks/useVSCodeMessageHandler";
+import { VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
 
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
@@ -18,14 +19,15 @@ export enum CELL_DISPLAY_MODES {
 }
 
 const CodexCellEditor: React.FC = () => {
-    const [translationUnits, setTranslationUnits] = useState<CellContent[]>([]);
-    const [spellCheckResponse, setSpellCheckResponse] = useState<CustomNotebookData>(
-        {} as CustomNotebookData
+    const [translationUnits, setTranslationUnits] = useState<QuillCellContent[]>([]);
+    const [spellCheckResponse, setSpellCheckResponse] = useState<CodexNotebookAsJSONData>(
+        {} as CodexNotebookAsJSONData
     );
     const [contentBeingUpdated, setContentBeingUpdated] = useState<EditorVerseContent>(
         {} as EditorVerseContent
     );
     const [chapterNumber, setChapterNumber] = useState<number>(1);
+    const [autocompletionProgress, setAutocompletionProgress] = useState<number | null>(null);
     const [textDirection, setTextDirection] = useState<"ltr" | "rtl">("ltr");
     const [cellDisplayMode, setCellDisplayMode] = useState<CELL_DISPLAY_MODES>(
         CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
@@ -37,6 +39,20 @@ const CodexCellEditor: React.FC = () => {
         jumpToCell: (cellId) => {
             const chapter = cellId?.split(" ")[1]?.split(":")[0];
             setChapterNumber(parseInt(chapter));
+        },
+        updateCell: (data: { cellId: string; newContent: string; progress: number }) => {
+            setTranslationUnits((prevUnits) =>
+                prevUnits.map((unit) =>
+                    unit.verseMarkers[0] === data.cellId
+                        ? { ...unit, verseContent: data.newContent }
+                        : unit
+                )
+            );
+            setAutocompletionProgress(data.progress);
+        },
+        autocompleteChapterComplete: () => {
+            setAutocompletionProgress(null);
+            vscode.postMessage({ command: "getContent" } as EditorPostMessages);
         },
         updateTextDirection: (direction) => {
             setTextDirection(direction);
@@ -64,9 +80,12 @@ const CodexCellEditor: React.FC = () => {
         handleCloseEditor();
     };
 
-    const handleSetTextDirection = () => {
-        const newDirection = textDirection === "ltr" ? "rtl" : "ltr";
-        setTextDirection(newDirection);
+    const handleAutocompleteChapter = () => {
+        console.log("Autocomplete chapter");
+        vscode.postMessage({
+            command: "requestAutocompleteChapter",
+            content: translationUnitsForChapter,
+        } as EditorPostMessages);
     };
 
     return (
@@ -78,10 +97,18 @@ const CodexCellEditor: React.FC = () => {
                     setChapterNumber={setChapterNumber}
                     scriptureCellsLength={translationUnitsForChapter?.length || 0}
                     unsavedChanges={!!contentBeingUpdated.content}
-                    onSetTextDirection={handleSetTextDirection}
+                    onAutocompleteChapter={handleAutocompleteChapter}
+                    onSetTextDirection={setTextDirection}
+                    textDirection={textDirection}
                     onSetCellDisplayMode={setCellDisplayMode}
                     cellDisplayMode={cellDisplayMode}
                 />
+                {autocompletionProgress !== null && (
+                    <div className="autocompletion-progress">
+                        <VSCodeProgressRing value={autocompletionProgress * 100} />
+                        <span>{Math.round(autocompletionProgress * 100)}% complete</span>
+                    </div>
+                )}
                 <VerseList
                     translationUnits={translationUnitsForChapter}
                     contentBeingUpdated={contentBeingUpdated}

@@ -1,5 +1,5 @@
 import React from "react";
-import { EditorVerseContent, CustomNotebookData } from "../../../../types";
+import { EditorVerseContent, CodexNotebookAsJSONData } from "../../../../types";
 import VerseEditor from "./VerseEditor";
 import CellContentDisplay from "./CellContentDisplay";
 import EmptyVerseDisplay from "./EmptyVerseDisplay";
@@ -14,7 +14,7 @@ interface VerseListProps {
     }[];
     contentBeingUpdated: EditorVerseContent;
     setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorVerseContent>>;
-    spellCheckResponse: CustomNotebookData;
+    spellCheckResponse: CodexNotebookAsJSONData;
     handleCloseEditor: () => void;
     handleSaveMarkdown: () => void;
     vscode: any;
@@ -78,7 +78,7 @@ const VerseList: React.FC<VerseListProps> = ({
                     />
                 );
                 groupStartIndex = i + 1;
-            } else if (verseContent.trim().length === 0) {
+            } else if (verseContent?.trim()?.length === 0) {
                 if (currentGroup.length > 0) {
                     result.push(renderVerseGroup(currentGroup, groupStartIndex));
                     currentGroup = [];

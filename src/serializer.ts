@@ -2,7 +2,7 @@
 
 import * as vscode from "vscode";
 import { TextDecoder, TextEncoder } from "util";
-import { CustomNotebookData, CustomNotebookCellData } from "../types";
+import { CodexNotebookAsJSONData, CustomNotebookCellData } from "../types";
 
 export interface CodexNotebookDocument extends vscode.NotebookDocument {
     cells: CustomNotebookCellData[];
@@ -24,7 +24,7 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
     async deserializeNotebook(
         data: Uint8Array,
         token: vscode.CancellationToken
-    ): Promise<CustomNotebookData> {
+    ): Promise<CodexNotebookAsJSONData> {
         const contents = new TextDecoder().decode(data); // convert to String
         console.log("contents sdafdsfa", { contents });
         // Read file contents
@@ -46,7 +46,7 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
 
         const notebookData = new vscode.NotebookData(cells);
         notebookData.metadata = raw.metadata || {};
-        return notebookData as CustomNotebookData;
+        return notebookData as CodexNotebookAsJSONData;
     }
 
     async serializeNotebook(

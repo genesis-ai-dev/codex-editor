@@ -9,6 +9,7 @@ interface ChapterNavigationProps {
     unsavedChanges: boolean;
     onAutocompleteChapter: () => void;
     onSetTextDirection: (direction: "ltr" | "rtl") => void;
+    textDirection: "ltr" | "rtl";
     onSetCellDisplayMode: (mode: CELL_DISPLAY_MODES) => void;
     cellDisplayMode: CELL_DISPLAY_MODES;
 }
@@ -20,6 +21,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     unsavedChanges,
     onAutocompleteChapter,
     onSetTextDirection,
+    textDirection,
     onSetCellDisplayMode,
     cellDisplayMode,
 }) => (
@@ -42,7 +44,11 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
             </VSCodeButton>
             <VSCodeButton
                 appearance="icon"
-                onClick={onSetTextDirection}
+                onClick={() =>
+                    onSetTextDirection(
+                        textDirection === "ltr" ? "rtl" : "ltr"
+                    )
+                }
                 disabled={unsavedChanges}
                 title="Set Text Direction"
             >
