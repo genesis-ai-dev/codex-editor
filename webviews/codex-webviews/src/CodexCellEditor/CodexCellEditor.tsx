@@ -12,6 +12,11 @@ import { useVSCodeMessageHandler } from "./hooks/useVSCodeMessageHandler";
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
 
+export enum CELL_DISPLAY_MODES {
+    INLINE = "inline",
+    ONE_LINE_PER_CELL = "one-line-per-cell",
+}
+
 const CodexCellEditor: React.FC = () => {
     const [translationUnits, setTranslationUnits] = useState<CellContent[]>([]);
     const [spellCheckResponse, setSpellCheckResponse] = useState<CustomNotebookData>(
@@ -21,6 +26,10 @@ const CodexCellEditor: React.FC = () => {
         {} as EditorVerseContent
     );
     const [chapterNumber, setChapterNumber] = useState<number>(1);
+    const [textDirection, setTextDirection] = useState<"ltr" | "rtl">("ltr");
+    const [cellDisplayMode, setCellDisplayMode] = useState<CELL_DISPLAY_MODES>(
+        CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
+    );
 
     useVSCodeMessageHandler({
         setContent: setTranslationUnits,
@@ -28,6 +37,9 @@ const CodexCellEditor: React.FC = () => {
         jumpToCell: (cellId) => {
             const chapter = cellId?.split(" ")[1]?.split(":")[0];
             setChapterNumber(parseInt(chapter));
+        },
+        updateTextDirection: (direction) => {
+            setTextDirection(direction);
         },
     });
 
@@ -52,8 +64,13 @@ const CodexCellEditor: React.FC = () => {
         handleCloseEditor();
     };
 
+    const handleSetTextDirection = () => {
+        const newDirection = textDirection === "ltr" ? "rtl" : "ltr";
+        setTextDirection(newDirection);
+    };
+
     return (
-        <div className="codex-cell-editor">
+        <div className="codex-cell-editor" style={{ direction: textDirection }}>
             <h1>{translationUnitsForChapter[0]?.verseMarkers?.[0]?.split(":")[0]}</h1>
             <div className="editor-container">
                 <ChapterNavigation
@@ -61,6 +78,9 @@ const CodexCellEditor: React.FC = () => {
                     setChapterNumber={setChapterNumber}
                     scriptureCellsLength={translationUnitsForChapter?.length || 0}
                     unsavedChanges={!!contentBeingUpdated.content}
+                    onSetTextDirection={handleSetTextDirection}
+                    onSetCellDisplayMode={setCellDisplayMode}
+                    cellDisplayMode={cellDisplayMode}
                 />
                 <VerseList
                     translationUnits={translationUnitsForChapter}
@@ -70,6 +90,8 @@ const CodexCellEditor: React.FC = () => {
                     handleCloseEditor={handleCloseEditor}
                     handleSaveMarkdown={handleSaveMarkdown}
                     vscode={vscode}
+                    textDirection={textDirection}
+                    cellDisplayMode={cellDisplayMode}
                 />
             </div>
         </div>

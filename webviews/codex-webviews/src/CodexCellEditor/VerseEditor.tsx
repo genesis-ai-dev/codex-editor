@@ -13,6 +13,7 @@ interface VerseEditorProps {
     setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorVerseContent>>;
     handleCloseEditor: () => void;
     handleSaveMarkdown: () => void;
+    textDirection: "ltr" | "rtl";
 }
 
 const VerseEditor: React.FC<VerseEditorProps> = ({
@@ -24,6 +25,7 @@ const VerseEditor: React.FC<VerseEditorProps> = ({
     setContentBeingUpdated,
     handleCloseEditor,
     handleSaveMarkdown,
+    textDirection,
 }) => {
     const unsavedChanges = !!(
         contentBeingUpdated.content &&
@@ -33,7 +35,7 @@ const VerseEditor: React.FC<VerseEditorProps> = ({
     );
 
     return (
-        <div className="verse-editor">
+        <div className="verse-editor" style={{ direction: textDirection }}>
             <div className="verse-header">
                 <h3>{verseMarkers.join("-")}</h3>
                 {unsavedChanges ? (
@@ -71,6 +73,7 @@ const VerseEditor: React.FC<VerseEditorProps> = ({
                             content: html.endsWith("\n") ? html : `${html}\n`,
                         });
                     }}
+                    textDirection={textDirection}
                 />
             </div>
         </div>

@@ -12,8 +12,8 @@ const vscode: any = (window as any).vscodeApi;
 // Register the QuillSpellChecker with the VSCode API
 registerQuillSpellChecker(Quill, vscode);
 
-icons["autocomplete"] =
-    '<svg viewBox="0 0 18 18"><text x="4" y="14" font-size="14">✨</text></svg>';
+// Use VSCode icon for autocomplete
+icons["autocomplete"] = `<i class="codicon codicon-sparkle quill-toolbar-icon"></i>`;
 
 export interface EditorContentChanged {
     html: string;
@@ -24,6 +24,7 @@ export interface EditorProps {
     initialValue?: string;
     onChange?: (changes: EditorContentChanged) => void;
     spellCheckResponse?: any;
+    textDirection: "ltr" | "rtl";
 }
 
 const TOOLBAR_OPTIONS = [
@@ -74,9 +75,9 @@ export default function Editor(props: EditorProps) {
                 },
             });
 
-            // Set RTL direction after initialization
-            quill.format("direction", "rtl");
-            quill.format("align", "right");
+            // Set text direction after initialization
+            quill.format("direction", props.textDirection);
+            quill.format("align", props.textDirection === "rtl" ? "right" : "left");
 
             quillRef.current = quill;
 

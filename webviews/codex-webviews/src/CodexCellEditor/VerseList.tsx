@@ -5,7 +5,7 @@ import CellContentDisplay from "./CellContentDisplay";
 import EmptyVerseDisplay from "./EmptyVerseDisplay";
 import "@vscode/codicons/dist/codicon.css"; // Import codicons
 import { CodexCellTypes } from "../../../../types/enums";
-
+import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 interface VerseListProps {
     translationUnits: {
         verseMarkers: string[];
@@ -18,6 +18,8 @@ interface VerseListProps {
     handleCloseEditor: () => void;
     handleSaveMarkdown: () => void;
     vscode: any;
+    textDirection: "ltr" | "rtl";
+    cellDisplayMode: CELL_DISPLAY_MODES;
 }
 
 const VerseList: React.FC<VerseListProps> = ({
@@ -28,9 +30,11 @@ const VerseList: React.FC<VerseListProps> = ({
     handleCloseEditor,
     handleSaveMarkdown,
     vscode,
+    textDirection,
+    cellDisplayMode,
 }) => {
     const renderVerseGroup = (group: typeof translationUnits, startIndex: number) => (
-        <span key={`group-${startIndex}`} className="verse-group">
+        <span key={`group-${startIndex}`} className={`verse-group cell-display-${cellDisplayMode}`}>
             {group.map(({ verseMarkers, verseContent, cellType }, index) => (
                 <CellContentDisplay
                     key={startIndex + index}
@@ -40,6 +44,7 @@ const VerseList: React.FC<VerseListProps> = ({
                     cellType={cellType}
                     setContentBeingUpdated={setContentBeingUpdated}
                     vscode={vscode}
+                    textDirection={textDirection}
                 />
             ))}
         </span>
@@ -69,6 +74,7 @@ const VerseList: React.FC<VerseListProps> = ({
                         setContentBeingUpdated={setContentBeingUpdated}
                         handleCloseEditor={handleCloseEditor}
                         handleSaveMarkdown={handleSaveMarkdown}
+                        textDirection={textDirection}
                     />
                 );
                 groupStartIndex = i + 1;
@@ -83,6 +89,7 @@ const VerseList: React.FC<VerseListProps> = ({
                         verseMarkers={verseMarkers}
                         verseIndex={i}
                         setContentBeingUpdated={setContentBeingUpdated}
+                        textDirection={textDirection}
                     />
                 );
                 groupStartIndex = i + 1;
@@ -98,7 +105,11 @@ const VerseList: React.FC<VerseListProps> = ({
         return result;
     };
 
-    return <div className="verse-list ql-editor">{renderVerses()}</div>;
+    return (
+        <div className="verse-list ql-editor" style={{ direction: textDirection }}>
+            {renderVerses()}
+        </div>
+    );
 };
 
 export default VerseList;

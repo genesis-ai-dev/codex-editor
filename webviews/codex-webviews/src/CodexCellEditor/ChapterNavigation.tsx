@@ -1,5 +1,6 @@
 import React from "react";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 
 interface ChapterNavigationProps {
     chapterNumber: number;
@@ -7,6 +8,9 @@ interface ChapterNavigationProps {
     scriptureCellsLength: number;
     unsavedChanges: boolean;
     onAutocompleteChapter: () => void;
+    onSetTextDirection: (direction: "ltr" | "rtl") => void;
+    onSetCellDisplayMode: (mode: CELL_DISPLAY_MODES) => void;
+    cellDisplayMode: CELL_DISPLAY_MODES;
 }
 
 const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
@@ -15,6 +19,9 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     scriptureCellsLength,
     unsavedChanges,
     onAutocompleteChapter,
+    onSetTextDirection,
+    onSetCellDisplayMode,
+    cellDisplayMode,
 }) => (
     <div className="chapter-navigation">
         <VSCodeButton
@@ -32,6 +39,32 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                 title="Autocomplete Chapter"
             >
                 <i className="codicon codicon-sparkle"></i>
+            </VSCodeButton>
+            <VSCodeButton
+                appearance="icon"
+                onClick={onSetTextDirection}
+                disabled={unsavedChanges}
+                title="Set Text Direction"
+            >
+                <i className="codicon codicon-arrow-swap"></i>
+            </VSCodeButton>
+            <VSCodeButton
+                appearance="icon"
+                onClick={() =>
+                    onSetCellDisplayMode(
+                        cellDisplayMode === CELL_DISPLAY_MODES.INLINE
+                            ? CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
+                            : CELL_DISPLAY_MODES.INLINE
+                    )
+                }
+                disabled={unsavedChanges}
+                title="Toggle Cell Display Mode"
+            >
+                {cellDisplayMode === CELL_DISPLAY_MODES.INLINE ? (
+                    <i className="codicon codicon-symbol-enum"></i>
+                ) : (
+                    <i className="codicon codicon-symbol-constant"></i>
+                )}
             </VSCodeButton>
         </div>
         <VSCodeButton

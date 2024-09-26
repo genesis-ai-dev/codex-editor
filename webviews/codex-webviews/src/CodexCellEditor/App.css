@@ -215,3 +215,13 @@ li {
     opacity: 0.5;
     cursor: not-allowed;
 }
+
+.cell-display-one-line-per-cell {
+    display: flex;
+    flex-direction: column;
+}
+
+.quill-toolbar-icon {
+    height: 100%;
+    color: var(--vscode-button-secondaryForeground);
+}

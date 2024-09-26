@@ -10,6 +10,7 @@ interface CellContentDisplayProps {
     cellType: CodexCellTypes;
     setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorVerseContent>>;
     vscode: any;
+    textDirection: "ltr" | "rtl";
 }
 
 const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
@@ -18,6 +19,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     cellType,
     setContentBeingUpdated,
     vscode,
+    textDirection,
 }) => {
     const handleVerseClick = () => {
         setContentBeingUpdated({
@@ -41,15 +43,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             verseMarkerVerseNumbers[verseMarkerVerseNumbers.length - 1]
         }`;
     }
-    console.log("verseRefForDisplay", {
-        cellIds,
-        cellContent,
-        cellType,
-        setContentBeingUpdated,
-        vscode,
-    });
+    // FIXME: we need to allow for the ref/id to be displayed at the start or end of the cell
     return (
-        <span className="verse-display" onClick={handleVerseClick}>
+        <span className="verse-display" onClick={handleVerseClick} style={{ direction: textDirection }}>
             {cellType === CodexCellTypes.TEXT && <sup>{verseRefForDisplay}</sup>}
             <span
                 dangerouslySetInnerHTML={{
