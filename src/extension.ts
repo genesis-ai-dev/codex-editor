@@ -50,7 +50,7 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand("myExtension.openSourceUpload", () => {
             const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
             if (workspaceFolder) {
-                const uri = vscode.Uri.parse(`sourceUploadProvider-scheme:Virtual Document`);
+                const uri = vscode.Uri.parse(`sourceUploadProvider-scheme:Upload Document`);
                 vscode.commands.executeCommand(
                     "vscode.openWith",
                     uri,
