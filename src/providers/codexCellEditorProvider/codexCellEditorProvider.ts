@@ -5,7 +5,7 @@ import * as path from "path";
 import { getUri } from "../translationNotes/utilities/getUri";
 import { initializeStateStore } from "../../stateStore";
 import { fetchCompletionConfig } from "../translationSuggestions/inlineCompletionsProvider";
-import { CodexContentSerializer } from "../../serializer";
+import { CodexContentSerializer, CodexNotebookReader } from "../../serializer";
 import { workspaceStoreListener } from "../../utils/workspaceEventListener";
 import { llmCompletion } from "../translationSuggestions/llmCompletion";
 import { CodexCellTypes, EditType } from "../../../types/enums";
@@ -367,41 +367,41 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
     // ) {
     //     this.updateCellContentAndMetadata(document, data.verseMarkers[0], data.content, editType);
 
-        // const currentContent = JSON.parse(document.getText()) as CodexNotebookAsJSONData;
-        // // FIXME: Using the deserializing using the custom codex deserializer causes errors if used here
+    // const currentContent = JSON.parse(document.getText()) as CodexNotebookAsJSONData;
+    // // FIXME: Using the deserializing using the custom codex deserializer causes errors if used here
 
-        // const edit = new vscode.WorkspaceEdit();
+    // const edit = new vscode.WorkspaceEdit();
 
-        // const indexOfCellToUpdate = currentContent.cells.findIndex(
-        //     (cell) => cell.metadata?.id === data.verseMarkers[0]
-        // );
+    // const indexOfCellToUpdate = currentContent.cells.findIndex(
+    //     (cell) => cell.metadata?.id === data.verseMarkers[0]
+    // );
 
-        // if (indexOfCellToUpdate === -1) {
-        //     throw new Error("Could not find cell to update");
-        // }
-        // const cellToUpdate = currentContent.cells[indexOfCellToUpdate];
+    // if (indexOfCellToUpdate === -1) {
+    //     throw new Error("Could not find cell to update");
+    // }
+    // const cellToUpdate = currentContent.cells[indexOfCellToUpdate];
 
-        // cellToUpdate.value = data.content;
+    // cellToUpdate.value = data.content;
 
-        // if (!cellToUpdate.metadata.edits) {
-        //     cellToUpdate.metadata.edits = [];
-        // }
+    // if (!cellToUpdate.metadata.edits) {
+    //     cellToUpdate.metadata.edits = [];
+    // }
 
-        // cellToUpdate.metadata.edits.push({
-        //     cellValue: data.content,
-        //     timestamp: Date.now(),
-        //     type: EditType.USER_EDIT,
-        // });
+    // cellToUpdate.metadata.edits.push({
+    //     cellValue: data.content,
+    //     timestamp: Date.now(),
+    //     type: EditType.USER_EDIT,
+    // });
 
-        // // Just replace the entire document every time for this example extension.
-        // // A more complete extension should compute minimal edits instead.
-        // edit.replace(
-        //     document.uri,
-        //     new vscode.Range(0, 0, document.lineCount, 0),
-        //     JSON.stringify(currentContent, null, 2)
-        // );
+    // // Just replace the entire document every time for this example extension.
+    // // A more complete extension should compute minimal edits instead.
+    // edit.replace(
+    //     document.uri,
+    //     new vscode.Range(0, 0, document.lineCount, 0),
+    //     JSON.stringify(currentContent, null, 2)
+    // );
 
-        // return vscode.workspace.applyEdit(edit);
+    // return vscode.workspace.applyEdit(edit);
     // }
 
     // private updateMetadataEditsWithLLMResponse(
@@ -482,10 +482,10 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
         try {
             // Fetch completion configuration
             const completionConfig = await fetchCompletionConfig();
-
+            const notebookReader = new CodexNotebookReader(documentUri);
             // Perform LLM completion
             const result = await llmCompletion(
-                documentUri,
+                notebookReader,
                 currentCellId,
                 completionConfig,
                 new vscode.CancellationTokenSource().token
@@ -514,8 +514,6 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
         webviewPanel: vscode.WebviewPanel,
         currentChapterTranslationUnits: QuillCellContent[]
     ) {
-        const document = await vscode.workspace.openTextDocument(documentUri);
-
         for (let i = 0; i < currentChapterTranslationUnits.length; i++) {
             const cell = currentChapterTranslationUnits[i];
 
@@ -530,7 +528,7 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
 
             try {
                 // Perform LLM completion for the current cell
-                const completionResult = await this.performLLMCompletion(documentUri, cellId);
+                await this.performLLMCompletion(documentUri, cellId);
 
                 // Send an update to the webview
                 this.postMessageToWebview(webviewPanel, {
@@ -547,6 +545,9 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                 console.error(`Error autocompleting cell ${cellId}:`, error);
                 vscode.window.showErrorMessage(`Failed to autocomplete cell ${cellId}`);
             }
+
+            const debounceTimeToAllowIndexesToSettle = 1000;
+            await new Promise((resolve) => setTimeout(resolve, debounceTimeToAllowIndexesToSettle));
         }
 
         // Send a final update to indicate completion

@@ -86,9 +86,9 @@ export class CodexNotebookReader {
         }
     }
 
-    async getCells(): Promise<CustomNotebookCellData[]> {
+    async getCells(): Promise<vscode.NotebookCell[]> {
         await this.ensureNotebookDocument();
-        return this.notebookDocument!.getCells() as unknown as CustomNotebookCellData[];
+        return this.notebookDocument!.getCells();
     }
 
     async getCellIndex(props: { cell?: vscode.NotebookCell; id?: string }): Promise<number> {
@@ -99,22 +99,22 @@ export class CodexNotebookReader {
         );
     }
 
-    async cellAt(index: number): Promise<CustomNotebookCellData | undefined> {
+    async cellAt(index: number): Promise<vscode.NotebookCell | undefined> {
         const cells = await this.getCells();
         return cells[index];
     }
 
-    async cellsUpTo(index: number): Promise<CustomNotebookCellData[]> {
+    async cellsUpTo(index: number): Promise<vscode.NotebookCell[]> {
         const cells = await this.getCells();
         return cells.slice(0, index);
     }
 
     // Check if the cell is a range marker
-    isRangeCell(cell: CustomNotebookCellData | undefined): boolean {
-        if (!cell || cell.value === undefined) {
-            return false; // If cell or its value is undefined, it's not a range cell
+    isRangeCell(cell: vscode.NotebookCell | undefined): boolean {
+        if (!cell) {
+            return false; // If cell is undefined, it's not a range cell
         }
-        return cell.value.trim() === "<range>";
+        return cell.document.getText().trim() === "<range>";
     }
 
     // Get the full content for a cell, accounting for ranges
@@ -159,12 +159,12 @@ export class CodexNotebookReader {
             currentIndex = Math.max(0, cellIndex - 1);
         }
 
-        content += cells[currentIndex]?.value || "";
+        content += cells[currentIndex]?.document.getText() || "";
 
         // Check for subsequent range markers
         let nextIndex = currentIndex + 1;
         while (nextIndex < cells.length && this.isRangeCell(cells[nextIndex])) {
-            content += " " + (cells[nextIndex]?.value || "");
+            content += " " + (cells[nextIndex]?.document.getText() || "");
             nextIndex++;
         }
 

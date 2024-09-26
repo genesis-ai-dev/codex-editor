@@ -3,23 +3,19 @@ import { CompletionConfig } from "./inlineCompletionsProvider";
 import { callLLM } from "../../utils/llmUtils";
 import { ChatMessage, MiniSearchVerseResult, TranslationPair } from "../../../types";
 import { CodexNotebookReader } from "../../serializer";
+import { CodexCellTypes } from "../../../types/enums";
 
 export async function llmCompletion(
-    documentUri: vscode.Uri,
+    currentNotebookReader: CodexNotebookReader,
     currentCellId: string,
     completionConfig: CompletionConfig,
     token: vscode.CancellationToken
 ): Promise<string> {
     const { contextSize, numberOfFewShotExamples, debugMode, chatSystemMessage } = completionConfig;
 
-    if (!documentUri) {
-        throw new Error(`No document URI provided in llmCompletion().`);
-    }
     if (!currentCellId) {
         throw new Error("Current cell has no ID in llmCompletion().");
     }
-
-    const currentNotebookReader = new CodexNotebookReader(documentUri);
 
     // Get the source content for the current verse(s)
     const currentCellIndex = await currentNotebookReader.getCellIndex({ id: currentCellId });
@@ -59,7 +55,7 @@ export async function llmCompletion(
 
     // Filter preceding cells to only include text cells
     const textPrecedingCells = precedingCells.filter(
-        (cell) => cell.metadata?.type === "text" && cell.metadata?.id !== currentCellId
+        (cell) => cell.metadata?.type === CodexCellTypes.TEXT && cell.metadata?.id !== currentCellId
     );
 
     // The logic to get preceding translation pairs needs to account for range cells
