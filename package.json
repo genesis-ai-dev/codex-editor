@@ -717,8 +717,8 @@
                 "category": "Codex Project Management"
             },
             {
-                "command": "myExtension.openVirtualDocument",
-                "title": "Open Virtual Document"
+                "command": "myExtension.openSourceUpload",
+                "title": "Open Source Upload"
             }
         ],
         "notebooks": [
@@ -1019,11 +1019,11 @@
         ],
         "customEditors": [
             {
-                "viewType": "codex.sourceUploadEditor",
+                "viewType": "sourceUploadProvider",
                 "displayName": "Source Upload Editor",
                 "selector": [
                     {
-                        "scheme": "sourceUploadProvider-scheme"
+                        "filenamePattern": "*.sourceupload"
                     }
                 ],
                 "priority": "default"
