@@ -23,9 +23,7 @@ export function registerClientCommands(
             "translators-copilot.getSimilarWords",
             async (word: string) => {
                 if (client) {
-                    return client.sendRequest("server.getSimilarWords", [
-                        word,
-                    ]);
+                    return client.sendRequest("server.getSimilarWords", [word]);
                 }
             }
         )

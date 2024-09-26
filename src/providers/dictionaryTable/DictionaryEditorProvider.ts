@@ -94,6 +94,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
                         "No"
                     );
                     if (confirmed === "Yes") {
+                        await this.updateTextDocument(document, e.data);
                         webviewPanel.webview.postMessage({
                             command: "providerTellsWebviewRemoveConfirmed",
                         } as DictionaryReceiveMessages);

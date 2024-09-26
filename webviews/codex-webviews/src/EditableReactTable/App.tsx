@@ -20,7 +20,6 @@ import { TableColumn, TableData, TableEntry } from "./tableTypes";
 import debounce from "lodash/debounce";
 
 function reducer(state: any, action: any) {
-    console.log("Reducer action:", action);
     switch (action.type) {
         case ActionTypes.ADD_OPTION_TO_COLUMN:
             const optionIndex = state.columns.findIndex(
@@ -44,7 +43,6 @@ function reducer(state: any, action: any) {
 
         case ActionTypes.ADD_ROW:
             const newId = generateUniqueId(state.data);
-            console.log("New state after ADD_ROW:", state);
             return update(state, {
                 skipReset: { $set: true },
                 data: { $push: [{ id: newId }] },
@@ -246,7 +244,6 @@ function reducer(state: any, action: any) {
             };
 
         case ActionTypes.RESIZE_COLUMN_WIDTHS:
-            console.log("Resizing columns to", action.minWidth);
             return {
                 ...state,
                 columns: state.columns.map((column: any) =>
@@ -302,7 +299,6 @@ function App() {
 
     useEffect(() => {
         dispatch({ type: ActionTypes.ENABLE_RESET });
-        console.log("Data changed");
     }, [state.data, state.columns]);
 
     let lastSentDictionary: Dictionary = {
@@ -365,12 +361,10 @@ function App() {
 
     useEffect(() => {
         const handleReceiveMessage = (event: MessageEvent<DictionaryReceiveMessages>) => {
-            console.log("Received event:", event);
             const message = event.data;
             switch (message.command) {
                 case "providerTellsWebviewToUpdateData": {
                     let dictionary: Dictionary = message.data;
-                    console.log("Dictionary received from update:", dictionary);
 
                     if (!dictionary.entries) {
                         dictionary = {
@@ -381,7 +375,6 @@ function App() {
 
                     // Add a check to prevent unnecessary updates
                     if (JSON.stringify(state.dictionary) !== JSON.stringify(dictionary)) {
-                        console.log("Dictionary before transformation:", dictionary);
                         const tableData = transformToTableData(dictionary);
                         dispatch({
                             type: ActionTypes.LOAD_DATA,
@@ -431,13 +424,20 @@ function App() {
         const checkedRowsCount = state.data.filter(
             (row: any) => row[Constants.CHECKBOX_COLUMN_ID]
         ).length;
+        const dictionaryData: Dictionary = transformToDictionaryFormat(
+            {
+                data: state.data,
+                columns: state.columns,
+            },
+            state.dictionary
+        );
         vscode.postMessage({
             command: "webviewAsksProviderToConfirmRemove",
             count: checkedRowsCount,
+            data: dictionaryData,
         } as DictionaryPostMessages);
     };
     const deleteOptionShouldShow = state.data.some((row: any) => row[Constants.CHECKBOX_COLUMN_ID]);
-    // console.log({ state });
 
     const [searchQuery, setSearchQuery] = useState("");
 

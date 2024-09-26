@@ -364,7 +364,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     const getWordFrequenciesCommand = vscode.commands.registerCommand(
         "translators-copilot.getWordFrequencies",
         async (): Promise<Array<{ word: string; frequency: number }>> => {
-            vscode.window.showInformationMessage(`Getting word frequencies`);
             return getWordFrequencies(wordsIndex);
         }
     );

@@ -109,7 +109,7 @@ type ChatPostMessages =
 type DictionaryPostMessages =
     | { command: "sendData"; data: Dictionary }
     | { command: "webviewTellsProviderToUpdateData"; data: Dictionary }
-    | { command: "webviewAsksProviderToConfirmRemove"; count: number }
+    | { command: "webviewAsksProviderToConfirmRemove"; count: number; data: Dictionary }
     | { command: "updateEntryCount"; count: number }
     | { command: "updateFrequentWords"; words: string[] }
     | {

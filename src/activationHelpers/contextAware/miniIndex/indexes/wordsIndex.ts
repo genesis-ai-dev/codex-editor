@@ -45,7 +45,6 @@ export async function initializeWordsIndex(
     console.log(`Unique words indexed: ${wordIndex.size}`);
     console.log(`Sample of indexed words:`, Array.from(wordIndex.keys()).slice(0, 10));
 
-    vscode.window.showInformationMessage(`Indexed ${wordIndex.size} unique words.`);
     return wordIndex;
 }
 

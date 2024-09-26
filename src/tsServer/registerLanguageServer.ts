@@ -43,6 +43,10 @@ export async function registerLanguageServer(
     try {
         await client.start().then(() => {
             context.subscriptions.push(client);
+            // Listen for custom notifications from the server
+            client.onNotification("custom/dictionaryUpdated", () => {
+                vscode.commands.executeCommand("dictionaryTable.dictionaryUpdated");
+            });
             console.log("Codex Copilot Language Server started successfully.");
         });
     } catch (error) {

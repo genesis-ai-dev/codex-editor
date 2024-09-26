@@ -23,8 +23,10 @@ import { cleanWord } from "../utils/cleaningUtils";
 export class SpellChecker {
     private dictionary: Dictionary | null = null;
     private dictionaryPath: string;
+    private dictionaryWatcher: fs.FSWatcher | null = null;
+    private connection: Connection | null = null;
 
-    constructor(workspaceFolder: string | undefined) {
+    constructor(workspaceFolder: string | undefined, connection: Connection | null = null) {
         if (workspaceFolder) {
             const folderUri = URI.parse(workspaceFolder);
             this.dictionaryPath = path.join(folderUri.fsPath, "files", "project.dictionary");
@@ -35,6 +37,8 @@ export class SpellChecker {
         console.log("Dictionary path: " + this.dictionaryPath);
         this.ensureDictionaryExists();
         this.initializeDictionary();
+        this.watchDictionary();
+        this.connection = connection;
     }
 
     async initializeDictionary() {
@@ -249,6 +253,26 @@ export class SpellChecker {
             .split("")
             .reduce((acc, char) => acc + char.charCodeAt(0), 0)
             .toString();
+    }
+
+    private watchDictionary() {
+        this.dictionaryWatcher = fs.watch(this.dictionaryPath, async (eventType, filename) => {
+            if (eventType === "change") {
+                console.log("Dictionary file changed. Reloading...");
+                await this.loadDictionary();
+                if (this.connection) {
+                    this.connection.sendNotification("custom/dictionaryUpdated");
+                }
+            }
+        });
+    }
+
+    // Add a method to stop watching when necessary
+    public stopWatchingDictionary() {
+        if (this.dictionaryWatcher) {
+            this.dictionaryWatcher.close();
+            this.dictionaryWatcher = null;
+        }
     }
 }
 

@@ -44,15 +44,18 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
             "index.js"
         )
     );
-    const styleUri = webviewView.webview.asWebviewUri(
-        vscode.Uri.joinPath(
-            extensionUri,
-            "webviews",
-            "codex-webviews",
-            "dist",
-            "SemanticView",
-            "index.css"
-        )
+    // const styleUri = webviewView.webview.asWebviewUri(
+    //     vscode.Uri.joinPath(
+    //         extensionUri,
+    //         "webviews",
+    //         "codex-webviews",
+    //         "dist",
+    //         "SemanticView",
+    //         "index.css"
+    //     )
+    // );
+    const codiconsUri = webviewView.webview.asWebviewUri(
+        vscode.Uri.joinPath(extensionUri, "node_modules", "@vscode/codicons", "dist", "codicon.css")
     );
     function getNonce() {
         let text = "";
@@ -77,11 +80,11 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="${styleResetUri}" rel="stylesheet">
     <link href="${styleVSCodeUri}" rel="stylesheet">
-    <link href="${styleUri}" rel="stylesheet">
+    <link href="${codiconsUri}" rel="stylesheet" />
     <script nonce="${nonce}">
       // const vsCodeApi = acquireVsCodeApi();
       const apiBaseUrl = ${JSON.stringify("http://localhost:3002")}
-    </script>
+    </link>
     </head>
     <body>
     <div id="root"></div>
