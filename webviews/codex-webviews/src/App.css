@@ -5,3 +5,28 @@ main {
     align-items: flex-start;
     height: 100%;
 }
+
+.chapter-navigation {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    width: 100%;
+}
+
+.chapter-navigation-group {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.autocompletion-progress {
+    width: 100%;
+    margin-bottom: 1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.autocompletion-progress vscode-progress-ring {
+    margin-bottom: 0.5rem;
+}
