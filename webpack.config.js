@@ -11,6 +11,7 @@ const path = require("path");
 
 /** @type WebpackConfig */
 const extensionConfig = {
+    name: "extension",
     target: "node", // VS Code extensions run in a Node.js-context 📖 -> https://webpack.js.org/configuration/node/
     mode: "none", // this leaves the source code as close as possible to the original (when packaging we set this to 'production')
 
@@ -63,10 +64,8 @@ const extensionConfig = {
     },
 };
 
-console.log("Server entry point:", path.resolve(__dirname, "src/tsServer/server.ts"));
-console.log("Server output path:", path.resolve(__dirname, "out/server.js"));
-
 const serverConfig = {
+    name: "server",
     target: "node",
     mode: "none",
     entry: "./src/tsServer/server.ts",
