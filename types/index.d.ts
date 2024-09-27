@@ -1,7 +1,6 @@
 import { Dictionary, LanguageMetadata } from "codex-types";
 import * as vscode from "vscode";
 import { ScriptureTSV } from "./TsvTypes";
-import { ParsedUSFM } from "./usfm-grammar";
 
 interface ChatMessage {
     role: "system" | "user" | "assistant";

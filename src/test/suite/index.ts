@@ -1,5 +1,5 @@
 import * as path from "path";
-import glob = require("glob");
+import glob from "glob";
 import Mocha = require("mocha");
 
 export function run(): Promise<void> {
@@ -11,6 +11,7 @@ export function run(): Promise<void> {
 
     const testsRoot = path.resolve(__dirname, "..");
     return new Promise((resolve, reject) => {
+        // @ts-expect-error - glob is not typed or something is wrong with the types package
         glob("**/**.test.js", { cwd: testsRoot }, (err: Error | null, files: string[]) => {
             if (err) {
                 reject(err);

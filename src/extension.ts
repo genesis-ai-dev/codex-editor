@@ -17,11 +17,14 @@ import {
     migration_changeDraftFolderToFilesFolder,
 } from "./projectManager/utils/migrationUtils";
 import { createIndexWithContext } from "./activationHelpers/contextAware/miniIndex/indexes";
+import { registerSourceUploadCommands } from "./providers/SourceUpload/registerCommands";
 
 let client: LanguageClient | undefined;
 let clientCommandsDisposable: vscode.Disposable;
 
 export async function activate(context: vscode.ExtensionContext) {
+    registerSourceUploadCommands(context);
+
     registerProjectManager(context);
     registerCodeLensProviders(context);
     registerTextSelectionHandler(context, () => undefined);
@@ -29,6 +32,28 @@ export async function activate(context: vscode.ExtensionContext) {
     await registerCommands(context);
     await initializeBibleData(context);
     await initializeWebviews(context);
+    // context.subscriptions.push(
+    //     vscode.window.registerCustomEditorProvider(
+    //         SourceUploadProvider.viewType,
+    //         new SourceUploadProvider(context),
+    //         {
+    //             supportsMultipleEditorsPerDocument: false,
+    //             webviewOptions: {
+    //                 retainContextWhenHidden: true,
+    //             },
+    //         }
+    //     )
+    // );
+
+    // vscode.commands.registerCommand("myExtension.openVirtualDocument", () => {
+    //     const uri = vscode.Uri.parse("sourceupload:Source Upload");
+    //     vscode.commands.executeCommand("vscode.openWith", uri, SourceUploadProvider.viewType);
+    // });
+
+    // const sourceUploadProvider = new SourceUploadProvider(context);
+    // context.subscriptions.push(
+    //     vscode.workspace.registerTextDocumentContentProvider("sourceupload", sourceUploadProvider)
+    // );
 
     client = await registerLanguageServer(context);
 

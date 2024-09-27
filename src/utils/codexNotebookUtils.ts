@@ -7,8 +7,8 @@ import { getAllBookRefs, getAllBookChapterRefs, getAllVrefs } from ".";
 import { vrefData } from "./verseRefUtils/verseData";
 import { LanguageProjectStatus } from "codex-types";
 import { extractVerseRefFromLine, verseRefRegex } from "./verseRefUtils";
-import grammar from "usfm-grammar";
-import { ParsedUSFM } from "../../types/usfm-grammar";
+
+import grammar, { ParsedUSFM } from "usfm-grammar";
 
 export const NOTEBOOK_TYPE = "codex-type";
 
@@ -307,7 +307,9 @@ export async function importLocalUsfmSourceBible() {
                         )
                         .map(
                             (verse: any) =>
-                                `${bookCode} ${chapter.chapterNumber}:${verse.verseNumber} ${verse.verseText || verse.text}`
+                                `${bookCode} ${chapter.chapterNumber}:${verse.verseNumber} ${
+                                    verse.verseText || verse.text
+                                }`
                         )
                 );
 
@@ -316,7 +318,9 @@ export async function importLocalUsfmSourceBible() {
             } catch (error) {
                 console.error(`Error processing file ${fileName}:`, error);
                 vscode.window.showErrorMessage(
-                    `Error processing file ${fileName}: ${error instanceof Error ? error.message : String(error)}`
+                    `Error processing file ${fileName}: ${
+                        error instanceof Error ? error.message : String(error)
+                    }`
                 );
             }
         }
