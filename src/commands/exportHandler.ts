@@ -19,26 +19,42 @@ export async function exportCodexContent() {
 
         for (const file of codexFiles) {
             const notebookDocument = await vscode.workspace.openNotebookDocument(file);
-            const cells = notebookDocument
-                .getCells()
-                .filter((cell) => cell.kind === vscode.NotebookCellKind.Code)
-                .map((cell) => cell.document.getText());
+            const cells = notebookDocument.getCells();
 
-            const processedContent = cells
-                .map((cell) => {
-                    const lines = cell.split("\n");
-                    return lines
-                        .filter((line) => {
-                            const verseRef = extractVerseRefFromLine(line);
-                            return !(verseRef && line.trim() === verseRef);
-                        })
-                        .join("\n");
-                })
-                .filter((cellContent) => cellContent.trim() !== "")
-                .join("\n\n");
+            let currentChapter = "";
+            let chapterContent = "";
 
-            if (processedContent.trim() !== "") {
-                allContent += processedContent + "\n\n";
+            for (const cell of cells) {
+                if (cell.kind === vscode.NotebookCellKind.Code) {
+                    const cellMetadata = cell.metadata as { type: string; id: string };
+
+                    if (
+                        cellMetadata.type === "paratext" &&
+                        cell.document.getText().startsWith("<h1>")
+                    ) {
+                        // This is a chapter heading cell
+                        if (chapterContent) {
+                            allContent += chapterContent + "\n\n";
+                        }
+                        currentChapter = cell.document
+                            .getText()
+                            .replace(/<\/?h1>/g, "")
+                            .trim();
+                        chapterContent = `${currentChapter}\n`;
+                    } else if (cellMetadata.type === "text" && cellMetadata.id) {
+                        // This is a verse cell
+                        const verseRef = cellMetadata.id;
+                        const verseContent = cell.document.getText().trim();
+                        if (verseContent) {
+                            chapterContent += `${verseRef} ${verseContent}\n`;
+                        }
+                    }
+                }
+            }
+
+            // Add the last chapter's content
+            if (chapterContent) {
+                allContent += chapterContent + "\n\n";
             }
         }
 
@@ -56,3 +72,5 @@ export async function exportCodexContent() {
         vscode.window.showErrorMessage(`Export failed: ${error}`);
     }
 }
+
+// TODO: Add an html export - one file per chapter.. perhaps a default css file if needed. last part of id as superscript. Only show ids on TEXT rather than PARATEXT cells.
