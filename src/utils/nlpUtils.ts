@@ -22,7 +22,7 @@ export function tokenizeText({ method, text }: TokenizeTextOptions): string[] {
         case "lines":
             return text.split(/\n+/);
         case "lines_and_punctuation":
-            return text.match(/[^\n]+|[^\w\s]/g) || [];
+            return text.split(/\n/).flatMap(line => line.match(/\w+|[^\w\s]/g) || []);
         default:
             return text.split(/\s+/);
     }

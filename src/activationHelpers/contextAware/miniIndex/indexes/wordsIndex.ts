@@ -69,28 +69,7 @@ export async function getWordsAboveThreshold(
         const data = Buffer.from(fileContent).toString("utf-8");
 
         if (data) {
-            try {
-                // Try parsing as JSONL first
-                const entries = data
-                    .split("\n")
-                    .filter((line) => line.trim().length > 0)
-                    .map((line) => JSON.parse(line));
-                dictionaryWords = entries.map((entry: any) => entry.headWord?.toLowerCase() || "");
-            } catch (jsonlError) {
-                try {
-                    // If JSONL parsing fails, try parsing as a single JSON object
-                    const dictionary = JSON.parse(data);
-                    if (Array.isArray(dictionary.entries)) {
-                        dictionaryWords = dictionary.entries.map(
-                            (entry: any) => entry.headWord?.toLowerCase() || ""
-                        );
-                    } else {
-                        throw new Error("Invalid JSON format: missing or invalid entries array.");
-                    }
-                } catch (jsonError) {
-                    console.error("Could not parse dictionary as JSONL or JSON:", jsonError);
-                }
-            }
+            dictionaryWords = parseDictionaryData(data);
         }
     } catch (error) {
         console.error("Error reading dictionary file:", error);
@@ -102,6 +81,30 @@ export async function getWordsAboveThreshold(
                 frequency >= threshold && !dictionaryWords.includes(word?.toLowerCase() || "")
         )
         .map(([word, _]) => word);
+}
+
+function parseDictionaryData(data: string): string[] {
+    try {
+        // Try parsing as JSONL first
+        const entries = data
+            .split("\n")
+            .filter((line) => line.trim().length > 0)
+            .map((line) => JSON.parse(line));
+        return entries.map((entry: any) => entry.headWord?.toLowerCase() || "");
+    } catch (jsonlError) {
+        try {
+            // If JSONL parsing fails, try parsing as a single JSON object
+            const dictionary = JSON.parse(data);
+            if (Array.isArray(dictionary.entries)) {
+                return dictionary.entries.map((entry: any) => entry.headWord?.toLowerCase() || "");
+            } else {
+                throw new Error("Invalid JSON format: missing or invalid entries array.");
+            }
+        } catch (jsonError) {
+            console.error("Could not parse dictionary as JSONL or JSON:", jsonError);
+            return [];
+        }
+    }
 }
 
 export function getWordFrequencies(wordIndex: Map<string, number>): WordFrequency[] {

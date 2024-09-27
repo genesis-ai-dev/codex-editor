@@ -372,7 +372,7 @@ export async function importLocalUsfmSourceBible() {
     for (const verse of bibleContent) {
         const [bookCode, chapterVerse, ...textParts] = verse.split(" ");
         const [chapter, verseNumber] = chapterVerse.split(":");
-        const text = textParts.join(" ");
+        const text = textParts?.join(" ") || "";
 
         if (!testament && vrefData[bookCode]) {
             testament = vrefData[bookCode].testament as "OT" | "NT";
