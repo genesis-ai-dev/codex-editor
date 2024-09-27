@@ -1,9 +1,15 @@
 import { useEffect } from "react";
-import {
-    QuillCellContent,
-    CodexNotebookAsJSONData,
-    EditorReceiveMessages,
-} from "../../../../../types";
+import { Dispatch, SetStateAction } from "react";
+import { QuillCellContent, SpellCheckResponse } from "../../../../../types";
+
+interface UseVSCodeMessageHandlerProps {
+    setContent: Dispatch<SetStateAction<QuillCellContent[]>>;
+    setSpellCheckResponse: Dispatch<SetStateAction<SpellCheckResponse | null>>;
+    jumpToCell: (cellId: string) => void;
+    updateCell: (data: { cellId: string; newContent: string; progress: number }) => void;
+    autocompleteChapterComplete: () => void;
+    updateTextDirection: (direction: "ltr" | "rtl") => void;
+}
 
 export const useVSCodeMessageHandler = ({
     setContent,
@@ -12,42 +18,37 @@ export const useVSCodeMessageHandler = ({
     updateCell,
     autocompleteChapterComplete,
     updateTextDirection,
-}: {
-    setContent: React.Dispatch<React.SetStateAction<QuillCellContent[]>>;
-    setSpellCheckResponse: React.Dispatch<React.SetStateAction<CodexNotebookAsJSONData>>;
-    jumpToCell: (cellId: string) => void;
-    updateCell: (data: { cellId: string; newContent: string; progress: number }) => void;
-    autocompleteChapterComplete: () => void;
-    updateTextDirection: (direction: "ltr" | "rtl") => void;
-}) => {
+}: UseVSCodeMessageHandlerProps) => {
     useEffect(() => {
-        const messageListener = (event: MessageEvent<EditorReceiveMessages>) => {
+        const handler = (event: MessageEvent) => {
             const message = event.data;
             switch (message.type) {
-                case "jumpToSection": {
-                    jumpToCell(message.content);
-                    break;
-                }
                 case "providerSendsInitialContent":
                     setContent(message.content);
                     break;
                 case "providerSendsSpellCheckResponse":
                     setSpellCheckResponse(message.content);
                     break;
-                case "providerUpdatesCell":
-                    // updateCell(message.content);
+                case "jumpToCell":
+                    jumpToCell(message.cellId);
                     break;
-                case "providerCompletesChapterAutocompletion":
+                case "updateCell":
+                    updateCell(message.data);
+                    break;
+                case "autocompleteChapterComplete":
                     autocompleteChapterComplete();
                     break;
-                case "providerUpdatesTextDirection":
-                    updateTextDirection(message.textDirection);
+                case "updateTextDirection":
+                    updateTextDirection(message.direction);
                     break;
             }
         };
 
-        window.addEventListener("message", messageListener);
-        return () => window.removeEventListener("message", messageListener);
+        window.addEventListener("message", handler);
+
+        return () => {
+            window.removeEventListener("message", handler);
+        };
     }, [
         setContent,
         setSpellCheckResponse,

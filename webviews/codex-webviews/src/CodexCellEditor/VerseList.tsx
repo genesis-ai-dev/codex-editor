@@ -1,5 +1,5 @@
 import React from "react";
-import { EditorVerseContent, CodexNotebookAsJSONData } from "../../../../types";
+import { EditorVerseContent, SpellCheckResponse } from "../../../../types";
 import VerseEditor from "./VerseEditor";
 import CellContentDisplay from "./CellContentDisplay";
 import EmptyVerseDisplay from "./EmptyVerseDisplay";
@@ -14,7 +14,7 @@ interface VerseListProps {
     }[];
     contentBeingUpdated: EditorVerseContent;
     setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorVerseContent>>;
-    spellCheckResponse: CodexNotebookAsJSONData;
+    spellCheckResponse: SpellCheckResponse | null;
     handleCloseEditor: () => void;
     handleSaveMarkdown: () => void;
     vscode: any;

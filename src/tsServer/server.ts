@@ -22,8 +22,10 @@ import {
 } from "./spellCheck";
 import { WordSuggestionProvider } from "./forecasting";
 import { URI } from "vscode-uri";
+import { tokenizeText } from "../utils/nlpUtils";
 
 const DEBUG_MODE = false; // Flag for debug mode
+const TOKENIZE_METHOD_SHOULD_BE_SET_IN_CONFIG = "words";
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
@@ -187,7 +189,10 @@ connection.onExecuteCommand(async (params) => {
 
 connection.onRequest("spellcheck/check", async (params: { text: string }) => {
     debugLog("SERVER: Received spellcheck/check request:", { params });
-    const words = params.text.split(/\s+/);
+    const words = tokenizeText({
+        method: TOKENIZE_METHOD_SHOULD_BE_SET_IN_CONFIG,
+        text: params.text,
+    });
     debugLog(`Checking spelling for words: ${words}`);
     const matches = words
         .map((word, index) => {
@@ -211,7 +216,7 @@ connection.onRequest("spellcheck/check", async (params: { text: string }) => {
         })
         .filter((match) => match !== null);
 
-    debugLog(`Returning matches: ${matches}`);
+    debugLog(`Returning matches: ${JSON.stringify(matches)}`);
     return matches;
 });
 

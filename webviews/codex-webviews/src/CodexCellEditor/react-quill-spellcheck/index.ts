@@ -46,10 +46,7 @@ export class QuillSpellChecker {
      * @param quill Instance of the Qill editor.
      * @param params Options for the QuillSpellChecker instance.
      */
-    constructor(
-        public quill: Quill,
-        public params: QuillSpellCheckerParams
-    ) {
+    constructor(public quill: Quill, public params: QuillSpellCheckerParams) {
         debug("spell-checker-debug: QuillSpellChecker constructor", {
             quill,
             params,
@@ -246,7 +243,7 @@ export class QuillSpellChecker {
                 return new Promise((resolve, reject) => {
                     const messageListener = (event: MessageEvent) => {
                         const message = event.data;
-                        if (message.type === "from-provider-getSpellCheckResponse") {
+                        if (message.type === "providerSendsSpellCheckResponse") {
                             window.removeEventListener("message", messageListener);
                             debug(
                                 "spell-checker-debug: from-provider-getSpellCheckResponse",
@@ -271,7 +268,7 @@ export class QuillSpellChecker {
                     setTimeout(() => {
                         window.removeEventListener("message", messageListener);
                         reject(new Error("Spell check request timed out"));
-                    }, 5000); // 5 second timeout
+                    }, 10000); // 5 second timeout
                 });
             } else {
                 return null;

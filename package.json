@@ -746,12 +746,14 @@
                         "default": "",
                         "description": "Category of the project",
                         "enum": [
+                            "Translation",
                             "Scripture",
                             "Gloss",
                             "Parascriptural",
                             "Peripheral"
                         ],
                         "enumDescriptions": [
+                            "Translation projects.",
                             "Projects focused on scripture texts.",
                             "Projects focused on glossaries or dictionaries.",
                             "Projects related to parascriptural materials.",

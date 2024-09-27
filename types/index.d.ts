@@ -226,7 +226,7 @@ type EditorReceiveMessages =
           content: { cellId: string; progress: number };
       }
     | { type: "providerCompletesChapterAutocompletion" }
-    | { type: "providerSendsSpellCheckResponse"; content: CodexNotebookAsJSONData }
+    | { type: "providerSendsSpellCheckResponse"; content: SpellCheckResponse }
     | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl" }
     | { type: "providerSendsLLMCompletionResponse"; content: { completion: string } }
     | { type: "jumpToSection"; content: string };
@@ -253,6 +253,16 @@ interface QuillCellContent {
     verseContent: string;
     cellType: import("./enums").CodexCellTypes;
 }
+
+interface SpellCheckResponse {
+    id: string;
+    text: string;
+    replacements: Array<{ value: string }>;
+    offset: number;
+    length: number;
+}
+
+type SpellCheckResult = SpellCheckResponse[];
 
 /* This is the project overview that populates the project manager webview */
 interface ProjectOverview {

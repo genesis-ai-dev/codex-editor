@@ -15,6 +15,7 @@ import {
     EditorPostMessages,
     EditorReceiveMessages,
     EditorVerseContent,
+    SpellCheckResponse,
 } from "../../../types";
 
 function getNonce(): string {
@@ -120,10 +121,7 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                             );
                             this.postMessageToWebview(webviewPanel, {
                                 type: "providerSendsSpellCheckResponse",
-                                content: response as CodexNotebookAsJSONData,
-                            });
-                            console.log("from-provider-getSpellCheckResponse response", {
-                                response,
+                                content: response as SpellCheckResponse,
                             });
                         } catch (error) {
                             console.error("Error during spell check:", error);

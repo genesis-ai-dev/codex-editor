@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
 import {
     QuillCellContent,
-    CodexNotebookAsJSONData,
     EditorPostMessages,
     EditorVerseContent,
+    SpellCheckResponse,
 } from "../../../../types";
 import ChapterNavigation from "./ChapterNavigation";
 import VerseList from "./VerseList";
@@ -20,9 +20,7 @@ export enum CELL_DISPLAY_MODES {
 
 const CodexCellEditor: React.FC = () => {
     const [translationUnits, setTranslationUnits] = useState<QuillCellContent[]>([]);
-    const [spellCheckResponse, setSpellCheckResponse] = useState<CodexNotebookAsJSONData>(
-        {} as CodexNotebookAsJSONData
-    );
+    const [spellCheckResponse, setSpellCheckResponse] = useState<SpellCheckResponse | null>(null);
     const [contentBeingUpdated, setContentBeingUpdated] = useState<EditorVerseContent>(
         {} as EditorVerseContent
     );
@@ -35,7 +33,7 @@ const CodexCellEditor: React.FC = () => {
 
     useVSCodeMessageHandler({
         setContent: setTranslationUnits,
-        setSpellCheckResponse,
+        setSpellCheckResponse: setSpellCheckResponse,
         jumpToCell: (cellId) => {
             const chapter = cellId?.split(" ")[1]?.split(":")[0];
             setChapterNumber(parseInt(chapter));
