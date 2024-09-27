@@ -4,6 +4,7 @@ import { verseRefRegex } from "../../../../utils/verseRefUtils";
 import { StatusBarHandler } from "../statusBarHandler";
 import { getWorkSpaceUri } from "../../../../utils";
 import { FileData } from "./fileReaders";
+import { debounce } from "lodash"; // Make sure to import lodash
 
 export interface minisearchDoc {
     id: string;
@@ -230,18 +231,28 @@ export async function createTranslationPairsIndex(
         return null;
     }
 
-    // Subscriptions
+    // Debounced function for indexing
+    const debouncedIndexDocument = debounce(async (doc: vscode.TextDocument) => {
+        const targetVerseMap = new Map<string, string>();
+        await indexDocument(doc, targetVerseMap, translationPairsIndex);
+    }, 3000); // 500ms debounce time, adjust as needed
 
+    // Subscriptions
     context.subscriptions.push(
-        // vscode.workspace.onDidChangeTextDocument(debouncedUpdateIndex),
         vscode.workspace.onDidOpenTextDocument(async (doc) => {
             if (doc.languageId === "scripture" || doc.fileName.endsWith(".codex")) {
-                await indexDocument(doc, new Map<string, string>(), translationPairsIndex);
+                await debouncedIndexDocument(doc);
             }
         }),
         vscode.workspace.onDidCloseTextDocument(async (doc) => {
             if (doc.languageId === "scripture" || doc.fileName.endsWith(".codex")) {
-                await indexDocument(doc, new Map<string, string>(), translationPairsIndex);
+                await debouncedIndexDocument(doc);
+            }
+        }),
+        vscode.workspace.onDidChangeTextDocument(async (event) => {
+            const doc = event.document;
+            if (doc.languageId === "scripture" || doc.fileName.endsWith(".codex")) {
+                await debouncedIndexDocument(doc);
             }
         })
     );

@@ -1,6 +1,6 @@
 "use strict";
 import * as vscode from "vscode";
-import { getWorkSpaceFolder } from "../../../../utils";
+import { getWorkSpaceFolder, getWorkSpaceUri } from "../../../../utils";
 import { StatusBarHandler } from "../statusBarHandler";
 import { createTranslationPairsIndex } from "./translationPairsIndex";
 import { createSourceBibleIndex } from "./sourceBibleIndex";
@@ -25,22 +25,24 @@ import {
 import { initializeWordsIndex, getWordFrequencies, getWordsAboveThreshold } from "./wordsIndex";
 import { updateCompleteDrafts } from "../indexingUtils";
 import { readSourceAndTargetFiles } from "./fileReaders";
+import { debounce } from "lodash";
 
 type WordFrequencyMap = Map<string, number>;
 
-export async function createIndexWithContext(context: vscode.ExtensionContext) {
-    const workspaceFolder = getWorkSpaceFolder();
-    const statusBarHandler = StatusBarHandler.getInstance();
-    context.subscriptions.push(statusBarHandler);
+async function isDocumentAlreadyOpen(uri: vscode.Uri): Promise<boolean> {
+    const openTextDocuments = vscode.workspace.textDocuments;
+    return openTextDocuments.some((doc) => doc.uri.toString() === uri.toString());
+}
 
-    const config = vscode.workspace.getConfiguration("translators-copilot-server");
-    const isCopilotEnabled = config.get<boolean>("enable", true);
-    if (!isCopilotEnabled) {
-        vscode.window.showInformationMessage(
-            "Translators Copilot Server is disabled. Language server not activated."
-        );
+export async function createIndexWithContext(context: vscode.ExtensionContext) {
+    const workspaceUri = getWorkSpaceUri();
+    if (!workspaceUri) {
+        console.error("No workspace folder found. Aborting index creation.");
         return;
     }
+
+    const statusBarHandler = StatusBarHandler.getInstance();
+    context.subscriptions.push(statusBarHandler);
 
     const translationPairsIndex = new MiniSearch({
         fields: ["vref", "book", "chapter", "sourceContent", "targetContent"],
@@ -73,6 +75,44 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     });
 
     let wordsIndex: WordFrequencyMap = new Map<string, number>();
+
+    const debouncedRebuildIndexes = debounce(rebuildIndexes, 3000, {
+        leading: true,
+        trailing: true,
+    });
+
+    // Debounced functions for individual indexes
+    const debouncedUpdateTranslationPairsIndex = debounce(async (doc: vscode.TextDocument) => {
+        if (!(await isDocumentAlreadyOpen(doc.uri))) {
+            const { sourceFiles, targetFiles } = await readSourceAndTargetFiles();
+            await createTranslationPairsIndex(
+                context,
+                translationPairsIndex,
+                sourceFiles,
+                targetFiles
+            );
+        }
+    }, 3000);
+
+    const debouncedUpdateSourceBibleIndex = debounce(async (doc: vscode.TextDocument) => {
+        if (!(await isDocumentAlreadyOpen(doc.uri))) {
+            const { sourceFiles } = await readSourceAndTargetFiles();
+            await createSourceBibleIndex(sourceBibleIndex, sourceFiles);
+        }
+    }, 3000);
+
+    const debouncedUpdateWordsIndex = debounce(async (doc: vscode.TextDocument) => {
+        if (!(await isDocumentAlreadyOpen(doc.uri))) {
+            const { targetFiles } = await readSourceAndTargetFiles();
+            wordsIndex = await initializeWordsIndex(wordsIndex, targetFiles);
+        }
+    }, 3000);
+
+    const debouncedUpdateZeroDraftIndex = debounce(async (uri: vscode.Uri) => {
+        if (!(await isDocumentAlreadyOpen(uri))) {
+            await createZeroDraftIndex(zeroDraftIndex, zeroDraftIndex.documentCount === 0);
+        }
+    }, 3000);
 
     async function rebuildIndexes(force: boolean = false) {
         statusBarHandler.setIndexingActive();
@@ -133,9 +173,27 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     // Define individual command variables
     const onDidSaveTextDocument = vscode.workspace.onDidSaveTextDocument(async (document) => {
         if (document.fileName.endsWith(".codex")) {
-            await rebuildIndexes();
+            await debouncedRebuildIndexes();
         }
     });
+
+    const onDidChangeTextDocument = vscode.workspace.onDidChangeTextDocument(async (event) => {
+        const doc = event.document;
+        if (doc.languageId === "scripture" || doc.fileName.endsWith(".codex")) {
+            debouncedUpdateTranslationPairsIndex(doc);
+            debouncedUpdateSourceBibleIndex(doc);
+            debouncedUpdateWordsIndex(doc);
+        }
+    });
+
+    const zeroDraftFolder = vscode.Uri.joinPath(workspaceUri || "", "files", "zero_drafts");
+    const zeroDraftWatcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(zeroDraftFolder, "*.{jsonl,json,tsv,txt}")
+    );
+    zeroDraftWatcher.onDidChange(debouncedUpdateZeroDraftIndex);
+    zeroDraftWatcher.onDidCreate(debouncedUpdateZeroDraftIndex);
+    // FIXME: need to remove deleted docs
+    // zeroDraftWatcher.onDidDelete(async (uri) => await removeFromIndex(uri, zeroDraftIndex));
 
     const searchTargetVersesByQueryCommand = vscode.commands.registerCommand(
         "translators-copilot.searchTargetVersesByQuery",
@@ -471,6 +529,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         ...[
             onDidSaveTextDocument,
+            onDidChangeTextDocument,
+            zeroDraftWatcher,
             searchTargetVersesByQueryCommand,
             getTranslationPairsFromSourceVerseQueryCommand,
             getSourceVerseByVrefFromAllSourceVersesCommand,

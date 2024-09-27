@@ -18,7 +18,7 @@ import {
 } from "./projectManager/utils/migrationUtils";
 import { createIndexWithContext } from "./activationHelpers/contextAware/miniIndex/indexes";
 
-let client: LanguageClient;
+let client: LanguageClient | undefined;
 let clientCommandsDisposable: vscode.Disposable;
 
 export async function activate(context: vscode.ExtensionContext) {

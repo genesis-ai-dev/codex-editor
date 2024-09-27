@@ -13,6 +13,7 @@ export async function createSourceBibleIndex(
     // Get the primary source Bible setting
     const config = vscode.workspace.getConfiguration("codex-project-manager");
     const primarySourceBible = config.get<string>("primarySourceBible");
+    // FIXME: this whole index needs to be refactored for generic source texts
 
     let selectedSourceFile: FileData | undefined;
 
@@ -39,17 +40,23 @@ export async function createSourceBibleIndex(
         }
     }
 
-    const documents = Array.from(verseMap.entries()).map(([vref, { content, version }]) => ({
-        id: vref,
-        vref,
-        content,
-        versions: [version],
-    }));
+    // Instead of clearing and re-adding all documents, update only changed ones
+    for (const [vref, { content, version }] of verseMap.entries()) {
+        const existingDoc: Record<string, any> | undefined = sourceBibleIndex.getStoredFields(vref);
+        if (!existingDoc || existingDoc.content !== content || !existingDoc.versions.includes(version)) {
+            if (existingDoc) {
+                sourceBibleIndex.remove(vref as any);
+            }
+            sourceBibleIndex.add({
+                vref,
+                content,
+                versions: [version],
+            });
+        }
+    }
 
-    sourceBibleIndex.removeAll(); // Clear existing index before adding new documents
-    sourceBibleIndex.addAll(documents);
     console.log(
-        `Source Bible index created with ${sourceBibleIndex.documentCount} verses from ${version}`
+        `Source Bible index updated with ${sourceBibleIndex.documentCount} verses from ${version}`
     );
 
     return sourceBibleIndex;

@@ -19,12 +19,12 @@ export async function initializeWordsIndex(
     initialWordIndex: Map<string, number>,
     targetFiles: FileData[]
 ): Promise<Map<string, number>> {
-    const wordIndex = new Map<string, number>();
+    const wordIndex = new Map<string, number>(initialWordIndex);
     let totalWords = 0;
 
     for (const file of targetFiles) {
         for (const cell of file.cells) {
-            if (cell.metadata?.type === "text" && cell.value.trim() !== "") {
+            if (cell.metadata?.type === "text" && cell.value?.trim() !== "") {
                 const words = tokenizeText({
                     method: METHOD_SHOULD_BE_STORED_IN_CONFIG,
                     text: cell.value,
@@ -43,7 +43,6 @@ export async function initializeWordsIndex(
 
     console.log(`Total words processed: ${totalWords}`);
     console.log(`Unique words indexed: ${wordIndex.size}`);
-    console.log(`Sample of indexed words:`, Array.from(wordIndex.keys()).slice(0, 10));
 
     return wordIndex;
 }

@@ -86,10 +86,11 @@ export async function llmCompletion(
                 .join(" ");
 
             const cellContent = await currentNotebookReader.getEffectiveCellContent(cellIndex);
-            const cellContentWithoutHTMLTags = cellContent.replace(/<[^>]*?>/g, "").trim();
+            const cellContentWithoutHTMLTags =
+                cellContent.replace(/<[^>]*?>/g, "").trim() ||
+                "[not translated yet; do not try to translate this cell but focus on the final cell below]";
 
             const result = `${cellIds.join(", ")}: ${combinedSourceContent} -> ${cellContentWithoutHTMLTags}`;
-            console.log("precedingTranslationPairs", result);
             return result;
         })
     );
