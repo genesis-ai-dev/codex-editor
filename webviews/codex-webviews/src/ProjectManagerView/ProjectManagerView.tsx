@@ -9,6 +9,17 @@ import { ProjectOverview } from "../../../../types";
 
 const vscode = acquireVsCodeApi();
 
+// Add this helper function at the top of the file, outside of the App component
+const getLanguageDisplay = (languageObj: any): string => {
+    if (!languageObj) return "Missing";
+    if (typeof languageObj === "string") return languageObj;
+    if (languageObj.name && typeof languageObj.name === "object") {
+        const name = languageObj.name.en || Object.values(languageObj.name)[0];
+        return languageObj.tag ? `${name} (${languageObj.tag})` : name;
+    }
+    return "Unknown";
+};
+
 function App() {
     const [projectOverview, setProjectOverview] = useState<ProjectOverview | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -205,9 +216,7 @@ function App() {
                                     : "var(--vscode-errorForeground)",
                             }}
                         >
-                            {projectOverview.sourceLanguage
-                                ? Object.entries(projectOverview.sourceLanguage)[0][1]
-                                : "Missing"}
+                            {getLanguageDisplay(projectOverview.sourceLanguage)}
                             {!projectOverview.sourceLanguage && (
                                 <i
                                     className="codicon codicon-warning"
@@ -232,9 +241,7 @@ function App() {
                                     : "var(--vscode-errorForeground)",
                             }}
                         >
-                            {projectOverview.targetLanguage
-                                ? Object.entries(projectOverview.targetLanguage)[0][1]
-                                : "Missing"}
+                            {getLanguageDisplay(projectOverview.targetLanguage)}
                             {!projectOverview.targetLanguage && (
                                 <i
                                     className="codicon codicon-warning"
