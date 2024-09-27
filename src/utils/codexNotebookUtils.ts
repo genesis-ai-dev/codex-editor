@@ -8,6 +8,7 @@ import { vrefData } from "./verseRefUtils/verseData";
 import { LanguageProjectStatus } from "codex-types";
 import { extractVerseRefFromLine, verseRefRegex } from "./verseRefUtils";
 import grammar from "usfm-grammar";
+import { ParsedUSFM } from "../../types/usfm-grammar";
 
 export const NOTEBOOK_TYPE = "codex-type";
 
@@ -286,8 +287,11 @@ export async function importLocalUsfmSourceBible() {
             console.log(`File content length: ${fileContent.byteLength} bytes`);
 
             try {
-                const usfmParser = new grammar.USFMParser(new TextDecoder().decode(fileContent));
-                const jsonOutput = usfmParser.toJSON() as any as ParsedUSFM;
+                const relaxedUsfmParser = new grammar.USFMParser(
+                    new TextDecoder().decode(fileContent),
+                    grammar.LEVEL.RELAXED
+                );
+                const jsonOutput = relaxedUsfmParser.toJSON() as any as ParsedUSFM;
                 console.log(
                     `Parsed JSON output for ${fileName}:`,
                     JSON.stringify(jsonOutput, null, 2)
