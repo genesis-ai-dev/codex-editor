@@ -13,6 +13,7 @@ import {
     getBibleDataRecordById,
     TheographicBibleDataRecord,
 } from "../../activationHelpers/contextAware/sourceData";
+import { initializeStateStore } from "../../stateStore";
 
 const config = vscode.workspace.getConfiguration("translators-copilot");
 const endpoint = config.get("llmEndpoint"); // NOTE: config.endpoint is reserved so we must have unique name
@@ -317,6 +318,31 @@ export class CustomWebviewProvider {
     }
 
     resolveWebviewView(webviewView: vscode.WebviewView) {
+        // Add this block to listen to the shared state store
+        initializeStateStore().then(({ storeListener }) => {
+            const disposeFunction = storeListener("verseRef", async (value) => {
+                if (value) {
+                    // get source verse content
+                    const sourceCellContent = await vscode.commands.executeCommand(
+                        "translators-copilot.getSourceVerseByVrefFromAllSourceVerses",
+                        value.verseRef
+                    );
+
+                    webviewView.webview.postMessage({
+                        command: "verseRefUpdate",
+                        data: {
+                            verseRef: value.verseRef,
+                            uri: value.uri,
+                            sourceCellContent,
+                        },
+                    } as ChatPostMessages);
+                }
+            });
+            webviewView.onDidDispose(() => {
+                disposeFunction();
+            });
+        });
+
         loadWebviewHtml(webviewView, this._extensionUri);
         webviewView.webview.postMessage({
             command: "reload",
@@ -492,6 +518,22 @@ export class CustomWebviewProvider {
                         } else {
                             console.error("Vref not found in message text");
                         }
+                        break;
+                    }
+                    case "getCurrentVerseRef": {
+                        initializeStateStore().then(({ getStoreState }) => {
+                            getStoreState("verseRef").then((value) => {
+                                if (value) {
+                                    webviewView.webview.postMessage({
+                                        command: "verseRefUpdate",
+                                        data: {
+                                            verseRef: value.verseRef,
+                                            uri: value.uri,
+                                        },
+                                    } as ChatPostMessages);
+                                }
+                            });
+                        });
                         break;
                     }
                     default:

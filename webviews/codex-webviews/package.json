@@ -24,6 +24,7 @@
         "watch:ParallelView": "nodemon --watch src --ext ts,tsx,css --exec npm run build:ParallelView",
         "watch:DictionarySidePanel": "nodemon --watch src --ext ts,tsx,css --exec npm run build:DictionarySidePanel",
         "watch:EditableReactTable": "nodemon --watch src --ext ts,tsx,css --exec npm run build:EditableReactTable",
+        "watch:ProjectManagerView": "nodemon --watch src --ext ts,tsx,css --exec npm run build:ProjectManagerView",
         "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
         "preview": "vite preview"
     },

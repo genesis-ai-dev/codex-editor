@@ -104,7 +104,9 @@ type ChatPostMessages =
     | { command: "abort-fetch" }
     | { command: "openSettings" }
     | { command: "openContextItem"; text: string }
-    | { command: "verseGraphData"; data: string[] };
+    | { command: "verseGraphData"; data: string[] }
+    | { command: "verseRefUpdate"; data: VerseRefGlobalState & { sourceCellContent: string } }
+    | { command: "getCurrentVerseRef" };
 
 type DictionaryPostMessages =
     | { command: "sendData"; data: Dictionary }

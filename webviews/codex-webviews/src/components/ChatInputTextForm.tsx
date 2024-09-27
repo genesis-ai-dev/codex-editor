@@ -56,10 +56,7 @@ export const ChatInputTextForm: React.FC<CommentTextFormProps> = ({
                             width: "100%",
                         }}
                     >
-                        <i
-                            className="codicon codicon-whole-word"
-                            title="Selected Text Indicator"
-                        ></i>
+                        <i className="codicon codicon-book" title="Selected Text Indicator"></i>
                         <VSCodeTextArea
                             readOnly
                             title="Selected Text"

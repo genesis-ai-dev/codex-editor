@@ -24,14 +24,14 @@ function messageWithContext({
     selectedText?: string;
     contextItems?: string[];
 }): ChatMessageWithContext {
-    let content = `### Instructions:\nPlease use the context below to respond to the user's message. If you know the answer, be concise. If the answer is in the context, please quote the wording of the source. If the answer is not in the context, avoid making up anything, but you can use general Bible knowledge from a devout Christian perspective.`;
+    let content = `### Instructions:\nPlease use the context below to respond to the user's message. If you know the answer, be concise. If the answer is in the context, please quote the wording of the source. If the answer is not in the context, avoid making up anything, but you can use general knowledge from a devout Christian perspective.`;
 
     if (selectedText || (contextItems && contextItems?.length > 0)) {
         content += `\n\n### Context:`;
     }
 
     if (selectedText) {
-        content += `\nThe user has selected the following text in their current document:\n${selectedText}`;
+        content += `\nThe user has most recently selected the following cell to translate. Here is the source text they are translating for context:\n${selectedText}`;
     }
 
     if (contextItems && contextItems?.length > 0) {
@@ -55,27 +55,10 @@ function messageWithContext({
 }
 
 function App() {
-    // const systemMessage: ChatMessageWithContext = {
-    //   role: "system",
-    //   content:
-    //     "This is a chat between a helpful Bible translation assistant and a Bible translator. The assistant will provide helpful answers and suggestions to the translator, often relying on the translator's current project and reference resources. The translator will ask questions and provide context to the assistant. The translator's aim is to be consistent and faithful in a fairly literalistic rendering of the source text.",
-    //   createdAt: new Date().toISOString(),
-    //   // TODO: allow user to modify the system message
-    // };
-    // const dummyUserMessage: ChatMessageWithContext = {
-    //   role: "user",
-    //   content: "How do we normally translate cases like this?",
-    //   createdAt: new Date().toISOString(),
-    // };
-    // const dummyAssistantMessage: ChatMessageWithContext = {
-    //   role: "assistant",
-    //   content: "Let me check your current translation drafts...",
-    //   createdAt: new Date().toISOString(),
-    // };
+    
     const [pendingMessage, setPendingMessage] = useState<ChatMessageWithContext>();
     const [selectedTextContext, setSelectedTextContext] = useState<string>("");
     const [currentlyActiveVref, setCurrentlyActiveVref] = useState<string>("");
-    // const [currentVerseNotes, setCurrentVerseNotes] = useState<string>('');
     const [contextItems, setContextItems] = useState<string[]>([]); // TODO: fetch from RAG server
     const [messageLog, setMessageLog] = useState<ChatMessageWithContext[]>([
         // systemMessage,
@@ -184,6 +167,7 @@ function App() {
             case "select":
                 // FIXME: this is being invoked every time a new token is rendered
                 if (message.textDataWithContext) {
+                    // FIXME: this needs to use the new codex notebook format
                     const {
                         completeLineContent,
                         selectedText,
@@ -265,6 +249,13 @@ function App() {
                     ) {
                         setMessageLog(messageThreadForContext.messages);
                     }
+                }
+                break;
+            case "verseRefUpdate":
+                if (message.data) {
+                    const { verseRef, sourceCellContent } = message.data;
+                    setCurrentlyActiveVref(verseRef);
+                    setSelectedTextContext(JSON.stringify(sourceCellContent));
                 }
                 break;
             default:
