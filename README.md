@@ -82,7 +82,7 @@ pnpm i # if you're using pnpm, or npm install if you're using npm
 ## build the codex-webviews
 codex-editor % cd webviews/codex-webviews
 codex-webviews % pnpm i
-codex-webviews % pnpm run build
+codex-webviews % pnpm run build:all
 
 ## build the dictionary-side-panel
 codex-webviews % cd ../dictionary-side-panel
