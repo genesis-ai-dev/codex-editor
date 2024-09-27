@@ -16,6 +16,11 @@ export class SourceUploadProvider
 
     constructor(private readonly context: vscode.ExtensionContext) {}
 
+    public async resolveCustomDocument(
+        document: vscode.CustomDocument,
+        cancellationToken: vscode.CancellationToken
+    ): Promise<void> {}
+
     provideTextDocumentContent(uri: vscode.Uri): string {
         return "Source Upload Provider Content";
     }

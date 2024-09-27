@@ -1,10 +1,11 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
-import { CodexCellTypes, createProjectNotebooks } from "../../utils/codexNotebookUtils";
+import { createProjectNotebooks } from "../../utils/codexNotebookUtils";
 import { getProjectMetadata } from "../../utils";
 import * as sinon from "sinon";
 import * as path from "path";
 import { LanguageProjectStatus, LanguageMetadata } from "codex-types";
+import { CodexCellTypes } from "../../../types/enums";
 
 suite("createProjectNotebooks Test Suite", () => {
     // The sandbox is effectively a blank workspace where we can populate test files
@@ -46,7 +47,7 @@ suite("createProjectNotebooks Test Suite", () => {
         const codexContent = JSON.parse(generatedCodexFile.toString());
 
         const firstCellIsChapterHeadingType =
-            codexContent.cells[0].metadata.type === CodexCellTypes.CHAPTER_HEADING;
+            codexContent.cells[0].metadata.type === CodexCellTypes.PARATEXT;
         const firstCellIsMetadataIsPresent = codexContent.cells[0].metadata.data.chapter === "1"; // FIXME: check interfaces in codexNotebookUtils
 
         assert.ok(

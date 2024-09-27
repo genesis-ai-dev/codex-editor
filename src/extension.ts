@@ -17,48 +17,13 @@ import {
     migration_changeDraftFolderToFilesFolder,
 } from "./projectManager/utils/migrationUtils";
 import { createIndexWithContext } from "./activationHelpers/contextAware/miniIndex/indexes";
-import { SourceUploadProvider } from "./providers/SourceUpload/SourceUploadProvider";
-import SourceUploadDocumentProvider from "./providers/SourceUpload/SourceUploadDocumentProvider";
+import { registerSourceUploadCommands } from "./providers/SourceUpload/registerCommands";
 
 let client: LanguageClient | undefined;
 let clientCommandsDisposable: vscode.Disposable;
 
 export async function activate(context: vscode.ExtensionContext) {
-    const sourceUploadProvider = new SourceUploadProvider(context);
-
-    context.subscriptions.push(
-        vscode.window.registerCustomEditorProvider(
-            SourceUploadProvider.viewType,
-            sourceUploadProvider,
-            {
-                supportsMultipleEditorsPerDocument: false,
-                webviewOptions: {
-                    retainContextWhenHidden: true,
-                },
-            }
-        )
-    );
-
-    context.subscriptions.push(
-        vscode.workspace.registerTextDocumentContentProvider(
-            "sourceUploadProvider-scheme",
-            new SourceUploadDocumentProvider()
-        )
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand("myExtension.openSourceUpload", () => {
-            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-            if (workspaceFolder) {
-                const uri = vscode.Uri.parse(`sourceUploadProvider-scheme:Upload Document`);
-                vscode.commands.executeCommand(
-                    "vscode.openWith",
-                    uri,
-                    SourceUploadProvider.viewType
-                );
-            }
-        })
-    );
+    registerSourceUploadCommands(context);
 
     registerProjectManager(context);
     registerCodeLensProviders(context);

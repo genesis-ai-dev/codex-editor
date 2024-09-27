@@ -1023,7 +1023,8 @@
                 "displayName": "Source Upload Editor",
                 "selector": [
                     {
-                        "filenamePattern": "*.sourceupload"
+                        "filenamePattern": "*",
+                        "scheme": "sourceUploadProvider-scheme"
                     }
                 ],
                 "priority": "default"
@@ -1071,16 +1072,14 @@
     },
     "scripts": {
         "vscode:prepublish": "npm run build:webviews && npm run compile",
-        "compile": "tsc -p ./ && webpack --config webpack.config.js --display-error-details && webpack --config webpack.config.js --config-name server",
+        "compile": "tsc -p ./ && webpack --config webpack.config.js && webpack --config webpack.config.js --config-name server",
         "watch": "webpack --watch",
         "package": "webpack --mode production --devtool hidden-source-map",
         "lint": "eslint src --ext ts",
         "pretest": "npm run compile && npm run lint",
         "test": "node ./out/test/runTest.js",
         "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
-        "build:table": "cd webviews/editable-react-table && npm run build",
-        "build:dictionary-side": "cd webviews/dictionary-side-panel && npm run build",
-        "build:webviews": "cd webviews/codex-webviews && pnpm run build:all && cd ../dictionary-side-panel && pnpm run build && cd ../editable-react-table && pnpm run build && cd ../usfm-viewer && pnpm run build && cd ../.."
+        "build:webviews": "cd webviews/codex-webviews && pnpm run build:all && cd ../usfm-viewer && pnpm run build && cd ../.."
     },
     "devDependencies": {
         "@babel/plugin-proposal-private-property-in-object": "^7.16.7",
@@ -1148,8 +1147,7 @@
         "vscode-uri": "^3.0.8"
     },
     "overrides": {
-        "minimatch": "5.1.2",
-        "glob": "8.1.0"
+        "minimatch": "5.1.2"
     },
     "extensionDependencies": [
         "project-accelerate.shared-state-store",
