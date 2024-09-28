@@ -7,12 +7,8 @@ import { initializeProjectMetadata } from "./utils/projectUtils";
 async function simpleOpen(uri: string, context: vscode.ExtensionContext) {
     try {
         const parsedUri = vscode.Uri.parse(uri);
-        if (parsedUri.toString().includes(".codex")) {
-            vscode.commands.executeCommand(
-                "vscode.openWith",
-                parsedUri,
-                "codex-editor-extension.codex.cellEditor"
-            );
+        if (parsedUri.toString().endsWith(".codex") || parsedUri.toString().endsWith(".source")) {
+            vscode.commands.executeCommand("vscode.openWith", parsedUri, "codex.cellEditor");
         } else {
             const document = await vscode.workspace.openTextDocument(parsedUri);
             await vscode.window.showTextDocument(document);
@@ -178,9 +174,9 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                     await this.createNewProject();
                     break;
                 case "openBible":
-                    vscode.window.showInformationMessage(
-                        `Opening bible: ${JSON.stringify(message)}`
-                    );
+                    // vscode.window.showInformationMessage(
+                    //     `Opening source text: ${JSON.stringify(message)}`
+                    // );
                     simpleOpen(message.data.path, this._context);
                     break;
                 case "webviewReady":
