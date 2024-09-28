@@ -61,8 +61,12 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
             enableScripts: true,
         };
         const textDirection = this.getTextDirection();
-        const isSourceText = document.uri.fsPath.endsWith('.source');
-        webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview, textDirection, isSourceText);
+        const isSourceText = document.uri.fsPath.endsWith(".source");
+        webviewPanel.webview.html = this.getHtmlForWebview(
+            webviewPanel.webview,
+            textDirection,
+            isSourceText
+        );
 
         const updateWebview = () => {
             const notebookData: vscode.NotebookData = this.getDocumentAsJson(document);
@@ -211,6 +215,18 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                         }
                         return;
                     }
+                    case "updateTextDirection": {
+                        console.log("updateTextDirection message received", {
+                            direction: e.direction,
+                        });
+                        try {
+                            await this.updateNotebookMetadata(document, e.direction);
+                        } catch (error) {
+                            console.error("Error updating notebook metadata:", error);
+                            vscode.window.showErrorMessage("Failed to update notebook metadata.");
+                        }
+                        return;
+                    }
                     // case "getCompletionConfig": {
                     //     const config = await fetchCompletionConfig();
                     //     webviewPanel.webview.postMessage({
@@ -282,7 +298,11 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
     /**
      * Get the static html used for the editor webviews.
      */
-    private getHtmlForWebview(webview: vscode.Webview, textDirection: string, isSourceText: boolean): string {
+    private getHtmlForWebview(
+        webview: vscode.Webview,
+        textDirection: string,
+        isSourceText: boolean
+    ): string {
         const styleResetUri = webview.asWebviewUri(
             vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "reset.css")
         );
@@ -617,5 +637,24 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
         message: EditorReceiveMessages
     ) {
         webviewPanel.webview.postMessage(message);
+    }
+
+    private async updateNotebookMetadata(document: vscode.TextDocument, textDirection: string) {
+        const currentContent = JSON.parse(document.getText()) as CodexNotebookAsJSONData;
+
+        // Update the notebook metadata
+        if (!currentContent.metadata) {
+            currentContent.metadata = {};
+        }
+        currentContent.metadata.textDirection = textDirection as "ltr" | "rtl";
+
+        const edit = new vscode.WorkspaceEdit();
+        edit.replace(
+            document.uri,
+            new vscode.Range(0, 0, document.lineCount, 0),
+            JSON.stringify(currentContent, null, 2)
+        );
+
+        await vscode.workspace.applyEdit(edit);
     }
 }

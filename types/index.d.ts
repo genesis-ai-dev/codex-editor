@@ -217,7 +217,8 @@ type EditorPostMessages =
           content: { currentLineId: string };
       }
     | { command: "llmCompletion"; content: { currentLineId: string } }
-    | { command: "requestAutocompleteChapter"; content: QuillCellContent[] };
+    | { command: "requestAutocompleteChapter"; content: QuillCellContent[] }
+    | { command: "updateTextDirection"; direction: "ltr" | "rtl" };
 
 type EditorReceiveMessages =
     | { type: "providerSendsInitialContent"; content: QuillCellContent[]; isSourceText: boolean }
@@ -243,7 +244,8 @@ type CustomNotebookCellData = vscode.NotebookCellData & {
 
 type CodexNotebookAsJSONData = vscode.NotebookDocument & {
     metadata: vscode.NotebookData["metadata"] & {
-        id: string;
+        [key: string]: any;
+        textDirection?: "ltr" | "rtl";
     };
     cells: CustomNotebookCellData[];
 };

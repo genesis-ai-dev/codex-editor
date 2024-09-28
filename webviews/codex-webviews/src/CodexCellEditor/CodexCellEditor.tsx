@@ -67,6 +67,14 @@ const CodexCellEditor: React.FC = () => {
         setIsSourceText((window as any).initialData?.isSourceText || false);
     }, []);
 
+    useEffect(() => {
+        // Send the text direction to the extension whenever it changes
+        vscode.postMessage({
+            command: "updateTextDirection",
+            direction: textDirection
+        } as EditorPostMessages);
+    }, [textDirection]);
+
     const translationUnitsForChapter = translationUnits.filter((verse) => {
         const verseMarker = verse?.verseMarkers?.[0];
         const chapterVerseParts = verseMarker?.split(" ")?.[1]?.split(":");
