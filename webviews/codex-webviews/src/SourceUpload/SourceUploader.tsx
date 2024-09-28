@@ -44,21 +44,6 @@ const SourceUploader: React.FC = () => {
         }
     };
 
-    const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-        e.preventDefault();
-        const formData = new FormData(e.currentTarget);
-        const splitOptions = formData.getAll("splitOptions") as SplitOption[];
-        const file = formData.get("file") as File;
-        console.log({ file, fileContent });
-        if (file && fileContent) {
-            vscode.postMessage({
-                command: "uploadFile",
-                content: fileContent,
-                options: splitOptions,
-            });
-        }
-    };
-
     const deriveSplitOptions = (splitOption: SplitOption) => {
         switch (splitOption) {
             case SplitOption.Paragraph: {
@@ -97,51 +82,41 @@ const SourceUploader: React.FC = () => {
     // };
     return (
         <div>
-            <form
-                className="source-uploader"
-                onSubmit={handleSubmit}
-                style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "1em",
-                    padding: "1em",
-                }}
-            >
-                <h1>Upload a Source File</h1>
-                <input
-                    type="file"
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleFileChange(e)}
-                />
-                {/* <button onClick={handleUpload}>Upload</button> */}
-                {selectedFile && (
-                    <>
-                        <p>Selected File: {selectedFile.name}</p>
-                        <VSCodeTextArea
-                            readOnly
-                            value={fileContent}
-                            placeholder="File content will appear here..."
-                            style={{ minHeight: "200px" }}
-                        />
-                        <div>
-                            <label htmlFor={FormatOption.splitOptionForm}>Split Options:</label>
-                            <VSCodeDropdown
-                                id={FormatOption.splitOptionForm}
-                                name={FormatOption.splitOptionForm}
-                                onChange={(e: any) => {
-                                    setSplitOption(e.target.value as SplitOption);
-                                    handleChange(e.target.value as SplitOption);
-                                }}
-                            >
-                                <VSCodeOption value="paragraph">Paragraph</VSCodeOption>
-                                <VSCodeOption value="newline">Newline</VSCodeOption>
-                                <VSCodeOption value="sentence">Sentence</VSCodeOption>
-                                <VSCodeOption value="word">Word</VSCodeOption>
-                            </VSCodeDropdown>
-                        </div>
-                        {/* <VSCodeButton type="submit">Upload</VSCodeButton> */}
-                    </>
-                )}
-            </form>
+            <h1>Upload a Source File</h1>
+            <input
+                type="file"
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleFileChange(e)}
+            />
+            {/* <button onClick={handleUpload}>Upload</button> */}
+            {selectedFile && (
+                <>
+                    <p>Selected File: {selectedFile.name}</p>
+                    <VSCodeTextArea
+                        readOnly
+                        value={fileContent}
+                        placeholder="File content will appear here..."
+                        style={{ minHeight: "200px" }}
+                    />
+                    <div>
+                        <label htmlFor={FormatOption.splitOptionForm}>Split Options:</label>
+                        <VSCodeDropdown
+                            id={FormatOption.splitOptionForm}
+                            name={FormatOption.splitOptionForm}
+                            onChange={(e: any) => {
+                                setSplitOption(e.target.value as SplitOption);
+                                handleChange(e.target.value as SplitOption);
+                            }}
+                        >
+                            <VSCodeOption value="paragraph">Paragraph</VSCodeOption>
+                            <VSCodeOption value="newline">Newline</VSCodeOption>
+                            <VSCodeOption value="sentence">Sentence</VSCodeOption>
+                            <VSCodeOption value="word">Word</VSCodeOption>
+                        </VSCodeDropdown>
+                    </div>
+                    {/* <VSCodeButton type="submit">Upload</VSCodeButton> */}
+                </>
+            )}
+
             {splitContent.map((content, index) => (
                 <div key={index}>
                     <h2>Preview {index + 1}</h2>
