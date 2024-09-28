@@ -20,6 +20,7 @@ interface VerseListProps {
     vscode: any;
     textDirection: "ltr" | "rtl";
     cellDisplayMode: CELL_DISPLAY_MODES;
+    isSourceText: boolean;
 }
 
 const VerseList: React.FC<VerseListProps> = ({
@@ -32,6 +33,7 @@ const VerseList: React.FC<VerseListProps> = ({
     vscode,
     textDirection,
     cellDisplayMode,
+    isSourceText,
 }) => {
     const renderVerseGroup = (group: typeof translationUnits, startIndex: number) => (
         <span key={`group-${startIndex}`} className={`verse-group cell-display-${cellDisplayMode}`}>
@@ -45,6 +47,7 @@ const VerseList: React.FC<VerseListProps> = ({
                     setContentBeingUpdated={setContentBeingUpdated}
                     vscode={vscode}
                     textDirection={textDirection}
+                    isSourceText={isSourceText}
                 />
             ))}
         </span>
@@ -58,7 +61,10 @@ const VerseList: React.FC<VerseListProps> = ({
         for (let i = 0; i < translationUnits.length; i++) {
             const { verseMarkers, verseContent } = translationUnits[i];
 
-            if (verseMarkers.join(" ") === contentBeingUpdated.verseMarkers?.join(" ")) {
+            if (
+                !isSourceText &&
+                verseMarkers.join(" ") === contentBeingUpdated.verseMarkers?.join(" ")
+            ) {
                 if (currentGroup.length > 0) {
                     result.push(renderVerseGroup(currentGroup, groupStartIndex));
                     currentGroup = [];

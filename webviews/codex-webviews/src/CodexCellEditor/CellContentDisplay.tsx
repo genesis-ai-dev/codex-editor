@@ -11,6 +11,7 @@ interface CellContentDisplayProps {
     setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorVerseContent>>;
     vscode: any;
     textDirection: "ltr" | "rtl";
+    isSourceText: boolean;
 }
 
 const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
@@ -20,8 +21,10 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     setContentBeingUpdated,
     vscode,
     textDirection,
+    isSourceText,
 }) => {
     const handleVerseClick = () => {
+        if (isSourceText) return; // FIXME: if you click a source text cell.. maybe we still want to update the shared state store?
         setContentBeingUpdated({
             verseMarkers: cellIds,
             content: cellContent,
@@ -45,7 +48,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     }
     // FIXME: we need to allow for the ref/id to be displayed at the start or end of the cell
     return (
-        <span className="verse-display" onClick={handleVerseClick} style={{ direction: textDirection }}>
+        <span
+            className="verse-display"
+            onClick={handleVerseClick}
+            style={{ direction: textDirection }}
+        >
             {cellType === CodexCellTypes.TEXT && <sup>{verseRefForDisplay}</sup>}
             <span
                 dangerouslySetInnerHTML={{

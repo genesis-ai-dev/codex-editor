@@ -3,7 +3,7 @@ import { Dispatch, SetStateAction } from "react";
 import { QuillCellContent, SpellCheckResponse } from "../../../../../types";
 
 interface UseVSCodeMessageHandlerProps {
-    setContent: Dispatch<SetStateAction<QuillCellContent[]>>;
+    setContent: (content: QuillCellContent[], isSourceText: boolean) => void;
     setSpellCheckResponse: Dispatch<SetStateAction<SpellCheckResponse | null>>;
     jumpToCell: (cellId: string) => void;
     updateCell: (data: { cellId: string; newContent: string; progress: number }) => void;
@@ -24,7 +24,7 @@ export const useVSCodeMessageHandler = ({
             const message = event.data;
             switch (message.type) {
                 case "providerSendsInitialContent":
-                    setContent(message.content);
+                    setContent(message.content, message.isSourceText);
                     break;
                 case "providerSendsSpellCheckResponse":
                     setSpellCheckResponse(message.content);

@@ -12,6 +12,7 @@ interface ChapterNavigationProps {
     textDirection: "ltr" | "rtl";
     onSetCellDisplayMode: (mode: CELL_DISPLAY_MODES) => void;
     cellDisplayMode: CELL_DISPLAY_MODES;
+    isSourceText: boolean;
 }
 
 const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
@@ -24,6 +25,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     textDirection,
     onSetCellDisplayMode,
     cellDisplayMode,
+    isSourceText,
 }) => (
     <div className="chapter-navigation">
         <VSCodeButton
@@ -34,21 +36,19 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
             <i className="codicon codicon-chevron-left"></i>
         </VSCodeButton>
         <div className="chapter-navigation-group">
+            {!isSourceText && (
+                <VSCodeButton
+                    appearance="icon"
+                    onClick={onAutocompleteChapter}
+                    disabled={unsavedChanges}
+                    title="Autocomplete Chapter"
+                >
+                    <i className="codicon codicon-sparkle"></i>
+                </VSCodeButton>
+            )}
             <VSCodeButton
                 appearance="icon"
-                onClick={onAutocompleteChapter}
-                disabled={unsavedChanges}
-                title="Autocomplete Chapter"
-            >
-                <i className="codicon codicon-sparkle"></i>
-            </VSCodeButton>
-            <VSCodeButton
-                appearance="icon"
-                onClick={() =>
-                    onSetTextDirection(
-                        textDirection === "ltr" ? "rtl" : "ltr"
-                    )
-                }
+                onClick={() => onSetTextDirection(textDirection === "ltr" ? "rtl" : "ltr")}
                 disabled={unsavedChanges}
                 title="Set Text Direction"
             >

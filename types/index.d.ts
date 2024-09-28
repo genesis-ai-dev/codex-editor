@@ -220,7 +220,7 @@ type EditorPostMessages =
     | { command: "requestAutocompleteChapter"; content: QuillCellContent[] };
 
 type EditorReceiveMessages =
-    | { type: "providerSendsInitialContent"; content: QuillCellContent[] }
+    | { type: "providerSendsInitialContent"; content: QuillCellContent[]; isSourceText: boolean }
     | {
           type: "providerUpdatesCell";
           content: { cellId: string; progress: number };

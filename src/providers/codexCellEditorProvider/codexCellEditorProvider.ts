@@ -61,7 +61,8 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
             enableScripts: true,
         };
         const textDirection = this.getTextDirection();
-        webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview, textDirection);
+        const isSourceText = document.uri.fsPath.endsWith('.source');
+        webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview, textDirection, isSourceText);
 
         const updateWebview = () => {
             const notebookData: vscode.NotebookData = this.getDocumentAsJson(document);
@@ -71,6 +72,7 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
             this.postMessageToWebview(webviewPanel, {
                 type: "providerSendsInitialContent",
                 content: processedData,
+                isSourceText: isSourceText,
             });
         };
 
@@ -280,7 +282,7 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
     /**
      * Get the static html used for the editor webviews.
      */
-    private getHtmlForWebview(webview: vscode.Webview, textDirection: string): string {
+    private getHtmlForWebview(webview: vscode.Webview, textDirection: string, isSourceText: boolean): string {
         const styleResetUri = webview.asWebviewUri(
             vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "reset.css")
         );
@@ -331,6 +333,11 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                         text-align: ${textDirection === "rtl" ? "right" : "left"} !important;
                     }
                 </style>
+                <script nonce="${nonce}">
+                    window.initialData = {
+                        isSourceText: ${isSourceText}
+                    };
+                </script>
             </head>
             <body>
                 <div id="root"></div>

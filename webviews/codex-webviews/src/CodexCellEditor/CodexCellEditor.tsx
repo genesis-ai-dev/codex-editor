@@ -30,9 +30,13 @@ const CodexCellEditor: React.FC = () => {
     const [cellDisplayMode, setCellDisplayMode] = useState<CELL_DISPLAY_MODES>(
         CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
     );
+    const [isSourceText, setIsSourceText] = useState<boolean>(false);
 
     useVSCodeMessageHandler({
-        setContent: setTranslationUnits,
+        setContent: (content: QuillCellContent[], isSourceText: boolean) => {
+            setTranslationUnits(content);
+            setIsSourceText(isSourceText);
+        },
         setSpellCheckResponse: setSpellCheckResponse,
         jumpToCell: (cellId) => {
             const chapter = cellId?.split(" ")[1]?.split(":")[0];
@@ -59,6 +63,8 @@ const CodexCellEditor: React.FC = () => {
 
     useEffect(() => {
         vscode.postMessage({ command: "getContent" } as EditorPostMessages);
+        // Set initial isSourceText value from window.initialData
+        setIsSourceText((window as any).initialData?.isSourceText || false);
     }, []);
 
     const translationUnitsForChapter = translationUnits.filter((verse) => {
@@ -88,6 +94,7 @@ const CodexCellEditor: React.FC = () => {
 
     return (
         <div className="codex-cell-editor" style={{ direction: textDirection }}>
+            {isSourceText && <div className="source-text-banner">Source Text (Read-only)</div>}
             <h1>{translationUnitsForChapter[0]?.verseMarkers?.[0]?.split(":")[0]}</h1>
             <div className="editor-container">
                 <ChapterNavigation
@@ -100,6 +107,7 @@ const CodexCellEditor: React.FC = () => {
                     textDirection={textDirection}
                     onSetCellDisplayMode={setCellDisplayMode}
                     cellDisplayMode={cellDisplayMode}
+                    isSourceText={isSourceText}
                 />
                 {autocompletionProgress !== null && (
                     <div className="autocompletion-progress">
@@ -117,6 +125,7 @@ const CodexCellEditor: React.FC = () => {
                     vscode={vscode}
                     textDirection={textDirection}
                     cellDisplayMode={cellDisplayMode}
+                    isSourceText={isSourceText}
                 />
             </div>
         </div>
