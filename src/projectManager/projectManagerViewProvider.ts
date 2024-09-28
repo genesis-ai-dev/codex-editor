@@ -1,8 +1,9 @@
 import * as vscode from "vscode";
-import { jumpToCellInNotebook } from "../utils";
+import { getWorkSpaceFolder, jumpToCellInNotebook } from "../utils";
 import { ProjectOverview } from "../../types";
 import { getProjectOverview } from "./utils/projectUtils";
 import { initializeProjectMetadata } from "./utils/projectUtils";
+import { SourceUploadProvider } from "../providers/SourceUpload/SourceUploadProvider";
 
 async function simpleOpen(uri: string, context: vscode.ExtensionContext) {
     try {
@@ -69,16 +70,6 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
             "index.js"
         )
     );
-    // const styleUri = webviewView.webview.asWebviewUri(
-    //     vscode.Uri.joinPath(
-    //         extensionUri,
-    //         "webviews",
-    //         "codex-webviews",
-    //         "dist",
-    //         "ProjectManagerView",
-    //         "index.css"
-    //     )
-    // );
     const codiconsUri = webviewView.webview.asWebviewUri(
         vscode.Uri.joinPath(extensionUri, "node_modules", "@vscode/codicons", "dist", "codicon.css")
     );
@@ -163,6 +154,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 case "selectCategory":
                 case "downloadSourceText":
                 case "openAISettings":
+                case "openSourceUpload":
                     console.log(`${message.command} called`);
                     await vscode.commands.executeCommand(
                         `codex-project-manager.${message.command}`

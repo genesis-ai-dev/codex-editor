@@ -307,7 +307,7 @@ function App() {
                     </VSCodeDataGridRow>
 
                     <VSCodeDataGridRow>
-                        <VSCodeDataGridCell grid-column="1">Source Text Bibles</VSCodeDataGridCell>
+                        <VSCodeDataGridCell grid-column="1">Source Texts</VSCodeDataGridCell>
                         <VSCodeDataGridCell
                             grid-column="2"
                             style={{
@@ -388,9 +388,15 @@ function App() {
                                 </>
                             )}
                         </VSCodeDataGridCell>
-                        <VSCodeDataGridCell grid-column="3">
+                        <VSCodeDataGridCell
+                            grid-column="3"
+                            style={{ display: "flex", flexDirection: "column", gap: "8px" }}
+                        >
                             <VSCodeButton onClick={() => handleAction("downloadSourceText")}>
                                 <i className="codicon codicon-cloud-download"></i>
+                            </VSCodeButton>
+                            <VSCodeButton onClick={() => handleAction("openSourceUpload")}>
+                                <i className="codicon codicon-new-folder"></i>
                             </VSCodeButton>
                         </VSCodeDataGridCell>
                     </VSCodeDataGridRow>
@@ -409,6 +415,18 @@ function App() {
                         <VSCodeDataGridCell grid-column="3">
                             <VSCodeButton onClick={() => handleAction("exportProjectAsPlaintext")}>
                                 <i className="codicon codicon-export"></i>
+                            </VSCodeButton>
+                        </VSCodeDataGridCell>
+                    </VSCodeDataGridRow>
+
+                    <VSCodeDataGridRow>
+                        <VSCodeDataGridCell grid-column="1">Publish Project</VSCodeDataGridCell>
+                        <VSCodeDataGridCell grid-column="3">
+                            {/* <VSCodeButton onClick={() => handleAction("publishProject")}> */}
+                            <VSCodeButton
+                                onClick={() => alert("Publish Project not implemented yet.")}
+                            >
+                                <i className="codicon codicon-cloud-upload"></i>
                             </VSCodeButton>
                         </VSCodeDataGridCell>
                     </VSCodeDataGridRow>

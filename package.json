@@ -717,7 +717,7 @@
                 "category": "Codex Project Management"
             },
             {
-                "command": "myExtension.openSourceUpload",
+                "command": "codex-project-manager.openSourceUpload",
                 "title": "Open Source Upload"
             }
         ],

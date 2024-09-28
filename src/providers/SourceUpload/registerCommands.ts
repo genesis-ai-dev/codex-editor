@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import SourceUploadDocumentProvider from "./SourceUploadDocumentProvider";
 import { SourceUploadProvider } from "./SourceUploadProvider";
+import { getWorkSpaceFolder } from "../../utils";
 
 export const registerSourceUploadCommands = (context: vscode.ExtensionContext) => {
     // Register the content provider first
@@ -25,8 +26,8 @@ export const registerSourceUploadCommands = (context: vscode.ExtensionContext) =
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand("myExtension.openSourceUpload", () => {
-            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        vscode.commands.registerCommand("codex-project-manager.openSourceUpload", () => {
+            const workspaceFolder = getWorkSpaceFolder();
             if (workspaceFolder) {
                 const uri = vscode.Uri.parse(`sourceUploadProvider-scheme:Upload Document`);
                 vscode.commands.executeCommand(
