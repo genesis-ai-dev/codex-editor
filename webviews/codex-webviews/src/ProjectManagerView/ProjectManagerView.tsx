@@ -26,7 +26,7 @@ function App() {
     const [error, setError] = useState<string | null>(null);
     const [noProjectFound, setNoProjectFound] = useState(false);
     const [initialLoadAttempted, setInitialLoadAttempted] = useState(false);
-    const [primarySourceBible, setPrimarySourceBible] = useState<string | null>(null);
+    const [primarySourceText, setprimarySourceText] = useState<string | null>(null);
 
     const handleMessage = useCallback((event: MessageEvent) => {
         console.log("Received message:", event.data);
@@ -36,7 +36,7 @@ function App() {
             case "projectCreated": {
                 console.log("Setting project overview:", message.data);
                 setProjectOverview(message.data);
-                setPrimarySourceBible(message.data.primarySourceBible);
+                setprimarySourceText(message.data.primarySourceText);
                 setIsLoading(false);
                 setError(null);
                 setNoProjectFound(false);
@@ -112,9 +112,9 @@ function App() {
         }, 1500); // Wait for 1.5 seconds before requesting an update
     }, []);
 
-    const handleSelectPrimarySourceBible = useCallback(
+    const handleSelectprimarySourceText = useCallback(
         (biblePath: string) => {
-            handleAction("selectPrimarySourceBible", biblePath);
+            handleAction("selectprimarySourceText", biblePath);
         },
         [handleAction]
     );
@@ -312,18 +312,18 @@ function App() {
                             grid-column="2"
                             style={{
                                 color:
-                                    projectOverview.sourceTextBibles &&
-                                    projectOverview.sourceTextBibles.length > 0
+                                    projectOverview.sourceTexts &&
+                                    projectOverview.sourceTexts.length > 0
                                         ? "inherit"
                                         : "var(--vscode-errorForeground)",
                             }}
                         >
-                            {projectOverview.sourceTextBibles &&
-                            projectOverview.sourceTextBibles.length > 0 ? (
+                            {projectOverview.sourceTexts &&
+                            projectOverview.sourceTexts.length > 0 ? (
                                 <ul>
-                                    {projectOverview.sourceTextBibles.map((bible) => {
+                                    {projectOverview.sourceTexts.map((bible) => {
                                         const fileName = bible.path.split("/").pop() || "";
-                                        const isPrimary = bible.path === primarySourceBible;
+                                        const isPrimary = bible.path === primarySourceText;
                                         return (
                                             <li
                                                 key={bible.path}
@@ -351,7 +351,7 @@ function App() {
                                                     <VSCodeButton
                                                         appearance="icon"
                                                         onClick={() =>
-                                                            handleSelectPrimarySourceBible(
+                                                            handleSelectprimarySourceText(
                                                                 bible.path
                                                             )
                                                         }

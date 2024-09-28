@@ -23,7 +23,7 @@ export async function readSourceAndTargetFiles(): Promise<{
 
     const sourcePattern = new vscode.RelativePattern(
         workspaceFolder,
-        ".project/sourceTextBibles/*.bible"
+        ".project/sourceTexts/*.source"
     );
     const targetPattern = new vscode.RelativePattern(workspaceFolder, "files/target/*.codex");
 

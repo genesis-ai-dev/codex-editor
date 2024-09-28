@@ -45,7 +45,7 @@
             {
                 "type": "codex-type",
                 "viewType": "codex-type",
-                "displayName": "Codex Scripture Editor Notebook CodeLens",
+                "displayName": "Codex Translation Editor Notebook CodeLens",
                 "selector": [
                     {
                         "filenamePattern": "*.codex"
@@ -430,12 +430,12 @@
                         "when": "workbenchState !== empty"
                     },
                     {
-                        "id": "addSourceBible",
-                        "title": "Add Source Bible",
-                        "description": "Now that we have a folder, let's add a source Bible to your Codex project.\n[Download Source Text Bible](command:codex-project-manager.downloadSourceText)\n or \n [Import Local USFM Bible](command:codex-project-manager.importLocalUsfmSourceBible)",
+                        "id": "addSourceText",
+                        "title": "Add Source Text",
+                        "description": "Now that we have a folder, let's add a source Text to your Codex project.\n[Download Source Text](command:codex-project-manager.downloadSourceText)\n or \n [Import Local USFM Text](command:codex-project-manager.importLocalUsfmSourceText)",
                         "media": {
-                            "image": "./src/media/add-source-bible.png",
-                            "altText": "Add Source Bible"
+                            "image": "./src/media/add-source-text.png",
+                            "altText": "Add Source Text"
                         },
                         "completionEvents": [
                             "onCommand:codex-project-manager.downloadSourceText",
@@ -724,10 +724,13 @@
         "notebooks": [
             {
                 "type": "codex-type",
-                "displayName": "Codex Scripture Editor Notebook",
+                "displayName": "Codex Translation Editor Notebook",
                 "selector": [
                     {
                         "filenamePattern": "*.codex"
+                    },
+                    {
+                        "filenamePattern": "*.source"
                     }
                 ]
             }
@@ -802,10 +805,10 @@
                             }
                         }
                     },
-                    "codex-project-manager.primarySourceBible": {
+                    "codex-project-manager.primarySourceText": {
                         "type": "string",
                         "default": "",
-                        "description": "Path to the primary source Bible for the project"
+                        "description": "Path to the primary source text for the project"
                     }
                 }
             },
@@ -845,10 +848,10 @@
                         "default": true,
                         "description": "Enable or disable the Translators Copilot feature."
                     },
-                    "translators-copilot-server.primarySourceBible": {
+                    "translators-copilot-server.primarySourceText": {
                         "type": "string",
                         "default": "",
-                        "description": "The source Bible to use for the Translators Copilot feature."
+                        "description": "The source text to use for the Translators Copilot feature."
                     }
                 }
             },
@@ -1037,6 +1040,9 @@
                 "selector": [
                     {
                         "filenamePattern": "*.codex"
+                    },
+                    {
+                        "filenamePattern": "*.source"
                     }
                 ],
                 "priority": "default"

@@ -106,7 +106,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         downloadBible("source")
     );
     // vscode.commands.registerCommand(
-    //     "codex-project-manager.downloadTargetTextBibles",
+    //     "codex-project-manager.downloadtargetTexts",
     //     async () => {
     //         const bibleFile = await downloadBible("target");
     //         const response = await vscode.window.showInformationMessage(

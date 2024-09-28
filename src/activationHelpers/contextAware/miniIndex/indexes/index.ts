@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import { getWorkSpaceFolder, getWorkSpaceUri } from "../../../../utils";
 import { StatusBarHandler } from "../statusBarHandler";
 import { createTranslationPairsIndex } from "./translationPairsIndex";
-import { createSourceBibleIndex } from "./sourceBibleIndex";
+import { createSourceTextIndex } from "./sourceTextIndex";
 import {
     searchTargetVersesByQuery,
     getTranslationPairsFromSourceVerseQuery,
@@ -62,7 +62,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         },
     });
 
-    const sourceBibleIndex = new MiniSearch({
+    const sourceTextIndex = new MiniSearch({
         fields: ["content"],
         storeFields: ["vref", "content", "versions"],
         idField: "vref",
@@ -94,10 +94,10 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         }
     }, 3000);
 
-    const debouncedUpdateSourceBibleIndex = debounce(async (doc: vscode.TextDocument) => {
+    const debouncedUpdateSourceTextIndex = debounce(async (doc: vscode.TextDocument) => {
         if (!(await isDocumentAlreadyOpen(doc.uri))) {
             const { sourceFiles } = await readSourceAndTargetFiles();
-            await createSourceBibleIndex(sourceBibleIndex, sourceFiles);
+            await createSourceTextIndex(sourceTextIndex, sourceFiles);
         }
     }, 3000);
 
@@ -119,7 +119,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         try {
             if (force) {
                 translationPairsIndex?.removeAll();
-                sourceBibleIndex?.removeAll();
+                sourceTextIndex?.removeAll();
                 zeroDraftIndex?.removeAll();
                 wordsIndex.clear();
             }
@@ -135,10 +135,10 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 targetFiles,
                 force || translationPairsIndex.documentCount === 0
             );
-            await createSourceBibleIndex(
-                sourceBibleIndex,
+            await createSourceTextIndex(
+                sourceTextIndex,
                 sourceFiles,
-                force || sourceBibleIndex.documentCount === 0
+                force || sourceTextIndex.documentCount === 0
             );
             wordsIndex = await initializeWordsIndex(wordsIndex, targetFiles);
             await createZeroDraftIndex(zeroDraftIndex, force || zeroDraftIndex.documentCount === 0);
@@ -156,7 +156,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             // Update status bar with index counts
             statusBarHandler.updateIndexCounts(
                 translationPairsIndex.documentCount,
-                sourceBibleIndex.documentCount
+                sourceTextIndex.documentCount
             );
         } catch (error) {
             console.error("Error rebuilding full index:", error);
@@ -181,7 +181,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         const doc = event.document;
         if (doc.languageId === "scripture" || doc.fileName.endsWith(".codex")) {
             debouncedUpdateTranslationPairsIndex(doc);
-            debouncedUpdateSourceBibleIndex(doc);
+            debouncedUpdateSourceTextIndex(doc);
             debouncedUpdateWordsIndex(doc);
         }
     });
@@ -266,7 +266,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 if (!vref) return; // User cancelled the input
                 showInfo = true;
             }
-            const results = await getSourceVerseByVrefFromAllSourceVerses(sourceBibleIndex, vref);
+            const results = await getSourceVerseByVrefFromAllSourceVerses(sourceTextIndex, vref);
             if (showInfo && results) {
                 vscode.window.showInformationMessage(
                     `Source verse for ${vref}: ${results.content}`
@@ -461,7 +461,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 if (!query) return []; // User cancelled the input
                 showInfo = true;
             }
-            const results = searchParallelVerses(translationPairsIndex, sourceBibleIndex, query, k);
+            const results = searchParallelVerses(translationPairsIndex, sourceTextIndex, query, k);
 
             // Remove duplicates based on vref
             const uniqueResults = results.filter(
@@ -472,7 +472,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             if (uniqueResults.length < k) {
                 const additionalResults = searchParallelVerses(
                     translationPairsIndex,
-                    sourceBibleIndex,
+                    sourceTextIndex,
                     query,
                     k * 2
                 );

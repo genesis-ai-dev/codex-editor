@@ -272,10 +272,10 @@ interface ProjectOverview {
     targetLanguage: LanguageMetadata;
     category: string;
     userName: string;
-    sourceTextBibles?: vscode.Uri[] | never[];
-    targetTextBibles?: vscode.Uri[] | never[];
+    sourceTexts?: vscode.Uri[] | never[];
+    targetTexts?: vscode.Uri[] | never[];
     targetFont: string;
-    primarySourceBible?: vscode.Uri;
+    primarySourceText?: vscode.Uri;
 }
 
 /* This is the project metadata that is saved in the metadata.json file */
@@ -293,7 +293,7 @@ type ProjectMetadata = {
         dateCreated: string;
         normalization: string;
         comments?: string[];
-        primarySourceBible?: vscode.Uri;
+        primarySourceText?: vscode.Uri;
     };
     idAuthorities: {
         [key: string]: {

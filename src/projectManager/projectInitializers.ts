@@ -99,7 +99,7 @@ async function handleBibleDownload(
     const bibleTextPath = path.join(
         workspaceRoot,
         ".project",
-        languageType === "source" ? "sourceTextBibles" : "targetTextBibles",
+        languageType === "source" ? "sourceTexts" : "targetTexts",
         corpusMetadata.file
     );
     const bibleTextPathUri = vscode.Uri.file(bibleTextPath);
@@ -179,7 +179,7 @@ async function handleBibleDownload(
         }
     });
 
-    // Write the new structure to a .bible file
+    // Write the new structure to a .source file
     const fileNameWithoutExtension = corpusMetadata.file.includes(".")
         ? corpusMetadata.file.split(".")[0]
         : corpusMetadata.file;
@@ -187,8 +187,8 @@ async function handleBibleDownload(
     const bibleFilePath = path.join(
         workspaceRoot,
         ".project",
-        languageType === "source" ? "sourceTextBibles" : "targetTextBibles",
-        `${fileNameWithoutExtension}.bible`
+        languageType === "source" ? "sourceTexts" : "targetTexts",
+        `${fileNameWithoutExtension}.source`
     );
     const bibleFileUri = vscode.Uri.file(bibleFilePath);
     await vscode.workspace.fs.writeFile(
@@ -196,7 +196,7 @@ async function handleBibleDownload(
         new TextEncoder().encode(JSON.stringify(bibleData, null, 2))
     );
 
-    vscode.window.showInformationMessage(`.bible file created successfully at ${bibleFilePath}`);
+    vscode.window.showInformationMessage(`.source file created successfully at ${bibleFilePath}`);
 }
 
 export async function setTargetFont() {
@@ -530,7 +530,7 @@ export async function handleConfig() {
     // These settings should probably be bundled in the app only, and not applied via the extension.
 
     const existingPatterns = config.get("files.readonlyInclude") || {};
-    const updatedPatterns = { ...existingPatterns, "**/*.bible": true };
+    const updatedPatterns = { ...existingPatterns, "**/*.source": true };
 
     config.update("files.readonlyInclude", updatedPatterns, vscode.ConfigurationTarget.Global);
 }

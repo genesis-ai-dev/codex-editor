@@ -21,11 +21,11 @@ export function searchTargetVersesByQuery(
 }
 
 export function getSourceVerseByVrefFromAllSourceVerses(
-    sourceBibleIndex: MiniSearch,
+    sourceTextIndex: MiniSearch,
     vref: string
 ): SourceVerseVersions | null {
     // Directly get the document from the index
-    const result = sourceBibleIndex.getStoredFields(vref);
+    const result = sourceTextIndex.getStoredFields(vref);
 
     if (result) {
         return {
@@ -131,7 +131,7 @@ export function handleTextSelection(translationPairsIndex: MiniSearch, selectedT
 // Add this new function
 export function searchParallelVerses(
     translationPairsIndex: MiniSearch,
-    sourceBibleIndex: MiniSearch,
+    sourceTextIndex: MiniSearch,
     query: string,
     k: number = 5
 ): TranslationPair[] {
@@ -151,8 +151,8 @@ export function searchParallelVerses(
     const translationPairs: TranslationPair[] = targetResults.slice(0, k).map((result) => {
         console.log("Processing result:", JSON.stringify(result, null, 2));
 
-        // Get source content from sourceBibleIndex
-        const sourceResult = sourceBibleIndex.getStoredFields(result.vref);
+        // Get source content from sourceTextIndex
+        const sourceResult = sourceTextIndex.getStoredFields(result.vref);
         const sourceContent = sourceResult ? sourceResult.content : "";
 
         return {

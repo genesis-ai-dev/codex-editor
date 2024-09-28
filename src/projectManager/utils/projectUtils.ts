@@ -308,157 +308,6 @@ export const projectFileExists = async () => {
     return fileExists;
 };
 
-// NOTE: commenting this on Sept 20/2024 - I think it's not used anymore
-// export async function parseAndReplaceBibleFile(
-//   bibleFile: string | undefined,
-//   replace: boolean
-// ) {
-//   console.log("Starting to parse the Bible file.");
-
-//   // Check if the bibleFile is provided
-//   if (!bibleFile) {
-//     console.error("No Bible file provided.");
-//     return;
-//   }
-//   console.log(`Bible file provided: ${bibleFile}`);
-
-//   // Replace the file extension from .txt to .bible
-//   bibleFile = bibleFile.replace(/\.txt$/, ".bible");
-
-//   // Get the workspace folders
-//   const workspaceFolders = vscode.workspace.workspaceFolders;
-//   if (!workspaceFolders) {
-//     console.error("No workspace folders found.");
-//     return;
-//   }
-
-//   // Construct the file path for the Bible file
-//   const bibleFilePath = vscode.Uri.joinPath(
-//     workspaceFolders[0].uri,
-//     ".project/targetTextBibles",
-//     path.basename(bibleFile)
-//   );
-//   console.log(`Constructed file path: ${bibleFilePath}`);
-
-//   let bibleData;
-//   try {
-//     console.log(
-//       `Attempting to read the Bible file from path: ${bibleFilePath}`
-//     );
-//     // Read the Bible file
-//     bibleData = await vscode.workspace.fs.readFile(bibleFilePath);
-//     console.log("Bible file read successfully.");
-//   } catch (error) {
-//     console.error("Failed to read the Bible file:", error);
-//     return;
-//   }
-
-//   // Decode the Bible file content
-//   const bibleText = new TextDecoder("utf-8").decode(bibleData);
-//   console.log("Bible text decoded successfully.");
-
-//   // Split the Bible text into lines
-//   const lines = bibleText.split(/\r?\n/);
-//   console.log(`Total lines found in the Bible text: ${lines.length}`);
-
-//   // Initialize an object to store the books
-//   const books: { [key: string]: string[] } = {};
-
-//   // Iterate through each line and categorize them by book code
-//   lines.forEach((line) => {
-//     const bookCode = line.substring(0, 3);
-//     if (!books[bookCode]) {
-//       books[bookCode] = [];
-//       console.log(`New book found and added: ${bookCode}`);
-//     }
-//     books[bookCode].push(line);
-//   });
-
-//   console.log(`Total books parsed: ${Object.keys(books).length}`);
-
-//   // Construct the target folder path for the parsed books
-//   const targetFolderPath = vscode.Uri.joinPath(
-//     workspaceFolders[0].uri,
-//     `.project/targetTextBibles/`,
-//     path.basename(bibleFile).replace(/\.bible$/, "")
-//   );
-
-//   // Create the target folder if it doesn't exist
-//   try {
-//     await vscode.workspace.fs.createDirectory(targetFolderPath);
-//     console.log(`Created target folder: ${targetFolderPath.fsPath}`);
-//   } catch (error) {
-//     console.error(`Failed to create target folder: ${error}`);
-//     return;
-//   }
-
-//   // Iterate through each book and write its content to a file
-//   for (const [bookCode, content] of Object.entries(books)) {
-//     const workspaceFolders = vscode.workspace.workspaceFolders;
-//     if (!workspaceFolders) {
-//       console.error("No workspace folders found.");
-//       return;
-//     }
-//     console.log(`Using workspace folder: ${workspaceFolders[0].uri.fsPath}`);
-
-//     // Construct the target path for the book file
-//     const targetPath = vscode.Uri.joinPath(
-//       targetFolderPath,
-//       `/${bookCode}.txt`
-//     );
-//     console.log(`Target path for writing: ${targetPath}`);
-
-//     const fileContent = content.join("\n");
-//     try {
-//       console.log(`Writing to file for book ${bookCode}`);
-//       // Write the book content to the file
-//       await vscode.workspace.fs.writeFile(
-//         targetPath,
-//         new TextEncoder().encode(fileContent)
-//       );
-//       console.log(`File written for book ${bookCode} at ${targetPath.fsPath}`);
-//     } catch (error) {
-//       console.error(`Failed to write file for book ${bookCode}:`, error);
-//     }
-//   }
-
-//   // Create project notebooks from the parsed text files
-//   if (replace) {
-//     createProjectNotebooksFromTxt({
-//       shouldOverWrite: true,
-//       folderWithTxtToConvert: [targetFolderPath],
-//     });
-//   }
-
-//   // Delete the original Bible file
-//   await deleteOriginalFiles(bibleFile);
-// }
-
-// async function deleteOriginalFiles(bibleFile: string) {
-//     if (!vscode.workspace.workspaceFolders) {
-//         console.error("No workspace folders found.");
-//         return;
-//     }
-//     const workspaceFolderUri = vscode.workspace.workspaceFolders[0].uri;
-//     const bibleFilePath = vscode.Uri.joinPath(
-//         workspaceFolderUri,
-//         ".project/targetTextBibles",
-//         path.basename(bibleFile)
-//     );
-//     try {
-//         console.log(`Deleting the original Bible file: ${bibleFilePath.fsPath}`);
-//         await vscode.workspace.fs.delete(bibleFilePath);
-//         const originalTxtPath = bibleFilePath.with({
-//             path: bibleFilePath.path.replace(/\.bible$/, ".txt"),
-//         });
-//         console.log(`Deleting the original TXT file: ${originalTxtPath.fsPath}`);
-//         await vscode.workspace.fs.delete(originalTxtPath);
-//         console.log("Original files deleted successfully.");
-//     } catch (error) {
-//         console.error("Failed to delete original files:", error);
-//     }
-// }
-
 export async function getProjectOverview(): Promise<ProjectOverview | undefined> {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
@@ -473,23 +322,17 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
         const metadata = JSON.parse(metadataContent.toString());
         console.log("metadata", { metadata });
         // Get a list of URIs for the downloaded source and target Bibles in the project, if any
-        const sourceTextBiblesPath = vscode.Uri.joinPath(
-            workspaceFolder.uri,
-            ".project/sourceTextBibles"
-        );
-        const targetTextBiblesPath = vscode.Uri.joinPath(
-            workspaceFolder.uri,
-            ".project/targetTextBibles"
-        );
+        const sourceTextsPath = vscode.Uri.joinPath(workspaceFolder.uri, ".project/sourceTexts");
+        const targetTextsPath = vscode.Uri.joinPath(workspaceFolder.uri, ".project/targetTexts");
 
-        const sourceTextBibles: vscode.Uri[] = [];
-        const targetTextBibles: vscode.Uri[] = [];
+        const sourceTexts: vscode.Uri[] = [];
+        const targetTexts: vscode.Uri[] = [];
 
         try {
-            const sourceEntries = await vscode.workspace.fs.readDirectory(sourceTextBiblesPath);
+            const sourceEntries = await vscode.workspace.fs.readDirectory(sourceTextsPath);
             for (const [name] of sourceEntries) {
-                if (name.endsWith(".bible")) {
-                    sourceTextBibles.push(vscode.Uri.joinPath(sourceTextBiblesPath, name));
+                if (name.endsWith("source")) {
+                    sourceTexts.push(vscode.Uri.joinPath(sourceTextsPath, name));
                 }
             }
         } catch (error) {
@@ -497,10 +340,10 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
         }
 
         try {
-            const targetEntries = await vscode.workspace.fs.readDirectory(targetTextBiblesPath);
+            const targetEntries = await vscode.workspace.fs.readDirectory(targetTextsPath);
             for (const [name] of targetEntries) {
-                if (name.endsWith(".bible")) {
-                    targetTextBibles.push(vscode.Uri.joinPath(targetTextBiblesPath, name));
+                if (name.endsWith("source")) {
+                    targetTexts.push(vscode.Uri.joinPath(targetTextsPath, name));
                 }
             }
         } catch (error) {
@@ -508,10 +351,10 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
         }
 
         // Handle potential errors
-        if (!targetTextBibles) {
+        if (!targetTexts) {
             try {
                 // Directory might not exist, attempt to create it
-                await vscode.workspace.fs.createDirectory(targetTextBiblesPath);
+                await vscode.workspace.fs.createDirectory(targetTextsPath);
                 return undefined;
             } catch (err) {
                 console.error("Error creating directory:", err);
@@ -532,8 +375,8 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
             ),
             category: metadata.meta.category,
             userName: metadata.meta.generator.userName,
-            sourceTextBibles,
-            targetTextBibles,
+            sourceTexts,
+            targetTexts,
             targetFont: metadata.targetFont || "",
         };
     } catch (error) {

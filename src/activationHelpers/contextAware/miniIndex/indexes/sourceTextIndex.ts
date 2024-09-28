@@ -3,8 +3,8 @@ import * as vscode from "vscode";
 import { SourceVerseVersions } from "../../../../../types";
 import { FileData } from "./fileReaders";
 
-export async function createSourceBibleIndex(
-    sourceBibleIndex: MiniSearch<SourceVerseVersions>,
+export async function createSourceTextIndex(
+    sourceTextIndex: MiniSearch<SourceVerseVersions>,
     sourceFiles: FileData[],
     force: boolean = false
 ): Promise<MiniSearch<SourceVerseVersions>> {
@@ -12,26 +12,25 @@ export async function createSourceBibleIndex(
 
     // Get the primary source Bible setting
     const config = vscode.workspace.getConfiguration("codex-project-manager");
-    const primarySourceBible = config.get<string>("primarySourceBible");
-    // FIXME: this whole index needs to be refactored for generic source texts
+    const primarySourceText = config.get<string>("primarySourceText");
 
     let selectedSourceFile: FileData | undefined;
 
-    if (primarySourceBible) {
-        selectedSourceFile = sourceFiles.find((file) => file.uri.fsPath === primarySourceBible);
+    if (primarySourceText) {
+        selectedSourceFile = sourceFiles.find((file) => file.uri.fsPath === primarySourceText);
     }
 
     if (!selectedSourceFile) {
-        // If primary source Bible doesn't exist or isn't set, use the first .bible file
-        selectedSourceFile = sourceFiles.find((file) => file.uri.fsPath.endsWith(".bible"));
+        // If primary source text doesn't exist or isn't set, use the first .source file
+        selectedSourceFile = sourceFiles.find((file) => file.uri.fsPath.endsWith(".source"));
     }
 
     if (!selectedSourceFile) {
         console.error("No suitable source Bible file found");
-        return sourceBibleIndex;
+        return sourceTextIndex;
     }
 
-    const version = selectedSourceFile.uri.fsPath.split("/").pop()?.replace(".bible", "") || "";
+    const version = selectedSourceFile.uri.fsPath.split("/").pop()?.replace(".source", "") || "";
 
     for (const cell of selectedSourceFile.cells) {
         if (cell.metadata?.type === "text" && cell.metadata?.id && cell.value.trim() !== "") {
@@ -42,12 +41,16 @@ export async function createSourceBibleIndex(
 
     // Instead of clearing and re-adding all documents, update only changed ones
     for (const [vref, { content, version }] of verseMap.entries()) {
-        const existingDoc: Record<string, any> | undefined = sourceBibleIndex.getStoredFields(vref);
-        if (!existingDoc || existingDoc.content !== content || !existingDoc.versions.includes(version)) {
+        const existingDoc: Record<string, any> | undefined = sourceTextIndex.getStoredFields(vref);
+        if (
+            !existingDoc ||
+            existingDoc.content !== content ||
+            !existingDoc.versions.includes(version)
+        ) {
             if (existingDoc) {
-                sourceBibleIndex.remove(vref as any);
+                sourceTextIndex.remove(vref as any);
             }
-            sourceBibleIndex.add({
+            sourceTextIndex.add({
                 vref,
                 content,
                 versions: [version],
@@ -56,8 +59,8 @@ export async function createSourceBibleIndex(
     }
 
     console.log(
-        `Source Bible index updated with ${sourceBibleIndex.documentCount} verses from ${version}`
+        `Source Bible index updated with ${sourceTextIndex.documentCount} verses from ${version}`
     );
 
-    return sourceBibleIndex;
+    return sourceTextIndex;
 }

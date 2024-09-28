@@ -190,8 +190,8 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                         "codex-editor-extension.exportCodexContent"
                     );
                     break;
-                case "selectPrimarySourceBible":
-                    await this.setPrimarySourceBible(message.data);
+                case "selectprimarySourceText":
+                    await this.setprimarySourceText(message.data);
                     break;
                 default:
                     console.error(`Unknown command: ${message.command}`);
@@ -212,9 +212,9 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
         try {
             const newProjectOverview = await getProjectOverview();
             console.log("newProjectOverview", { newProjectOverview });
-            const primarySourceBible = vscode.workspace
+            const primarySourceText = vscode.workspace
                 .getConfiguration("codex-project-manager")
-                .get("primarySourceBible");
+                .get("primarySourceText");
 
             if (!newProjectOverview) {
                 // If no project overview is available, send a message to show the "Create New Project" button
@@ -225,16 +225,16 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             } else if (!this.webviewHasInitialProjectOverviewData || force) {
                 this._view?.webview.postMessage({
                     command: "sendProjectOverview",
-                    data: { ...newProjectOverview, primarySourceBible },
+                    data: { ...newProjectOverview, primarySourceText },
                 });
                 this.webviewHasInitialProjectOverviewData = true;
             } else if (
                 JSON.stringify(newProjectOverview) !== JSON.stringify(this._projectOverview) ||
-                primarySourceBible !== this._projectOverview?.primarySourceBible
+                primarySourceText !== this._projectOverview?.primarySourceText
             ) {
                 this._projectOverview = {
                     ...newProjectOverview,
-                    primarySourceBible: primarySourceBible as vscode.Uri,
+                    primarySourceText: primarySourceText as vscode.Uri,
                 };
                 this._view?.webview.postMessage({
                     command: "sendProjectOverview",
@@ -279,11 +279,11 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private async setPrimarySourceBible(biblePath: string) {
+    private async setprimarySourceText(biblePath: string) {
         try {
             await vscode.workspace
                 .getConfiguration("codex-project-manager")
-                .update("primarySourceBible", biblePath, vscode.ConfigurationTarget.Workspace);
+                .update("primarySourceText", biblePath, vscode.ConfigurationTarget.Workspace);
             // Force an update immediately after setting the primary source Bible
             await this.updateProjectOverview(true);
         } catch (error) {

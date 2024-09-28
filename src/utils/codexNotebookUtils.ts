@@ -297,7 +297,7 @@ export async function importLocalUsfmSourceBible() {
                     JSON.stringify(jsonOutput, null, 2)
                 );
 
-                // Convert JSON output to .bible format
+                // Convert JSON output to .source format
                 const bookCode = jsonOutput.book.bookCode;
                 const verses = jsonOutput.chapters.flatMap((chapter: any) =>
                     chapter.contents
@@ -338,12 +338,8 @@ export async function importLocalUsfmSourceBible() {
         return;
     }
     // Fix: Use the workspace folder directly to create the target path
-    const targetFolderPath = vscode.Uri.joinPath(
-        workspaceFolder.uri,
-        ".project",
-        "sourceTextBibles"
-    );
-    const bibleFilePath = vscode.Uri.joinPath(targetFolderPath, `${bibleFileName}.bible`);
+    const targetFolderPath = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts");
+    const bibleFilePath = vscode.Uri.joinPath(targetFolderPath, `${bibleFileName}.source`);
 
     // Ensure the target folder exists
     try {

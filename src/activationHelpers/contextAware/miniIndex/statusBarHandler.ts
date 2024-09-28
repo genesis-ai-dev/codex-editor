@@ -47,9 +47,9 @@ export class StatusBarHandler {
         this.progressBarItem.tooltip = `Translation progress: ${percentage}%`;
     }
 
-    public updateIndexCounts(translationPairsCount: number, sourceBibleCount: number): void {
-        this.indexCountsItem.text = `$(book) ${translationPairsCount} | $(globe) ${sourceBibleCount}`;
-        this.indexCountsItem.tooltip = `Translation Pairs: ${translationPairsCount}, Source Bible: ${sourceBibleCount}`;
+    public updateIndexCounts(translationPairsCount: number, sourceTextCount: number): void {
+        this.indexCountsItem.text = `$(book) ${translationPairsCount} | $(globe) ${sourceTextCount}`;
+        this.indexCountsItem.tooltip = `Translation Pairs: ${translationPairsCount}, Source Bible: ${sourceTextCount}`;
     }
 
     dispose() {

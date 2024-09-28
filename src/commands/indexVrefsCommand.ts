@@ -23,7 +23,7 @@ export async function indexVerseRefsInSourceText() {
     try {
         const files = await vscode.workspace.findFiles(
             // "resources/**",
-            "**/*.bible"
+            "**/*.source"
         ); // Adjust the glob pattern to match your files
         // Use Promise.all to process files in parallel
         await Promise.all(

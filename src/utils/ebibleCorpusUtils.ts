@@ -28,7 +28,7 @@ export async function downloadFile(url: string, outputPath: string): Promise<voi
 }
 
 export async function ensureVrefList(workspaceRoot: string): Promise<string> {
-    const vrefPath = path.join(workspaceRoot, ".project", "sourceTextBibles", "vref.txt");
+    const vrefPath = path.join(workspaceRoot, ".project", "sourceTexts", "vref.txt");
     const vrefUri = vscode.Uri.file(vrefPath);
     try {
         await vscode.workspace.fs.stat(vrefUri);
@@ -45,7 +45,7 @@ export async function downloadEBibleText(
 ): Promise<string> {
     const fileName = languageMetadata.file;
     const targetDataUrl = `https://raw.githubusercontent.com/BibleNLP/ebible/main/corpus/${fileName}`;
-    const targetPath = path.join(workspaceRoot, ".project", "sourceTextBibles", fileName);
+    const targetPath = path.join(workspaceRoot, ".project", "sourceTexts", fileName);
     await downloadFile(targetDataUrl, targetPath);
     return targetPath;
 }

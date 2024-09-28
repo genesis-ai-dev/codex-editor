@@ -69,13 +69,13 @@ export function registerTextSelectionHandler(
                             );
                             return new vscode.Location(uri, range);
                         });
-                        const bibleFileOpen = vscode.window.visibleTextEditors.some((editor) =>
-                            editor.document.fileName.endsWith(".bible")
+                        const sourceFileOpen = vscode.window.visibleTextEditors.some((editor) =>
+                            editor.document.fileName.endsWith(".source")
                         );
 
-                        if (bibleFileOpen) {
+                        if (sourceFileOpen) {
                             const filteredLocations = locations.filter((location) =>
-                                location.uri.path.endsWith(".bible")
+                                location.uri.path.endsWith(".source")
                             );
 
                             if (filteredLocations.length > 0) {
