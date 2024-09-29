@@ -3,14 +3,12 @@ import { EditorVerseContent } from "../../../../types";
 
 interface EmptyVerseDisplayProps {
     verseMarkers: string[];
-    verseIndex: number;
     setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorVerseContent>>;
     textDirection: "ltr" | "rtl";
 }
 
 const EmptyVerseDisplay: React.FC<EmptyVerseDisplayProps> = ({
     verseMarkers,
-    verseIndex,
     setContentBeingUpdated,
     textDirection,
 }) => {
@@ -18,7 +16,6 @@ const EmptyVerseDisplay: React.FC<EmptyVerseDisplayProps> = ({
         setContentBeingUpdated({
             verseMarkers,
             content: "",
-            verseIndex,
         });
     };
 

@@ -69,8 +69,6 @@ export async function jumpToCellInNotebook(
     notebookPath: string,
     cellIdToJumpTo: string
 ) {
-    const notebookUri = vscode.Uri.file(notebookPath);
-
     try {
         updateWorkspaceState(context, {
             key: "cellToJumpTo",

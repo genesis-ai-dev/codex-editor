@@ -40,7 +40,7 @@ const CodexCellEditor: React.FC = () => {
         setSpellCheckResponse: setSpellCheckResponse,
         jumpToCell: (cellId) => {
             const chapter = cellId?.split(" ")[1]?.split(":")[0];
-            setChapterNumber(parseInt(chapter));
+            setChapterNumber(parseInt(chapter) || 1);
         },
         updateCell: (data: { cellId: string; newContent: string; progress: number }) => {
             setTranslationUnits((prevUnits) =>
@@ -71,9 +71,22 @@ const CodexCellEditor: React.FC = () => {
         // Send the text direction to the extension whenever it changes
         vscode.postMessage({
             command: "updateTextDirection",
-            direction: textDirection
+            direction: textDirection,
         } as EditorPostMessages);
     }, [textDirection]);
+
+    const calculateTotalChapters = (units: QuillCellContent[]): number => {
+        const chapterSet = new Set<string>();
+        units.forEach((unit) => {
+            const chapterNumber = unit.verseMarkers[0]?.split(" ")?.[1]?.split(":")?.[0];
+            if (chapterNumber) {
+                chapterSet.add(chapterNumber);
+            }
+        });
+        return chapterSet.size;
+    };
+
+    const totalChapters = calculateTotalChapters(translationUnits);
 
     const translationUnitsForChapter = translationUnits.filter((verse) => {
         const verseMarker = verse?.verseMarkers?.[0];
@@ -108,7 +121,7 @@ const CodexCellEditor: React.FC = () => {
                 <ChapterNavigation
                     chapterNumber={chapterNumber}
                     setChapterNumber={setChapterNumber}
-                    scriptureCellsLength={translationUnitsForChapter?.length || 0}
+                    totalChapters={totalChapters}
                     unsavedChanges={!!contentBeingUpdated.content}
                     onAutocompleteChapter={handleAutocompleteChapter}
                     onSetTextDirection={setTextDirection}

@@ -93,7 +93,6 @@ const VerseList: React.FC<VerseListProps> = ({
                     <EmptyVerseDisplay
                         key={i}
                         verseMarkers={verseMarkers}
-                        verseIndex={i}
                         setContentBeingUpdated={setContentBeingUpdated}
                         textDirection={textDirection}
                     />

@@ -1,5 +1,5 @@
 import React from "react";
-import { EditorVerseContent, CustomNotebookData } from "../../../../types";
+import { EditorVerseContent, SpellCheckResponse } from "../../../../types";
 import Editor from "./Editor";
 import CloseButtonWithConfirmation from "../components/CloseButtonWithConfirmation";
 import { getCleanedHtml } from "./react-quill-spellcheck";
@@ -8,7 +8,7 @@ interface VerseEditorProps {
     verseMarkers: string[];
     verseContent: string;
     verseIndex: number;
-    spellCheckResponse: CustomNotebookData;
+    spellCheckResponse: SpellCheckResponse | null;
     contentBeingUpdated: EditorVerseContent;
     setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorVerseContent>>;
     handleCloseEditor: () => void;

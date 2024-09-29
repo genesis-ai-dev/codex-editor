@@ -5,7 +5,6 @@ import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 interface ChapterNavigationProps {
     chapterNumber: number;
     setChapterNumber: React.Dispatch<React.SetStateAction<number>>;
-    scriptureCellsLength: number;
     unsavedChanges: boolean;
     onAutocompleteChapter: () => void;
     onSetTextDirection: (direction: "ltr" | "rtl") => void;
@@ -13,12 +12,12 @@ interface ChapterNavigationProps {
     onSetCellDisplayMode: (mode: CELL_DISPLAY_MODES) => void;
     cellDisplayMode: CELL_DISPLAY_MODES;
     isSourceText: boolean;
+    totalChapters: number;
 }
 
 const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     chapterNumber,
     setChapterNumber,
-    scriptureCellsLength,
     unsavedChanges,
     onAutocompleteChapter,
     onSetTextDirection,
@@ -26,11 +25,12 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     onSetCellDisplayMode,
     cellDisplayMode,
     isSourceText,
+    totalChapters,
 }) => (
     <div className="chapter-navigation">
         <VSCodeButton
             appearance="icon"
-            disabled={chapterNumber === 0 || unsavedChanges}
+            disabled={chapterNumber === 1 || unsavedChanges}
             onClick={() => setChapterNumber(chapterNumber - 1)}
         >
             <i className="codicon codicon-chevron-left"></i>
@@ -75,7 +75,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
         </div>
         <VSCodeButton
             appearance="icon"
-            disabled={chapterNumber === scriptureCellsLength - 1 || unsavedChanges}
+            disabled={chapterNumber === totalChapters || unsavedChanges}
             onClick={() => setChapterNumber(chapterNumber + 1)}
         >
             <i className="codicon codicon-chevron-right"></i>

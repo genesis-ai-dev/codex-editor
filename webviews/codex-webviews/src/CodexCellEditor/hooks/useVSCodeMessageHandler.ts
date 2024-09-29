@@ -29,8 +29,9 @@ export const useVSCodeMessageHandler = ({
                 case "providerSendsSpellCheckResponse":
                     setSpellCheckResponse(message.content);
                     break;
-                case "jumpToCell":
-                    jumpToCell(message.cellId);
+                case "jumpToSection":
+                    // FIXME: decide whether we want to jump to cells or just sections...
+                    jumpToCell(message.content);
                     break;
                 case "updateCell":
                     updateCell(message.data);
