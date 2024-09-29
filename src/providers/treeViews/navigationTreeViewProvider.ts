@@ -1,8 +1,6 @@
-import { LanguageMetadata, LanguageProjectStatus } from "codex-types";
 import * as vscode from "vscode";
-import { CodexCell, NotebookMetadata, NavigationCell } from "../../utils/codexNotebookUtils";
+import { NotebookMetadata, NavigationCell } from "../../utils/codexNotebookUtils";
 import { vrefData } from "../../utils/verseRefUtils/verseData";
-import { getProjectMetadata } from "../../utils";
 
 export class Node extends vscode.TreeItem {
     public children?: Node[];
@@ -87,9 +85,42 @@ export class CodexNotebookTreeViewProvider
         }
     }
 
-    private onFileChanged(uri: vscode.Uri): void {
-        // Re-initialize metadata and refresh the tree view
-        this.initializeNotebookMetadata().then(() => this.refresh());
+    private async onFileChanged(uri: vscode.Uri): Promise<void> {
+        const fsPath = uri.fsPath;
+
+        if (await this.fileExists(uri)) {
+            // File was created or modified
+            await this.updateNotebookMetadata(uri);
+        } else {
+            // File was deleted
+            this.notebookMetadata.delete(fsPath);
+        }
+
+        this.refresh();
+    }
+
+    private async fileExists(uri: vscode.Uri): Promise<boolean> {
+        try {
+            await vscode.workspace.fs.stat(uri);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    private async updateNotebookMetadata(uri: vscode.Uri): Promise<void> {
+        try {
+            const notebookContent = await vscode.workspace.fs.readFile(uri);
+            const notebookJson = JSON.parse(notebookContent.toString());
+            const metadata = notebookJson?.metadata as NotebookMetadata;
+
+            this.notebookMetadata.set(uri.fsPath, {
+                navigation: metadata?.navigation || [],
+                corpusMarker: metadata?.data?.corpusMarker,
+            });
+        } catch (error) {
+            console.error(`Error processing file ${uri.fsPath}:`, error);
+        }
     }
 
     refresh(): void {
