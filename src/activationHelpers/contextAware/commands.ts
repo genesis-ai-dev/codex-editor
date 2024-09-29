@@ -15,7 +15,7 @@ import { DownloadedResource } from "../../providers/obs/resources/types";
 import { translationAcademy } from "../../providers/translationAcademy/provider";
 import { downloadBible, setTargetFont } from "../../projectManager/projectInitializers";
 
-import { CodexNotebookTreeViewProvider } from "../../providers/treeViews/scriptureTreeViewProvider";
+import { CodexNotebookTreeViewProvider } from "../../providers/treeViews/navigationTreeViewProvider";
 import { getWorkSpaceFolder } from "../../utils";
 import {
     generateVerseContext,

@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import {
     CodexNotebookTreeViewProvider,
     Node,
-} from "../../providers/treeViews/scriptureTreeViewProvider";
+} from "../../providers/treeViews/navigationTreeViewProvider";
 
 suite("ScriptureTreeViewProvider Test Suite", () => {
     vscode.window.showInformationMessage("Start all tests for ScriptureTreeViewProvider.");
