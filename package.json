@@ -728,7 +728,7 @@
             {
                 "command": "translation-navigation.openSourceFile",
                 "title": "Open Source File",
-                "icon": "$(book)"
+                "icon": "$(open-preview)"
             }
         ],
         "notebooks": [

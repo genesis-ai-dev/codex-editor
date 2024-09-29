@@ -11,20 +11,23 @@ export class Node extends vscode.TreeItem {
         public readonly label: string,
         public readonly type: "corpus" | "document" | "section" | "cell",
         public readonly collapsibleState: vscode.TreeItemCollapsibleState,
-        public readonly command?: vscode.Command,
+        public readonly notebookUri?: vscode.Uri,
         public readonly cellId?: string,
         public readonly sourceFile?: string
     ) {
         super(label, collapsibleState);
         this.contextValue = type;
-
-        if (sourceFile && type === "document") {
-            this.tooltip = `Source: ${sourceFile}`;
+        
+        if (type === "document" || type === "section" || type === "cell") {
             this.command = {
-                command: "translation-navigation.openSourceFile",
-                title: "Open Source File",
-                arguments: [sourceFile],
+                command: "translation-navigation.openSection",
+                title: "Open Section",
+                arguments: [notebookUri?.fsPath, cellId]
             };
+        }
+        
+        if (type === "document") {
+            this.iconPath = new vscode.ThemeIcon("book");
         }
     }
 }
@@ -235,11 +238,7 @@ export class CodexNotebookTreeViewProvider
                     fileNameWithoutExtension,
                     "document",
                     vscode.TreeItemCollapsibleState.Collapsed,
-                    {
-                        command: "translation-navigation.openSourceFile",
-                        title: "Open Source File",
-                        arguments: [{ sourceFile: `${fileNameWithoutExtension}.source` }]
-                    },
+                    notebookUri,
                     undefined,
                     `${fileNameWithoutExtension}.source`
                 );
@@ -310,13 +309,7 @@ export class CodexNotebookTreeViewProvider
                 navCell.children.length > 0
                     ? vscode.TreeItemCollapsibleState.Collapsed
                     : vscode.TreeItemCollapsibleState.None,
-                navCell.cellId
-                    ? {
-                          command: "translation-navigation.openSection",
-                          title: "Open Section",
-                          arguments: [notebookUri.fsPath, navCell.cellId],
-                      }
-                    : undefined,
+                notebookUri,
                 navCell.cellId,
                 sourceFile
             );

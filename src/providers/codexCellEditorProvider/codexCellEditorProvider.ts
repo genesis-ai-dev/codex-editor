@@ -238,7 +238,7 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                             console.log("sourceFileName", { sourceFileName });
                             await vscode.commands.executeCommand(
                                 "translation-navigation.openSourceFile",
-                                { sourceFile: sourceFileName, openToSide: true }
+                                { sourceFile: sourceFileName }
                             );
                             this.postMessageToWebview(webviewPanel, {
                                 type: "jumpToSection",

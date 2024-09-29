@@ -77,49 +77,33 @@ export async function activate(context: vscode.ExtensionContext) {
         // FIXME: move to commands register
         vscode.commands.registerCommand(
             "translation-navigation.openSourceFile",
-            async (params: { sourceFile: string; openToSide?: boolean }) => {
-                console.log("Opening source file:", params);
-                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-                if (workspaceFolder) {
-                    let sourceFileName = params.sourceFile;
+            async (node: Node) => {
+                if (node.sourceFile) {
+                    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                    if (workspaceFolder) {
+                        const sourceFileUri = vscode.Uri.joinPath(
+                            workspaceFolder.uri,
+                            ".project",
+                            "sourceTexts",
+                            node.sourceFile
+                        );
 
-                    // Ensure the file has a .source extension
-                    if (!sourceFileName.endsWith(".source")) {
-                        sourceFileName += ".source";
-                    }
-
-                    const sourceFileUri = vscode.Uri.joinPath(
-                        workspaceFolder.uri,
-                        ".project",
-                        "sourceTexts",
-                        sourceFileName
-                    );
-
-                    try {
-                        if (params.openToSide) {
-                            // Open the file to the side
+                        try {
                             await vscode.commands.executeCommand(
                                 "vscode.openWith",
                                 sourceFileUri,
                                 "codex.cellEditor",
                                 { viewColumn: vscode.ViewColumn.Beside }
                             );
-                        } else {
-                            // Open the file in the current view
-                            await vscode.commands.executeCommand(
-                                "vscode.openWith",
-                                sourceFileUri,
-                                "codex.cellEditor"
+                        } catch (error) {
+                            console.error(`Failed to open source file: ${error}`);
+                            vscode.window.showErrorMessage(
+                                `Failed to open source file: ${JSON.stringify(node)}`
                             );
                         }
-                    } catch (error) {
-                        console.error(`Failed to open source file: ${error}`);
-                        vscode.window.showErrorMessage(
-                            `Failed to open source file: ${sourceFileName}`
-                        );
+                    } else {
+                        vscode.window.showErrorMessage("No workspace folder found");
                     }
-                } else {
-                    vscode.window.showErrorMessage("No workspace folder found");
                 }
             }
         )
