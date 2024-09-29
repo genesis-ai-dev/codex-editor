@@ -218,7 +218,8 @@ type EditorPostMessages =
       }
     | { command: "llmCompletion"; content: { currentLineId: string } }
     | { command: "requestAutocompleteChapter"; content: QuillCellContent[] }
-    | { command: "updateTextDirection"; direction: "ltr" | "rtl" };
+    | { command: "updateTextDirection"; direction: "ltr" | "rtl" }
+    | { command: "openSourceText"; content: { chapterNumber: number } };
 
 type EditorReceiveMessages =
     | { type: "providerSendsInitialContent"; content: QuillCellContent[]; isSourceText: boolean }

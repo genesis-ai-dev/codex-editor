@@ -77,19 +77,11 @@ export async function activate(context: vscode.ExtensionContext) {
         // FIXME: move to commands register
         vscode.commands.registerCommand(
             "translation-navigation.openSourceFile",
-            async (sourceFile: string | { sourceFile: string }) => {
-                console.log("Opening source file:", sourceFile);
+            async (params: { sourceFile: string; openToSide?: boolean }) => {
+                console.log("Opening source file:", params);
                 const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
                 if (workspaceFolder) {
-                    let sourceFileName: string;
-                    if (typeof sourceFile === "string") {
-                        sourceFileName = sourceFile;
-                    } else if (typeof sourceFile === "object" && sourceFile.sourceFile) {
-                        sourceFileName = sourceFile.sourceFile;
-                    } else {
-                        vscode.window.showErrorMessage("Invalid source file parameter");
-                        return;
-                    }
+                    let sourceFileName = params.sourceFile;
 
                     // Ensure the file has a .source extension
                     if (!sourceFileName.endsWith(".source")) {
@@ -104,11 +96,22 @@ export async function activate(context: vscode.ExtensionContext) {
                     );
 
                     try {
-                        await vscode.commands.executeCommand(
-                            "vscode.openWith",
-                            sourceFileUri,
-                            "codex.cellEditor"
-                        );
+                        if (params.openToSide) {
+                            // Open the file to the side
+                            await vscode.commands.executeCommand(
+                                "vscode.openWith",
+                                sourceFileUri,
+                                "codex.cellEditor",
+                                { viewColumn: vscode.ViewColumn.Beside }
+                            );
+                        } else {
+                            // Open the file in the current view
+                            await vscode.commands.executeCommand(
+                                "vscode.openWith",
+                                sourceFileUri,
+                                "codex.cellEditor"
+                            );
+                        }
                     } catch (error) {
                         console.error(`Failed to open source file: ${error}`);
                         vscode.window.showErrorMessage(

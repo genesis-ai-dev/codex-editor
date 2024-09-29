@@ -226,11 +226,3 @@ li {
     color: var(--vscode-button-secondaryForeground);
 }
 
-.source-text-banner {
-    background-color: var(--vscode-activityBarBadge-background);
-    color: var(--vscode-activityBarBadge-foreground);
-    padding: 4px 8px;
-    text-align: center;
-    font-weight: bold;
-    width: 100%;
-}

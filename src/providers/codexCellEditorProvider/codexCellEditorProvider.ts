@@ -227,14 +227,29 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                         }
                         return;
                     }
-                    // case "getCompletionConfig": {
-                    //     const config = await fetchCompletionConfig();
-                    //     webviewPanel.webview.postMessage({
-                    //         type: "completionConfig",
-                    //         content: config,
-                    //     });
-                    //     return;
-                    // }
+                    case "openSourceText": {
+                        console.log("openSourceText message received", { e });
+                        try {
+                            const currentFileName = vscode.workspace.asRelativePath(
+                                document.fileName
+                            );
+                            const baseFileName = currentFileName.split("/").pop() || "";
+                            const sourceFileName = baseFileName.replace(".codex", ".source");
+                            console.log("sourceFileName", { sourceFileName });
+                            await vscode.commands.executeCommand(
+                                "translation-navigation.openSourceFile",
+                                { sourceFile: sourceFileName, openToSide: true }
+                            );
+                            this.postMessageToWebview(webviewPanel, {
+                                type: "jumpToSection",
+                                content: e.content.chapterNumber.toString(),
+                            });
+                        } catch (error) {
+                            console.error("Error opening source text:", error);
+                            vscode.window.showErrorMessage("Failed to open source text.");
+                        }
+                        return;
+                    }
                 }
             } catch (error) {
                 console.error("Unexpected error in message handler:", error);

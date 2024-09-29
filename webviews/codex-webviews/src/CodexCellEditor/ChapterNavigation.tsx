@@ -13,6 +13,7 @@ interface ChapterNavigationProps {
     cellDisplayMode: CELL_DISPLAY_MODES;
     isSourceText: boolean;
     totalChapters: number;
+    openSourceText: (chapterNumber: number) => void;
 }
 
 const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
@@ -26,6 +27,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     cellDisplayMode,
     isSourceText,
     totalChapters,
+    openSourceText,
 }) => (
     <div className="chapter-navigation">
         <VSCodeButton
@@ -36,15 +38,30 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
             <i className="codicon codicon-chevron-left"></i>
         </VSCodeButton>
         <div className="chapter-navigation-group">
+            {isSourceText && (
+                <>
+                    <VSCodeButton appearance="secondary" disabled>
+                        Source Text
+                    </VSCodeButton>
+                    <VSCodeButton appearance="icon" disabled>
+                        <i className="codicon codicon-lock" />
+                    </VSCodeButton>
+                </>
+            )}
             {!isSourceText && (
-                <VSCodeButton
-                    appearance="icon"
-                    onClick={onAutocompleteChapter}
-                    disabled={unsavedChanges}
-                    title="Autocomplete Chapter"
-                >
-                    <i className="codicon codicon-sparkle"></i>
-                </VSCodeButton>
+                <>
+                    <VSCodeButton appearance="icon" onClick={() => openSourceText(chapterNumber)}>
+                        <i className="codicon codicon-open-preview"></i>
+                    </VSCodeButton>
+                    <VSCodeButton
+                        appearance="icon"
+                        onClick={onAutocompleteChapter}
+                        disabled={unsavedChanges}
+                        title="Autocomplete Chapter"
+                    >
+                        <i className="codicon codicon-sparkle"></i>
+                    </VSCodeButton>
+                </>
             )}
             <VSCodeButton
                 appearance="icon"

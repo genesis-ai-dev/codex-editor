@@ -113,9 +113,17 @@ const CodexCellEditor: React.FC = () => {
         } as EditorPostMessages);
     };
 
+    const openSourceText = (chapterNumber: number) => {
+        vscode.postMessage({
+            command: "openSourceText",
+            content: {
+                chapterNumber,
+            },
+        } as EditorPostMessages);
+    };
+
     return (
         <div className="codex-cell-editor" style={{ direction: textDirection }}>
-            {isSourceText && <div className="source-text-banner">Source Text (Read-only)</div>}
             <h1>{translationUnitsForChapter[0]?.verseMarkers?.[0]?.split(":")[0]}</h1>
             <div className="editor-container">
                 <ChapterNavigation
@@ -129,6 +137,7 @@ const CodexCellEditor: React.FC = () => {
                     onSetCellDisplayMode={setCellDisplayMode}
                     cellDisplayMode={cellDisplayMode}
                     isSourceText={isSourceText}
+                    openSourceText={openSourceText}
                 />
                 {autocompletionProgress !== null && (
                     <div className="autocompletion-progress">

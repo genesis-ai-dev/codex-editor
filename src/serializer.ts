@@ -26,7 +26,6 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
         token: vscode.CancellationToken
     ): Promise<CodexNotebookAsJSONData> {
         const contents = new TextDecoder().decode(data); // convert to String
-        console.log("contents sdafdsfa", { contents });
         // Read file contents
         let raw: RawNotebookData;
         try {
