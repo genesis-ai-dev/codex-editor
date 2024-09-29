@@ -18,6 +18,7 @@ import {
 } from "./projectManager/utils/migrationUtils";
 import { createIndexWithContext } from "./activationHelpers/contextAware/miniIndex/indexes";
 import { registerSourceUploadCommands } from "./providers/SourceUpload/registerCommands";
+import { migrateSourceFiles } from "./utils/codexNotebookUtils";
 
 let client: LanguageClient | undefined;
 let clientCommandsDisposable: vscode.Disposable;
@@ -68,6 +69,58 @@ export async function activate(context: vscode.ExtensionContext) {
     await executeCommandsAfter();
     await temporaryMigrationScript_checkMatthewNotebook();
     await migration_changeDraftFolderToFilesFolder();
+
+    // Add the new migration function
+    await migrateSourceFiles();
+
+    context.subscriptions.push(
+        // FIXME: move to commands register
+        vscode.commands.registerCommand(
+            "translation-navigation.openSourceFile",
+            async (sourceFile: string | { sourceFile: string }) => {
+                console.log("Opening source file:", sourceFile);
+                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                if (workspaceFolder) {
+                    let sourceFileName: string;
+                    if (typeof sourceFile === "string") {
+                        sourceFileName = sourceFile;
+                    } else if (typeof sourceFile === "object" && sourceFile.sourceFile) {
+                        sourceFileName = sourceFile.sourceFile;
+                    } else {
+                        vscode.window.showErrorMessage("Invalid source file parameter");
+                        return;
+                    }
+
+                    // Ensure the file has a .source extension
+                    if (!sourceFileName.endsWith(".source")) {
+                        sourceFileName += ".source";
+                    }
+
+                    const sourceFileUri = vscode.Uri.joinPath(
+                        workspaceFolder.uri,
+                        ".project",
+                        "sourceTexts",
+                        sourceFileName
+                    );
+
+                    try {
+                        await vscode.commands.executeCommand(
+                            "vscode.openWith",
+                            sourceFileUri,
+                            "codex.cellEditor"
+                        );
+                    } catch (error) {
+                        console.error(`Failed to open source file: ${error}`);
+                        vscode.window.showErrorMessage(
+                            `Failed to open source file: ${sourceFileName}`
+                        );
+                    }
+                } else {
+                    vscode.window.showErrorMessage("No workspace folder found");
+                }
+            }
+        )
+    );
 }
 
 function registerCodeLensProviders(context: vscode.ExtensionContext) {

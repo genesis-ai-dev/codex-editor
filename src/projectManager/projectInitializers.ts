@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { getProjectMetadata, getWorkSpaceFolder } from "../utils";
 import { LanguageProjectStatus } from "codex-types";
 import * as path from "path";
-import { createProjectCommentFiles, createProjectNotebooks } from "../utils/codexNotebookUtils";
+import { createProjectCommentFiles, createProjectNotebooks, splitSourceFileByBook } from "../utils/codexNotebookUtils";
 import {
     EbibleCorpusMetadata,
     downloadEBibleText,
@@ -197,6 +197,9 @@ async function handleBibleDownload(
     );
 
     vscode.window.showInformationMessage(`.source file created successfully at ${bibleFilePath}`);
+
+    // Split the source file by book
+    await splitSourceFileByBook(bibleFileUri, workspaceRoot, languageType);
 }
 
 export async function setTargetFont() {

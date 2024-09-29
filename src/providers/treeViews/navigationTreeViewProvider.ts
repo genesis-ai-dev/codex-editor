@@ -1,6 +1,8 @@
+import { getWorkSpaceUri } from "./../../utils/index";
 import * as vscode from "vscode";
 import { NotebookMetadata, NavigationCell } from "../../utils/codexNotebookUtils";
 import { vrefData } from "../../utils/verseRefUtils/verseData";
+import * as path from "path";
 
 export class Node extends vscode.TreeItem {
     public children?: Node[];
@@ -10,10 +12,20 @@ export class Node extends vscode.TreeItem {
         public readonly type: "corpus" | "document" | "section" | "cell",
         public readonly collapsibleState: vscode.TreeItemCollapsibleState,
         public readonly command?: vscode.Command,
-        public readonly cellId?: string
+        public readonly cellId?: string,
+        public readonly sourceFile?: string
     ) {
         super(label, collapsibleState);
         this.contextValue = type;
+
+        if (sourceFile && type === "document") {
+            this.tooltip = `Source: ${sourceFile}`;
+            this.command = {
+                command: "translation-navigation.openSourceFile",
+                title: "Open Source File",
+                arguments: [sourceFile],
+            };
+        }
     }
 }
 
@@ -25,8 +37,10 @@ export class CodexNotebookTreeViewProvider
     readonly onDidChangeTreeData: vscode.Event<Node | undefined | void> =
         this._onDidChangeTreeData.event;
 
-    private notebookMetadata: Map<string, { navigation: NavigationCell[]; corpusMarker?: string }> =
-        new Map();
+    private notebookMetadata: Map<
+        string,
+        { navigation: NavigationCell[]; corpusMarker?: string; sourceFile?: string }
+    > = new Map();
 
     private fileWatcher: vscode.FileSystemWatcher | undefined;
 
@@ -114,12 +128,62 @@ export class CodexNotebookTreeViewProvider
             const notebookJson = JSON.parse(notebookContent.toString());
             const metadata = notebookJson?.metadata as NotebookMetadata;
 
+            const sourceFile =
+                metadata?.sourceFile || (await this.findCorrespondingSourceFile(uri));
+
+            // Update the notebook's metadata with the found source file
+            if (sourceFile) {
+                metadata.sourceFile = sourceFile;
+                notebookJson.metadata = metadata;
+                await vscode.workspace.fs.writeFile(
+                    uri,
+                    Buffer.from(JSON.stringify(notebookJson, null, 2))
+                );
+            }
+
             this.notebookMetadata.set(uri.fsPath, {
                 navigation: metadata?.navigation || [],
                 corpusMarker: metadata?.data?.corpusMarker,
+                sourceFile: sourceFile,
             });
         } catch (error) {
             console.error(`Error processing file ${uri.fsPath}:`, error);
+        }
+    }
+
+    private async findCorrespondingSourceFile(codexUri: vscode.Uri): Promise<string | undefined> {
+        const codexFileName = path.basename(codexUri.fsPath, ".codex");
+
+        // Check the config for primarySourceText
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        const primarySourceText = config.get<string>("primarySourceText");
+
+        if (primarySourceText) {
+            return path.basename(primarySourceText);
+        }
+
+        const workSpaceUri = getWorkSpaceUri();
+
+        if (!workSpaceUri) {
+            console.error("No workspace found. Cannot find source file for " + codexFileName);
+            return undefined;
+        }
+
+        // If not found in config, look for a matching .source file
+        const sourceTextsFolderUri = vscode.Uri.joinPath(workSpaceUri, ".project", "sourceTexts");
+        try {
+            const files = await vscode.workspace.fs.readDirectory(sourceTextsFolderUri);
+            const matchingSourceFile = files.find(
+                ([name, type]) =>
+                    type === vscode.FileType.File &&
+                    name.endsWith(".source") &&
+                    name.slice(0, -7) === codexFileName
+            );
+
+            return matchingSourceFile ? matchingSourceFile[0] : undefined;
+        } catch (error) {
+            console.error(`Error reading source texts directory: ${error}`);
+            return undefined;
         }
     }
 
@@ -165,19 +229,27 @@ export class CodexNotebookTreeViewProvider
 
             for (const [notebookPath, metadata] of this.notebookMetadata) {
                 const fileName = vscode.Uri.parse(notebookPath).path.split("/").pop() || "";
-                const fileNameWithoutExtension = fileName.slice(0, -6);
+                const fileNameWithoutExtension = fileName.slice(0, -6); // Remove .codex
                 const notebookUri = vscode.Uri.file(notebookPath);
                 const notebookNode = new Node(
                     fileNameWithoutExtension,
                     "document",
-                    vscode.TreeItemCollapsibleState.Collapsed
+                    vscode.TreeItemCollapsibleState.Collapsed,
+                    {
+                        command: "translation-navigation.openSourceFile",
+                        title: "Open Source File",
+                        arguments: [{ sourceFile: `${fileNameWithoutExtension}.source` }]
+                    },
+                    undefined,
+                    `${fileNameWithoutExtension}.source`
                 );
 
                 // Create the child nodes from navigation data
                 if (metadata.navigation) {
                     notebookNode.children = this.createNodesFromNavigation(
                         metadata.navigation,
-                        notebookUri
+                        notebookUri,
+                        `${fileNameWithoutExtension}.source`
                     );
                 }
 
@@ -228,7 +300,8 @@ export class CodexNotebookTreeViewProvider
 
     private createNodesFromNavigation(
         navigationCells: NavigationCell[],
-        notebookUri: vscode.Uri
+        notebookUri: vscode.Uri,
+        sourceFile?: string
     ): Node[] {
         return navigationCells.map((navCell) => {
             const node = new Node(
@@ -240,15 +313,20 @@ export class CodexNotebookTreeViewProvider
                 navCell.cellId
                     ? {
                           command: "translation-navigation.openSection",
-                          title: "$(arrow-right)",
+                          title: "Open Section",
                           arguments: [notebookUri.fsPath, navCell.cellId],
                       }
                     : undefined,
-                navCell.cellId
+                navCell.cellId,
+                sourceFile
             );
 
             if (navCell.children.length > 0) {
-                node.children = this.createNodesFromNavigation(navCell.children, notebookUri);
+                node.children = this.createNodesFromNavigation(
+                    navCell.children,
+                    notebookUri,
+                    sourceFile
+                );
             }
 
             return node;

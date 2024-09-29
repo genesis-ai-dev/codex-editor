@@ -28,6 +28,10 @@ export interface BookData {
     };
 }
 
+export function getTestamentForBook(book: string) {
+    return vrefData[book].testament;
+}
+
 export function getLookupStringsForBook(book: string) {
     const bookData = vrefData[book];
     if (!bookData) {

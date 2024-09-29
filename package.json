@@ -185,6 +185,11 @@
                     "command": "translation-navigation.openSection",
                     "when": "view == translation-navigation",
                     "group": "navigation"
+                },
+                {
+                    "command": "translation-navigation.openSourceFile",
+                    "when": "view == translation-navigation && viewItem == document",
+                    "group": "inline"
                 }
             ],
             "editor/title": [
@@ -719,6 +724,11 @@
             {
                 "command": "codex-project-manager.openSourceUpload",
                 "title": "Open Source Upload"
+            },
+            {
+                "command": "translation-navigation.openSourceFile",
+                "title": "Open Source File",
+                "icon": "$(book)"
             }
         ],
         "notebooks": [

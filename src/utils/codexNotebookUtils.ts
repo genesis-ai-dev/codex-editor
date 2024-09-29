@@ -7,8 +7,9 @@ import { getAllBookRefs, getAllBookChapterRefs, getAllVrefs } from ".";
 import { vrefData } from "./verseRefUtils/verseData";
 import { LanguageProjectStatus } from "codex-types";
 import { extractVerseRefFromLine, verseRefRegex } from "./verseRefUtils";
-
+import { getTestamentForBook } from "./verseRefUtils/verseData";
 import grammar, { ParsedUSFM } from "usfm-grammar";
+import * as path from "path";
 
 export const NOTEBOOK_TYPE = "codex-type";
 
@@ -70,6 +71,7 @@ export interface NotebookMetadata {
         corpusMarker?: string;
         [key: string]: any | undefined;
     };
+    sourceFile: string;
     navigation: NavigationCell[];
 }
 
@@ -314,7 +316,73 @@ export async function importLocalUsfmSourceBible() {
                 );
 
                 console.log(`Extracted ${verses.length} verses from ${fileName}`);
-                bibleContent.push(...verses);
+
+                // Instead of appending to bibleContent, create a separate file for each book
+                const bookData = {
+                    cells: verses.map((verse) => ({
+                        kind: 2,
+                        language: "scripture",
+                        value: verse.split(" ").slice(3).join(" "),
+                        metadata: {
+                            type: "text",
+                            id: verse.split(" ").slice(0, 3).join(" "),
+                            navigation: [],
+                        },
+                    })),
+                    metadata: {
+                        data: {
+                            corpusMarker:
+                                getTestamentForBook(bookCode) === "OT"
+                                    ? "Old Testament"
+                                    : getTestamentForBook(bookCode) === "NT"
+                                      ? "New Testament"
+                                      : undefined,
+                        },
+                        navigation: [],
+                    },
+                };
+
+                // Add chapter headings and update navigation
+                let currentChapter = "";
+                const navigationCells: NavigationCell[] = [];
+                bookData.cells.forEach((cell, index) => {
+                    const [, chapter] = cell.metadata.id.split(" ");
+                    if (chapter !== currentChapter) {
+                        currentChapter = chapter;
+                        const chapterCellId = `${bookCode} ${chapter}:1:${Math.random().toString(36).substr(2, 11)}`;
+                        bookData.cells.splice(index, 0, {
+                            kind: 2,
+                            language: "paratext",
+                            value: `<h1>Chapter ${chapter}</h1>`,
+                            metadata: {
+                                type: "paratext",
+                                id: chapterCellId,
+                                navigation: [],
+                            },
+                        });
+                        navigationCells.push({
+                            cellId: chapterCellId,
+                            children: [],
+                            label: `Chapter ${chapter}`,
+                        });
+                    }
+                });
+
+                bookData.metadata.navigation = navigationCells as any;
+
+                const bookFilePath = path.join(
+                    workspaceFolder.uri.fsPath,
+                    ".project",
+                    "sourceTexts",
+                    `${bookCode}.source`
+                );
+
+                await vscode.workspace.fs.writeFile(
+                    vscode.Uri.file(bookFilePath),
+                    new TextEncoder().encode(JSON.stringify(bookData, null, 2))
+                );
+
+                console.log(`Created .source file for ${bookCode}`);
             } catch (error) {
                 console.error(`Error processing file ${fileName}:`, error);
                 vscode.window.showErrorMessage(
@@ -326,108 +394,8 @@ export async function importLocalUsfmSourceBible() {
         }
     }
 
-    console.log(`Total verses extracted: ${bibleContent.length}`);
-
-    const bibleFileName = await vscode.window.showInputBox({
-        prompt: "Enter a name for the Bible file",
-        placeHolder: "e.g., MyBible",
-    });
-
-    if (!bibleFileName) {
-        vscode.window.showInformationMessage("Bible import cancelled");
-        return;
-    }
-    // Fix: Use the workspace folder directly to create the target path
-    const targetFolderPath = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts");
-    const bibleFilePath = vscode.Uri.joinPath(targetFolderPath, `${bibleFileName}.source`);
-
-    // Ensure the target folder exists
-    try {
-        await vscode.workspace.fs.createDirectory(targetFolderPath);
-    } catch (error) {
-        console.error(
-            `Error creating directory: ${error instanceof Error ? error.message : String(error)}`
-        );
-        vscode.window.showErrorMessage(
-            `Failed to create directory: ${targetFolderPath.toString()}`
-        );
-        return;
-    }
-
-    const bibleData: any = {
-        cells: [],
-        metadata: {
-            data: {
-                corpusMarker: undefined, // We'll set this later
-            },
-            navigation: [],
-        },
-    };
-
-    let currentBook = "";
-    let currentChapter = "";
-    let chapterCellId = "";
-    let testament: "OT" | "NT" | undefined;
-
-    for (const verse of bibleContent) {
-        const [bookCode, chapterVerse, ...textParts] = verse.split(" ");
-        const [chapter, verseNumber] = chapterVerse.split(":");
-        const text = textParts?.join(" ") || "";
-
-        if (!testament && vrefData[bookCode]) {
-            testament = vrefData[bookCode].testament as "OT" | "NT";
-        }
-
-        if (bookCode !== currentBook || chapter !== currentChapter) {
-            currentBook = bookCode;
-            currentChapter = chapter;
-            chapterCellId = `${bookCode} ${chapter}:1:${Math.random().toString(36).substr(2, 11)}`;
-            bibleData.cells.push({
-                kind: 2,
-                language: "paratext",
-                value: `<h1>${bookCode} Chapter ${chapter}</h1>`,
-                metadata: {
-                    type: "paratext",
-                    id: chapterCellId,
-                },
-            });
-            bibleData.metadata.navigation.push({
-                cellId: chapterCellId,
-                children: [],
-                label: `${bookCode} Chapter ${chapter}`,
-            });
-        }
-
-        bibleData.cells.push({
-            kind: 2,
-            language: "scripture",
-            value: text,
-            metadata: {
-                type: "text",
-                id: `${bookCode} ${chapter}:${verseNumber}`,
-                data: {},
-            },
-        });
-    }
-
-    // Set the corpusMarker based on the testament
-    bibleData.metadata.data.corpusMarker =
-        testament === "OT" ? "Old Testament" : testament === "NT" ? "New Testament" : undefined;
-
-    try {
-        vscode.workspace.fs.writeFile(
-            bibleFilePath,
-            Buffer.from(JSON.stringify(bibleData, null, 2), "utf-8")
-        );
-        vscode.window.showInformationMessage(
-            `Bible imported successfully: ${bibleFilePath.toString()}`
-        );
-    } catch (error) {
-        console.error(
-            `Error generating file: ${error instanceof Error ? error.message : String(error)}`
-        );
-        vscode.window.showErrorMessage(`Failed to create Bible file: ${bibleFilePath.toString()}`);
-    }
+    // Remove the code that creates a single combined file
+    vscode.window.showInformationMessage(`Bible imported successfully as individual book files.`);
 }
 
 /**
@@ -599,4 +567,119 @@ export async function createProjectNotebooks({
         }
     }
     await Promise.all(notebookCreationPromises);
+}
+
+export async function splitSourceFileByBook(
+    sourceFileUri: vscode.Uri,
+    workspaceRoot: string,
+    languageType: string
+) {
+    try {
+        const sourceFileContent = await vscode.workspace.fs.readFile(sourceFileUri);
+        const sourceData = JSON.parse(sourceFileContent.toString());
+
+        const bookData: { [book: string]: any } = {};
+
+        for (const cell of sourceData.cells) {
+            if (cell.metadata && cell.metadata.id) {
+                const [book] = cell.metadata.id.split(" ");
+                if (!bookData[book]) {
+                    bookData[book] = {
+                        cells: [],
+                        metadata: {
+                            data: { ...sourceData.metadata.data },
+                            navigation: [],
+                        },
+                    };
+                }
+                bookData[book].cells.push(cell);
+
+                // Update navigation for chapter headings
+                if (cell.metadata.type === "paratext") {
+                    bookData[book].metadata.navigation.push({
+                        cellId: cell.metadata.id,
+                        children: [],
+                        label: cell.value.replace(/<\/?h1>/g, ""),
+                    });
+                }
+            }
+        }
+
+        for (const [book, data] of Object.entries(bookData)) {
+            const bookFilePath = path.join(
+                workspaceRoot,
+                ".project",
+                languageType === "source" ? "sourceTexts" : "targetTexts",
+                `${book}.source`
+            );
+            const bookFileUri = vscode.Uri.file(bookFilePath);
+            await vscode.workspace.fs.writeFile(
+                bookFileUri,
+                new TextEncoder().encode(JSON.stringify(data, null, 2))
+            );
+        }
+
+        // We won't delete the original file here, as it's renamed in the migrateSourceFiles function
+        vscode.window.showInformationMessage(`Source file split into individual book files.`);
+    } catch (error) {
+        console.error(`Error splitting source file: ${error}`);
+        vscode.window.showErrorMessage(`Failed to split source file: ${error}`);
+    }
+}
+
+export async function migrateSourceFiles() {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+        vscode.window.showErrorMessage("No workspace folder found");
+        return;
+    }
+
+    const sourceTextsFolderUri = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts");
+    
+    try {
+        await vscode.workspace.fs.stat(sourceTextsFolderUri);
+    } catch {
+        vscode.window.showInformationMessage("No source texts folder found. Skipping migration.");
+        return;
+    }
+
+    const sourceFiles = await vscode.workspace.fs.readDirectory(sourceTextsFolderUri);
+
+    for (const [fileName, fileType] of sourceFiles) {
+        if (fileType === vscode.FileType.File && fileName.endsWith(".source")) {
+            const fileUri = vscode.Uri.joinPath(sourceTextsFolderUri, fileName);
+            
+            try {
+                const fileContent = await vscode.workspace.fs.readFile(fileUri);
+                const sourceData = JSON.parse(fileContent.toString());
+
+                const books = new Set<string>();
+                for (const cell of sourceData.cells) {
+                    if (cell.metadata && cell.metadata.id) {
+                        const [book] = cell.metadata.id.split(" ");
+                        books.add(book);
+                    }
+                }
+
+                if (books.size > 1) {
+                    console.log(`Splitting ${fileName} into multiple files...`);
+                    await splitSourceFileByBook(fileUri, workspaceFolder.uri.fsPath, "source");
+                    
+                    // Rename the original file
+                    const newFileName = fileName.replace(".source", ".source.combined");
+                    const newFileUri = vscode.Uri.joinPath(sourceTextsFolderUri, newFileName);
+                    try {
+                        await vscode.workspace.fs.rename(fileUri, newFileUri);
+                        console.log(`Renamed original file to ${newFileName}`);
+                    } catch (error) {
+                        console.error(`Failed to rename ${fileName}: ${error}`);
+                    }
+                }
+            } catch (error) {
+                console.error(`Error processing ${fileName}: ${error}`);
+            }
+        }
+    }
+
+    vscode.window.showInformationMessage("Source file migration completed.");
 }
