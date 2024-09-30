@@ -17,15 +17,15 @@ export class Node extends vscode.TreeItem {
     ) {
         super(label, collapsibleState);
         this.contextValue = type;
-        
+
         if (type === "document" || type === "section" || type === "cell") {
             this.command = {
                 command: "translation-navigation.openSection",
                 title: "Open Section",
-                arguments: [notebookUri?.fsPath, cellId]
+                arguments: [notebookUri?.fsPath, cellId],
             };
         }
-        
+
         if (type === "document") {
             this.iconPath = new vscode.ThemeIcon("book");
         }
@@ -212,7 +212,6 @@ export class CodexNotebookTreeViewProvider
     }
 
     private async getNotebooksByCorpus(): Promise<Node[]> {
-        console.time("getNotebooksByCorpus");
         try {
             const corpora: Record<string, Node> = {
                 "Old Testament": new Node(
@@ -292,8 +291,6 @@ export class CodexNotebookTreeViewProvider
         } catch (error) {
             vscode.window.showErrorMessage(`Error processing notebooks: ${error}`);
             return [];
-        } finally {
-            console.timeEnd("getNotebooksByCorpus");
         }
     }
 
