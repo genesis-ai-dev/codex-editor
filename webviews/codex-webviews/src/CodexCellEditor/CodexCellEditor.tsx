@@ -76,23 +76,23 @@ const CodexCellEditor: React.FC = () => {
     }, [textDirection]);
 
     const calculateTotalChapters = (units: QuillCellContent[]): number => {
-        const chapterSet = new Set<string>();
+        const sectionSet = new Set<string>();
         units.forEach((unit) => {
-            const chapterNumber = unit.verseMarkers[0]?.split(" ")?.[1]?.split(":")?.[0];
-            if (chapterNumber) {
-                chapterSet.add(chapterNumber);
+            const sectionNumber = unit.verseMarkers[0]?.split(" ")?.[1]?.split(":")?.[0];
+            if (sectionNumber) {
+                sectionSet.add(sectionNumber);
             }
         });
-        return chapterSet.size;
+        return sectionSet.size;
     };
 
     const totalChapters = calculateTotalChapters(translationUnits);
 
-    const translationUnitsForChapter = translationUnits.filter((verse) => {
-        const verseMarker = verse?.verseMarkers?.[0];
-        const chapterVerseParts = verseMarker?.split(" ")?.[1]?.split(":");
-        const verseChapterNumber = chapterVerseParts?.[0];
-        return verseChapterNumber === chapterNumber.toString();
+    const translationUnitsForSection = translationUnits.filter((verse) => {
+        const cellId = verse?.verseMarkers?.[0];
+        const sectionCellIdParts = cellId?.split(" ")?.[1]?.split(":");
+        const sectionCellNumber = sectionCellIdParts?.[0];
+        return sectionCellNumber === chapterNumber.toString();
     });
 
     const handleCloseEditor = () => setContentBeingUpdated({} as EditorVerseContent);
@@ -109,22 +109,22 @@ const CodexCellEditor: React.FC = () => {
         console.log("Autocomplete chapter");
         vscode.postMessage({
             command: "requestAutocompleteChapter",
-            content: translationUnitsForChapter,
+            content: translationUnitsForSection,
         } as EditorPostMessages);
     };
 
-    const openSourceText = (chapterNumber: number) => {
+    const openSourceText = (sectionIdNumber: number) => {
         vscode.postMessage({
             command: "openSourceText",
             content: {
-                chapterNumber,
+                chapterNumber: sectionIdNumber,
             },
         } as EditorPostMessages);
     };
 
     return (
         <div className="codex-cell-editor" style={{ direction: textDirection }}>
-            <h1>{translationUnitsForChapter[0]?.verseMarkers?.[0]?.split(":")[0]}</h1>
+            <h1>{translationUnitsForSection[0]?.verseMarkers?.[0]?.split(":")[0]}</h1>
             <div className="editor-container">
                 <ChapterNavigation
                     chapterNumber={chapterNumber}
@@ -146,7 +146,7 @@ const CodexCellEditor: React.FC = () => {
                     </div>
                 )}
                 <VerseList
-                    translationUnits={translationUnitsForChapter}
+                    translationUnits={translationUnitsForSection}
                     contentBeingUpdated={contentBeingUpdated}
                     setContentBeingUpdated={setContentBeingUpdated}
                     spellCheckResponse={spellCheckResponse}

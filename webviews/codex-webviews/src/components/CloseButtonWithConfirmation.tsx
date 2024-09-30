@@ -37,7 +37,7 @@ const CloseButtonWithConfirmation: React.FC<{
                         aria-label="Confirm Delete"
                         title="Confirm Delete"
                         onClick={confirmDelete}
-                        appearance="icon"
+                        appearance="secondary"
                     >
                         <i className="codicon codicon-check"></i>
                         <i className="codicon codicon-trash"></i>
