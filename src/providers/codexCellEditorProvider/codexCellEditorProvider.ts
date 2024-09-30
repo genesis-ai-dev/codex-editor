@@ -601,6 +601,7 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
             verseMarkers: [cell.metadata?.id],
             verseContent: cell.value,
             cellType: cell.metadata?.type,
+            editHistory: cell.metadata?.edits,
         }));
 
         const processedData = this.mergeRangesAndProcess(translationUnits);
@@ -613,12 +614,14 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
             verseMarkers: string[];
             verseContent: string;
             cellType: CodexCellTypes;
+            editHistory: Array<any>;
         }[]
     ) {
         const translationUnitsWithMergedRanges: {
             verseMarkers: string[];
             verseContent: string;
             cellType: CodexCellTypes;
+            editHistory: Array<any>;
         }[] = [];
 
         translationUnits.forEach((verse, index) => {
@@ -641,6 +644,7 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                 verseMarkers,
                 verseContent: verse.verseContent,
                 cellType: verse.cellType,
+                editHistory: verse.editHistory,
             });
         });
 

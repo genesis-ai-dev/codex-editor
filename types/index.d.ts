@@ -255,7 +255,21 @@ interface QuillCellContent {
     verseMarkers: string[];
     verseContent: string;
     cellType: import("./enums").CodexCellTypes;
+    editHistory: Array<EditHistory>;
 }
+
+interface EditHistory {
+    timestamp: number;
+    type: string;
+    content: string;
+    // ... other fields
+}
+
+interface EditorVerseContent {
+    verseMarkers: string[];
+    content: string;
+}
+
 
 interface SpellCheckResponse {
     id: string;
