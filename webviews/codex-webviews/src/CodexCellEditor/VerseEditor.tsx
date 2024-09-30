@@ -3,6 +3,7 @@ import { EditorVerseContent, SpellCheckResponse } from "../../../../types";
 import Editor from "./Editor";
 import CloseButtonWithConfirmation from "../components/CloseButtonWithConfirmation";
 import { getCleanedHtml } from "./react-quill-spellcheck";
+import { VSCodeButton, VSCodeDropdown, VSCodeOption } from "@vscode/webview-ui-toolkit/react";
 
 interface VerseEditorProps {
     verseMarkers: string[];
@@ -46,19 +47,19 @@ const VerseEditor: React.FC<VerseEditorProps> = ({
                             gap: "0.5rem",
                         }}
                     >
-                        <button onClick={handleSaveMarkdown} className="vscode-button-confirm">
+                        <VSCodeButton onClick={handleSaveMarkdown} appearance="primary">
                             <i className="codicon codicon-save"></i>
-                        </button>
+                        </VSCodeButton>
                         <CloseButtonWithConfirmation handleDeleteButtonClick={handleCloseEditor} />
                     </div>
                 ) : (
-                    <button
+                    <VSCodeButton
                         onClick={handleCloseEditor}
-                        disabled={unsavedChanges}
-                        className="vscode-button"
+                        disabled={unsavedContent !== null}
+                        appearance="icon"
                     >
                         <i className="codicon codicon-close"></i>
-                    </button>
+                    </VSCodeButton>
                 )}
             </div>
             <div className="text-editor">
