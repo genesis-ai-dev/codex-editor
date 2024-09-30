@@ -122,6 +122,17 @@ const CodexCellEditor: React.FC = () => {
         } as EditorPostMessages);
     };
 
+    // Dynamically set styles for .ql-editor
+    const styleElement = document.createElement("style");
+    styleElement.textContent = `
+        .ql-editor {
+            direction: ${textDirection} !important;
+            text-align: ${textDirection === "rtl" ? "right" : "left"} !important;
+        }
+    `;
+    // FIXME: apply these styles outside of the quill editor to fix
+    document.head.appendChild(styleElement);
+
     return (
         <div className="codex-cell-editor" style={{ direction: textDirection }}>
             <h1>{translationUnitsForSection[0]?.verseMarkers?.[0]?.split(":")[0]}</h1>

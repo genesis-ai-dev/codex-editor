@@ -35,17 +35,6 @@ const VerseEditor: React.FC<VerseEditorProps> = ({
             verseContent.replace(/\s/g, "")
     );
 
-    // Dynamically set styles for .ql-editor
-    const styleElement = document.createElement("style");
-    styleElement.textContent = `
-        .ql-editor {
-            direction: ${textDirection} !important;
-            text-align: ${textDirection === "rtl" ? "right" : "left"} !important;
-        }
-    `;
-    // FIXME: apply these styles outside of the quill editor to fix
-    document.head.appendChild(styleElement);
-
     return (
         <div className="verse-editor" style={{ direction: textDirection }}>
             <div className="verse-header">
