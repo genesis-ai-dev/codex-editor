@@ -75,9 +75,20 @@ export default function Editor(props: EditorProps) {
                 },
             });
 
+            // Dynamically set styles for .ql-editor
+            const styleElement = document.createElement("style");
+            styleElement.textContent = `
+                .ql-editor {
+                    direction: ${props.textDirection} !important;
+                    text-align: ${props.textDirection === "rtl" ? "right" : "left"} !important;
+                }
+            `;
+            // FIXME: apply these styles outside of the quill editor to fix
+            document.head.appendChild(styleElement);
+
             // Set text direction after initialization
             quill.format("direction", props.textDirection);
-            quill.format("align", props.textDirection === "rtl" ? "right" : "left");
+            quill.format("text-align", props.textDirection === "rtl" ? "right" : "left");
 
             quillRef.current = quill;
 
@@ -120,7 +131,7 @@ export default function Editor(props: EditorProps) {
         }
     }, []);
 
-    console.log("revertedValue", revertedValue);
+    // console.log("revertedValue", revertedValue);
 
     useEffect(() => {
         if (quillRef.current && revertedValue !== undefined) {
@@ -154,7 +165,7 @@ export default function Editor(props: EditorProps) {
             window.addEventListener("message", messageListener);
         });
 
-        console.log("Received text from LLM completion:", newTextContentFromLLM);
+        // console.log("Received text from LLM completion:", newTextContentFromLLM);
         if (quillRef.current && newTextContentFromLLM) {
             const quill = quillRef.current;
             const length = quill.getLength();

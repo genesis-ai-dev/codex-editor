@@ -63,9 +63,13 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     });
 
     const sourceTextIndex = new MiniSearch({
-        fields: ["content"],
+        fields: ["vref", "content"],
         storeFields: ["vref", "content", "versions"],
         idField: "vref",
+        searchOptions: {
+            prefix: true,
+            fuzzy: 0.2,
+        },
     });
 
     const zeroDraftIndex = new MiniSearch<ZeroDraftIndexRecord>({

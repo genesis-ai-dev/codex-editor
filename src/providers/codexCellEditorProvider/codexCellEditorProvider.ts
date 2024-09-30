@@ -362,12 +362,7 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                 <link href="${styleVSCodeUri}" rel="stylesheet" nonce="${nonce}">
                 <link href="${codiconsUri}" rel="stylesheet" nonce="${nonce}" />
                 <title>Codex Cell Editor</title>
-                <style>
-                    .ql-editor {
-                        direction: ${textDirection} !important;
-                        text-align: ${textDirection === "rtl" ? "right" : "left"} !important;
-                    }
-                </style>
+                
                 <script nonce="${nonce}">
                     window.initialData = {
                         isSourceText: ${isSourceText}
@@ -513,6 +508,7 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
     private updateTextDirection(webviewPanel: vscode.WebviewPanel): void {
         const textDirection = this.getTextDirection();
         this.postMessageToWebview(webviewPanel, {
+            // FIXME: we are currently overriding styles at a global level, but it's not affecting source texts...?
             type: "providerUpdatesTextDirection",
             textDirection: textDirection as "ltr" | "rtl",
         });

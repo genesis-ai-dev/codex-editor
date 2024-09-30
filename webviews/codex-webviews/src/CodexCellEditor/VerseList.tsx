@@ -36,7 +36,11 @@ const VerseList: React.FC<VerseListProps> = ({
     isSourceText,
 }) => {
     const renderVerseGroup = (group: typeof translationUnits, startIndex: number) => (
-        <span key={`group-${startIndex}`} className={`verse-group cell-display-${cellDisplayMode}`}>
+        <span
+            key={`group-${startIndex}`}
+            className={`verse-group cell-display-${cellDisplayMode}`}
+            style={{ direction: textDirection }}
+        >
             {group.map(({ verseMarkers, verseContent, cellType }, index) => (
                 <CellContentDisplay
                     key={startIndex + index}

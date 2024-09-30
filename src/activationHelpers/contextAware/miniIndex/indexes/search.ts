@@ -24,8 +24,11 @@ export function getSourceVerseByVrefFromAllSourceVerses(
     sourceTextIndex: MiniSearch,
     vref: string
 ): SourceVerseVersions | null {
-    // Directly get the document from the index
-    const result = sourceTextIndex.getStoredFields(vref);
+    const result = sourceTextIndex.search(vref, {
+        fields: ["vref"],
+        combineWith: "AND",
+        prefix: false,
+    })[0];
 
     if (result) {
         return {

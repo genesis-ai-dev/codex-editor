@@ -55,6 +55,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         >
             {cellType === CodexCellTypes.TEXT && <sup>{verseRefForDisplay}</sup>}
             <span
+                style={{ direction: textDirection }}
                 dangerouslySetInnerHTML={{
                     __html: HACKY_removeContiguousSpans(cellContent),
                 }}

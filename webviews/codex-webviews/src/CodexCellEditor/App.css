@@ -18,7 +18,15 @@
 .chapter-navigation {
     display: flex;
     justify-content: space-between;
-    margin-bottom: 1rem;
+    align-items: start;
+    margin-block-end: 1rem;
+    direction: ltr;
+}
+
+.chapter-navigation-group {
+    display: flex;
+    gap: 0.5rem;
+    align-items: start;
 }
 
 .chapter-navigation > button {
@@ -66,7 +74,7 @@
 
 .verse-display sup {
     font-size: 0.75em;
-    margin-right: 0.25rem;
+    margin-inline-end: 0.25rem;
     color: var(--vscode-descriptionForeground);
 }
 
@@ -82,7 +90,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 0.5rem;
+    margin-block-end: 0.5rem;
 }
 
 .verse-header h3 {
@@ -90,11 +98,11 @@
 }
 
 .text-editor {
-    margin-top: 0.5rem;
+    margin-block-start: 0.5rem;
 }
 
 .text-editor button {
-    margin-top: 0.5rem;
+    margin-block-start: 0.5rem;
     padding: 0.25rem 0.5rem;
     background-color: var(--vscode-button-background);
     color: var(--vscode-button-foreground);
@@ -126,7 +134,7 @@
 
 .empty-verse-marker {
     font-weight: bold;
-    margin-right: 0.5rem;
+    margin-inline: 0.5rem;
 }
 
 .empty-verse-prompt {
@@ -140,42 +148,42 @@ li {
 
 /* Styles for ql-indent-* classes */
 .ql-indent-1 {
-    padding-left: 1em;
+    padding-inline-start: 1em;
     display: block;
 }
 
 .ql-indent-2 {
-    padding-left: 2em;
+    padding-inline-start: 2em;
     display: block;
 }
 
 .ql-indent-3 {
-    padding-left: 3em;
+    padding-inline-start: 3em;
     display: block;
 }
 
 .ql-indent-4 {
-    padding-left: 4em;
+    padding-inline-start: 4em;
     display: block;
 }
 
 .ql-indent-5 {
-    padding-left: 5em;
+    padding-inline-start: 5em;
     display: block;
 }
 
 .ql-indent-6 {
-    padding-left: 6em;
+    padding-inline-start: 6em;
     display: block;
 }
 
 .ql-indent-7 {
-    padding-left: 7em;
+    padding-inline-start: 7em;
     display: block;
 }
 
 .ql-indent-8 {
-    padding-left: 8em;
+    padding-inline-start: 8em;
     display: block;
 }
 
@@ -226,3 +234,9 @@ li {
     color: var(--vscode-button-secondaryForeground);
 }
 
+.autocomplete-confirm-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-inline: 0.5rem;
+}

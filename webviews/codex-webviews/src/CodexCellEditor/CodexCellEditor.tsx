@@ -138,6 +138,7 @@ const CodexCellEditor: React.FC = () => {
                     cellDisplayMode={cellDisplayMode}
                     isSourceText={isSourceText}
                     openSourceText={openSourceText}
+                    totalCellsToAutocomplete={translationUnitsForSection.length}
                 />
                 {autocompletionProgress !== null && (
                     <div className="autocompletion-progress">
