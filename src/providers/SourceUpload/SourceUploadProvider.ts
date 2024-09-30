@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { createCodexNotebookFromWebVTT } from "../../utils/codexNotebookUtils";
 function getNonce(): string {
     let text = "";
     const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -46,7 +47,21 @@ export class SourceUploadProvider
 
         webviewPanel.webview.onDidReceiveMessage(async (message) => {
             switch (message.command) {
-                case "uploadFile":
+                case "createCodexNotebookFromWebVTT":
+                    try {
+                        const notebookName = await vscode.window.showInputBox({
+                            prompt: "Enter the name of the notebook",
+                        });
+                        if (notebookName) {
+                            await createCodexNotebookFromWebVTT(message.fileContent, notebookName);
+                        }
+                    } catch (error) {
+                        console.error("Error creating codex notebook from webvtt:", error);
+                        vscode.window.showErrorMessage(
+                            "Error creating codex notebook from webvtt."
+                        );
+                    }
+                    break;
                     // Handle file upload logic here
                     console.log("File uploaded:", message.file);
                     break;
