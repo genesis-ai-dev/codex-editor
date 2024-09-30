@@ -184,24 +184,25 @@ type MiniSearchVerseResult = {
     vref: string;
 };
 
-type MinimalVerseResult = {
-    vref: string;
-    content: string;
-    uri: string;
-    line: number;
+type MinimalCellResult = {
+    cellId?: string;
+    content?: string;
+    uri?: string;
+    line?: number;
 };
 
 type TranslationPair = {
-    vref: string;
-    sourceVerse: MinimalVerseResult;
-    targetVerse: MinimalVerseResult;
+    cellId: string;
+    sourceCell: MinimalCellResult;
+    targetCell: MinimalCellResult;
 };
 
-type SourceVerseVersions = {
-    vref: string;
+type SourceCellVersions = {
+    cellId: string;
     content: string;
     versions: string[];
 };
+
 type EditorVerseContent = {
     verseMarkers: string[];
     content: string;
@@ -269,7 +270,6 @@ interface EditorVerseContent {
     verseMarkers: string[];
     content: string;
 }
-
 
 interface SpellCheckResponse {
     id: string;
@@ -399,100 +399,37 @@ type ProjectMetadata = {
     };
 };
 
-// interface FrontEndMessage {
-//   command: {
-//     name: string; // use enum
-//     data?: any; // define based on enum
-//   };
-// }
-// type CommentThread = vscode.CommentThread;
+// Update or add these function signatures
+declare function searchTargetCellsByQuery(
+    translationPairsIndex: MiniSearch,
+    query: string,
+    k?: number
+): MinimalCellResult[];
 
-// interface ChatMessageThread {
-//   id: string;
-//   messages: ChatMessageWithContext[];
-//   collapsibleState: number;
-//   canReply: boolean;
-//   threadTitle?: string;
-//   deleted: boolean;
-//   createdAt: string;
-// }
+declare function getTranslationPairsFromSourceCellQuery(
+    translationPairsIndex: MiniSearch,
+    query: string,
+    k?: number
+): TranslationPair[];
 
-// interface NotebookCommentThread {
-//   id: string;
-//   uri?: string;
-//   verseRef: string;
-//   comments: {
-//     id: number;
-//     body: string;
-//     mode: number;
-//     contextValue: "canDelete";
-//     deleted: boolean;
-//     author: {
-//       name: string;
-//     };
-//   }[];
-//   collapsibleState: number;
-//   canReply: boolean;
-//   threadTitle?: string;
-//   deleted: boolean;
-// }
+declare function getSourceCellByCellIdFromAllSourceCells(
+    sourceTextIndex: MiniSearch,
+    cellId: string
+): SourceCellVersions | null;
 
-// interface VerseRefGlobalState {
-//   verseRef: string;
-//   uri: string;
-// }
-// interface ScriptureContent extends vscode.NotebookData {
-//   metadata: {
-//     data?: {
-//       chapter: string;
-//     };
-//     type?: "chapter-heading";
-//   };
-// }
-// type NotebookCellKind = vscode.NotebookCellKind;
+declare function getTargetCellByCellId(
+    translationPairsIndex: MiniSearch,
+    cellId: string
+): MinimalCellResult | null;
 
-// type CommentPostMessages =
-//   | { command: "commentsFromWorkspace"; content: string }
-//   | { command: "reload"; data: VerseRefGlobalState }
-//   | { command: "updateCommentThread"; commentThread: NotebookCommentThread }
-//   | { command: "deleteCommentThread"; commentThreadId: string }
-//   | {
-//     command: "deleteComment";
-//     args: { commentId: number; commentThreadId: string };
-//   }
-//   | { command: "getCurrentVerseRef" }
-//   | { command: "fetchComments" };
-// interface SelectedTextDataWithContext {
-//   selection: string;
-//   completeLineContent: string | null;
-//   vrefAtStartOfLine: string | null;
-//   selectedText: string | null;
-// }
+declare function getTranslationPairFromProject(
+    translationPairsIndex: MiniSearch,
+    cellId: string
+): TranslationPair | null;
 
-// type ChatPostMessages =
-//   | { command: "threadsFromWorkspace"; content: ChatMessageThread[] }
-//   | { command: "response"; finished: boolean; text: string }
-//   | { command: "reload" }
-//   | { command: "select"; textDataWithContext: SelectedTextDataWithContext }
-//   | { command: "fetch"; messages: string }
-//   | { command: "notifyUserError"; message: string }
-//   | {
-//     command: "updateMessageThread";
-//     messages: ChatMessageWithContext[];
-//     threadId: string;
-//     threadTitle?: string;
-//   }
-//   | { command: "deleteThread"; threadId: string }
-//   | { command: "fetchThread" }
-//   | { command: "abort-fetch" }
-//   | { command: "openSettings" };
-
-// type DictionaryPostMessages =
-//   | { command: "sendData"; data: Dictionary }
-//   | { command: "updateData"; data: Dictionary }
-//   | { command: "confirmRemove"; count: number }
-//   | { command: "removeConfirmed" };
-
-// type ScripturePostMessages =
-//   | { command: "sendScriptureData"; data: ScriptureContent }
-//   | { command: "fetchScriptureData" };
+declare function searchParallelCells(
+    translationPairsIndex: MiniSearch,
+    sourceTextIndex: MiniSearch,
+    query: string,
+    k?: number
+): TranslationPair[];

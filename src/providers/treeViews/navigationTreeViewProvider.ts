@@ -47,6 +47,9 @@ export class CodexNotebookTreeViewProvider
 
     private fileWatcher: vscode.FileSystemWatcher | undefined;
 
+    private debounceTimer: NodeJS.Timeout | null = null;
+    private pendingChanges: Set<string> = new Set();
+
     constructor(private workspaceRoot: string | undefined) {
         this.initializeNotebookMetadata();
 
@@ -102,18 +105,26 @@ export class CodexNotebookTreeViewProvider
         }
     }
 
-    private async onFileChanged(uri: vscode.Uri): Promise<void> {
+    private onFileChanged(uri: vscode.Uri): void {
         const fsPath = uri.fsPath;
+        this.pendingChanges.add(fsPath);
 
-        if (await this.fileExists(uri)) {
-            // File was created or modified
-            await this.updateNotebookMetadata(uri);
-        } else {
-            // File was deleted
-            this.notebookMetadata.delete(fsPath);
+        if (this.debounceTimer) {
+            clearTimeout(this.debounceTimer);
         }
 
-        this.refresh();
+        this.debounceTimer = setTimeout(async () => {
+            for (const path of this.pendingChanges) {
+                const uri = vscode.Uri.file(path);
+                if (await this.fileExists(uri)) {
+                    await this.updateNotebookMetadata(uri);
+                } else {
+                    this.notebookMetadata.delete(path);
+                }
+            }
+            this.pendingChanges.clear();
+            this.refresh();
+        }, 300); // 300ms debounce time
     }
 
     private async fileExists(uri: vscode.Uri): Promise<boolean> {

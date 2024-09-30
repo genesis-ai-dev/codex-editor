@@ -682,6 +682,16 @@ export async function migrateSourceFiles() {
                         console.error(`Failed to rename ${fileName}: ${error}`);
                     }
                 }
+                // If we were successful, then delete the combined file
+                if (books.size > 1) {
+                    const combinedFileUri = vscode.Uri.joinPath(sourceTextsFolderUri, fileName);
+                    try {
+                        await vscode.workspace.fs.delete(combinedFileUri);
+                        console.log(`Deleted combined file ${fileName}`);
+                    } catch (error) {
+                        console.error(`Failed to delete combined file ${fileName}: ${error}`);
+                    }
+                }
             } catch (error) {
                 console.error(`Error processing ${fileName}: ${error}`);
             }
@@ -710,7 +720,7 @@ export async function createCodexNotebookFromWebVTT(
             );
             cell.metadata = {
                 type: "text",
-                id: `${notebookName} 1:${`cue-${cue.startTime}-${cue.endTime}`}`,
+                id: `${notebookName} 1:${cue.id || `cue-${cue.startTime}-${cue.endTime}`}`,
                 data: {
                     startTime: cue.startTime,
                     endTime: cue.endTime,
@@ -739,7 +749,7 @@ export async function createCodexNotebookFromWebVTT(
             const cell = new vscode.NotebookCellData(vscode.NotebookCellKind.Code, "", "scripture");
             cell.metadata = {
                 type: "text",
-                id: `${notebookName} 1:${`cue-${cue.startTime}-${cue.endTime}`}`,
+                id: `${notebookName} 1:${cue.id || `cue-${cue.startTime}-${cue.endTime}`}`,
                 data: {
                     startTime: cue.startTime,
                     endTime: cue.endTime,

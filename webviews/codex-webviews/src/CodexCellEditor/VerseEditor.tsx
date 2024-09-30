@@ -3,7 +3,7 @@ import { EditorVerseContent, SpellCheckResponse } from "../../../../types";
 import Editor from "./Editor";
 import CloseButtonWithConfirmation from "../components/CloseButtonWithConfirmation";
 import { getCleanedHtml } from "./react-quill-spellcheck";
-import { VSCodeButton, VSCodeDropdown, VSCodeOption } from "@vscode/webview-ui-toolkit/react";
+import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 
 interface VerseEditorProps {
     verseMarkers: string[];
@@ -34,6 +34,17 @@ const VerseEditor: React.FC<VerseEditorProps> = ({
         getCleanedHtml(contentBeingUpdated.content).replace(/\s/g, "") !==
             verseContent.replace(/\s/g, "")
     );
+
+    // Dynamically set styles for .ql-editor
+    const styleElement = document.createElement("style");
+    styleElement.textContent = `
+        .ql-editor {
+            direction: ${textDirection} !important;
+            text-align: ${textDirection === "rtl" ? "right" : "left"} !important;
+        }
+    `;
+    // FIXME: apply these styles outside of the quill editor to fix
+    document.head.appendChild(styleElement);
 
     return (
         <div className="verse-editor" style={{ direction: textDirection }}>

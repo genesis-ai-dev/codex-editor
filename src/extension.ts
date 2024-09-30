@@ -77,8 +77,8 @@ export async function activate(context: vscode.ExtensionContext) {
         // FIXME: move to commands register
         vscode.commands.registerCommand(
             "translation-navigation.openSourceFile",
-            async (node: Node) => {
-                if (node.sourceFile) {
+            async (node: Node & { sourceFile?: string }) => {
+                if ('sourceFile' in node && node.sourceFile) {
                     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
                     if (workspaceFolder) {
                         const sourceFileUri = vscode.Uri.joinPath(

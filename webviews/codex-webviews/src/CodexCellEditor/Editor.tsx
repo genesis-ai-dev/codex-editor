@@ -75,17 +75,6 @@ export default function Editor(props: EditorProps) {
                 },
             });
 
-            // Dynamically set styles for .ql-editor
-            const styleElement = document.createElement("style");
-            styleElement.textContent = `
-                .ql-editor {
-                    direction: ${props.textDirection} !important;
-                    text-align: ${props.textDirection === "rtl" ? "right" : "left"} !important;
-                }
-            `;
-            // FIXME: apply these styles outside of the quill editor to fix
-            document.head.appendChild(styleElement);
-
             // Set text direction after initialization
             quill.format("direction", props.textDirection);
             quill.format("text-align", props.textDirection === "rtl" ? "right" : "left");

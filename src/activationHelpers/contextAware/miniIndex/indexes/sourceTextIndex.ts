@@ -1,14 +1,14 @@
 import MiniSearch from "minisearch";
 import * as vscode from "vscode";
-import { SourceVerseVersions } from "../../../../../types";
+import { SourceCellVersions } from "../../../../../types";
 import { FileData } from "./fileReaders";
 
 export async function createSourceTextIndex(
-    sourceTextIndex: MiniSearch<SourceVerseVersions>,
+    sourceTextIndex: MiniSearch<SourceCellVersions>,
     sourceFiles: FileData[],
     force: boolean = false
-): Promise<MiniSearch<SourceVerseVersions>> {
-    const verseMap = new Map<string, { content: string; versions: string[] }>();
+): Promise<MiniSearch<SourceCellVersions>> {
+    const cellMap = new Map<string, { content: string; versions: string[] }>();
 
     // Filter for all .source files
     const allSourceFiles = sourceFiles.filter((file) => file.uri.fsPath.endsWith(".source"));
@@ -23,30 +23,30 @@ export async function createSourceTextIndex(
 
         for (const cell of sourceFile.cells) {
             if (cell.metadata?.type === "text" && cell.metadata?.id && cell.value.trim() !== "") {
-                const vref = cell.metadata.id;
-                if (verseMap.has(vref)) {
-                    const existingVerse = verseMap.get(vref)!;
-                    existingVerse.versions.push(version);
+                const cellId = cell.metadata.id;
+                if (cellMap.has(cellId)) {
+                    const existingCell = cellMap.get(cellId)!;
+                    existingCell.versions.push(version);
                 } else {
-                    verseMap.set(vref, { content: cell.value, versions: [version] });
+                    cellMap.set(cellId, { content: cell.value, versions: [version] });
                 }
             }
         }
     }
 
-    // Update the index with all verses from all .source files
-    for (const [vref, { content, versions }] of verseMap.entries()) {
-        const existingDoc = sourceTextIndex.getStoredFields(vref);
+    // Update the index with all cells from all .source files
+    for (const [cellId, { content, versions }] of cellMap.entries()) {
+        const existingDoc = sourceTextIndex.getStoredFields(cellId);
         if (
             !existingDoc ||
             existingDoc.content !== content ||
             !versions.every((v) => (existingDoc.versions as string[]).includes(v))
         ) {
             if (existingDoc) {
-                sourceTextIndex.remove(vref as any);
+                sourceTextIndex.remove(cellId as any);
             }
             sourceTextIndex.add({
-                vref,
+                cellId,
                 content,
                 versions,
             });
@@ -54,7 +54,7 @@ export async function createSourceTextIndex(
     }
 
     console.log(
-        `Source Bible index updated with ${sourceTextIndex.documentCount} verses from ${allSourceFiles.length} source files`
+        `Source texts index updated with ${sourceTextIndex.documentCount} cells from ${allSourceFiles.length} source files`
     );
 
     return sourceTextIndex;

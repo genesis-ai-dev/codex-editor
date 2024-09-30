@@ -108,7 +108,7 @@ export async function llmCompletion(
             .slice(0, numberOfFewShotExamples)
             .map(
                 (pair) =>
-                    `${pair.targetVerse.vref}: ${pair.sourceVerse.content} -> ${pair.targetVerse.content}`
+                    `${pair.targetCell.cellId}: ${pair.sourceCell.content} -> ${pair.targetCell.content}`
             )
             .join("\n");
 

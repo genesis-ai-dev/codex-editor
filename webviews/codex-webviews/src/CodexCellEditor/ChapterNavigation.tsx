@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import {
+    VSCodeBadge,
     VSCodeButton,
     VSCodeRadio,
     VSCodeRadioGroup,
@@ -121,6 +122,15 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                                 <i className="codicon codicon-sparkle"></i>
                             </VSCodeButton>
                         )}
+                        <VSCodeButton
+                            appearance="icon"
+                            onClick={handleAutocompleteClick}
+                            disabled={unsavedChanges}
+                            title="Copilot Smart Edit Suggestions"
+                        >
+                            <i className="codicon codicon-copilot"></i>
+                        </VSCodeButton>
+                        <VSCodeBadge>23</VSCodeBadge>
                     </>
                 )}
                 <VSCodeButton

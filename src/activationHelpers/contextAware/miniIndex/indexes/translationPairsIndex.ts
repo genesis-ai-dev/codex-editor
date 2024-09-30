@@ -8,10 +8,10 @@ import { debounce } from "lodash"; // Make sure to import lodash
 
 export interface minisearchDoc {
     id: string;
-    vref: string;
-    book: string;
-    chapter: string;
-    verse: string;
+    cellId: string; // Changed from vref
+    document: string;
+    section: string;
+    cell: string;
     sourceContent: string;
     targetContent: string;
     uri: string;
@@ -26,7 +26,7 @@ interface TranslationPair {
 }
 
 interface TranslationPairsIndex {
-    [vref: string]: TranslationPair[];
+    [cellId: string]: TranslationPair[]; // Changed from vref
 }
 
 export async function createTranslationPairsIndex(
@@ -52,14 +52,14 @@ export async function createTranslationPairsIndex(
     translationPairsIndex.removeAll();
 
     // Add new documents to the index
-    for (const [vref, pairs] of Object.entries(index)) {
+    for (const [cellId, pairs] of Object.entries(index)) {
         for (const pair of pairs) {
             const doc: minisearchDoc = {
-                id: `${pair.sourceUri}:${vref}`,
-                vref,
-                book: vref.split(" ")[0],
-                chapter: vref.split(" ")[1].split(":")[0],
-                verse: vref.split(":")[1],
+                id: `${pair.sourceUri}:${cellId}`,
+                cellId, // Changed from vref
+                document: cellId.split(" ")[0],
+                section: cellId.split(" ")[1].split(":")[0],
+                cell: cellId.split(":")[1],
                 sourceContent: pair.sourceText,
                 targetContent: pair.targetText,
                 uri: pair.sourceUri,
@@ -107,14 +107,14 @@ export async function createTranslationPairsIndex(
                     sourceCell.metadata?.id &&
                     sourceCell.value.trim() !== ""
                 ) {
-                    const vref = sourceCell.metadata.id;
-                    const targetCell = targetCellsMap.get(vref);
+                    const cellId = sourceCell.metadata.id;
+                    const targetCell = targetCellsMap.get(cellId);
 
                     if (targetCell) {
-                        if (!index[vref]) {
-                            index[vref] = [];
+                        if (!index[cellId]) {
+                            index[cellId] = [];
                         }
-                        index[vref].push({
+                        index[cellId].push({
                             sourceText: sourceCell.value,
                             targetText: targetCell.text,
                             sourceUri: sourceFile.uri.toString(),
@@ -207,20 +207,20 @@ export async function createTranslationPairsIndex(
     ): minisearchDoc | null {
         const match = line.match(verseRefRegex);
         if (match) {
-            const [vref] = match;
+            const [cellId] = match;
             // Only index if there's a corresponding target verse
-            if (targetVerseMap.has(vref)) {
-                const [book, chapterVerse] = vref.split(" ");
-                const [chapter, verse] = chapterVerse.split(":");
+            if (targetVerseMap.has(cellId)) {
+                const [document, sectionCell] = cellId.split(" ");
+                const [section, cell] = sectionCell.split(":");
                 const sourceContent = line.substring(match.index! + match[0].length).trim();
-                const targetContent = targetVerseMap.get(vref)!;
-                const id = `${uri}:${lineIndex}:${vref}`;
+                const targetContent = targetVerseMap.get(cellId)!;
+                const id = `${uri}:${lineIndex}:${cellId}`;
                 return {
                     id,
-                    vref,
-                    book,
-                    chapter,
-                    verse,
+                    cellId,
+                    document,
+                    section,
+                    cell,
                     sourceContent,
                     targetContent,
                     uri,

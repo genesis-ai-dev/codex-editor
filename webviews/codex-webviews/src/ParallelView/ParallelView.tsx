@@ -6,11 +6,11 @@ import {
     VSCodeDivider,
 } from "@vscode/webview-ui-toolkit/react";
 import "./App.css";
-import { OpenFileMessage, SearchResults } from "./types";
+import { OpenFileMessage } from "./types";
 import { TranslationPair } from "../../../../types";
 
 import SearchBar from "./SearchBar";
-import VerseItem from "./VerseItem";
+import VerseItem from "./CellItem";
 
 const vscode = acquireVsCodeApi();
 
@@ -62,7 +62,7 @@ function ParallelView() {
             const newVerses = [...prevVerses];
             newVerses[index] = {
                 ...newVerses[index],
-                targetVerse: { ...newVerses[index].targetVerse, content: after },
+                targetCell: { ...newVerses[index].targetCell, content: after },
             };
             return newVerses;
         });

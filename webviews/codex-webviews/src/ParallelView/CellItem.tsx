@@ -2,36 +2,36 @@ import React from "react";
 import { TranslationPair } from "../../../../types";
 import { VSCodeButton, VSCodeBadge } from "@vscode/webview-ui-toolkit/react";
 
-interface VerseItemProps {
+interface CellItemProps {
     item: TranslationPair;
     onUriClick: (uri: string, word: string) => void;
     onSaveClick: (index: number, before: string, after: string, uri: string) => void;
 }
 
-const VerseItem: React.FC<VerseItemProps> = ({ item, onUriClick, onSaveClick }) => {
+const CellItem: React.FC<CellItemProps> = ({ item, onUriClick }) => {
     const handleCopy = (text: string) => {
         navigator.clipboard.writeText(text);
     };
 
     return (
         <div className="verse-item">
-            <VSCodeBadge>{item.vref}</VSCodeBadge>
+            <VSCodeBadge>{item.cellId}</VSCodeBadge>
             <div className="verse-header">
                 <div className="verse-content">
-                    <p className="verse-text">{item.sourceVerse.content}</p>
+                    <p className="verse-text">{item.sourceCell.content}</p>
                 </div>
                 <div className="verse-actions">
                     <VSCodeButton
                         appearance="icon"
                         aria-label="Copy Source"
-                        onClick={() => handleCopy(item.sourceVerse.content)}
+                        onClick={() => handleCopy(item.sourceCell.content || "")}
                     >
                         <span className="codicon codicon-copy"></span>
                     </VSCodeButton>
                     <VSCodeButton
                         appearance="icon"
                         aria-label="Open Source"
-                        onClick={() => onUriClick(item.sourceVerse.uri, `${item.vref}`)}
+                        onClick={() => onUriClick(item.sourceCell.uri || "", `${item.cellId}`)}
                     >
                         <span className="codicon codicon-open-preview"></span>
                     </VSCodeButton>
@@ -39,20 +39,20 @@ const VerseItem: React.FC<VerseItemProps> = ({ item, onUriClick, onSaveClick }) 
             </div>
             <div className="verse-header">
                 <div className="verse-content">
-                    <p className="verse-text">{item.targetVerse.content}</p>
+                    <p className="verse-text">{item.targetCell.content}</p>
                 </div>
                 <div className="verse-actions">
                     <VSCodeButton
                         appearance="icon"
                         aria-label="Copy Target"
-                        onClick={() => handleCopy(item.targetVerse.content)}
+                        onClick={() => handleCopy(item.targetCell.content || "")}
                     >
                         <span className="codicon codicon-copy"></span>
                     </VSCodeButton>
                     <VSCodeButton
                         appearance="icon"
                         aria-label="Open Target"
-                        onClick={() => onUriClick(item.targetVerse.uri || "", `${item.vref}`)}
+                        onClick={() => onUriClick(item.targetCell.uri || "", `${item.cellId}`)}
                     >
                         <span className="codicon codicon-open-preview"></span>
                     </VSCodeButton>
@@ -62,4 +62,4 @@ const VerseItem: React.FC<VerseItemProps> = ({ item, onUriClick, onSaveClick }) 
     );
 };
 
-export default VerseItem;
+export default CellItem;

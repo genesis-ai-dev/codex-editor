@@ -5,27 +5,28 @@ import { StatusBarHandler } from "../statusBarHandler";
 import { createTranslationPairsIndex } from "./translationPairsIndex";
 import { createSourceTextIndex } from "./sourceTextIndex";
 import {
-    searchTargetVersesByQuery,
-    getTranslationPairsFromSourceVerseQuery,
-    getSourceVerseByVrefFromAllSourceVerses,
-    getTargetVerseByVref,
+    searchTargetCellsByQuery,
+    getTranslationPairsFromSourceCellQuery,
+    getSourceCellByCellIdFromAllSourceCells,
+    getTargetCellByCellId,
     getTranslationPairFromProject,
     handleTextSelection,
-    searchParallelVerses,
+    searchParallelCells,
 } from "./search";
-import MiniSearch from "minisearch";
+import MiniSearch, { SearchResult } from "minisearch";
 import {
     createZeroDraftIndex,
     ZeroDraftIndexRecord,
-    getContentOptionsForVref,
+    getContentOptionsForCellId,
     insertDraftsIntoTargetNotebooks,
     insertDraftsInCurrentEditor,
-    VerseWithMetadata,
+    CellWithMetadata,
 } from "./zeroDraftIndex";
 import { initializeWordsIndex, getWordFrequencies, getWordsAboveThreshold } from "./wordsIndex";
 import { updateCompleteDrafts } from "../indexingUtils";
 import { readSourceAndTargetFiles } from "./fileReaders";
 import { debounce } from "lodash";
+import { MinimalCellResult, TranslationPair } from "../../../../../types";
 
 type WordFrequencyMap = Map<string, number>;
 
@@ -45,37 +46,33 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     context.subscriptions.push(statusBarHandler);
 
     const translationPairsIndex = new MiniSearch({
-        fields: ["vref", "book", "chapter", "sourceContent", "targetContent"],
+        fields: ["cellId", "document", "section", "sourceContent", "targetContent"],
         storeFields: [
             "id",
-            "vref",
-            "book",
-            "chapter",
+            "cellId",
+            "document",
+            "section",
             "sourceContent",
             "targetContent",
             "uri",
             "line",
         ],
         searchOptions: {
-            boost: { vref: 2 },
+            boost: { cellId: 2 },
             fuzzy: 0.2,
         },
     });
 
     const sourceTextIndex = new MiniSearch({
-        fields: ["vref", "content"],
-        storeFields: ["vref", "content", "versions"],
-        idField: "vref",
-        searchOptions: {
-            prefix: true,
-            fuzzy: 0.2,
-        },
+        fields: ["content"],
+        storeFields: ["cellId", "content", "versions"],
+        idField: "cellId",
     });
 
     const zeroDraftIndex = new MiniSearch<ZeroDraftIndexRecord>({
-        fields: ["content", "verses"],
-        storeFields: ["vref", "content", "modelVersions", "verses"],
-        idField: "vref",
+        fields: ["content", "cells"],
+        storeFields: ["cellId", "content", "modelVersions", "cells"],
+        idField: "cellId",
     });
 
     let wordsIndex: WordFrequencyMap = new Map<string, number>();
@@ -199,22 +196,22 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     // FIXME: need to remove deleted docs
     // zeroDraftWatcher.onDidDelete(async (uri) => await removeFromIndex(uri, zeroDraftIndex));
 
-    const searchTargetVersesByQueryCommand = vscode.commands.registerCommand(
-        "translators-copilot.searchTargetVersesByQuery",
+    const searchTargetCellsByQueryCommand = vscode.commands.registerCommand(
+        "translators-copilot.searchTargetCellsByQuery",
         async (query?: string, showInfo: boolean = false) => {
             if (!query) {
                 query = await vscode.window.showInputBox({
-                    prompt: "Enter a query to search target verses",
+                    prompt: "Enter a query to search target cells",
                     placeHolder: "e.g. love, faith, hope",
                 });
                 if (!query) return; // User cancelled the input
                 showInfo = true;
             }
             try {
-                const results = await searchTargetVersesByQuery(translationPairsIndex, query);
+                const results = await searchTargetCellsByQuery(translationPairsIndex, query);
                 if (showInfo) {
                     const resultsString = results
-                        .map((r) => `${r.vref}: ${r.targetContent || "undefined"}`)
+                        .map((r: SearchResult) => `${r.id}: ${r.sourceContent || r.targetContent}`)
                         .join("\n");
                     vscode.window.showInformationMessage(
                         `Found ${results.length} results for query: ${query}\n${resultsString}`
@@ -222,34 +219,30 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 }
                 return results;
             } catch (error) {
-                console.error("Error searching target verses:", error);
+                console.error("Error searching target cells:", error);
                 vscode.window.showErrorMessage(
-                    "Failed to search target verses. Check the logs for details."
+                    "Failed to search target cells. Check the logs for details."
                 );
                 return [];
             }
         }
     );
 
-    const getTranslationPairsFromSourceVerseQueryCommand = vscode.commands.registerCommand(
-        "translators-copilot.getTranslationPairsFromSourceVerseQuery",
+    const getTranslationPairsFromSourceCellQueryCommand = vscode.commands.registerCommand(
+        "translators-copilot.getTranslationPairsFromSourceCellQuery",
         async (query?: string, k: number = 10, showInfo: boolean = false) => {
             if (!query) {
                 query = await vscode.window.showInputBox({
-                    prompt: "Enter a query to search source verses",
+                    prompt: "Enter a query to search source cells",
                     placeHolder: "e.g. love, faith, hope",
                 });
                 if (!query) return []; // User cancelled the input
                 showInfo = true;
             }
-            const results = getTranslationPairsFromSourceVerseQuery(
-                translationPairsIndex,
-                query,
-                k
-            );
+            const results = getTranslationPairsFromSourceCellQuery(translationPairsIndex, query, k);
             if (showInfo) {
                 const resultsString = results
-                    .map((r) => `${r.vref}: ${r.sourceVerse.content}`)
+                    .map((r: TranslationPair) => `${r.cellId}: ${r.sourceCell.content}`)
                     .join("\n");
                 vscode.window.showInformationMessage(
                     `Found ${results.length} results for query: ${query}\n${resultsString}`
@@ -259,42 +252,42 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         }
     );
 
-    const getSourceVerseByVrefFromAllSourceVersesCommand = vscode.commands.registerCommand(
-        "translators-copilot.getSourceVerseByVrefFromAllSourceVerses",
-        async (vref?: string, showInfo: boolean = false) => {
-            if (!vref) {
-                vref = await vscode.window.showInputBox({
-                    prompt: "Enter a verse reference",
+    const getSourceCellByCellIdFromAllSourceCellsCommand = vscode.commands.registerCommand(
+        "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
+        async (cellId?: string, showInfo: boolean = false) => {
+            if (!cellId) {
+                cellId = await vscode.window.showInputBox({
+                    prompt: "Enter a cell ID",
                     placeHolder: "e.g. GEN 1:1",
                 });
-                if (!vref) return; // User cancelled the input
+                if (!cellId) return; // User cancelled the input
                 showInfo = true;
             }
-            const results = await getSourceVerseByVrefFromAllSourceVerses(sourceTextIndex, vref);
+            const results = await getSourceCellByCellIdFromAllSourceCells(sourceTextIndex, cellId);
             if (showInfo && results) {
                 vscode.window.showInformationMessage(
-                    `Source verse for ${vref}: ${results.content}`
+                    `Source cell for ${cellId}: ${results.content}`
                 );
             }
             return results;
         }
     );
 
-    const getTargetVerseByVrefCommand = vscode.commands.registerCommand(
-        "translators-copilot.getTargetVerseByVref",
-        async (vref?: string, showInfo: boolean = false) => {
-            if (!vref) {
-                vref = await vscode.window.showInputBox({
-                    prompt: "Enter a verse reference",
+    const getTargetCellByCellIdCommand = vscode.commands.registerCommand(
+        "translators-copilot.getTargetCellByCellId",
+        async (cellId?: string, showInfo: boolean = false) => {
+            if (!cellId) {
+                cellId = await vscode.window.showInputBox({
+                    prompt: "Enter a cell ID",
                     placeHolder: "e.g. GEN 1:1",
                 });
-                if (!vref) return; // User cancelled the input
+                if (!cellId) return; // User cancelled the input
                 showInfo = true;
             }
-            const results = await getTargetVerseByVref(translationPairsIndex, vref);
+            const results = await getTargetCellByCellId(translationPairsIndex, cellId);
             if (showInfo && results) {
                 vscode.window.showInformationMessage(
-                    `Target verse for ${vref}: ${results.targetContent}`
+                    `Target cell for ${cellId}: ${results.content}`
                 );
             }
             return results;
@@ -325,23 +318,27 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
     const getZeroDraftContentOptionsCommand = vscode.commands.registerCommand(
         "translators-copilot.getZeroDraftContentOptions",
-        async (vref?: string) => {
-            if (!vref) {
-                vref = await vscode.window.showInputBox({
-                    prompt: "Enter a verse reference",
+        async (cellId?: string) => {
+            if (!cellId) {
+                cellId = await vscode.window.showInputBox({
+                    prompt: "Enter a cell ID",
                     placeHolder: "e.g. GEN 1:1",
                 });
-                if (!vref) return; // User cancelled the input
+                if (!cellId) return; // User cancelled the input
             }
-            const contentOptions = getContentOptionsForVref(zeroDraftIndex, vref);
+            const contentOptions = getContentOptionsForCellId(zeroDraftIndex, cellId);
             if (contentOptions) {
                 vscode.window.showInformationMessage(
-                    `Found ${contentOptions?.verses?.length} content options for ${vref}`,
-                    { detail: contentOptions?.verses?.map((verse) => verse.content).join("\n") }
+                    `Found ${contentOptions?.cells?.length} content options for ${cellId}`,
+                    {
+                        detail: contentOptions?.cells
+                            ?.map((cell: MinimalCellResult) => cell.content)
+                            .join("\n"),
+                    }
                 );
-                console.log("Content options for", vref, { contentOptions });
+                console.log("Content options for", cellId, { contentOptions });
             } else {
-                vscode.window.showInformationMessage(`No content options found for ${vref}`);
+                vscode.window.showInformationMessage(`No content options found for ${cellId}`);
             }
             return contentOptions;
         }
@@ -379,12 +376,12 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
             if (selectedFile) {
                 forceInsert = await vscode.window.showQuickPick(["No", "Yes"], {
-                    placeHolder: "Force insert and overwrite existing verse drafts?",
+                    placeHolder: "Force insert and overwrite existing cell drafts?",
                 });
 
                 if (forceInsert === "Yes") {
                     const confirm = await vscode.window.showWarningMessage(
-                        "This will overwrite existing verse drafts. Are you sure?",
+                        "This will overwrite existing cell drafts. Are you sure?",
                         { modal: true },
                         "Yes",
                         "No"
@@ -406,12 +403,12 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         "translators-copilot.insertZeroDraftsInCurrentEditor",
         async () => {
             const forceInsert = await vscode.window.showQuickPick(["No", "Yes"], {
-                placeHolder: "Force insert and overwrite existing verse drafts?",
+                placeHolder: "Force insert and overwrite existing cell drafts?",
             });
 
             if (forceInsert === "Yes") {
                 const confirm = await vscode.window.showWarningMessage(
-                    "This will overwrite existing verse drafts in the current editor. Are you sure?",
+                    "This will overwrite existing cell drafts in the current editor. Are you sure?",
                     { modal: true },
                     "Yes",
                     "No"
@@ -454,27 +451,27 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         }
     );
 
-    const searchParallelVersesCommand = vscode.commands.registerCommand(
-        "translators-copilot.searchParallelVerses",
+    const searchParallelCellsCommand = vscode.commands.registerCommand(
+        "translators-copilot.searchParallelCells",
         async (query?: string, k: number = 10, showInfo: boolean = false) => {
             if (!query) {
                 query = await vscode.window.showInputBox({
-                    prompt: "Enter a query to search parallel verses",
+                    prompt: "Enter a query to search parallel cells",
                     placeHolder: "e.g. love, faith, hope",
                 });
                 if (!query) return []; // User cancelled the input
                 showInfo = true;
             }
-            const results = searchParallelVerses(translationPairsIndex, sourceTextIndex, query, k);
+            const results = searchParallelCells(translationPairsIndex, sourceTextIndex, query, k);
 
-            // Remove duplicates based on vref
+            // Remove duplicates based on cellId
             const uniqueResults = results.filter(
-                (v, i, a) => a.findIndex((t) => t.vref === v.vref) === i
+                (v, i, a) => a.findIndex((t) => t.cellId === v.cellId) === i
             );
 
             // If we have fewer unique results than requested, try to get more
             if (uniqueResults.length < k) {
-                const additionalResults = searchParallelVerses(
+                const additionalResults = searchParallelCells(
                     translationPairsIndex,
                     sourceTextIndex,
                     query,
@@ -485,7 +482,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     0,
                     uniqueResults.length,
                     ...allResults
-                        .filter((v, i, a) => a.findIndex((t) => t.vref === v.vref) === i)
+                        .filter((v, i, a) => a.findIndex((t) => t.cellId === v.cellId) === i)
                         .slice(0, k)
                 );
             }
@@ -493,12 +490,12 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             if (showInfo) {
                 const resultsString = uniqueResults
                     .map(
-                        (r) =>
-                            `${r.vref}: Source: ${r.sourceVerse.content}, Target: ${r.targetVerse.content}`
+                        (r: TranslationPair) =>
+                            `${r.cellId}: Source: ${r.sourceCell.content}, Target: ${r.targetCell.content}`
                     )
                     .join("\n");
                 vscode.window.showInformationMessage(
-                    `Found ${uniqueResults.length} unique parallel verses for query: ${query}\n${resultsString}`
+                    `Found ${uniqueResults.length} unique parallel cells for query: ${query}\n${resultsString}`
                 );
             }
             return uniqueResults;
@@ -507,38 +504,38 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
     const getTranslationPairFromProjectCommand = vscode.commands.registerCommand(
         "translators-copilot.getTranslationPairFromProject",
-        async (vref?: string, showInfo: boolean = false) => {
-            if (!vref) {
-                vref = await vscode.window.showInputBox({
-                    prompt: "Enter a verse reference",
+        async (cellId?: string, showInfo: boolean = false) => {
+            if (!cellId) {
+                cellId = await vscode.window.showInputBox({
+                    prompt: "Enter a cell ID",
                     placeHolder: "e.g. GEN 1:1",
                 });
-                if (!vref) return; // User cancelled the input
+                if (!cellId) return; // User cancelled the input
                 showInfo = true;
             }
-            const result = await getTranslationPairFromProject(translationPairsIndex, vref);
+            const result = await getTranslationPairFromProject(translationPairsIndex, cellId);
             if (showInfo) {
                 if (result) {
                     vscode.window.showInformationMessage(
-                        `Translation pair for ${vref}: Source: ${result.sourceVerse.content}, Target: ${result.targetVerse.content}`
+                        `Translation pair for ${cellId}: Source: ${result.sourceCell.content}, Target: ${result.targetCell.content}`
                     );
                 } else {
-                    vscode.window.showInformationMessage(`No translation pair found for ${vref}`);
+                    vscode.window.showInformationMessage(`No translation pair found for ${cellId}`);
                 }
             }
         }
     );
 
-    // Push commands to the context once the indexes are built
+    // Update the subscriptions
     context.subscriptions.push(
         ...[
             onDidSaveTextDocument,
             onDidChangeTextDocument,
             zeroDraftWatcher,
-            searchTargetVersesByQueryCommand,
-            getTranslationPairsFromSourceVerseQueryCommand,
-            getSourceVerseByVrefFromAllSourceVersesCommand,
-            getTargetVerseByVrefCommand,
+            searchTargetCellsByQueryCommand,
+            getTranslationPairsFromSourceCellQueryCommand,
+            getSourceCellByCellIdFromAllSourceCellsCommand,
+            getTargetCellByCellIdCommand,
             getTranslationPairFromProjectCommand,
             forceReindexCommand,
             showIndexOptionsCommand,
@@ -548,7 +545,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             getWordFrequenciesCommand,
             refreshWordIndexCommand,
             getWordsAboveThresholdCommand,
-            searchParallelVersesCommand,
+            searchParallelCellsCommand,
         ]
     );
 

@@ -6,11 +6,11 @@ import { verseRefRegex } from "../../../../utils/verseRefUtils";
 
 export interface ZeroDraftIndexRecord {
     id: string;
-    vref: string;
-    verses: VerseWithMetadata[];
+    cellId: string;
+    cells: CellWithMetadata[];
 }
 
-export interface VerseWithMetadata {
+export interface CellWithMetadata {
     content: string;
     source: string;
     uploadedAt: string;
@@ -34,29 +34,29 @@ async function processZeroDraftFile(
 
     for (const record of records) {
         recordsProcessed++;
-        record.verses.forEach((verse) => {
-            verse.originalFileCreatedAt = originalFileCreatedAt;
-            verse.originalFileModifiedAt = originalFileModifiedAt;
+        record.cells.forEach((cell) => {
+            cell.originalFileCreatedAt = originalFileCreatedAt;
+            cell.originalFileModifiedAt = originalFileModifiedAt;
         });
 
-        const existingRecord = zeroDraftIndex.getStoredFields(record.vref) as
+        const existingRecord = zeroDraftIndex.getStoredFields(record.cellId) as
             | ZeroDraftIndexRecord
             | undefined;
 
         if (existingRecord) {
             // Update existing record
-            const updatedVerses = [...existingRecord.verses, ...record.verses];
+            const updatedCells = [...existingRecord.cells, ...record.cells];
             zeroDraftIndex.replace({
-                id: record.vref,
-                vref: record.vref,
-                verses: updatedVerses,
+                id: record.cellId,
+                cellId: record.cellId,
+                cells: updatedCells,
             });
         } else {
             // Add new record
             zeroDraftIndex.add({
-                id: record.vref,
-                vref: record.vref,
-                verses: record.verses,
+                id: record.cellId,
+                cellId: record.cellId,
+                cells: record.cells,
             });
         }
     }
@@ -131,30 +131,30 @@ async function updateIndex(
 
 async function removeFromIndex(uri: vscode.Uri, zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>) {
     const recordsToRemove = Array.from(zeroDraftIndex.search("*")).filter((record) =>
-        record.verses.some((verse: VerseWithMetadata) => verse.source === uri.fsPath)
+        record.cells.some((cell: CellWithMetadata) => cell.source === uri.fsPath)
     );
 
     for (const record of recordsToRemove) {
-        zeroDraftIndex.remove(record.vref);
+        zeroDraftIndex.remove(record.cellId);
     }
 
     console.log(`Removed records from Zero Draft index for file: ${uri.fsPath}`);
 }
 
-// New function to get content options for a given vref
-export function getContentOptionsForVref(
+// Updated function to get content options for a given cellId
+export function getContentOptionsForCellId(
     zeroDraftIndex: MiniSearch<ZeroDraftIndexRecord>,
-    vref: string
+    cellId: string
 ): Partial<ZeroDraftIndexRecord> | null {
-    const result = zeroDraftIndex.getStoredFields(vref);
+    const result = zeroDraftIndex.getStoredFields(cellId);
     if (!result) {
         return null;
     }
     const partialRecord: Partial<ZeroDraftIndexRecord> = {
-        vref: result.vref as string,
-        verses: result.verses as VerseWithMetadata[],
+        cellId: result.cellId as string,
+        cells: result.cells as CellWithMetadata[],
     };
-    console.log(`Retrieving content for vref ${vref}:`, partialRecord);
+    console.log(`Retrieving content for cellId ${cellId}:`, partialRecord);
     return partialRecord;
 }
 
@@ -162,7 +162,7 @@ export async function insertDraftsIntoTargetNotebooks({
     zeroDraftFilePath,
     forceInsert = false,
 }: {
-    zeroDraftFilePath: string; // which file to use
+    zeroDraftFilePath: string;
     forceInsert?: boolean;
 }): Promise<void> {
     const notebookFiles = await vscode.workspace.findFiles("**/*.codex");
@@ -176,16 +176,16 @@ export async function insertDraftsIntoTargetNotebooks({
     // Create a map for quick lookup of zero drafts grouped by book
     const zeroDraftMap = new Map<string, Map<string, string>>();
     for (const record of relevantRecords) {
-        const book = record.vref.split(" ")[0];
+        const book = record.cellId.split(" ")[0];
         if (!zeroDraftMap.has(book)) {
             zeroDraftMap.set(book, new Map());
         }
-        zeroDraftMap.get(book)!.set(record.vref, record.verses[0].content.trim());
+        zeroDraftMap.get(book)!.set(record.cellId, record.cells[0].content.trim());
     }
 
     for (const [book, drafts] of zeroDraftMap.entries()) {
         const notebookFiles = await vscode.workspace.findFiles(`**/${book}.codex`);
-        console.log(`Found ${drafts.size} verses for book ${book}`);
+        console.log(`Found ${drafts.size} cells for book ${book}`);
 
         for (const notebookFile of notebookFiles) {
             const notebook = await vscode.workspace.openNotebookDocument(notebookFile);
@@ -228,7 +228,7 @@ export async function insertDraftsIntoTargetNotebooks({
     }
 
     vscode.window.showInformationMessage(
-        `Inserted ${insertedCount} drafts, skipped ${skippedCount} verses from file: ${zeroDraftFilePath}`
+        `Inserted ${insertedCount} drafts, skipped ${skippedCount} cells from file: ${zeroDraftFilePath}`
     );
 }
 
@@ -253,14 +253,14 @@ export async function insertDraftsInCurrentEditor(
         const trimmedLine = line.text.trim();
         const match = trimmedLine.match(verseRefRegex);
         if (match) {
-            const vref = match[0];
-            const contentOptions = getContentOptionsForVref(zeroDraftIndex, vref);
-            if (contentOptions && contentOptions.verses && contentOptions.verses.length > 0) {
-                const zeroDraft = contentOptions.verses[0].content.trim();
+            const cellId = match[0];
+            const contentOptions = getContentOptionsForCellId(zeroDraftIndex, cellId);
+            if (contentOptions && contentOptions.cells && contentOptions.cells.length > 0) {
+                const zeroDraft = contentOptions.cells[0].content.trim();
 
-                if (forceInsert || trimmedLine === vref) {
+                if (forceInsert || trimmedLine === cellId) {
                     const range = line.range;
-                    edit.replace(document.uri, range, `${vref} ${zeroDraft}`);
+                    edit.replace(document.uri, range, `${cellId} ${zeroDraft}`);
                     insertedCount++;
                 } else {
                     skippedCount++;
@@ -274,6 +274,6 @@ export async function insertDraftsInCurrentEditor(
     }
 
     vscode.window.showInformationMessage(
-        `Inserted ${insertedCount} drafts, skipped ${skippedCount} verses in the current editor.`
+        `Inserted ${insertedCount} drafts, skipped ${skippedCount} cells in the current editor.`
     );
 }
