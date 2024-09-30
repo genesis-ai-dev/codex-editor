@@ -76,9 +76,12 @@ const SourceUploader: React.FC = () => {
         }
     };
     return (
-        <div>
+        <div
+            style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px" }}
+        >
             <h1>Upload a Source File</h1>
             <input
+                style={{ width: "fit-content" }}
                 type="file"
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleFileChange(e)}
             />

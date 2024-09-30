@@ -706,11 +706,11 @@ export async function createCodexNotebookFromWebVTT(
             const cell = new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Code,
                 cue.text,
-                "markdown"
+                "scripture"
             );
             cell.metadata = {
                 type: "text",
-                id: cue.identifier || `cue-${cue.startTime}-${cue.endTime}`,
+                id: `${notebookName} 1:${cue.identifier || `cue-${cue.startTime}-${cue.endTime}`}`,
                 data: {
                     startTime: cue.startTime,
                     endTime: cue.endTime,
@@ -726,7 +726,7 @@ export async function createCodexNotebookFromWebVTT(
             new vscode.CancellationTokenSource().token
         );
 
-        const filePath = `files/target/${notebookName}.codex`;
+        const filePath = `files/target/${notebookName}.source`;
         await generateFile({
             filepath: filePath,
             fileContent: notebookFile,
