@@ -726,10 +726,38 @@ export async function createCodexNotebookFromWebVTT(
             new vscode.CancellationTokenSource().token
         );
 
-        const filePath = `files/target/${notebookName}.source`;
+        const sourceFilePath = `.project/sourceTexts/${notebookName}.source`;
         await generateFile({
-            filepath: filePath,
+            filepath: sourceFilePath,
             fileContent: notebookFile,
+            shouldOverWrite,
+        });
+
+        const targetCells: vscode.NotebookCellData[] = [];
+
+        for (const cue of tree.cues) {
+            const cell = new vscode.NotebookCellData(vscode.NotebookCellKind.Code, "", "scripture");
+            cell.metadata = {
+                type: "text",
+                id: `${notebookName} 1:${cue.identifier || `cue-${cue.startTime}-${cue.endTime}`}`,
+                data: {
+                    startTime: cue.startTime,
+                    endTime: cue.endTime,
+                },
+            };
+            targetCells.push(cell);
+        }
+
+        const targetNotebookData = new vscode.NotebookData(targetCells);
+        const targetSerializer = new CodexContentSerializer();
+        const targetNotebookFile = await targetSerializer.serializeNotebook(
+            targetNotebookData,
+            new vscode.CancellationTokenSource().token
+        );
+        const targetFilePath = `files/target/${notebookName}.codex`;
+        await generateFile({
+            filepath: targetFilePath,
+            fileContent: targetNotebookFile,
             shouldOverWrite,
         });
 
