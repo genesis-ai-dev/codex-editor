@@ -1162,7 +1162,8 @@
         "usfm-grammar": "^2.3.1",
         "uuid": "^9.0.1",
         "vscode-languageclient": "^9.0.1",
-        "vscode-uri": "^3.0.8"
+        "vscode-uri": "^3.0.8",
+        "webvtt-parser": "^2.2.0"
     },
     "overrides": {
         "minimatch": "5.1.2"

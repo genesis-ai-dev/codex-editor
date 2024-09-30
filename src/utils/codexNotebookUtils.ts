@@ -10,6 +10,7 @@ import { extractVerseRefFromLine, verseRefRegex } from "./verseRefUtils";
 import { getTestamentForBook } from "./verseRefUtils/verseData";
 import grammar, { ParsedUSFM } from "usfm-grammar";
 import * as path from "path";
+import { WebVTTParser } from "webvtt-parser";
 
 export const NOTEBOOK_TYPE = "codex-type";
 
@@ -349,7 +350,9 @@ export async function importLocalUsfmSourceBible() {
                     const [, chapter] = cell.metadata.id.split(" ");
                     if (chapter !== currentChapter) {
                         currentChapter = chapter;
-                        const chapterCellId = `${bookCode} ${chapter}:1:${Math.random().toString(36).substr(2, 11)}`;
+                        const chapterCellId = `${bookCode} ${chapter}:1:${Math.random()
+                            .toString(36)
+                            .substr(2, 11)}`;
                         bookData.cells.splice(index, 0, {
                             kind: 2,
                             language: "paratext",
@@ -634,8 +637,12 @@ export async function migrateSourceFiles() {
         return;
     }
 
-    const sourceTextsFolderUri = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts");
-    
+    const sourceTextsFolderUri = vscode.Uri.joinPath(
+        workspaceFolder.uri,
+        ".project",
+        "sourceTexts"
+    );
+
     try {
         await vscode.workspace.fs.stat(sourceTextsFolderUri);
     } catch {
@@ -648,7 +655,7 @@ export async function migrateSourceFiles() {
     for (const [fileName, fileType] of sourceFiles) {
         if (fileType === vscode.FileType.File && fileName.endsWith(".source")) {
             const fileUri = vscode.Uri.joinPath(sourceTextsFolderUri, fileName);
-            
+
             try {
                 const fileContent = await vscode.workspace.fs.readFile(fileUri);
                 const sourceData = JSON.parse(fileContent.toString());
@@ -664,7 +671,7 @@ export async function migrateSourceFiles() {
                 if (books.size > 1) {
                     console.log(`Splitting ${fileName} into multiple files...`);
                     await splitSourceFileByBook(fileUri, workspaceFolder.uri.fsPath, "source");
-                    
+
                     // Rename the original file
                     const newFileName = fileName.replace(".source", ".source.combined");
                     const newFileUri = vscode.Uri.joinPath(sourceTextsFolderUri, newFileName);
@@ -682,4 +689,57 @@ export async function migrateSourceFiles() {
     }
 
     vscode.window.showInformationMessage("Source file migration completed.");
+}
+
+export async function createCodexNotebookFromWebVTT(
+    webvttFileContent: string,
+    notebookName: string,
+    shouldOverWrite = false
+) {
+    try {
+        const parser = new WebVTTParser();
+        const tree = parser.parse(webvttFileContent);
+
+        const cells: vscode.NotebookCellData[] = [];
+
+        for (const cue of tree.cues) {
+            const cell = new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                cue.text,
+                "markdown"
+            );
+            cell.metadata = {
+                type: "text",
+                id: cue.identifier || `cue-${cue.startTime}-${cue.endTime}`,
+                data: {
+                    startTime: cue.startTime,
+                    endTime: cue.endTime,
+                },
+            };
+            cells.push(cell);
+        }
+
+        const notebookData = new vscode.NotebookData(cells);
+        const serializer = new CodexContentSerializer();
+        const notebookFile = await serializer.serializeNotebook(
+            notebookData,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const filePath = `files/target/${notebookName}.codex`;
+        await generateFile({
+            filepath: filePath,
+            fileContent: notebookFile,
+            shouldOverWrite,
+        });
+
+        vscode.window.showInformationMessage(
+            `Codex notebook created from WebVTT file: ${notebookName}.codex`
+        );
+    } catch (error) {
+        console.error(`Error creating Codex notebook from WebVTT file: ${error}`);
+        vscode.window.showErrorMessage(
+            `Failed to create Codex notebook from WebVTT file: ${error}`
+        );
+    }
 }
