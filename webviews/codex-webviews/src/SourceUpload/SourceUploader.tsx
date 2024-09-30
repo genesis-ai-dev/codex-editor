@@ -1,111 +1,140 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
+import { useDropzone } from "react-dropzone";
 import { useVSCodeMessageHandler } from "./hooks/useVSCodeMessageHandler";
-import {
-    VSCodeButton,
-    // VSCodeButton,
-    // VSCodeDropdown,
-    // VSCodeOption,
-    // VSCodeTextArea,
-} from "@vscode/webview-ui-toolkit/react";
+import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
 
-// enum SplitOption {
-//     Paragraph = "paragraph",
-//     Newline = "newline",
-//     Sentence = "sentence",
-//     Word = "word",
-// }
-
-// enum FormatOption {
-//     splitOptionForm = "splitOptionForm",
-// }
 const SourceUploader: React.FC = () => {
-    const [selectedFile, setSelectedFile] = useState<File | null>(null);
-    const [fileContent, setFileContent] = useState<string>("");
-    // const [splitContent, setSplitContent] = useState<string[]>([]);
-    // const [splitOption, setSplitOption] = useState<SplitOption>(SplitOption.Paragraph);
-    useVSCodeMessageHandler({
-        setFile: (file: File) => setSelectedFile(file),
-    });
+    const [fileContent, setFileContent] = React.useState<string>("");
+    const [selectedFile, setSelectedFile] = useState<File>();
 
-    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = (event.target as HTMLInputElement).files?.[0];
-        if (file) {
+    useVSCodeMessageHandler({
+        setFile: (file: File) => {
             const reader = new FileReader();
             reader.onload = (e) => {
                 const content = e.target?.result?.toString() || "";
                 setFileContent(content);
-                // setSplitContent(content.split(deriveSplitOptions(splitOption)));
-                // vscode.postMessage({ command: "fileSelected", fileName: file.name });
             };
             reader.readAsText(file);
-            setSelectedFile(file);
-        }
-    };
+        },
+    });
 
-    // const deriveSplitOptions = (splitOption: SplitOption) => {
-    //     switch (splitOption) {
-    //         case SplitOption.Paragraph: {
-    //             return "\n\n";
-    //         }
-    //         case SplitOption.Newline: {
-    //             return "\n";
-    //         }
-    //         case SplitOption.Sentence: {
-    //             return "[.!?]";
-    //         }
-    //         case SplitOption.Word: {
-    //             return " ";
-    //         }
-    //     }
-    // };
-    // const handleChange = (newSplitOption: SplitOption) => {
-    //     console.log({ newSplitOption });
-    //     if (fileContent && splitOption) {
-    //         const content = fileContent.split(deriveSplitOptions(newSplitOption));
-    //         console.log({ content });
-    //         setSplitContent(content.filter((c) => c.trim() !== ""));
-    //     }
-    // };
+    const onDrop = useCallback((acceptedFiles: File[]) => {
+        setSelectedFile(acceptedFiles[0]);
+    }, []);
+    useEffect(() => {
+        if (selectedFile) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const content = e.target?.result?.toString() || "";
+                setFileContent(content);
+            };
+            reader.readAsText(selectedFile);
+        }
+    }, [selectedFile]);
+    const { getRootProps, getInputProps } = useDropzone({
+        onDrop,
+    });
 
     const handleUpload = () => {
         if (selectedFile) {
             vscode.postMessage({ command: "createCodexNotebookFromWebVTT", fileContent });
         }
     };
+
     return (
         <div
-            style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px" }}
+            style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: "10px",
+                height: "80vh",
+                justifyContent: "center",
+            }}
         >
-            <h1>Upload a Source File</h1>
-            <input
-                style={{ width: "fit-content" }}
-                type="file"
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleFileChange(e)}
-            />
-            {/* <button onClick={handleUpload}>Upload</button> */}
-            {selectedFile && (
-                <>
-                    <VSCodeButton type="button" onClick={handleUpload}>
-                        Upload
-                    </VSCodeButton>
-                </>
-            )}
+            <div
+                style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: "10px",
+                    backgroundColor: "var(--vscode-sideBar-background)",
+                    padding: "50px 50px 55px 50px",
+                    borderRadius: "10px",
+                }}
+            >
+                <h1>Upload a Source File</h1>
+                <div className="dropzone">
+                    <input {...getInputProps()} />
+                    <div
+                        style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            gap: "20px",
+                        }}
+                    >
+                        <div
+                            style={{
+                                display: "flex",
+                                flexDirection: "row",
+                                alignItems: "center",
+                                gap: "10px",
+                                marginTop: "10px",
+                                marginBottom: "15px",
+                            }}
+                        >
+                            <i className="codicon codicon-file" style={{ fontSize: "40px" }}></i>
+                            <i
+                                className="codicon codicon-arrow-right"
+                                style={{ fontSize: "40px" }}
+                            ></i>
+                            <i className="codicon codicon-folder" style={{ fontSize: "40px" }}></i>
+                        </div>
 
-            {/* {splitContent.map((content, index) => (
-                <div key={index}>
-                    <h2>Preview {index + 1}</h2>
-                    <p>Selected File: {selectedFile?.name}</p>
-                    <VSCodeTextArea
-                        readOnly
-                        value={content}
-                        placeholder="File content will appear here..."
-                        style={{ minHeight: "200px" }}
-                    />
+                        {selectedFile ? (
+                            <>
+                                <h2>Selected file: {selectedFile.name}</h2>
+                                <div
+                                    style={{
+                                        display: "flex",
+                                        flexDirection: "row",
+                                        alignItems: "center",
+                                        gap: "10px",
+                                    }}
+                                >
+                                    <VSCodeButton type="button" onClick={handleUpload}>
+                                        <i
+                                            className="codicon codicon-check"
+                                            style={{ fontSize: "40px" }}
+                                        ></i>
+                                    </VSCodeButton>
+                                    <VSCodeButton
+                                        type="button"
+                                        onClick={() => setSelectedFile(undefined)}
+                                        style={{ backgroundColor: "red" }}
+                                    >
+                                        <i
+                                            className="codicon codicon-close"
+                                            style={{ fontSize: "40px" }}
+                                        ></i>
+                                    </VSCodeButton>
+                                </div>
+                            </>
+                        ) : (
+                            <VSCodeButton {...getRootProps()}>
+                                <i
+                                    className="codicon codicon-cloud-upload"
+                                    style={{ fontSize: "40px" }}
+                                ></i>
+                            </VSCodeButton>
+                        )}
+                    </div>
                 </div>
-            ))} */}
+            </div>
         </div>
     );
 };

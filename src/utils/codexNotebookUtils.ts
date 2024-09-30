@@ -710,7 +710,7 @@ export async function createCodexNotebookFromWebVTT(
             );
             cell.metadata = {
                 type: "text",
-                id: `${notebookName} 1:${cue.identifier || `cue-${cue.startTime}-${cue.endTime}`}`,
+                id: `${notebookName} 1:${`cue-${cue.startTime}-${cue.endTime}`}`,
                 data: {
                     startTime: cue.startTime,
                     endTime: cue.endTime,
@@ -739,7 +739,7 @@ export async function createCodexNotebookFromWebVTT(
             const cell = new vscode.NotebookCellData(vscode.NotebookCellKind.Code, "", "scripture");
             cell.metadata = {
                 type: "text",
-                id: `${notebookName} 1:${cue.identifier || `cue-${cue.startTime}-${cue.endTime}`}`,
+                id: `${notebookName} 1:${`cue-${cue.startTime}-${cue.endTime}`}`,
                 data: {
                     startTime: cue.startTime,
                     endTime: cue.endTime,

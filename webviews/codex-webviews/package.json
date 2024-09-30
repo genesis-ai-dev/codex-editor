@@ -47,6 +47,7 @@
         "react": "^18.2.0",
         "react-contenteditable": "^3.3.5",
         "react-dom": "^18.2.0",
+        "react-dropzone": "^14.2.3",
         "react-popper": "^2.2.5",
         "react-table": "^7.8.0",
         "react-window": "^1.8.6",
