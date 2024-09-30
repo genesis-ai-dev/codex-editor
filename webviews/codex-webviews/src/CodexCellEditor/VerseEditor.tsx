@@ -55,7 +55,7 @@ const VerseEditor: React.FC<VerseEditorProps> = ({
                 ) : (
                     <VSCodeButton
                         onClick={handleCloseEditor}
-                        disabled={unsavedContent !== null}
+                        disabled={unsavedChanges !== null}
                         appearance="icon"
                     >
                         <i className="codicon codicon-close"></i>
