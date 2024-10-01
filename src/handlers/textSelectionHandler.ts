@@ -14,8 +14,8 @@ export function registerTextSelectionHandler(
     context.subscriptions.push(
         vscode.window.onDidChangeTextEditorSelection(
             async (event: vscode.TextEditorSelectionChangeEvent) => {
-                const activeEditor = vscode.window.activeTextEditor;
-                if (activeEditor && activeEditor.document.languageId === "scripture") {
+                const activeEditor: any = vscode.window.activeTextEditor;
+                if (activeEditor && activeEditor.document.metadata?.type === "scripture") {
                     const currentLine = activeEditor.document.lineAt(
                         Math.max(
                             0,

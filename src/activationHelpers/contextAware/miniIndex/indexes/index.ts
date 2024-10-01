@@ -178,9 +178,9 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         }
     });
 
-    const onDidChangeTextDocument = vscode.workspace.onDidChangeTextDocument(async (event) => {
+    const onDidChangeTextDocument = vscode.workspace.onDidChangeTextDocument(async (event: any) => {
         const doc = event.document;
-        if (doc.languageId === "scripture" || doc.fileName.endsWith(".codex")) {
+        if (doc.metadata?.type === "scripture" || doc.fileName.endsWith(".codex")) {
             debouncedUpdateTranslationPairsIndex(doc);
             debouncedUpdateSourceTextIndex(doc);
             debouncedUpdateWordsIndex(doc);

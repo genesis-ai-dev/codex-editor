@@ -35,7 +35,11 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
         }
         // Create array of Notebook cells for the VS Code API from file contents
         const cells = raw.cells.map((item) => {
-            const cell = new vscode.NotebookCellData(item.kind, item.value, item.languageId);
+            const cell = new vscode.NotebookCellData(
+                item.kind,
+                item.value,
+                item.languageId || "html"
+            );
             cell.metadata = item.metadata || {}; // Ensure metadata is included if available
             if (item.metadata && item.metadata.id) {
                 cell.metadata.id = item.metadata.id;

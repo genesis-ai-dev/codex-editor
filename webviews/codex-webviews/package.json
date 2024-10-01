@@ -15,7 +15,8 @@
         "build:EditableReactTable": "cross-env APP_NAME=EditableReactTable vite build",
         "build:ProjectManagerView": "cross-env APP_NAME=ProjectManagerView vite build",
         "build:SourceUpload": "cross-env APP_NAME=SourceUpload vite build",
-        "build:all": "npm run build:ParallelView && npm run build:DictionarySidePanel && npm run build:EditableReactTable && npm run build:TranslationNotesView && npm run build:SemanticView && npm run build:ChatView && npm run build:CommentsView && npm run build:CodexCellEditor && npm run build:ProjectManagerView && npm run build:SourceUpload",
+        "build:VideoPlayer": "cross-env APP_NAME=VideoPlayer vite build",
+        "build:all": "npm run build:ParallelView && npm run build:DictionarySidePanel && npm run build:EditableReactTable && npm run build:TranslationNotesView && npm run build:SemanticView && npm run build:ChatView && npm run build:CommentsView && npm run build:CodexCellEditor && npm run build:ProjectManagerView && npm run build:SourceUpload && npm run build:VideoPlayer",
         "watch:all": "nodemon --watch src --ext ts,tsx,css --exec npm run build:all",
         "watch:ChatView": "nodemon --watch src --ext ts,tsx,css --exec npm run build:ChatView",
         "watch:CodexCellEditor": "nodemon --watch src --ext ts,tsx,css --exec npm run build:CodexCellEditor",
@@ -27,6 +28,7 @@
         "watch:DictionarySidePanel": "nodemon --watch src --ext ts,tsx,css --exec npm run build:DictionarySidePanel",
         "watch:EditableReactTable": "nodemon --watch src --ext ts,tsx,css --exec npm run build:EditableReactTable",
         "watch:ProjectManagerView": "nodemon --watch src --ext ts,tsx,css --exec npm run build:ProjectManagerView",
+        "watch:VideoPlayer": "nodemon --watch src --ext ts,tsx,css --exec npm run build:VideoPlayer",
         "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
         "preview": "vite preview"
     },
