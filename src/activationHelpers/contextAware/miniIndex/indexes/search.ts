@@ -24,19 +24,18 @@ export function getSourceCellByCellIdFromAllSourceCells(
     sourceTextIndex: MiniSearch,
     cellId: string
 ): SourceCellVersions | null {
-    const result = sourceTextIndex.search(cellId, {
-        fields: ["cellId"],
-        combineWith: "AND",
-        prefix: false,
-    })[0];
+    const searchResults: SourceCellVersions | null = sourceTextIndex.getStoredFields(
+        cellId
+    ) as SourceCellVersions | null;
 
-    if (result) {
+    if (searchResults) {
         return {
-            cellId: result.cellId as string,
-            content: result.content as string,
-            versions: result.versions as string[],
+            cellId: searchResults?.cellId as string,
+            content: searchResults?.content as string,
+            versions: searchResults?.versions as string[],
         };
     }
+    console.log(`No result found for cellId: ${cellId}`);
     return null;
 }
 

@@ -320,18 +320,18 @@ export class CustomWebviewProvider {
     resolveWebviewView(webviewView: vscode.WebviewView) {
         // Add this block to listen to the shared state store
         initializeStateStore().then(({ storeListener }) => {
-            const disposeFunction = storeListener("verseRef", async (value) => {
+            const disposeFunction = storeListener("cellId", async (value) => {
                 if (value) {
                     // get source verse content
                     const sourceCellContent = await vscode.commands.executeCommand(
-                        "translators-copilot.getSourceVerseByVrefFromAllSourceVerses",
-                        value.verseRef
+                        "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
+                        value.cellId
                     );
 
                     webviewView.webview.postMessage({
-                        command: "verseRefUpdate",
+                        command: "cellIdUpdate",
                         data: {
-                            verseRef: value.verseRef,
+                            cellId: value.cellId,
                             uri: value.uri,
                             sourceCellContent,
                         },
@@ -520,14 +520,14 @@ export class CustomWebviewProvider {
                         }
                         break;
                     }
-                    case "getCurrentVerseRef": {
+                    case "getCurrentCellId": {
                         initializeStateStore().then(({ getStoreState }) => {
-                            getStoreState("verseRef").then((value) => {
+                            getStoreState("cellId").then((value) => {
                                 if (value) {
                                     webviewView.webview.postMessage({
-                                        command: "verseRefUpdate",
+                                        command: "cellIdUpdate",
                                         data: {
-                                            verseRef: value.verseRef,
+                                            cellId: value.cellId,
                                             uri: value.uri,
                                         },
                                     } as ChatPostMessages);

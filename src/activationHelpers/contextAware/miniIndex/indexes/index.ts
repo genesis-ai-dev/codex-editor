@@ -64,7 +64,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     });
 
     const sourceTextIndex = new MiniSearch({
-        fields: ["content"],
+        fields: ["content", "cellId"],
         storeFields: ["cellId", "content", "versions"],
         idField: "cellId",
     });
@@ -260,10 +260,12 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     prompt: "Enter a cell ID",
                     placeHolder: "e.g. GEN 1:1",
                 });
-                if (!cellId) return; // User cancelled the input
+                if (!cellId) return null; // User cancelled the input
                 showInfo = true;
             }
+            console.log(`Executing getSourceCellByCellIdFromAllSourceCells for cellId: ${cellId}`);
             const results = await getSourceCellByCellIdFromAllSourceCells(sourceTextIndex, cellId);
+            console.log("getSourceCellByCellIdFromAllSourceCells results:", results);
             if (showInfo && results) {
                 vscode.window.showInformationMessage(
                     `Source cell for ${cellId}: ${results.content}`

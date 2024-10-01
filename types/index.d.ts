@@ -50,8 +50,8 @@ interface NotebookCommentThread {
     deleted: boolean;
 }
 
-interface VerseRefGlobalState {
-    verseRef: string;
+interface CellIdGlobalState {
+    cellId: string;
     uri: string;
 }
 interface ScriptureContent extends vscode.NotebookData {
@@ -103,9 +103,9 @@ type ChatPostMessages =
     | { command: "abort-fetch" }
     | { command: "openSettings" }
     | { command: "openContextItem"; text: string }
-    | { command: "verseGraphData"; data: string[] }
-    | { command: "verseRefUpdate"; data: VerseRefGlobalState & { sourceCellContent: string } }
-    | { command: "getCurrentVerseRef" };
+    | { command: "cellGraphData"; data: string[] }
+    | { command: "cellIdUpdate"; data: CellIdGlobalState & { sourceCellContent: string } }
+    | { command: "getCurrentCellId" };
 
 type DictionaryPostMessages =
     | { command: "sendData"; data: Dictionary }

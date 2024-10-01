@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { CompletionConfig } from "./inlineCompletionsProvider";
 import { callLLM } from "../../utils/llmUtils";
-import { ChatMessage, MiniSearchVerseResult, TranslationPair } from "../../../types";
+import { ChatMessage, MinimalCellResult, TranslationPair } from "../../../types";
 import { CodexNotebookReader } from "../../serializer";
 import { CodexCellTypes } from "../../../types/enums";
 
@@ -17,31 +17,39 @@ export async function llmCompletion(
         throw new Error("Current cell has no ID in llmCompletion().");
     }
 
-    // Get the source content for the current verse(s)
+    // Get the source content for the current cell(s)
     const currentCellIndex = await currentNotebookReader.getCellIndex({ id: currentCellId });
     const currentCellIds = await currentNotebookReader.getCellIds(currentCellIndex);
-    const sourceVerses = await Promise.all(
-        currentCellIds.map(
-            (id) =>
-                vscode.commands.executeCommand(
-                    "translators-copilot.getSourceVerseByVrefFromAllSourceVerses",
+    const sourceCells = await Promise.all(
+        currentCellIds.map(async (id) => {
+            try {
+                const result = (await vscode.commands.executeCommand(
+                    "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
                     id
-                ) as Promise<MiniSearchVerseResult | null>
-        )
+                )) as MinimalCellResult | null;
+                if (!result) {
+                    console.error(`No source cell found for cellId: ${id}`);
+                }
+                return result;
+            } catch (error) {
+                console.error(`Error fetching source cell for cellId ${id}:`, error);
+                return null;
+            }
+        })
     );
-    const sourceContent = sourceVerses
+    const sourceContent = sourceCells
         .filter(Boolean)
-        .map((verse) => verse!.content)
+        .map((cell) => cell!.content)
         .join(" ");
 
-    // Get similar source verses
-    const similarSourceVerses: TranslationPair[] = await vscode.commands.executeCommand(
-        "translators-copilot.getTranslationPairsFromSourceVerseQuery",
+    // Get similar source cells
+    const similarSourceCells: TranslationPair[] = await vscode.commands.executeCommand(
+        "translators-copilot.getTranslationPairsFromSourceCellQuery",
         sourceContent,
         numberOfFewShotExamples
     );
 
-    if (!similarSourceVerses || similarSourceVerses.length === 0) {
+    if (!similarSourceCells || similarSourceCells.length === 0) {
         showNoResultsWarning();
         return "";
     }
@@ -70,9 +78,9 @@ export async function llmCompletion(
                 cellIds.map(
                     (id) =>
                         vscode.commands.executeCommand(
-                            "translators-copilot.getSourceVerseByVrefFromAllSourceVerses",
+                            "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
                             id
-                        ) as Promise<MiniSearchVerseResult | null>
+                        ) as Promise<MinimalCellResult | null>
                 )
             );
 
@@ -82,7 +90,7 @@ export async function llmCompletion(
 
             const combinedSourceContent = sourceContents
                 .filter(Boolean)
-                .map((verse) => verse!.content)
+                .map((cell) => cell!.content)
                 .join(" ");
 
             const cellContent = await currentNotebookReader.getEffectiveCellContent(cellIndex);
@@ -100,15 +108,14 @@ export async function llmCompletion(
     const targetLanguage = projectConfig.get<any>("targetLanguage")?.tag || null;
 
     try {
-        const currentVref = currentCellIds.join(", ");
-        const currentVrefSourceContent = sourceContent;
+        const currentCellId = currentCellIds.join(", ");
+        const currentCellSourceContent = sourceContent;
 
         // Generate few-shot examples
-        const fewShotExamples = similarSourceVerses
+        const fewShotExamples = similarSourceCells
             .slice(0, numberOfFewShotExamples)
             .map(
-                (pair) =>
-                    `${pair.targetCell.cellId}: ${pair.sourceCell.content} -> ${pair.targetCell.content}`
+                (pair) => `${pair.cellId}: ${pair.sourceCell.content} -> ${pair.targetCell.content}`
             )
             .join("\n");
 
@@ -134,7 +141,7 @@ export async function llmCompletion(
             fewShotExamples,
             "## Current Context",
             precedingTranslationPairs.filter(Boolean).join("\n"),
-            `${currentVref}: ${currentVrefSourceContent} ->`,
+            `${currentCellId}: ${currentCellSourceContent} ->`,
         ].join("\n\n");
 
         const messages = [
@@ -203,9 +210,9 @@ async function logDebugMessages(messages: ChatMessage[], completion: string) {
 }
 
 function showNoResultsWarning() {
-    const warningMessage = "No relevant translated sentences found for context.";
+    const warningMessage = "No relevant translated cells found for context.";
     const detailedWarning =
-        "Unable to find any relevant sentences that have already been translated. This may affect the quality of the translation suggestion.";
+        "Unable to find any relevant cells that have already been translated. This may affect the quality of the translation suggestion.";
 
     vscode.window.showWarningMessage(warningMessage, "More Info", "Dismiss").then((selection) => {
         if (selection === "More Info") {
@@ -214,7 +221,7 @@ function showNoResultsWarning() {
                 .then((selection) => {
                     if (selection === "How to Fix") {
                         vscode.window.showInformationMessage(
-                            "Try translating more sentences in nearby verses or chapters to provide better context for future suggestions."
+                            "Try translating more cells in nearby sections or chapters to provide better context for future suggestions."
                         );
                     }
                 });

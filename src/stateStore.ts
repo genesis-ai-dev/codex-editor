@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
-import { VerseRefGlobalState, SelectedTextDataWithContext, OBSRef } from "../types";
+import { CellIdGlobalState, SelectedTextDataWithContext, OBSRef } from "../types";
 type StateStoreUpdate =
-    | { key: "verseRef"; value: VerseRefGlobalState }
+    | { key: "cellId"; value: CellIdGlobalState }
     | { key: "uri"; value: string | null }
     | { key: "currentLineSelection"; value: SelectedTextDataWithContext }
     | { key: "plainTextNotes"; value: string }

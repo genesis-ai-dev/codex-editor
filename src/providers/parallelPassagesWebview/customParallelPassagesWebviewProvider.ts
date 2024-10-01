@@ -99,7 +99,7 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
                 if (message.database === "both") {
                     try {
                         const results = await vscode.commands.executeCommand<TranslationPair[]>(
-                            "translators-copilot.searchParallelVerses",
+                            "translators-copilot.searchParallelCells",
                             message.query
                         );
                         if (results) {
@@ -109,7 +109,7 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
                             });
                         }
                     } catch (error) {
-                        console.error("Error searching parallel verses:", error);
+                        console.error("Error searching parallel cells:", error);
                     }
                 }
                 break;

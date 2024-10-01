@@ -166,9 +166,9 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                         try {
                             await initializeStateStore().then(({ updateStoreState }) => {
                                 updateStoreState({
-                                    key: "verseRef",
+                                    key: "cellId",
                                     value: {
-                                        verseRef: e.content.currentLineId,
+                                        cellId: e.content.currentLineId,
                                         uri: document.uri.toString(),
                                     },
                                 });

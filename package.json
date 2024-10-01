@@ -579,67 +579,14 @@
                 "title": "Sync"
             },
             {
-                "command": "translators-copilot.extractVerseRefsFromCurrentEditor",
-                "title": "Extract Verse References from Current Editor"
-            },
-            {
-                "command": "translators-copilot.extractVerseRefFromCurrentLine",
-                "title": "Extract Verse Reference from Current Line"
-            },
-            {
-                "command": "translators-copilot.searchTargetVersesByQuery",
-                "title": "Search Target Verses",
-                "category": "Translators Copilot"
-            },
-            {
-                "command": "translators-copilot.getTranslationPairsFromSourceVerseQuery",
-                "title": "Search Source Verses",
-                "category": "Translators Copilot"
-            },
-            {
-                "command": "translators-copilot.getSourceVerseByVrefFromAllSourceVerses",
-                "title": "Get Source Verse by Vref",
-                "category": "Translators Copilot"
-            },
-            {
                 "command": "translators-copilot.getTranslationPairFromProject",
                 "title": "Get Translation Pair from Project",
-                "category": "Translators Copilot"
-            },
-            {
-                "command": "translators-copilot.getTranslationPairsFromSourceVerseQuery",
-                "title": "Get Translation Pairs from Source Verse Query",
                 "category": "Translators Copilot"
             },
             {
                 "command": "translators-copilot.showIndexOptions",
                 "title": "Show Index Options",
                 "category": "Translators Copilot"
-            },
-            {
-                "command": "translators-copilot.getTargetVerseByVref",
-                "title": "Get Target Verse by Vref",
-                "category": "Translators Copilot"
-            },
-            {
-                "command": "verseIndexer.rebuildFullIndex",
-                "title": "Rebuild Full Index",
-                "category": "Verse Indexer"
-            },
-            {
-                "command": "verseIndexer.closeIndexer",
-                "title": "Close Verse Indexer",
-                "category": "Verse Indexer"
-            },
-            {
-                "command": "easyLanguageServer.testIndexing",
-                "title": "Test Indexing",
-                "category": "Easy Language Server"
-            },
-            {
-                "command": "easyLanguageServer.testSearch",
-                "title": "Test Search",
-                "category": "Easy Language Server"
             },
             {
                 "command": "translators-copilot.getZeroDraftContentOptions",
@@ -729,6 +676,30 @@
                 "command": "translation-navigation.openSourceFile",
                 "title": "Open Source File",
                 "icon": "$(open-preview)"
+            },
+            {
+                "command": "translators-copilot.getTranslationPairsFromSourceCellQuery",
+                "title": "Search Source Cells"
+            },
+            {
+                "command": "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
+                "title": "Get Source Cell by Cell ID"
+            },
+            {
+                "command": "translators-copilot.getTranslationPairFromProject",
+                "title": "Get Translation Pair from Project"
+            },
+            {
+                "command": "translators-copilot.getTranslationPairsFromSourceCellQuery",
+                "title": "Get Translation Pairs from Source Cell Query"
+            },
+            {
+                "command": "translators-copilot.getTargetCellByCellId",
+                "title": "Get Target Cell by Cell ID"
+            },
+            {
+                "command": "translators-copilot.getZeroDraftContentOptions",
+                "title": "Get Zero Draft Content Options for Cell ID"
             }
         ],
         "notebooks": [

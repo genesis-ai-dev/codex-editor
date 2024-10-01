@@ -105,7 +105,7 @@ export async function createZeroDraftIndex(
     }
 
     console.log(
-        `Zero Draft index created with ${zeroDraftIndex.documentCount} unique verses from ${totalRecordsProcessed} total records`
+        `Zero Draft index created with ${zeroDraftIndex.documentCount} unique cells from ${totalRecordsProcessed} total records`
     );
     console.log("Zero Draft index contents:", zeroDraftIndex.search("*").length, "records");
 
