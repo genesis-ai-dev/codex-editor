@@ -58,9 +58,7 @@ export const createCodexNotebook = async (cells: vscode.NotebookCellData[] = [])
      */
     const cellData =
         cells.length > 0
-            ? cells.map(
-                  (cell) => new vscode.NotebookCellData(cell.kind, cell.value, cell.languageId)
-              )
+            ? cells.map((cell) => new vscode.NotebookCellData(cell.kind, cell.value, "html"))
             : [];
     const data = new vscode.NotebookData(cellData);
     const doc = await vscode.workspace.openNotebookDocument(NOTEBOOK_TYPE, data);
@@ -109,16 +107,26 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
     for (const book of allBooks) {
         try {
             const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
-            const file = await vscode.workspace.fs.readFile(
-                vscode.Uri.file(`${workspaceRoot}/files/target/${book}.codex`)
-            );
+            let file;
+            try {
+                file = await vscode.workspace.fs.readFile(
+                    vscode.Uri.file(`${workspaceRoot}/files/target/${book}.codex`)
+                );
+            } catch (error) {
+                continue;
+            }
 
             const serializer = new CodexContentSerializer();
+            console.log({ file });
             const notebookData = await serializer.deserializeNotebook(
                 file,
                 new vscode.CancellationTokenSource().token
             );
-
+            if (notebookData.cells[0].metadata?.type === "paratext") {
+                console.log("Skipping notebook for book because it is already migrated", book);
+                continue;
+            }
+            console.log("after deserializeNotebook", { notebookData });
             const newCells: vscode.NotebookCellData[] = [];
             const chapterHeadingText = `Chapter`;
 
@@ -149,7 +157,7 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
                             const newCell = new vscode.NotebookCellData(
                                 vscode.NotebookCellKind.Code,
                                 `<h1>${h1Content}</h1>`,
-                                "paratext"
+                                "html"
                             );
                             const randomId = Math.random().toString(36).substring(2, 15);
                             const cellId = `${book} ${chapter}:1:${randomId}`;
@@ -175,17 +183,22 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
                     }
                 } else if (
                     cell.kind === vscode.NotebookCellKind.Code &&
-                    cell.languageId === "scripture"
+                    (cell.languageId === "scripture" ||
+                        // @ts-expect-error: language is not defined in the type because it is the old type
+                        cell.language === "scripture" ||
+                        cell.languageId === "html")
                 ) {
+                    console.log({ cell });
                     // This is a cell containing all verses for a chapter
                     const lines = cell.value.split("\n");
                     for (const line of lines) {
+                        console.log({ cell });
                         const verseRef = extractVerseRefFromLine(line);
                         const content = line.replace(verseRefRegex, "");
                         const verseCell = new vscode.NotebookCellData(
                             vscode.NotebookCellKind.Code,
                             content,
-                            "scripture"
+                            "html"
                         );
                         if (!verseRef) {
                             console.warn(
@@ -203,7 +216,7 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
                     }
                 }
             }
-
+            console.log({ newCells });
             const updatedNotebookData = new vscode.NotebookData(newCells);
 
             const notebookMetadata = {
@@ -529,7 +542,7 @@ export async function createProjectNotebooks({
                     const verseCell = new vscode.NotebookCellData(
                         vscode.NotebookCellKind.Code,
                         "",
-                        "scripture"
+                        "html"
                     );
                     verseCell.metadata = {
                         type: "text",
@@ -682,16 +695,6 @@ export async function migrateSourceFiles() {
                         console.error(`Failed to rename ${fileName}: ${error}`);
                     }
                 }
-                // If we were successful, then delete the combined file
-                if (books.size > 1) {
-                    const combinedFileUri = vscode.Uri.joinPath(sourceTextsFolderUri, fileName);
-                    try {
-                        await vscode.workspace.fs.delete(combinedFileUri);
-                        console.log(`Deleted combined file ${fileName}`);
-                    } catch (error) {
-                        console.error(`Failed to delete combined file ${fileName}: ${error}`);
-                    }
-                }
             } catch (error) {
                 console.error(`Error processing ${fileName}: ${error}`);
             }
@@ -720,7 +723,8 @@ export async function createCodexNotebookFromWebVTT(
             );
             cell.metadata = {
                 type: "text",
-                id: `${notebookName} 1:${cue.id || `cue-${cue.startTime}-${cue.endTime}`}`,
+                // @ts-expect-error: identifier is not defined in the type
+                id: `${notebookName} 1:${cue.identifier || `cue-${cue.startTime}-${cue.endTime}`}`,
                 data: {
                     startTime: cue.startTime,
                     endTime: cue.endTime,
@@ -749,7 +753,8 @@ export async function createCodexNotebookFromWebVTT(
             const cell = new vscode.NotebookCellData(vscode.NotebookCellKind.Code, "", "scripture");
             cell.metadata = {
                 type: "text",
-                id: `${notebookName} 1:${cue.id || `cue-${cue.startTime}-${cue.endTime}`}`,
+                // @ts-expect-error: identifier is not defined in the type
+                id: `${notebookName} 1:${cue.identifier || `cue-${cue.startTime}-${cue.endTime}`}`,
                 data: {
                     startTime: cue.startTime,
                     endTime: cue.endTime,

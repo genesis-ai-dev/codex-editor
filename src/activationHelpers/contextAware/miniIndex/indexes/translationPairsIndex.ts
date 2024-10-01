@@ -239,19 +239,19 @@ export async function createTranslationPairsIndex(
 
     // Subscriptions
     context.subscriptions.push(
-        vscode.workspace.onDidOpenTextDocument(async (doc) => {
-            if (doc.languageId === "scripture" || doc.fileName.endsWith(".codex")) {
+        vscode.workspace.onDidOpenTextDocument(async (doc: any) => {
+            if (doc.metadata?.type === "scripture" || doc.fileName.endsWith(".codex")) {
                 await debouncedIndexDocument(doc);
             }
         }),
-        vscode.workspace.onDidCloseTextDocument(async (doc) => {
-            if (doc.languageId === "scripture" || doc.fileName.endsWith(".codex")) {
+        vscode.workspace.onDidCloseTextDocument(async (doc: any) => {
+            if (doc.metadata?.type === "scripture" || doc.fileName.endsWith(".codex")) {
                 await debouncedIndexDocument(doc);
             }
         }),
-        vscode.workspace.onDidChangeTextDocument(async (event) => {
+        vscode.workspace.onDidChangeTextDocument(async (event: any) => {
             const doc = event.document;
-            if (doc.languageId === "scripture" || doc.fileName.endsWith(".codex")) {
+            if (doc.metadata?.type === "scripture" || doc.fileName.endsWith(".codex")) {
                 await debouncedIndexDocument(doc);
             }
         })

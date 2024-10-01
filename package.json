@@ -673,6 +673,10 @@
                 "title": "Open Source Upload"
             },
             {
+                "command": "codex-video-player.openVideoPlayer",
+                "title": "Open Video Player"
+            },
+            {
                 "command": "translation-navigation.openSourceFile",
                 "title": "Open Source File",
                 "icon": "$(open-preview)"

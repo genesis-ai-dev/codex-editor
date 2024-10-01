@@ -243,8 +243,17 @@ type CustomNotebookCellData = vscode.NotebookCellData & {
         }[];
     };
 };
+type CustomNotebookDocument = vscode.NotebookDocument & {
+    metadata: vscode.NotebookCellData["metadata"] & {
+        edits?: {
+            cellValue: string;
+            timestamp: number;
+            type: import("./enums").EditType;
+        }[];
+    };
+};
 
-type CodexNotebookAsJSONData = vscode.NotebookDocument & {
+type CodexNotebookAsJSONData = vscode.NotebookCellData & {
     metadata: vscode.NotebookData["metadata"] & {
         [key: string]: any;
         textDirection?: "ltr" | "rtl";

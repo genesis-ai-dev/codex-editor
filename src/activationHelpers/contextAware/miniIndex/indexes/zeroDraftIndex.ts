@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { StatusBarHandler } from "../statusBarHandler";
 import { zeroDraftDocumentLoader } from "../../../../utils/zeroDraftUtils";
 import { verseRefRegex } from "../../../../utils/verseRefUtils";
+import { CustomNotebookDocument } from "../../../../../types";
 
 export interface ZeroDraftIndexRecord {
     id: string;
@@ -188,14 +189,15 @@ export async function insertDraftsIntoTargetNotebooks({
         console.log(`Found ${drafts.size} cells for book ${book}`);
 
         for (const notebookFile of notebookFiles) {
-            const notebook = await vscode.workspace.openNotebookDocument(notebookFile);
+            const notebook: CustomNotebookDocument =
+                await vscode.workspace.openNotebookDocument(notebookFile);
             const workspaceEdit = new vscode.WorkspaceEdit();
 
             for (let cellIndex = 0; cellIndex < notebook.cellCount; cellIndex++) {
                 const cell = notebook.cellAt(cellIndex);
                 if (
                     cell.kind === vscode.NotebookCellKind.Code &&
-                    cell.document.languageId === "scripture"
+                    cell.metadata?.type === "scripture"
                 ) {
                     const cellContent = cell.document.getText().trim();
                     const zeroDraft = drafts.get(cell.metadata?.id);

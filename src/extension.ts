@@ -19,11 +19,13 @@ import {
 import { createIndexWithContext } from "./activationHelpers/contextAware/miniIndex/indexes";
 import { registerSourceUploadCommands } from "./providers/SourceUpload/registerCommands";
 import { migrateSourceFiles } from "./utils/codexNotebookUtils";
-
+import { VideoEditorProvider } from "./providers/VideoEditor/VideoEditorProvider";
+import { registerVideoPlayerCommands } from "./providers/VideoPlayer/registerCommands";
 let client: LanguageClient | undefined;
 let clientCommandsDisposable: vscode.Disposable;
 
 export async function activate(context: vscode.ExtensionContext) {
+    registerVideoPlayerCommands(context);
     registerSourceUploadCommands(context);
 
     registerProjectManager(context);
