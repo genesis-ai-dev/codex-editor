@@ -1,5 +1,8 @@
 import * as vscode from "vscode";
-import { ZeroDraftIndexRecord } from "../activationHelpers/contextAware/miniIndex/indexes/zeroDraftIndex";
+import {
+    ZeroDraftIndexRecord,
+    CellWithMetadata,
+} from "../activationHelpers/contextAware/miniIndex/indexes/zeroDraftIndex";
 import { verseRefRegex } from "./verseRefUtils";
 
 export function zeroDraftDocumentLoader(document: vscode.TextDocument): ZeroDraftIndexRecord[] {
@@ -34,19 +37,19 @@ function loadTxtDocument(document: vscode.TextDocument): ZeroDraftIndexRecord[] 
         .map((line) => {
             const match = line.trim().match(verseRefRegex);
             if (match) {
-                const vref = match[0];
-                const content = line.trim().slice(vref.length).trim();
-                if (vref && content) {
-                    return { vref, content };
+                const cellId = match[0];
+                const content = line.trim().slice(cellId.length).trim();
+                if (cellId && content) {
+                    return { cellId, content };
                 }
             }
             return null;
         })
-        .filter((parts): parts is { vref: string; content: string } => parts !== null)
-        .map(({ vref, content }) => ({
-            id: vref,
-            vref,
-            verses: [
+        .filter((parts): parts is { cellId: string; content: string } => parts !== null)
+        .map(({ cellId, content }) => ({
+            id: cellId,
+            cellId,
+            cells: [
                 {
                     content,
                     source: document.uri.fsPath,
@@ -63,12 +66,12 @@ function loadJsonDocument(document: vscode.TextDocument): ZeroDraftIndexRecord[]
         const content = JSON.parse(document.getText());
         if (Array.isArray(content)) {
             return content.map((item) => {
-                const match = item.vref.match(verseRefRegex);
-                const vref = match ? match[0] : item.vref;
+                const match = item.cellId.match(verseRefRegex);
+                const cellId = match ? match[0] : item.cellId;
                 return {
-                    id: vref,
-                    vref,
-                    verses: [
+                    id: cellId,
+                    cellId,
+                    cells: [
                         {
                             content: item.content,
                             source: document.uri.fsPath,
@@ -95,12 +98,12 @@ function loadJsonlDocument(document: vscode.TextDocument): ZeroDraftIndexRecord[
         .map((line) => {
             try {
                 const item = JSON.parse(line);
-                const match = item.vref.match(verseRefRegex);
-                const vref = match ? match[0] : item.vref;
+                const match = item.cellId.match(verseRefRegex);
+                const cellId = match ? match[0] : item.cellId;
                 return {
-                    id: vref,
-                    vref,
-                    verses: [
+                    id: cellId,
+                    cellId,
+                    cells: [
                         {
                             content: item.content,
                             source: document.uri.fsPath,
@@ -127,13 +130,13 @@ function loadTsvDocument(document: vscode.TextDocument): ZeroDraftIndexRecord[] 
             const parts = line.trim().split("\t");
             if (parts.length >= 2) {
                 const match = parts[0].match(verseRefRegex);
-                const vref = match ? match[0] : parts[0];
+                const cellId = match ? match[0] : parts[0];
                 const content = parts[1];
                 const metadataFields = parts.slice(2);
                 return {
-                    id: vref,
-                    vref,
-                    verses: [
+                    id: cellId,
+                    cellId,
+                    cells: [
                         {
                             content,
                             source: document.uri.fsPath,
