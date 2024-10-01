@@ -246,12 +246,29 @@ export async function initializeProjectMetadata(details: ProjectDetails) {
     const projectFilePath = vscode.Uri.joinPath(WORKSPACE_FOLDER.uri, "metadata.json");
     const projectFileData = Buffer.from(JSON.stringify(newProject, null, 4), "utf8");
 
-    // FIXME: need to handle the case where the file does not exist
-    vscode.workspace.fs
-        .writeFile(projectFilePath, projectFileData)
-        .then(() =>
-            vscode.window.showInformationMessage(`Project created at ${projectFilePath.fsPath}`)
+    try {
+        await vscode.workspace.fs.stat(projectFilePath);
+        // File exists, ask for confirmation to overwrite
+        const overwrite = await vscode.window.showWarningMessage(
+            "Project file already exists. Do you want to overwrite it?",
+            "Yes",
+            "No"
         );
+        if (overwrite !== "Yes") {
+            vscode.window.showInformationMessage("Project creation cancelled.");
+            return;
+        }
+    } catch (error) {
+        // File doesn't exist, we can proceed with creation
+    }
+
+    try {
+        await vscode.workspace.fs.writeFile(projectFilePath, projectFileData);
+        vscode.window.showInformationMessage(`Project created at ${projectFilePath.fsPath}`);
+    } catch (error) {
+        vscode.window.showErrorMessage(`Failed to create project: ${error.message}`);
+    }
+
     return newProject;
 }
 
