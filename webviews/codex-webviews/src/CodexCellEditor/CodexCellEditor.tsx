@@ -13,6 +13,7 @@ import { VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
 
+// eslint-disable-next-line react-refresh/only-export-components
 export enum CELL_DISPLAY_MODES {
     INLINE = "inline",
     ONE_LINE_PER_CELL = "one-line-per-cell",

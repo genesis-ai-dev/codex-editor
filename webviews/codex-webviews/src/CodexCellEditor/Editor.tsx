@@ -86,26 +86,34 @@ export default function Editor(props: EditorProps) {
                 if (props.onChange) {
                     const cleanedContents = getCleanedHtml(content);
 
-                    const arrayOfParagraphs = cleanedContents
-                        ?.trim()
-                        ?.split("</p>")
-                        ?.map((p) => p.trim());
-                    const finalParagraphs = arrayOfParagraphs
-                        ?.filter((p) => !!p)
-                        ?.map((p) => (p.startsWith("<p>") ? `${p}</p>` : `<p>${p}</p>`));
+                    // New function to remove excessive empty paragraphs and line breaks
+                    const removeExcessiveEmptyTags = (html: string) => {
+                        return html
+                            .replace(/<p><br><\/p>/g, '<p></p>') // Replace <p><br></p> with <p></p>
+                            .replace(/<p><\/p>(\s*<p><\/p>)+/g, '<p></p>') // Remove consecutive empty paragraphs
+                            .replace(/^(\s*<p><\/p>)+/, '') // Remove leading empty paragraphs
+                            .replace(/(\s*<p><\/p>)+$/, ''); // Remove trailing empty paragraphs
+                    };
 
-                    const firstParagraph = finalParagraphs?.[0];
-                    const restOfParagraphs = finalParagraphs?.slice(1) || [];
-                    const firstParagraphWithoutP = firstParagraph?.trim()?.slice(3, -4);
+                    const trimmedContent = removeExcessiveEmptyTags(cleanedContents);
+
+                    const arrayOfParagraphs = trimmedContent
+                        .trim()
+                        .split("</p>")
+                        .map((p) => p.trim())
+                        .filter((p) => p !== "");
+
+                    const finalParagraphs = arrayOfParagraphs
+                        .map((p) => (p.startsWith("<p>") ? `${p}</p>` : `<p>${p}</p>`));
+
+                    const firstParagraph = finalParagraphs[0] || "";
+                    const restOfParagraphs = finalParagraphs.slice(1) || [];
+                    const firstParagraphWithoutP = firstParagraph.trim().slice(3, -4);
                     const contentIsEmpty = isQuillEmpty(quill);
 
-                    console.log("firstParagraphWithoutP", {
-                        firstParagraphWithoutP,
-                        contentIsEmpty,
-                    });
                     const finalContent = contentIsEmpty
                         ? ""
-                        : [`<span>${firstParagraphWithoutP}</span>`, ...restOfParagraphs].join(" ");
+                        : [`<span>${firstParagraphWithoutP}</span>`, ...restOfParagraphs].join("");
 
                     props.onChange({
                         html: contentIsEmpty ? "\n" : finalContent,
