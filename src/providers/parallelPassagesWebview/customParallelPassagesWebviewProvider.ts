@@ -1,5 +1,4 @@
 import * as vscode from "vscode";
-import { jumpToCellInNotebook } from "../../utils";
 import { TranslationPair } from "../../../types";
 
 async function simpleOpen(uri: string) {
@@ -13,6 +12,22 @@ async function simpleOpen(uri: string) {
         }
     } catch (error) {
         console.error(`Failed to open file: ${uri}`, error);
+    }
+}
+
+async function openFileAtLocation(uri: string, cellId: string) {
+    try {
+        const parsedUri = vscode.Uri.parse(uri);
+        if (parsedUri.toString().includes(".codex")) {
+            await vscode.commands.executeCommand("vscode.openWith", parsedUri, "codex.cellEditor");
+            // After opening the file, we need to navigate to the specific cell
+            // This might require an additional step or command
+            // For example:
+            // await vscode.commands.executeCommand("codex.navigateToCell", cellId);
+        }
+    } catch (error) {
+        console.error(`Failed to open file: ${uri}`, error);
+        vscode.window.showErrorMessage(`Failed to open file: ${uri}`);
     }
 }
 
@@ -93,7 +108,7 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
         // Changed the type to any to handle multiple message types
         switch (message.command) {
             case "openFileAtLocation":
-                simpleOpen(message.uri);
+                await openFileAtLocation(message.uri, message.word);
                 break;
             case "search":
                 if (message.database === "both") {
@@ -127,6 +142,15 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
     public resolveWebviewView(webviewView: vscode.WebviewView) {
         this._view = webviewView;
         loadWebviewHtml(webviewView, this._context.extensionUri);
+
+        webviewView.webview.onDidReceiveMessage(async (message: any) => {
+            switch (message.command) {
+                case "openFileAtLocation":
+                    await openFileAtLocation(message.uri, message.word);
+                    break;
+                // ... other cases ...
+            }
+        });
     }
 }
 

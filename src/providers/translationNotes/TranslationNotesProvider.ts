@@ -15,7 +15,7 @@ import { tsvStringToScriptureTSV } from "./utilities/tsvFileConversions";
 import { TranslationNotesPanel } from "./TranslationNotesPanel";
 import { initializeStateStore } from "../../stateStore";
 import { extractBookChapterVerse } from "../../utils/extractBookChapterVerse";
-import { VerseRefGlobalState, TranslationNotePostMessages } from "../../../types";
+import { CellIdGlobalState, TranslationNotePostMessages } from "../../../types";
 import { ScriptureTSV } from "../../../types/TsvTypes";
 
 type CommandToFunctionMap = Record<string, (text: string) => void>;
@@ -131,11 +131,11 @@ export class TranslationNotesProvider implements CustomTextEditorProvider {
             changeDocumentSubscription.dispose();
         });
         initializeStateStore().then(({ storeListener }) => {
-            const disposeFunction = storeListener("verseRef", (value) => {
+            const disposeFunction = storeListener("cellId", (value) => {
                 if (value) {
                     webviewPanel.webview.postMessage({
                         command: "changeRef",
-                        data: { verseRef: value.verseRef, uri: value.uri },
+                        data: { cellId: value.cellId },
                     } as TranslationNotePostMessages);
                 }
             });

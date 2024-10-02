@@ -5,7 +5,7 @@ import { getProjectOverview } from "./utils/projectUtils";
 import { initializeProjectMetadata } from "./utils/projectUtils";
 import { SourceUploadProvider } from "../providers/SourceUpload/SourceUploadProvider";
 
-async function simpleOpen(uri: string, context: vscode.ExtensionContext) {
+export async function simpleOpen(uri: string, context: vscode.ExtensionContext) {
     try {
         const parsedUri = vscode.Uri.parse(uri);
         if (parsedUri.toString().endsWith(".codex") || parsedUri.toString().endsWith(".source")) {

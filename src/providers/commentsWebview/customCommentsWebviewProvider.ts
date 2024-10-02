@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { CommentPostMessages, NotebookCommentThread, VerseRefGlobalState } from "../../../types";
+import { CommentPostMessages, NotebookCommentThread, CellIdGlobalState } from "../../../types";
 import { FileHandler, getCommentsFromFile, writeSerializedData } from "../../utils/fileUtils";
 import { initializeStateStore } from "../../stateStore";
 
@@ -108,11 +108,11 @@ export class CustomWebviewProvider {
 
     resolveWebviewView(webviewView: vscode.WebviewView) {
         initializeStateStore().then(({ storeListener }) => {
-            const disposeFunction = storeListener("verseRef", (value) => {
+            const disposeFunction = storeListener("cellId", (value) => {
                 if (value) {
                     webviewView.webview.postMessage({
                         command: "reload",
-                        data: { verseRef: value.verseRef, uri: value.uri },
+                        data: { cellId: value.cellId },
                     } as CommentPostMessages);
                 }
             });
@@ -144,7 +144,7 @@ export class CustomWebviewProvider {
         // TODO: find out if the above code was needed. Find out why comments are not loading sometime at first
         // Find out why new comments are not being created
         // create a system of share types so message posting is easier to deal with.
-        const findUriForVerseRef = async (verseRef: string): Promise<string | null> => {
+        const findUriForVerseRef = async (cellId: string): Promise<string | null> => {
             let uri: string = "";
             const workspaceFolders = vscode.workspace.workspaceFolders;
             const draftsFolderUri = workspaceFolders
@@ -157,13 +157,13 @@ export class CustomWebviewProvider {
                 for (const file of codexFiles) {
                     const document = await vscode.workspace.openTextDocument(file);
                     const text = document.getText();
-                    if (text.includes(verseRef)) {
+                    if (text.includes(cellId)) {
                         uri = file.toString();
                         initializeStateStore().then(({ updateStoreState }) => {
                             updateStoreState({
-                                key: "verseRef",
+                                key: "cellId",
                                 value: {
-                                    verseRef,
+                                    cellId,
                                     uri,
                                 },
                             });
@@ -285,13 +285,12 @@ export class CustomWebviewProvider {
                     }
                     case "getCurrentVerseRef": {
                         initializeStateStore().then(({ getStoreState }) => {
-                            getStoreState("verseRef").then((value) => {
+                            getStoreState("cellId").then((value) => {
                                 if (value) {
                                     webviewView.webview.postMessage({
                                         command: "reload",
                                         data: {
-                                            verseRef: value.verseRef,
-                                            uri: value.uri,
+                                            cellId: value.cellId,
                                         },
                                     } as CommentPostMessages);
                                 }

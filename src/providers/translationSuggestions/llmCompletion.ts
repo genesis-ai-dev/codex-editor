@@ -21,21 +21,13 @@ export async function llmCompletion(
     const currentCellIndex = await currentNotebookReader.getCellIndex({ id: currentCellId });
     const currentCellIds = await currentNotebookReader.getCellIds(currentCellIndex);
     const sourceCells = await Promise.all(
-        currentCellIds.map(async (id) => {
-            try {
-                const result = (await vscode.commands.executeCommand(
+        currentCellIds.map(
+            (id) =>
+                vscode.commands.executeCommand(
                     "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
                     id
-                )) as MinimalCellResult | null;
-                if (!result) {
-                    console.error(`No source cell found for cellId: ${id}`);
-                }
-                return result;
-            } catch (error) {
-                console.error(`Error fetching source cell for cellId ${id}:`, error);
-                return null;
-            }
-        })
+                ) as Promise<MinimalCellResult | null>
+        )
     );
     const sourceContent = sourceCells
         .filter(Boolean)

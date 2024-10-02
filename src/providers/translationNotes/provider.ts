@@ -42,12 +42,13 @@ export class TnProvider {
             }
         );
 
-        const verseRefStore = await this.stateStore?.getStoreState("verseRef");
+        const cellIdStore = await this.stateStore?.getStoreState("cellId");
 
-        const updateWebview = async (verseRef: string) => {
+        const updateWebview = async (cellId: string) => {
+            // FIXME: this component is only expecting vrefs, not all cell IDs, so we could filter
             panel.webview.postMessage({
                 command: "update",
-                data: await this.getDocumentAsScriptureTSV(verseRef),
+                data: await this.getDocumentAsScriptureTSV(cellId),
             } as TranslationNotePostMessages);
         };
 
@@ -55,7 +56,7 @@ export class TnProvider {
             const { command, text } = message;
 
             const commandToFunctionMapping: CommandToFunctionMap = {
-                ["loaded"]: () => updateWebview(verseRefStore?.verseRef ?? "GEN 1:1"),
+                ["loaded"]: () => updateWebview(cellIdStore?.cellId ?? "GEN 1:1"),
             };
 
             commandToFunctionMapping[command](text);
@@ -67,14 +68,13 @@ export class TnProvider {
             messageEventHandlers
         ).initializeWebviewContent();
 
-        const disposeFunction = this.stateStore.storeListener("verseRef", async (value) => {
+        const disposeFunction = this.stateStore.storeListener("cellId", async (value) => {
             if (value) {
-                await updateWebview(value.verseRef);
+                await updateWebview(value.cellId);
                 panel.webview.postMessage({
                     command: "changeRef",
                     data: {
-                        verseRef: value.verseRef,
-                        uri: value.uri,
+                        cellId: value.cellId,
                     },
                 } as TranslationNotePostMessages);
             }
@@ -93,8 +93,8 @@ export class TnProvider {
      *
      * @TODO Use this function to turn doc text into ScriptureTSV!
      */
-    private async getDocumentAsScriptureTSV(verseRef: string): Promise<ScriptureTSV> {
-        const { bookID } = extractBookChapterVerse(verseRef);
+    private async getDocumentAsScriptureTSV(cellId: string): Promise<ScriptureTSV> {
+        const { bookID } = extractBookChapterVerse(cellId);
 
         if (!workspace.workspaceFolders) {
             throw new Error("Could not get document. No workspace folders found");
