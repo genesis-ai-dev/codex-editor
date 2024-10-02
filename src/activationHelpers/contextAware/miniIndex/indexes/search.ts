@@ -1,7 +1,6 @@
 import MiniSearch from "minisearch";
 import * as vscode from "vscode";
-
-import { SourceCellVersions, TranslationPair } from "../../../../../types";
+import { SourceCellVersions, TranslationPair, Edit } from "../../../../../types";
 
 export function searchTargetCellsByQuery(
     translationPairsIndex: MiniSearch,
@@ -17,7 +16,11 @@ export function searchTargetCellsByQuery(
             fuzzy: fuzziness,
             boost: { targetContent: 2, cellId: 1 },
         })
-        .slice(0, k);
+        .slice(0, k)
+        .map(result => ({
+            ...result,
+            edits: result.edits || []
+        }));
 }
 
 export function getSourceCellByCellIdFromAllSourceCells(
@@ -32,7 +35,7 @@ export function getSourceCellByCellIdFromAllSourceCells(
         return {
             cellId: searchResults?.cellId as string,
             content: searchResults?.content as string,
-            versions: searchResults?.versions as string[],
+            versions: searchResults?.versions as string[]
         };
     }
     console.log(`No result found for cellId: ${cellId}`);
@@ -41,7 +44,8 @@ export function getSourceCellByCellIdFromAllSourceCells(
 
 export function getTargetCellByCellId(translationPairsIndex: MiniSearch, cellId: string) {
     const results = translationPairsIndex.search(cellId);
-    return results.find((result) => result.cellId === cellId);
+    const result = results.find((result) => result.cellId === cellId);
+    return result ? { ...result, edits: result.edits || [] } : null;
 }
 
 export function getTranslationPairFromProject(
@@ -69,6 +73,7 @@ export function getTranslationPairFromProject(
                 uri: result.uri,
                 line: result.line,
             },
+            edits: result.edits || [],
         };
     }
     return null;
@@ -123,6 +128,7 @@ export function getTranslationPairsFromSourceCellQuery(
             uri: result.uri,
             line: result.line,
         },
+        edits: result.edits || [],
     }));
 }
 
@@ -130,7 +136,6 @@ export function handleTextSelection(translationPairsIndex: MiniSearch, selectedT
     return searchTargetCellsByQuery(translationPairsIndex, selectedText);
 }
 
-// Add this new function
 export function searchParallelCells(
     translationPairsIndex: MiniSearch,
     sourceTextIndex: MiniSearch,
@@ -171,10 +176,25 @@ export function searchParallelCells(
                 uri: result.uri,
                 line: result.line,
             },
+            edits: result.edits || [],
         };
     });
 
     console.log("Processed translation pairs:", JSON.stringify(translationPairs, null, 2));
 
     return translationPairs;
+}
+
+export function getEditHistories(translationPairsIndex: MiniSearch, cellId: string): Edit[] {
+    const result = translationPairsIndex.search(cellId, {
+        fields: ["cellId"],
+        combineWith: "AND",
+        filter: (result) => result.cellId === cellId,
+    })[0];
+
+    if (result && result.edits) {
+        return result.edits;
+    }
+
+    return [];
 }

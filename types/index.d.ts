@@ -7,6 +7,11 @@ interface ChatMessage {
     content: string;
 }
 
+export interface Edit {
+    cellValue: string;
+    timestamp: number;
+    type: 'llm-generation' | 'user-edit';
+}
 interface ChatMessageWithContext extends ChatMessage {
     context?: any; // FixMe: discuss what context could be. Cound it be a link to a note?
     createdAt: string;
@@ -48,6 +53,13 @@ interface NotebookCommentThread {
     canReply: boolean;
     threadTitle?: string;
     deleted: boolean;
+}
+
+interface TranslationPair {
+    cellId: string;
+    sourceCell: MinimalCellResult;
+    targetCell: MinimalCellResult;
+    edits?: Edit[];  // Make this optional as it might not always be present
 }
 
 interface CellIdGlobalState {
@@ -195,6 +207,7 @@ type TranslationPair = {
     cellId: string;
     sourceCell: MinimalCellResult;
     targetCell: MinimalCellResult;
+    edits?: Edit[];  // Make this optional as it might not always be present
 };
 
 type SourceCellVersions = {
