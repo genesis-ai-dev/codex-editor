@@ -279,6 +279,12 @@ interface QuillCellContent {
     verseContent: string;
     cellType: import("./enums").CodexCellTypes;
     editHistory: Array<EditHistory>;
+    timestamps?: Timestamps;
+}
+
+interface Timestamps {
+    startTime: string;
+    endTime: string;
 }
 
 interface EditHistory {

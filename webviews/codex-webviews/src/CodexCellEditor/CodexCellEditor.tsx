@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import ReactPlayer from "react-player";
 import {
     QuillCellContent,
     EditorPostMessages,
@@ -32,7 +33,11 @@ const CodexCellEditor: React.FC = () => {
         CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
     );
     const [isSourceText, setIsSourceText] = useState<boolean>(false);
-
+    const [videoUrl, setVideoUrl] = useState<string>("files/videoplayback.mp4");
+    const playerRef = useRef<ReactPlayer>(null);
+    const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
+    // const [documentHasVideoAvailable, setDocumentHasVideoAvailable] = useState<boolean>(false);
+    console.log("FIXME: setVideoUrl needs a form", setVideoUrl);
     useVSCodeMessageHandler({
         setContent: (content: QuillCellContent[], isSourceText: boolean) => {
             setTranslationUnits(content);
@@ -123,6 +128,20 @@ const CodexCellEditor: React.FC = () => {
         } as EditorPostMessages);
     };
 
+    useEffect(() => {
+        console.log("RYDER", contentBeingUpdated);
+        // Jump to the start time of the cell being edited
+        if (playerRef.current && contentBeingUpdated.verseMarkers?.length > 0) {
+            const cell = translationUnits.find(
+                (unit) => unit.verseMarkers[0] === contentBeingUpdated.verseMarkers[0]
+            );
+            console.log("seekTo args", JSON.stringify(cell), "seconds");
+            if (cell?.timestamps?.startTime) {
+                playerRef.current.seekTo(parseFloat(cell.timestamps.startTime), "seconds");
+            }
+        }
+    }, [contentBeingUpdated, translationUnits]);
+
     // Dynamically set styles for .ql-editor
     const styleElement = document.createElement("style");
     styleElement.textContent = `
@@ -138,6 +157,15 @@ const CodexCellEditor: React.FC = () => {
         <div className="codex-cell-editor" style={{ direction: textDirection }}>
             <h1>{translationUnitsForSection[0]?.verseMarkers?.[0]?.split(":")[0]}</h1>
             <div className="editor-container">
+                {shouldShowVideoPlayer && (
+                    <ReactPlayer
+                        ref={playerRef}
+                        url={videoUrl}
+                        controls={true}
+                        width="100%"
+                        height="auto"
+                    />
+                )}
                 <ChapterNavigation
                     chapterNumber={chapterNumber}
                     setChapterNumber={setChapterNumber}
@@ -151,6 +179,10 @@ const CodexCellEditor: React.FC = () => {
                     isSourceText={isSourceText}
                     openSourceText={openSourceText}
                     totalCellsToAutocomplete={translationUnitsForSection.length}
+                    setShouldShowVideoPlayer={setShouldShowVideoPlayer}
+                    shouldShowVideoPlayer={shouldShowVideoPlayer}
+                    // documentHasVideoAvailable={documentHasVideoAvailable}
+                    documentHasVideoAvailable={true}
                 />
                 {autocompletionProgress !== null && (
                     <div className="autocompletion-progress">

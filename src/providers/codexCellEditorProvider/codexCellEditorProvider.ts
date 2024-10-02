@@ -344,6 +344,8 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
             )
         );
 
+        // FIXME: need to hard-code the local file videoUrl here and inject into the html
+
         const nonce = getNonce();
         console.log("textDirection", { textDirection });
         return /*html*/ `<!DOCTYPE html>
@@ -598,6 +600,7 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
             verseContent: cell.value,
             cellType: cell.metadata?.type,
             editHistory: cell.metadata?.edits,
+            timestamps: cell.metadata?.timestamps,
         }));
 
         const processedData = this.mergeRangesAndProcess(translationUnits);
@@ -611,6 +614,10 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
             verseContent: string;
             cellType: CodexCellTypes;
             editHistory: Array<any>;
+            timestamps: {
+                startTime: number;
+                endTime: number;
+            };
         }[]
     ) {
         const translationUnitsWithMergedRanges: {
@@ -618,6 +625,10 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
             verseContent: string;
             cellType: CodexCellTypes;
             editHistory: Array<any>;
+            timestamps: {
+                startTime: number;
+                endTime: number;
+            };
         }[] = [];
 
         translationUnits.forEach((verse, index) => {
@@ -641,6 +652,7 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                 verseContent: verse.verseContent,
                 cellType: verse.cellType,
                 editHistory: verse.editHistory,
+                timestamps: verse.timestamps,
             });
         });
 
