@@ -342,7 +342,13 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
         console.log("metadata", { metadata });
         // Get a list of URIs for the downloaded source and target Bibles in the project, if any
         const sourceTextsPath = vscode.Uri.joinPath(workspaceFolder.uri, ".project/sourceTexts");
-        const targetTextsPath = vscode.Uri.joinPath(workspaceFolder.uri, "files/target"); // FIXME: I'm not sure if this is the correct change?
+
+        const targetTextsPath = vscode.Uri.joinPath(workspaceFolder.uri, ".project/targetTexts");
+        try {
+            await vscode.workspace.fs.stat(targetTextsPath);
+        } catch {
+            await vscode.workspace.fs.createDirectory(targetTextsPath);
+        }
 
         const sourceTexts: vscode.Uri[] = [];
         const targetTexts: vscode.Uri[] = [];
