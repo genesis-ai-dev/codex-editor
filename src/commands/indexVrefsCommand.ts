@@ -56,7 +56,9 @@ export async function indexVerseRefsInSourceText() {
                     });
                     await miniSearch.addAllAsync(linesToIndex);
                 } catch (error) {
-                    console.error(`Error processing file ${file.fsPath}: ${error}`);
+                    console.error(
+                        `Error processing file in indexVrefsCommand ${file.fsPath}: ${error}`
+                    );
                 }
             })
         );

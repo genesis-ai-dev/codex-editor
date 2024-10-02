@@ -72,6 +72,7 @@ export interface NotebookMetadata {
     };
     sourceFile: string;
     navigation: NavigationCell[];
+    perf?: any;
 }
 
 export interface NavigationCell {
@@ -147,6 +148,11 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
 
             const navigationCells: NavigationCell[] = [];
 
+            if (notebookData.cells[0].metadata.perf) {
+                // add the performance data to the top of the notebook in the notebook metadata
+                notebookData.metadata.perf = notebookData.cells[0].metadata.perf;
+            }
+
             for (const cell of notebookData.cells) {
                 if (cell.kind === vscode.NotebookCellKind.Markup) {
                     if (cell.metadata?.type === "chapter-heading") {
@@ -219,12 +225,17 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
             console.log({ newCells });
             const updatedNotebookData = new vscode.NotebookData(newCells);
 
-            const notebookMetadata = {
+            const notebookMetadata: NotebookMetadata = {
+                sourceFile: book,
                 data: {
                     corpusMarker: corpusMarker,
                 },
                 navigation: navigationCells,
             };
+
+            if (notebookData?.metadata?.perf) {
+                notebookMetadata.perf = notebookData.metadata.perf;
+            }
 
             updatedNotebookData.metadata = notebookMetadata;
             const notebookCreationPromise = serializer
@@ -400,7 +411,10 @@ export async function importLocalUsfmSourceBible() {
 
                 console.log(`Created .source file for ${bookCode}`);
             } catch (error) {
-                console.error(`Error processing file ${fileName}:`, error);
+                console.error(
+                    `Error processing file in importLocalUsfmSourceBible ${fileName}:`,
+                    error
+                );
                 vscode.window.showErrorMessage(
                     `Error processing file ${fileName}: ${
                         error instanceof Error ? error.message : String(error)

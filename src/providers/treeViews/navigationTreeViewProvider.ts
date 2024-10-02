@@ -99,7 +99,10 @@ export class CodexNotebookTreeViewProvider
                         corpusMarker: metadata?.data?.corpusMarker,
                     });
                 } catch (error) {
-                    console.error(`Error processing file ${file}:`, error);
+                    console.error(
+                        `Error processing file in initializeNotebookMetadata ${file}:`,
+                        error
+                    );
                 }
             }
         }
@@ -139,6 +142,7 @@ export class CodexNotebookTreeViewProvider
     private async updateNotebookMetadata(uri: vscode.Uri): Promise<void> {
         try {
             const notebookContent = await vscode.workspace.fs.readFile(uri);
+            console.log("notebookContent", { notebookContent, uri });
             const notebookJson = JSON.parse(notebookContent.toString());
             const metadata = notebookJson?.metadata as NotebookMetadata;
 
@@ -161,7 +165,7 @@ export class CodexNotebookTreeViewProvider
                 sourceFile: sourceFile,
             });
         } catch (error) {
-            console.error(`Error processing file ${uri.fsPath}:`, error);
+            console.error(`Error processing file in updateNotebookMetadata ${uri.fsPath}:`, error);
         }
     }
 
