@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import { NotebookMetadata, NavigationCell } from "../../utils/codexNotebookUtils";
 import { vrefData } from "../../utils/verseRefUtils/verseData";
 import * as path from "path";
-import { debounce } from "lodash";
+import { debounce, isEqual } from "lodash";
 
 export class Node extends vscode.TreeItem {
     public children?: Node[];
@@ -152,7 +152,15 @@ export class CodexNotebookTreeViewProvider
         console.log("File changed:", fsPath);
         this.pendingChanges.set(fsPath, now);
 
-        this.debouncedRefresh();
+        // Clear any existing timeout
+        if (this.debounceTimer) {
+            clearTimeout(this.debounceTimer);
+        }
+
+        // Set a new timeout
+        this.debounceTimer = setTimeout(() => {
+            this.debouncedRefresh();
+        }, 2000); // Wait for 2 seconds of inactivity before refreshing
     }
 
     private async fileExists(uri: vscode.Uri): Promise<boolean> {
@@ -167,31 +175,25 @@ export class CodexNotebookTreeViewProvider
     private async updateNotebookMetadata(uri: vscode.Uri): Promise<void> {
         try {
             const notebookContent = await vscode.workspace.fs.readFile(uri);
-            console.log("Updating notebook metadata:", uri.fsPath);
+            console.log("Reading notebook metadata:", uri.fsPath);
             const notebookJson = JSON.parse(notebookContent.toString());
             const metadata = notebookJson?.metadata as NotebookMetadata;
 
             const sourceFile =
                 metadata?.sourceFile || (await this.findCorrespondingSourceFile(uri));
 
-            // Update the notebook's metadata with the found source file
-            if (sourceFile) {
-                metadata.sourceFile = sourceFile;
-                notebookJson.metadata = metadata;
-                await vscode.workspace.fs.writeFile(
-                    uri,
-                    Buffer.from(JSON.stringify(notebookJson, null, 2))
-                );
-            }
-
             // Extract headings from notebook content
             const headings = this.extractHeadingsFromNotebook(notebookJson);
 
-            this.notebookMetadata.set(uri.fsPath, {
+            const newMetadata = {
                 headings: headings,
                 corpusMarker: metadata?.data?.corpusMarker,
                 sourceFile: sourceFile,
-            });
+            };
+
+            // Update the in-memory metadata
+            this.notebookMetadata.set(uri.fsPath, newMetadata);
+            console.log("Updated in-memory metadata:", uri.fsPath);
         } catch (error) {
             console.error(`Error processing file in updateNotebookMetadata ${uri.fsPath}:`, error);
         }
