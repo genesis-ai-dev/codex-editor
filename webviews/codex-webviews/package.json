@@ -59,7 +59,8 @@
         "remark": "^15.0.1",
         "remark-html": "^16.0.1",
         "remark-stringify": "^11.0.0",
-        "uuid": "^9.0.1"
+        "uuid": "^9.0.1",
+        "webvtt-parser": "^2.2.0"
     },
     "devDependencies": {
         "@babel/plugin-transform-private-property-in-object": "^7.16.7",
