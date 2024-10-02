@@ -4,11 +4,12 @@ import { verseRefRegex } from "../../../../utils/verseRefUtils";
 import { StatusBarHandler } from "../statusBarHandler";
 import { getWorkSpaceUri } from "../../../../utils";
 import { FileData } from "./fileReaders";
-import { debounce } from "lodash"; // Make sure to import lodash
+import { debounce } from "lodash";
+import { TranslationPair, Edit } from "../../../../../types";
 
 export interface minisearchDoc {
     id: string;
-    cellId: string; // Changed from vref
+    cellId: string;
     document: string;
     section: string;
     cell: string;
@@ -16,17 +17,11 @@ export interface minisearchDoc {
     targetContent: string;
     uri: string;
     line: number;
-}
-
-interface TranslationPair {
-    sourceText: string;
-    targetText: string;
-    sourceUri: string;
-    targetUri: string;
+    edits: Edit[];
 }
 
 interface TranslationPairsIndex {
-    [cellId: string]: TranslationPair[]; // Changed from vref
+    [cellId: string]: TranslationPair[];
 }
 
 export async function createTranslationPairsIndex(
@@ -45,25 +40,23 @@ export async function createTranslationPairsIndex(
         return;
     }
 
-    // Index all documents using the files passed in
     const index = await indexAllDocuments(sourceFiles, targetFiles);
 
-    // Clear existing index
     translationPairsIndex.removeAll();
 
-    // Add new documents to the index
     for (const [cellId, pairs] of Object.entries(index)) {
         for (const pair of pairs) {
             const doc: minisearchDoc = {
-                id: `${pair.sourceUri}:${cellId}`,
-                cellId, // Changed from vref
+                id: `${pair.sourceCell.uri}:${cellId}`,
+                cellId,
                 document: cellId.split(" ")[0],
                 section: cellId.split(" ")[1].split(":")[0],
                 cell: cellId.split(":")[1],
-                sourceContent: pair.sourceText,
-                targetContent: pair.targetText,
-                uri: pair.sourceUri,
-                line: -1, // We don't have line numbers in this context
+                sourceContent: pair.sourceCell.content || "",
+                targetContent: pair.targetCell.content || "",
+                uri: pair.sourceCell.uri || "",
+                line: pair.sourceCell.line || -1,
+                edits: pair.edits || []
             };
             translationPairsIndex.add(doc);
         }
@@ -81,9 +74,8 @@ export async function createTranslationPairsIndex(
         targetFiles: FileData[]
     ): Promise<TranslationPairsIndex> {
         const index: TranslationPairsIndex = {};
-        const targetCellsMap = new Map<string, { text: string; uri: string }>();
+        const targetCellsMap = new Map<string, { content: string; uri: string; edits: Edit[] }>();
 
-        // First, index all target cells
         for (const targetFile of targetFiles) {
             for (const cell of targetFile.cells) {
                 if (
@@ -92,14 +84,14 @@ export async function createTranslationPairsIndex(
                     cell.value.trim() !== ""
                 ) {
                     targetCellsMap.set(cell.metadata.id, {
-                        text: cell.value,
+                        content: cell.value,
                         uri: targetFile.uri.toString(),
+                        edits: cell.metadata.edits || [] // Ensure edits are included here
                     });
                 }
             }
         }
 
-        // Now, index source cells only if they have a corresponding target cell
         for (const sourceFile of sourceFiles) {
             for (const sourceCell of sourceFile.cells) {
                 if (
@@ -115,10 +107,20 @@ export async function createTranslationPairsIndex(
                             index[cellId] = [];
                         }
                         index[cellId].push({
-                            sourceText: sourceCell.value,
-                            targetText: targetCell.text,
-                            sourceUri: sourceFile.uri.toString(),
-                            targetUri: targetCell.uri,
+                            cellId,
+                            sourceCell: {
+                                cellId,
+                                content: sourceCell.value,
+                                uri: sourceFile.uri.toString(),
+                                line: -1
+                            },
+                            targetCell: {
+                                cellId,
+                                content: targetCell.content,
+                                uri: targetCell.uri,
+                                line: -1
+                            },
+                            edits: targetCell.edits
                         });
                     }
                 }
@@ -130,7 +132,7 @@ export async function createTranslationPairsIndex(
 
     async function indexDocument(
         document: vscode.TextDocument,
-        targetVerseMap: Map<string, string>,
+        targetVerseMap: Map<string, { content: string; edits: Edit[] }>,
         translationPairsIndex: MiniSearch<minisearchDoc>
     ): Promise<number> {
         const uri = document.uri.toString();
@@ -195,7 +197,7 @@ export async function createTranslationPairsIndex(
             }
         }
 
-        processBatch(); // Process any remaining documents in the batch
+        processBatch();
         return indexedCount;
     }
 
@@ -203,17 +205,16 @@ export async function createTranslationPairsIndex(
         line: string,
         lineIndex: number,
         uri: string,
-        targetVerseMap: Map<string, string>
+        targetVerseMap: Map<string, { content: string; edits: Edit[] }>
     ): minisearchDoc | null {
         const match = line.match(verseRefRegex);
         if (match) {
             const [cellId] = match;
-            // Only index if there's a corresponding target verse
             if (targetVerseMap.has(cellId)) {
                 const [document, sectionCell] = cellId.split(" ");
                 const [section, cell] = sectionCell.split(":");
                 const sourceContent = line.substring(match.index! + match[0].length).trim();
-                const targetContent = targetVerseMap.get(cellId)!;
+                const targetData = targetVerseMap.get(cellId)!;
                 const id = `${uri}:${lineIndex}:${cellId}`;
                 return {
                     id,
@@ -222,22 +223,21 @@ export async function createTranslationPairsIndex(
                     section,
                     cell,
                     sourceContent,
-                    targetContent,
+                    targetContent: targetData.content,
                     uri,
                     line: lineIndex,
+                    edits: targetData.edits // Ensure edits are included here
                 };
             }
         }
         return null;
     }
 
-    // Debounced function for indexing
     const debouncedIndexDocument = debounce(async (doc: vscode.TextDocument) => {
-        const targetVerseMap = new Map<string, string>();
+        const targetVerseMap = new Map<string, { content: string; edits: Edit[] }>();
         await indexDocument(doc, targetVerseMap, translationPairsIndex);
-    }, 3000); // 500ms debounce time, adjust as needed
+    }, 3000);
 
-    // Subscriptions
     context.subscriptions.push(
         vscode.workspace.onDidOpenTextDocument(async (doc: any) => {
             if (doc.metadata?.type === "scripture" || doc.fileName.endsWith(".codex")) {
