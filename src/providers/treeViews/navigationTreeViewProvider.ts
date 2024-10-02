@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { NotebookMetadata, NavigationCell } from "../../utils/codexNotebookUtils";
 import { vrefData } from "../../utils/verseRefUtils/verseData";
 import * as path from "path";
+import { debounce } from "lodash";
 
 export class Node extends vscode.TreeItem {
     public children?: Node[];
@@ -42,13 +43,27 @@ export class CodexNotebookTreeViewProvider
 
     private notebookMetadata: Map<
         string,
-        { navigation: NavigationCell[]; corpusMarker?: string; sourceFile?: string }
+        { headings: Heading[]; corpusMarker?: string; sourceFile?: string }
     > = new Map();
 
     private fileWatcher: vscode.FileSystemWatcher | undefined;
 
     private debounceTimer: NodeJS.Timeout | null = null;
-    private pendingChanges: Set<string> = new Set();
+    private pendingChanges: Map<string, number> = new Map();
+    private lastRefreshTime: number = 0;
+    private refreshDebounceTime: number = 1000; // 5 seconds
+
+    private debouncedRefresh = debounce(() => {
+        const now = Date.now();
+        if (now - this.lastRefreshTime < this.refreshDebounceTime) {
+            console.log("Skipping refresh due to debounce");
+            return;
+        }
+        this.lastRefreshTime = now;
+        this.refresh();
+    }, 1000);
+
+    private fileWatcherSuspended: boolean = false;
 
     constructor(private workspaceRoot: string | undefined) {
         this.initializeNotebookMetadata();
@@ -61,10 +76,20 @@ export class CodexNotebookTreeViewProvider
 
             this.fileWatcher = vscode.workspace.createFileSystemWatcher(pattern);
 
-            // this.fileWatcher.onDidCreate((uri) => this.onFileChanged(uri));
-            // this.fileWatcher.onDidChange((uri) => this.onFileChanged(uri));
-            // this.fileWatcher.onDidDelete((uri) => this.onFileChanged(uri));
+            this.fileWatcher.onDidCreate((uri) => this.onFileChanged(uri));
+            this.fileWatcher.onDidChange((uri) => this.onFileChanged(uri));
+            this.fileWatcher.onDidDelete((uri) => this.onFileChanged(uri));
+
+            console.log("File watcher initialized");
         }
+
+        vscode.commands.registerCommand("translation-navigation.suspendFileWatcher", () => {
+            this.suspendFileWatcher();
+        });
+
+        vscode.commands.registerCommand("translation-navigation.resumeFileWatcher", () => {
+            this.resumeFileWatcher();
+        });
     }
 
     private async initializeNotebookMetadata(): Promise<void> {
@@ -95,7 +120,7 @@ export class CodexNotebookTreeViewProvider
                     const metadata = notebookJson?.metadata as NotebookMetadata;
 
                     this.notebookMetadata.set(notebookUri.fsPath, {
-                        navigation: metadata?.navigation || [],
+                        headings: this.extractHeadingsFromNotebook(notebookJson),
                         corpusMarker: metadata?.data?.corpusMarker,
                     });
                 } catch (error) {
@@ -109,25 +134,25 @@ export class CodexNotebookTreeViewProvider
     }
 
     private onFileChanged(uri: vscode.Uri): void {
-        const fsPath = uri.fsPath;
-        this.pendingChanges.add(fsPath);
-
-        if (this.debounceTimer) {
-            clearTimeout(this.debounceTimer);
+        if (this.fileWatcherSuspended) {
+            console.log("File watcher suspended, ignoring change:", uri.fsPath);
+            return;
         }
 
-        this.debounceTimer = setTimeout(async () => {
-            for (const path of this.pendingChanges) {
-                const uri = vscode.Uri.file(path);
-                if (await this.fileExists(uri)) {
-                    await this.updateNotebookMetadata(uri);
-                } else {
-                    this.notebookMetadata.delete(path);
-                }
-            }
-            this.pendingChanges.clear();
-            this.refresh();
-        }, 300); // 300ms debounce time
+        const fsPath = uri.fsPath;
+        const now = Date.now();
+        const lastChangeTime = this.pendingChanges.get(fsPath) || 0;
+
+        if (now - lastChangeTime < 1000) {
+            // Ignore changes within 1 second
+            console.log("Ignoring rapid change:", fsPath);
+            return;
+        }
+
+        console.log("File changed:", fsPath);
+        this.pendingChanges.set(fsPath, now);
+
+        this.debouncedRefresh();
     }
 
     private async fileExists(uri: vscode.Uri): Promise<boolean> {
@@ -142,7 +167,7 @@ export class CodexNotebookTreeViewProvider
     private async updateNotebookMetadata(uri: vscode.Uri): Promise<void> {
         try {
             const notebookContent = await vscode.workspace.fs.readFile(uri);
-            console.log("notebookContent", { notebookContent, uri });
+            console.log("Updating notebook metadata:", uri.fsPath);
             const notebookJson = JSON.parse(notebookContent.toString());
             const metadata = notebookJson?.metadata as NotebookMetadata;
 
@@ -159,14 +184,46 @@ export class CodexNotebookTreeViewProvider
                 );
             }
 
+            // Extract headings from notebook content
+            const headings = this.extractHeadingsFromNotebook(notebookJson);
+
             this.notebookMetadata.set(uri.fsPath, {
-                navigation: metadata?.navigation || [],
+                headings: headings,
                 corpusMarker: metadata?.data?.corpusMarker,
                 sourceFile: sourceFile,
             });
         } catch (error) {
             console.error(`Error processing file in updateNotebookMetadata ${uri.fsPath}:`, error);
         }
+    }
+
+    private extractHeadingsFromNotebook(notebookJson: any): Heading[] {
+        const headings: Heading[] = [];
+
+        for (const cell of notebookJson.cells) {
+            let content = "";
+
+            if (cell.kind === vscode.NotebookCellKind.Markup) {
+                content = cell.value;
+            } else if (cell.kind === vscode.NotebookCellKind.Code) {
+                content = cell.value;
+            }
+
+            const regex = /<h([1-6])>(.*?)<\/h\1>/g;
+            let match;
+            while ((match = regex.exec(content)) !== null) {
+                const level = parseInt(match[1]);
+                const text = match[2];
+
+                headings.push({
+                    level: level,
+                    text: text,
+                    cellId: cell.metadata?.id,
+                });
+            }
+        }
+
+        return headings;
     }
 
     private async findCorrespondingSourceFile(codexUri: vscode.Uri): Promise<string | undefined> {
@@ -195,7 +252,7 @@ export class CodexNotebookTreeViewProvider
                 ([name, type]) =>
                     type === vscode.FileType.File &&
                     name.endsWith(".source") &&
-                    name.slice(0, -7) === codexFileName
+                    name.split("/").pop() === codexFileName
             );
 
             return matchingSourceFile ? matchingSourceFile[0] : undefined;
@@ -206,7 +263,30 @@ export class CodexNotebookTreeViewProvider
     }
 
     refresh(): void {
-        this._onDidChangeTreeData.fire();
+        console.log("Refreshing tree view");
+        this.processPendingChanges().then(() => {
+            console.log("Tree view refresh completed");
+            this._onDidChangeTreeData.fire();
+        });
+    }
+
+    private async processPendingChanges(): Promise<void> {
+        console.log("Processing pending changes");
+        const now = Date.now();
+        for (const [path, timestamp] of this.pendingChanges.entries()) {
+            if (now - timestamp > 1000) {
+                // Only process changes older than 1 second
+                const uri = vscode.Uri.file(path);
+                if (await this.fileExists(uri)) {
+                    console.log("Updating metadata for:", path);
+                    await this.updateNotebookMetadata(uri);
+                } else {
+                    console.log("Deleting metadata for:", path);
+                    this.notebookMetadata.delete(path);
+                }
+                this.pendingChanges.delete(path);
+            }
+        }
     }
 
     getTreeItem(element: Node): vscode.TreeItem {
@@ -257,12 +337,11 @@ export class CodexNotebookTreeViewProvider
                     `${fileNameWithoutExtension}.source`
                 );
 
-                // Create the child nodes from navigation data
-                if (metadata.navigation) {
-                    notebookNode.children = this.createNodesFromNavigation(
-                        metadata.navigation,
+                if (metadata.headings) {
+                    notebookNode.children = this.createNodesFromHeadings(
+                        metadata.headings,
                         notebookUri,
-                        `${fileNameWithoutExtension}.source`
+                        metadata.sourceFile
                     );
                 }
 
@@ -309,33 +388,34 @@ export class CodexNotebookTreeViewProvider
         }
     }
 
-    private createNodesFromNavigation(
-        navigationCells: NavigationCell[],
+    private createNodesFromHeadings(
+        headings: Heading[],
         notebookUri: vscode.Uri,
         sourceFile?: string
     ): Node[] {
-        return navigationCells.map((navCell) => {
+        const nodes: Node[] = [];
+
+        headings.forEach((heading) => {
             const node = new Node(
-                navCell.label,
-                navCell.children.length > 0 ? "section" : "cell",
-                navCell.children.length > 0
-                    ? vscode.TreeItemCollapsibleState.Collapsed
-                    : vscode.TreeItemCollapsibleState.None,
+                heading.text,
+                "section",
+                vscode.TreeItemCollapsibleState.None,
                 notebookUri,
-                navCell.cellId,
+                heading.cellId,
                 sourceFile
             );
-
-            if (navCell.children.length > 0) {
-                node.children = this.createNodesFromNavigation(
-                    navCell.children,
-                    notebookUri,
-                    sourceFile
-                );
-            }
-
-            return node;
+            nodes.push(node);
         });
+
+        return nodes;
+    }
+
+    public suspendFileWatcher(): void {
+        this.fileWatcherSuspended = true;
+    }
+
+    public resumeFileWatcher(): void {
+        this.fileWatcherSuspended = false;
     }
 
     public dispose(): void {
@@ -344,3 +424,10 @@ export class CodexNotebookTreeViewProvider
         }
     }
 }
+
+// Define the 'Heading' type.
+type Heading = {
+    level: number;
+    text: string;
+    cellId: string;
+};
