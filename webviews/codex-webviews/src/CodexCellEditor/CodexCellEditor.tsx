@@ -33,7 +33,7 @@ const CodexCellEditor: React.FC = () => {
         CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
     );
     const [isSourceText, setIsSourceText] = useState<boolean>(false);
-    const [videoUrl, setVideoUrl] = useState<string>("files/videoplayback.mp4");
+    const [videoUrl, setVideoUrl] = useState<string>((window as any).initialData?.videoUrl || "");
     const playerRef = useRef<ReactPlayer>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     // const [documentHasVideoAvailable, setDocumentHasVideoAvailable] = useState<boolean>(false);
@@ -69,8 +69,8 @@ const CodexCellEditor: React.FC = () => {
 
     useEffect(() => {
         vscode.postMessage({ command: "getContent" } as EditorPostMessages);
-        // Set initial isSourceText value from window.initialData
         setIsSourceText((window as any).initialData?.isSourceText || false);
+        setVideoUrl((window as any).initialData?.videoUrl || "");
     }, []);
 
     useEffect(() => {
@@ -128,19 +128,29 @@ const CodexCellEditor: React.FC = () => {
         } as EditorPostMessages);
     };
 
+    const OFFSET_SECONDS = 147; // just for testing purposes
+
     useEffect(() => {
         console.log("RYDER", contentBeingUpdated);
         // Jump to the start time of the cell being edited
         if (playerRef.current && contentBeingUpdated.verseMarkers?.length > 0) {
-            const cell = translationUnits.find(
-                (unit) => unit.verseMarkers[0] === contentBeingUpdated.verseMarkers[0]
-            );
-            console.log("seekTo args", JSON.stringify(cell), "seconds");
-            if (cell?.timestamps?.startTime) {
-                playerRef.current.seekTo(parseFloat(cell.timestamps.startTime), "seconds");
+            const cellId = contentBeingUpdated.verseMarkers[0];
+            const startTime = parseTimestampFromCellId(cellId);
+            if (startTime !== null) {
+                console.log(`Seeking to ${startTime} + ${OFFSET_SECONDS} seconds`);
+                playerRef.current.seekTo(startTime + OFFSET_SECONDS, "seconds");
             }
         }
-    }, [contentBeingUpdated, translationUnits]);
+    }, [contentBeingUpdated]);
+
+    // Helper function to parse timestamp from cellId
+    const parseTimestampFromCellId = (cellId: string): number | null => {
+        const match = cellId.match(/cue-(\d+(?:\.\d+)?)-/);
+        if (match && match[1]) {
+            return parseFloat(match[1]);
+        }
+        return null;
+    };
 
     // Dynamically set styles for .ql-editor
     const styleElement = document.createElement("style");
@@ -150,7 +160,6 @@ const CodexCellEditor: React.FC = () => {
             text-align: ${textDirection === "rtl" ? "right" : "left"} !important;
         }
     `;
-    // FIXME: apply these styles outside of the quill editor to fix
     document.head.appendChild(styleElement);
 
     return (

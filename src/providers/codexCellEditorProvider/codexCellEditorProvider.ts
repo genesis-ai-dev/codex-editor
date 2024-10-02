@@ -64,6 +64,7 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
         const isSourceText = document.uri.fsPath.endsWith(".source");
         webviewPanel.webview.html = this.getHtmlForWebview(
             webviewPanel.webview,
+            document,
             textDirection,
             isSourceText
         );
@@ -73,6 +74,7 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
 
             const processedData = this.processNotebookData(notebookData);
 
+            console.log("hfiuhfiuhfiufh processedData about to go to webview", { processedData });
             this.postMessageToWebview(webviewPanel, {
                 type: "providerSendsInitialContent",
                 content: processedData,
@@ -315,6 +317,7 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
      */
     private getHtmlForWebview(
         webview: vscode.Webview,
+        document: vscode.TextDocument,
         textDirection: string,
         isSourceText: boolean
     ): string {
@@ -344,22 +347,23 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
             )
         );
 
-        // FIXME: need to hard-code the local file videoUrl here and inject into the html
+        // Get the video URI from the notebook metadata or use a default
+        const notebookData = this.getDocumentAsJson(document);
+        const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+        const videoPath = notebookData.metadata?.videoPath || "files/videoplaybacktrimmed.mp4";
+        const videoUri = workspaceUri
+            ? webview.asWebviewUri(vscode.Uri.joinPath(workspaceUri, videoPath))
+            : null;
 
         const nonce = getNonce();
-        console.log("textDirection", { textDirection });
-        return /*html*/ `<!DOCTYPE html>
+
+    return /*html*/ `
+            <!DOCTYPE html>
             <html lang="en">
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${
-                    webview.cspSource
-                } 'unsafe-inline'; script-src 'nonce-${nonce}'; worker-src ${
-                    webview.cspSource
-                }; connect-src https://languagetool.org/api/; img-src ${
-                    webview.cspSource
-                } https:; font-src ${webview.cspSource};">
+                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; worker-src ${webview.cspSource}; connect-src https://languagetool.org/api/; img-src ${webview.cspSource} https:; font-src ${webview.cspSource}; media-src ${webview.cspSource};">
                 <link href="${styleResetUri}" rel="stylesheet" nonce="${nonce}">
                 <link href="${styleVSCodeUri}" rel="stylesheet" nonce="${nonce}">
                 <link href="${codiconsUri}" rel="stylesheet" nonce="${nonce}" />
@@ -367,7 +371,8 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                 
                 <script nonce="${nonce}">
                     window.initialData = {
-                        isSourceText: ${isSourceText}
+                        isSourceText: ${isSourceText},
+                        videoUrl: "${videoUri}"
                     };
                 </script>
             </head>
@@ -600,7 +605,7 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
             verseContent: cell.value,
             cellType: cell.metadata?.type,
             editHistory: cell.metadata?.edits,
-            timestamps: cell.metadata?.timestamps,
+            timestamps: cell.metadata?.data?.timestamps,
         }));
 
         const processedData = this.mergeRangesAndProcess(translationUnits);

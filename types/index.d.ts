@@ -283,8 +283,8 @@ interface QuillCellContent {
 }
 
 interface Timestamps {
-    startTime: string;
-    endTime: string;
+    startTime: number;
+    endTime: number;
 }
 
 interface EditHistory {
