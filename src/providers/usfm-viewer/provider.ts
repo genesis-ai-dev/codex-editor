@@ -6,7 +6,7 @@ import { MessageType } from "../obs/CreateProject/types";
 import { initializeStateStore } from "../../stateStore";
 import { extractBookChapterVerse } from "../../utils/extractBookChapterVerse";
 import { getUSFMDocument } from "./getUSFM";
-import { VerseRefGlobalState } from "../../../types";
+import { CellIdGlobalState } from "../../../types";
 
 export class USFMViewerProvider {
     static instance: USFMViewerProvider;
@@ -77,7 +77,7 @@ export class USFMViewerProvider {
                     break;
             }
         });
-        const updateUSFMFromFile = async (verseRefStore: VerseRefGlobalState) => {
+        const updateUSFMFromFile = async (verseRefStore: { verseRef: string; uri: string }) => {
             const usfm = await getUSFMDocument(this.resource, verseRefStore?.verseRef ?? "GEN 1:1");
             console.log(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>usfm", usfm);
             panel.webview.postMessage({

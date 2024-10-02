@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { NOTEBOOK_TYPE } from "./utils/codexNotebookUtils";
 import { extractVerseRefFromLine } from "./utils/verseRefUtils";
 import { initializeStateStore } from "./stateStore";
+import { validateVrefAgainstORG } from "./utils/verseRefUtils/verseData";
 
 const SHOW_DISCUSS_COMMAND = true;
 
@@ -91,11 +92,26 @@ const registerReferences = (context: vscode.ExtensionContext) => {
         vscode.commands.registerCommand(
             `codex-editor-extension.${showReferencesCommandName}`,
             async (verseRef: string, uri: string) => {
-                initializeStateStore().then(({ updateStoreState }) => {
+                initializeStateStore().then(({ updateStoreState, getStoreState }) => {
+                    // Update cellId
                     updateStoreState({
-                        key: "verseRef",
-                        value: { verseRef, uri },
+                        key: "cellId",
+                        value: { cellId: verseRef, uri },
                     });
+
+                    // Check if cellId contains a valid verse reference
+                    if (validateVrefAgainstORG(verseRef)) {
+                        updateStoreState({
+                            key: "verseRef",
+                            value: { verseRef, uri },
+                        });
+                    } else {
+                        // If not valid, clear the verseRef
+                        updateStoreState({
+                            key: "verseRef",
+                            value: { verseRef: "", uri: "" },
+                        });
+                    }
                 });
                 await vscode.commands.executeCommand("translationNotes.openTnEditor", verseRef);
             }
@@ -106,18 +122,30 @@ const registerReferences = (context: vscode.ExtensionContext) => {
             `codex-editor-extension.discuss`,
             async (verseRef: string, uri: string) => {
                 initializeStateStore().then(({ updateStoreState }) => {
+                    // Update cellId
                     updateStoreState({
-                        key: "verseRef",
-                        value: { verseRef, uri },
+                        key: "cellId",
+                        value: { cellId: verseRef, uri },
                     });
+
+                    // Check if cellId contains a valid verse reference
+                    if (validateVrefAgainstORG(verseRef)) {
+                        updateStoreState({
+                            key: "verseRef",
+                            value: { verseRef, uri },
+                        });
+                    } else {
+                        // If not valid, clear the verseRef
+                        updateStoreState({
+                            key: "verseRef",
+                            value: { verseRef: "", uri: "" },
+                        });
+                    }
                 });
 
                 vscode.commands.executeCommand(
                     "workbench.view.extension.genesis-translator-sidebar-view"
                 );
-                // vscode.window.showInformationMessage(
-                //     `Discussing ${verseRef}...`,
-                // );
             }
         )
     );

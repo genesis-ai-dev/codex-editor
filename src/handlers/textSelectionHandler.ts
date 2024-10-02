@@ -3,6 +3,7 @@ import { extractVerseRefFromLine } from "../utils/verseRefUtils";
 import { initializeStateStore } from "../stateStore";
 // import { PythonMessenger } from "../utils/pyglsMessenger";
 import { searchVerseRefPositionIndex } from "../commands/indexVrefsCommand";
+import { validateVrefAgainstORG } from "../utils/verseRefUtils/verseData";
 
 // const pyMessenger: PythonMessenger = new PythonMessenger();
 
@@ -46,13 +47,26 @@ export function registerTextSelectionHandler(
                                 verseGraphData: null,
                             },
                         });
+
+                        // Update cellId
                         updateStoreState({
-                            key: "verseRef",
+                            key: "cellId",
                             value: {
-                                verseRef: currentLineVref ?? "GEN 1:1",
+                                cellId: currentLineVref ?? "GEN 1:1",
                                 uri: activeEditor.document.uri.toString(),
                             },
                         });
+
+                        // Check if cellId contains a valid verse reference
+                        if (currentLineVref && validateVrefAgainstORG(currentLineVref)) {
+                            updateStoreState({
+                                key: "verseRef",
+                                value: {
+                                    verseRef: currentLineVref,
+                                    uri: activeEditor.document.uri.toString(),
+                                },
+                            });
+                        }
                     });
                     if (currentLineVref && searchVerseRefPositionIndex(currentLineVref)) {
                         const results = searchVerseRefPositionIndex(currentLineVref);

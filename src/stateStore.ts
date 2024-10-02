@@ -6,7 +6,9 @@ type StateStoreUpdate =
     | { key: "currentLineSelection"; value: SelectedTextDataWithContext }
     | { key: "plainTextNotes"; value: string }
     | { key: "obsRef"; value: OBSRef }
-    | { key: "apiKey"; value: string };
+    | { key: "apiKey"; value: string }
+    | { key: "verseRef"; value: { verseRef: string; uri: string } }
+    | { key: "cellId"; value: CellIdGlobalState };
 
 type StateStoreKey = StateStoreUpdate["key"];
 type StateStoreValue<K extends StateStoreKey> = Extract<StateStoreUpdate, { key: K }>["value"];

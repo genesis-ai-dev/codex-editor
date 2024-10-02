@@ -265,8 +265,10 @@ export async function initializeProjectMetadata(details: ProjectDetails) {
     try {
         await vscode.workspace.fs.writeFile(projectFilePath, projectFileData);
         vscode.window.showInformationMessage(`Project created at ${projectFilePath.fsPath}`);
-    } catch (error) {
-        vscode.window.showErrorMessage(`Failed to create project: ${error.message}`);
+    } catch (error: any) {
+        vscode.window.showErrorMessage(
+            `Failed to create project: ${error.message || JSON.stringify(error)}`
+        );
     }
 
     return newProject;
