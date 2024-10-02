@@ -61,9 +61,9 @@ export class CodexNotebookTreeViewProvider
 
             this.fileWatcher = vscode.workspace.createFileSystemWatcher(pattern);
 
-            this.fileWatcher.onDidCreate((uri) => this.onFileChanged(uri));
-            this.fileWatcher.onDidChange((uri) => this.onFileChanged(uri));
-            this.fileWatcher.onDidDelete((uri) => this.onFileChanged(uri));
+            // this.fileWatcher.onDidCreate((uri) => this.onFileChanged(uri));
+            // this.fileWatcher.onDidChange((uri) => this.onFileChanged(uri));
+            // this.fileWatcher.onDidDelete((uri) => this.onFileChanged(uri));
         }
     }
 
