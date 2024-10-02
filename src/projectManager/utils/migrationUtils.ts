@@ -34,7 +34,6 @@ export const migration_changeDraftFolderToFilesFolder = async () => {
         }
     }
 };
-
 export async function temporaryMigrationScript_checkMatthewNotebook() {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
@@ -45,7 +44,12 @@ export async function temporaryMigrationScript_checkMatthewNotebook() {
         workspaceFolders[0].uri,
         "/files/target/MAT.codex"
     );
+
     try {
+        // Check if MAT.codex exists
+        await vscode.workspace.fs.stat(matthewNotebookPath);
+
+        // If MAT.codex exists, proceed with migration
         const document = await vscode.workspace.openNotebookDocument(matthewNotebookPath);
         for (const cell of document.getCells()) {
             if (
@@ -78,6 +82,7 @@ export async function temporaryMigrationScript_checkMatthewNotebook() {
             }
         }
     } catch (error) {
-        console.error("Error checking Matthew notebook:", error);
+        // If MAT.codex doesn't exist, we silently ignore
+        console.log("MAT.codex not found. Skipping migration.");
     }
 }
