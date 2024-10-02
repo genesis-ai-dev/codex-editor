@@ -416,11 +416,20 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
                         // Check if MAT.codex exists
                         await vscode.workspace.fs.stat(matCodexUri);
                         // If it exists, open it
-                        await vscode.commands.executeCommand("vscode.openWith", matCodexUri, "codex.cellEditor");
+                        await vscode.commands.executeCommand(
+                            "vscode.openWith",
+                            matCodexUri,
+                            "codex.cellEditor"
+                        );
                     } catch (error) {
                         // If MAT.codex doesn't exist or there's an error, just show the project overview
-                        console.log("MAT.codex not found or error occurred, showing project overview instead:", error);
-                        await vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
+                        console.log(
+                            "MAT.codex not found or error occurred, showing project overview instead:",
+                            error
+                        );
+                        await vscode.commands.executeCommand(
+                            "codex-project-manager.showProjectOverview"
+                        );
                     }
                 } else {
                     // Open and focus the project manager panel

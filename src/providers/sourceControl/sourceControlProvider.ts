@@ -75,7 +75,10 @@ export class SourceControlProvider implements vscode.Disposable {
 
     private startInterval() {
         if (!this.scmInterval) {
-            this.scmInterval = setInterval(promptForLocalSync, 1000 * 60 * 15); // 15 minutes
+            this.scmInterval = setInterval(
+                promptForLocalSync,
+                1000 * 60 * 15
+            ) as unknown as NodeJS.Timeout; // 15 minutes
         }
     }
 

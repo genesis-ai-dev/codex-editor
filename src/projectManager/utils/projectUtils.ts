@@ -344,7 +344,6 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
         const sourceTextsPath = vscode.Uri.joinPath(workspaceFolder.uri, ".project/sourceTexts");
         const targetTextsPath = vscode.Uri.joinPath(workspaceFolder.uri, "files/target"); // FIXME: I'm not sure if this is the correct change?
 
-
         const sourceTexts: vscode.Uri[] = [];
         const targetTexts: vscode.Uri[] = [];
 

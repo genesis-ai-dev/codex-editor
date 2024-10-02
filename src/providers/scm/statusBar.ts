@@ -83,7 +83,7 @@ export const registerScmStatusBar = (ctx: vscode.ExtensionContext) => {
                     "codex-editor-extension.scm.commitAllWorkspaceChanges"
                 );
                 syncStatus();
-            }, intervalMs);
+            }, intervalMs) as unknown as NodeJS.Timeout;
         }
     };
 

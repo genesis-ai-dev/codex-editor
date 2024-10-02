@@ -17,9 +17,9 @@ export function searchTargetCellsByQuery(
             boost: { targetContent: 2, cellId: 1 },
         })
         .slice(0, k)
-        .map(result => ({
+        .map((result) => ({
             ...result,
-            edits: result.edits || []
+            edits: result.edits || [],
         }));
 }
 
@@ -35,7 +35,7 @@ export function getSourceCellByCellIdFromAllSourceCells(
         return {
             cellId: searchResults?.cellId as string,
             content: searchResults?.content as string,
-            versions: searchResults?.versions as string[]
+            versions: searchResults?.versions as string[],
         };
     }
     console.log(`No result found for cellId: ${cellId}`);

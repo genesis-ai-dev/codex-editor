@@ -160,7 +160,7 @@ export class CodexNotebookTreeViewProvider
         // Set a new timeout
         this.debounceTimer = setTimeout(() => {
             this.debouncedRefresh();
-        }, 2000); // Wait for 2 seconds of inactivity before refreshing
+        }, 2000) as unknown as NodeJS.Timeout; // Wait for 2 seconds of inactivity before refreshing
     }
 
     private async fileExists(uri: vscode.Uri): Promise<boolean> {

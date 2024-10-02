@@ -46,7 +46,10 @@ export class QuillSpellChecker {
      * @param quill Instance of the Qill editor.
      * @param params Options for the QuillSpellChecker instance.
      */
-    constructor(public quill: Quill, public params: QuillSpellCheckerParams) {
+    constructor(
+        public quill: Quill,
+        public params: QuillSpellCheckerParams
+    ) {
         debug("spell-checker-debug: QuillSpellChecker constructor", {
             quill,
             params,

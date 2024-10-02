@@ -89,10 +89,10 @@ export default function Editor(props: EditorProps) {
                     // New function to remove excessive empty paragraphs and line breaks
                     const removeExcessiveEmptyTags = (html: string) => {
                         return html
-                            .replace(/<p><br><\/p>/g, '<p></p>') // Replace <p><br></p> with <p></p>
-                            .replace(/<p><\/p>(\s*<p><\/p>)+/g, '<p></p>') // Remove consecutive empty paragraphs
-                            .replace(/^(\s*<p><\/p>)+/, '') // Remove leading empty paragraphs
-                            .replace(/(\s*<p><\/p>)+$/, ''); // Remove trailing empty paragraphs
+                            .replace(/<p><br><\/p>/g, "<p></p>") // Replace <p><br></p> with <p></p>
+                            .replace(/<p><\/p>(\s*<p><\/p>)+/g, "<p></p>") // Remove consecutive empty paragraphs
+                            .replace(/^(\s*<p><\/p>)+/, "") // Remove leading empty paragraphs
+                            .replace(/(\s*<p><\/p>)+$/, ""); // Remove trailing empty paragraphs
                     };
 
                     const trimmedContent = removeExcessiveEmptyTags(cleanedContents);
@@ -103,8 +103,9 @@ export default function Editor(props: EditorProps) {
                         .map((p) => p.trim())
                         .filter((p) => p !== "");
 
-                    const finalParagraphs = arrayOfParagraphs
-                        .map((p) => (p.startsWith("<p>") ? `${p}</p>` : `<p>${p}</p>`));
+                    const finalParagraphs = arrayOfParagraphs.map((p) =>
+                        p.startsWith("<p>") ? `${p}</p>` : `<p>${p}</p>`
+                    );
 
                     const firstParagraph = finalParagraphs[0] || "";
                     const restOfParagraphs = finalParagraphs.slice(1) || [];

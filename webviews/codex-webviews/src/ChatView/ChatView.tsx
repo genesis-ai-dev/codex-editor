@@ -55,7 +55,6 @@ function messageWithContext({
 }
 
 function App() {
-    
     const [pendingMessage, setPendingMessage] = useState<ChatMessageWithContext>();
     const [selectedTextContext, setSelectedTextContext] = useState<string>("");
     const [currentlyActiveVref, setCurrentlyActiveVref] = useState<string>("");

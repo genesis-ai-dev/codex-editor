@@ -289,7 +289,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             const results = await getTargetCellByCellId(translationPairsIndex, cellId);
             if (showInfo && results) {
                 vscode.window.showInformationMessage(
-                    `Target cell for ${cellId}: ${results.content}`
+                    `Target cell for ${cellId}: ${JSON.stringify(results)}`
                 );
             }
             return results;

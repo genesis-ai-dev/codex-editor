@@ -197,7 +197,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
 
         const content = dictionary.entries.map((entry) => JSON.stringify(entry)).join("\n");
 
-        await vscode.workspace.fs.writeFile(dictionaryUri, Buffer.from(content, 'utf-8'));
+        await vscode.workspace.fs.writeFile(dictionaryUri, Buffer.from(content, "utf-8"));
     }
 
     private async refreshEditor() {

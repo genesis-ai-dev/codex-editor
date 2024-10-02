@@ -1,8 +1,12 @@
-import Chatbot from './chat';
-import MiniSearch from 'minisearch';
-import { minisearchDoc } from '../activationHelpers/contextAware/miniIndex/indexes/translationPairsIndex';
+import Chatbot from "./chat";
+import MiniSearch from "minisearch";
+import { minisearchDoc } from "../activationHelpers/contextAware/miniIndex/indexes/translationPairsIndex";
 import { Edit, TranslationPair } from "../../types";
-import { searchParallelCells, getEditHistories, getTranslationPairFromProject } from '../activationHelpers/contextAware/miniIndex/indexes/search';
+import {
+    searchParallelCells,
+    getEditHistories,
+    getTranslationPairFromProject,
+} from "../activationHelpers/contextAware/miniIndex/indexes/search";
 
 interface CellEditHistory {
     edits: Edit[];
@@ -12,7 +16,8 @@ interface CellsEditHistory {
     [cellId: string]: CellEditHistory;
 }
 
-const SYSTEM_MESSAGE = "You are a helpful assistant. Given past edit histories of similar texts, you will help edit the current text.";
+const SYSTEM_MESSAGE =
+    "You are a helpful assistant. Given past edit histories of similar texts, you will help edit the current text.";
 
 export class SmartEdits {
     private chatbot: Chatbot;
@@ -35,12 +40,12 @@ export class SmartEdits {
 
     private findSimilarEntries(text: string): string[] {
         const results = searchParallelCells(this.translationPairsIndex, this.sourceTextIndex, text);
-        return results.map(result => result.cellId);
+        return results.map((result) => result.cellId);
     }
 
     private getEditHistories(cellIds: string[]): CellsEditHistory {
         const editHistories: CellsEditHistory = {};
-        cellIds.forEach(cellId => {
+        cellIds.forEach((cellId) => {
             const edits = getEditHistories(this.translationPairsIndex, cellId);
             editHistories[cellId] = { edits };
         });
@@ -50,10 +55,10 @@ export class SmartEdits {
     private formatEditHistories(editHistories: CellsEditHistory): string {
         return Object.entries(editHistories)
             .map(([cellId, cellHistory]) => {
-                const cellValue = cellHistory.edits.map(edit => edit.cellValue).join('\n');
+                const cellValue = cellHistory.edits.map((edit) => edit.cellValue).join("\n");
                 return `Cell ${cellId}:\n${cellValue}`;
             })
-            .join('\n');
+            .join("\n");
     }
 
     private createEditMessage(editHistoryString: string, text: string): string {

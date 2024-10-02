@@ -1,9 +1,9 @@
-import * as vscode from 'vscode';
-import { TokenJS } from 'token.js';
-import { OpenAIModel, GroqModel } from 'token.js/dist/chat';
+import * as vscode from "vscode";
+import { TokenJS } from "token.js";
+import { OpenAIModel, GroqModel } from "token.js/dist/chat";
 
 interface ChatMessage {
-    role: 'system' | 'user' | 'assistant';
+    role: "system" | "user" | "assistant";
     content: string;
 }
 
@@ -16,7 +16,7 @@ class Chatbot {
     constructor(private systemMessage: string) {
         this.tokenjs = new TokenJS();
         this.config = vscode.workspace.getConfiguration("translators-copilot");
-        this.messages = [{ role: 'system', content: systemMessage }];
+        this.messages = [{ role: "system", content: systemMessage }];
         this.maxBuffer = 20;
     }
 
@@ -30,28 +30,28 @@ class Chatbot {
 
         try {
             const completion = await this.tokenjs.chat.completions.create({
-                provider: 'openai',
-                model: 'gpt-3.5-turbo' as OpenAIModel,
+                provider: "openai",
+                model: "gpt-3.5-turbo" as OpenAIModel,
                 messages,
             });
 
             if (completion.choices?.[0]?.message?.content) {
                 return completion.choices[0].message.content.trim();
             }
-            throw new Error('Unexpected response format from the chatbot');
+            throw new Error("Unexpected response format from the chatbot");
         } finally {
             delete process.env.OPENAI_API_KEY;
         }
     }
 
-    async addMessage(role: 'user' | 'assistant', content: string): Promise<void> {
+    async addMessage(role: "user" | "assistant", content: string): Promise<void> {
         this.messages.push({ role, content });
     }
 
     async sendMessage(message: string): Promise<string> {
-        await this.addMessage('user', message);
+        await this.addMessage("user", message);
         const response = await this.callLLM(this.messages);
-        await this.addMessage('assistant', response);
+        await this.addMessage("assistant", response);
         if (this.messages.length > this.maxBuffer) {
             this.messages.shift();
         }
@@ -60,8 +60,8 @@ class Chatbot {
 
     async getCompletion(prompt: string): Promise<string> {
         return this.callLLM([
-            { role: 'system', content: 'You are a helpful assistant.' },
-            { role: 'user', content: prompt }
+            { role: "system", content: "You are a helpful assistant." },
+            { role: "user", content: prompt },
         ]);
     }
 }

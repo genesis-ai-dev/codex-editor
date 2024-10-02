@@ -56,7 +56,7 @@ export async function createTranslationPairsIndex(
                 targetContent: pair.targetCell.content || "",
                 uri: pair.sourceCell.uri || "",
                 line: pair.sourceCell.line || -1,
-                edits: pair.edits || []
+                edits: pair.edits || [],
             };
             translationPairsIndex.add(doc);
         }
@@ -86,7 +86,7 @@ export async function createTranslationPairsIndex(
                     targetCellsMap.set(cell.metadata.id, {
                         content: cell.value,
                         uri: targetFile.uri.toString(),
-                        edits: cell.metadata.edits || [] // Ensure edits are included here
+                        edits: cell.metadata.edits || [], // Ensure edits are included here
                     });
                 }
             }
@@ -112,15 +112,15 @@ export async function createTranslationPairsIndex(
                                 cellId,
                                 content: sourceCell.value,
                                 uri: sourceFile.uri.toString(),
-                                line: -1
+                                line: -1,
                             },
                             targetCell: {
                                 cellId,
                                 content: targetCell.content,
                                 uri: targetCell.uri,
-                                line: -1
+                                line: -1,
                             },
-                            edits: targetCell.edits
+                            edits: targetCell.edits,
                         });
                     }
                 }
@@ -226,7 +226,7 @@ export async function createTranslationPairsIndex(
                     targetContent: targetData.content,
                     uri,
                     line: lineIndex,
-                    edits: targetData.edits // Ensure edits are included here
+                    edits: targetData.edits, // Ensure edits are included here
                 };
             }
         }

@@ -25,24 +25,23 @@ let client: LanguageClient | undefined;
 let clientCommandsDisposable: vscode.Disposable;
 
 export async function activate(context: vscode.ExtensionContext) {
-
     // Create metadata.json if it doesn't exist
     const fs = vscode.workspace.fs;
     const workspaceFolders = vscode.workspace.workspaceFolders;
-    
+
     if (workspaceFolders && workspaceFolders.length > 0) {
-        const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, 'metadata.json');
-        
+        const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
+
         try {
             await fs.stat(metadataUri);
-            console.log('metadata.json already exists');
+            console.log("metadata.json already exists");
         } catch {
-            console.log('Creating metadata.json');
+            console.log("Creating metadata.json");
             const initialContent = JSON.stringify({}, null, 2);
-            await fs.writeFile(metadataUri, Buffer.from(initialContent, 'utf8'));
+            await fs.writeFile(metadataUri, Buffer.from(initialContent, "utf8"));
         }
     } else {
-        console.log('No workspace folder found');
+        console.log("No workspace folder found");
     }
     registerProjectManager(context);
     registerVideoPlayerCommands(context);
@@ -99,7 +98,7 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             "translation-navigation.openSourceFile",
             async (node: Node & { sourceFile?: string }) => {
-                if ('sourceFile' in node && node.sourceFile) {
+                if ("sourceFile" in node && node.sourceFile) {
                     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
                     if (workspaceFolder) {
                         const sourceFileUri = vscode.Uri.joinPath(

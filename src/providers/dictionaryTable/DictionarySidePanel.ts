@@ -142,7 +142,7 @@ export class DictionarySummaryProvider implements vscode.WebviewViewProvider {
             } finally {
                 this.updateInProgress = false;
             }
-        }, 300); // 300ms debounce
+        }, 300) as unknown as NodeJS.Timeout; // 300ms debounce
     }
 
     private refreshDictionary() {

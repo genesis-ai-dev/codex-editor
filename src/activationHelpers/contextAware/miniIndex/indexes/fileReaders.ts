@@ -8,7 +8,7 @@ export interface FileData {
         metadata?: {
             type?: string;
             id?: string;
-            edits?: Edit[];  // Add this line
+            edits?: Edit[]; // Add this line
         };
         value: string;
     }>;
@@ -41,14 +41,14 @@ export async function readSourceAndTargetFiles(): Promise<{
 async function readFile(uri: vscode.Uri): Promise<FileData> {
     const content = await vscode.workspace.fs.readFile(uri);
     const data = JSON.parse(content.toString());
-    return { 
-        uri, 
+    return {
+        uri,
         cells: data.cells.map((cell: any) => ({
             ...cell,
             metadata: {
                 ...cell.metadata,
-                edits: cell.metadata?.edits || []  // Ensure edits are included
-            }
-        })) 
+                edits: cell.metadata?.edits || [], // Ensure edits are included
+            },
+        })),
     };
 }

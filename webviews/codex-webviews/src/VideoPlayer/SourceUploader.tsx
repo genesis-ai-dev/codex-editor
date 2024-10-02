@@ -35,7 +35,7 @@ const SourceUploader: React.FC = () => {
             reader.readAsText(selectedFile);
         }
     }, [selectedFile]);
-    
+
     const { getRootProps, getInputProps } = useDropzone({
         onDrop,
     });
