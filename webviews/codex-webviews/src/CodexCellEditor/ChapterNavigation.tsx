@@ -21,6 +21,9 @@ interface ChapterNavigationProps {
     totalChapters: number;
     totalCellsToAutocomplete: number;
     openSourceText: (chapterNumber: number) => void;
+    shouldShowVideoPlayer: boolean;
+    setShouldShowVideoPlayer: React.Dispatch<React.SetStateAction<boolean>>;
+    documentHasVideoAvailable: boolean;
 }
 
 const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
@@ -36,6 +39,9 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     totalChapters,
     totalCellsToAutocomplete,
     openSourceText,
+    shouldShowVideoPlayer,
+    setShouldShowVideoPlayer,
+    documentHasVideoAvailable,
 }) => {
     const [showConfirm, setShowConfirm] = useState(false);
     const [numberOfCellsToAutocomplete, setNumberOfCellsToAutocomplete] = useState(5);
@@ -52,6 +58,10 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
 
     const handleCancelAutocomplete = () => {
         setShowConfirm(false);
+    };
+
+    const handleToggleVideoPlayer = () => {
+        setShouldShowVideoPlayer(!shouldShowVideoPlayer);
     };
 
     return (
@@ -159,6 +169,15 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                         <i className="codicon codicon-symbol-constant"></i>
                     )}
                 </VSCodeButton>
+                {documentHasVideoAvailable && (
+                    <VSCodeButton appearance="icon" onClick={handleToggleVideoPlayer}>
+                        {shouldShowVideoPlayer ? (
+                            <i className="codicon codicon-close"></i>
+                        ) : (
+                            <i className="codicon codicon-device-camera-video"></i>
+                        )}
+                    </VSCodeButton>
+                )}
             </div>
             <VSCodeButton
                 appearance="icon"

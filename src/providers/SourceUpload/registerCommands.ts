@@ -29,7 +29,9 @@ export const registerSourceUploadCommands = (context: vscode.ExtensionContext) =
         vscode.commands.registerCommand("codex-project-manager.openSourceUpload", () => {
             const workspaceFolder = getWorkSpaceFolder();
             if (workspaceFolder) {
-                const uri = vscode.Uri.parse(`sourceUploadProvider-scheme:Upload Document`);
+                const uri = vscode.Uri.parse(
+                    `sourceUploadProvider-scheme:Upload Document.sourceUploadProvider`
+                );
                 vscode.commands.executeCommand(
                     "vscode.openWith",
                     uri,

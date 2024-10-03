@@ -1013,6 +1013,7 @@
                 "displayName": "Source Upload Editor",
                 "selector": [
                     {
+                        "filenamePattern": "*.sourceUploadProvider",
                         "scheme": "sourceUploadProvider-scheme"
                     }
                 ],

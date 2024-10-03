@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, } from "react";
+import ReactPlayer from "react-player";
 import {
     QuillCellContent,
     EditorPostMessages,
@@ -9,6 +10,7 @@ import ChapterNavigation from "./ChapterNavigation";
 import VerseList from "./VerseList";
 import { useVSCodeMessageHandler } from "./hooks/useVSCodeMessageHandler";
 import { VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
+import { useSubtitleData } from "./utils/vttUtils";
 
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
@@ -32,7 +34,12 @@ const CodexCellEditor: React.FC = () => {
         CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
     );
     const [isSourceText, setIsSourceText] = useState<boolean>(false);
+    const [videoUrl, setVideoUrl] = useState<string>((window as any).initialData?.videoUrl || "");
 
+    const playerRef = useRef<ReactPlayer>(null);
+    const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
+    // const [documentHasVideoAvailable, setDocumentHasVideoAvailable] = useState<boolean>(false);
+    console.log("FIXME: setVideoUrl needs a form", setVideoUrl);
     useVSCodeMessageHandler({
         setContent: (content: QuillCellContent[], isSourceText: boolean) => {
             setTranslationUnits(content);
@@ -64,8 +71,8 @@ const CodexCellEditor: React.FC = () => {
 
     useEffect(() => {
         vscode.postMessage({ command: "getContent" } as EditorPostMessages);
-        // Set initial isSourceText value from window.initialData
         setIsSourceText((window as any).initialData?.isSourceText || false);
+        setVideoUrl((window as any).initialData?.videoUrl || "");
     }, []);
 
     useEffect(() => {
@@ -123,6 +130,30 @@ const CodexCellEditor: React.FC = () => {
         } as EditorPostMessages);
     };
 
+    const OFFSET_SECONDS = 0; // just for testing purposes
+
+    useEffect(() => {
+        console.log("RYDER", contentBeingUpdated);
+        // Jump to the start time of the cell being edited
+        if (playerRef.current && contentBeingUpdated.verseMarkers?.length > 0) {
+            const cellId = contentBeingUpdated.verseMarkers[0];
+            const startTime = parseTimestampFromCellId(cellId);
+            if (startTime !== null) {
+                console.log(`Seeking to ${startTime} + ${OFFSET_SECONDS} seconds`);
+                playerRef.current.seekTo(startTime + OFFSET_SECONDS, "seconds");
+            }
+        }
+    }, [contentBeingUpdated, OFFSET_SECONDS]);
+
+    // Helper function to parse timestamp from cellId
+    const parseTimestampFromCellId = (cellId: string): number | null => {
+        const match = cellId.match(/cue-(\d+(?:\.\d+)?)-/);
+        if (match && match[1]) {
+            return parseFloat(match[1]);
+        }
+        return null;
+    };
+
     // Dynamically set styles for .ql-editor
     const styleElement = document.createElement("style");
     styleElement.textContent = `
@@ -131,13 +162,37 @@ const CodexCellEditor: React.FC = () => {
             text-align: ${textDirection === "rtl" ? "right" : "left"} !important;
         }
     `;
-    // FIXME: apply these styles outside of the quill editor to fix
     document.head.appendChild(styleElement);
 
+    const { subtitleUrl } = useSubtitleData(translationUnitsForSection);
     return (
         <div className="codex-cell-editor" style={{ direction: textDirection }}>
             <h1>{translationUnitsForSection[0]?.verseMarkers?.[0]?.split(":")[0]}</h1>
             <div className="editor-container">
+                {shouldShowVideoPlayer && (
+                    <div className="player-wrapper">
+                        <ReactPlayer
+                            ref={playerRef}
+                            url={videoUrl}
+                            controls={true}
+                            width="100%"
+                            height="auto"
+                            config={{
+                                file: {
+                                    tracks: [
+                                        {
+                                            kind: "subtitles",
+                                            src: subtitleUrl,
+                                            srcLang: "en", // FIXME: make this dynamic
+                                            label: "English", // FIXME: make this dynamic
+                                            default: true,
+                                        },
+                                    ],
+                                },
+                            }}
+                        />
+                    </div>
+                )}
                 <ChapterNavigation
                     chapterNumber={chapterNumber}
                     setChapterNumber={setChapterNumber}
@@ -151,6 +206,10 @@ const CodexCellEditor: React.FC = () => {
                     isSourceText={isSourceText}
                     openSourceText={openSourceText}
                     totalCellsToAutocomplete={translationUnitsForSection.length}
+                    setShouldShowVideoPlayer={setShouldShowVideoPlayer}
+                    shouldShowVideoPlayer={shouldShowVideoPlayer}
+                    // documentHasVideoAvailable={documentHasVideoAvailable}
+                    documentHasVideoAvailable={true}
                 />
                 {autocompletionProgress !== null && (
                     <div className="autocompletion-progress">
