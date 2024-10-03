@@ -19,6 +19,7 @@ import * as path from "path";
 import { URI } from "vscode-uri";
 import { Connection } from "vscode-languageserver/node";
 import { cleanWord } from "../utils/cleaningUtils";
+import { getWorkSpaceUri } from "../utils";
 
 export class SpellChecker {
     private dictionary: Dictionary | null = null;
@@ -35,10 +36,15 @@ export class SpellChecker {
             this.dictionaryPath = path.join(process.cwd(), "files", "project.dictionary");
         }
         console.log("Dictionary path: " + this.dictionaryPath);
-        this.ensureDictionaryExists();
-        this.initializeDictionary();
-        this.watchDictionary();
-        this.connection = connection;
+        const metadataPath = path.join(getWorkSpaceUri()?.fsPath || process.cwd(), "metadata.json");
+        if (fs.existsSync(metadataPath)) {
+            this.ensureDictionaryExists();
+            this.initializeDictionary();
+            this.watchDictionary();
+            this.connection = connection;
+        } else {
+            console.log("metadata.json not found. Skipping dictionary initialization.");
+        }
     }
 
     async initializeDictionary() {

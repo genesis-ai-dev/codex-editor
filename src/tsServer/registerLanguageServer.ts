@@ -65,7 +65,7 @@ export async function registerLanguageServer(
         console.error("Failed to start the Codex Copilot Language Server:", error);
         console.error("Server module path:", serverModule);
         console.error("Client options:", JSON.stringify(clientOptions, null, 2));
-        vscode.window.showErrorMessage(`Failed to start Codex Copilot Language Server: ${error}`);
+        // vscode.window.showErrorMessage(`Failed to start Codex Copilot Language Server: ${error}`);
 
         // Attempt to restart the server
         console.log("Attempting to restart the Codex Copilot Language Server...");
@@ -77,9 +77,9 @@ export async function registerLanguageServer(
             context.subscriptions.push(client);
         } catch (restartError: any) {
             console.error("Failed to restart the Codex Copilot Language Server:", restartError);
-            vscode.window.showErrorMessage(
-                `Failed to restart Codex Copilot Language Server: ${restartError.message}`
-            );
+            // vscode.window.showErrorMessage(
+            //     `Failed to restart Codex Copilot Language Server: ${restartError.message}`
+            // );
         }
     }
 

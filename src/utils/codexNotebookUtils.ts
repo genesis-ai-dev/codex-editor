@@ -673,7 +673,7 @@ export async function migrateSourceFiles() {
     try {
         await vscode.workspace.fs.stat(sourceTextsFolderUri);
     } catch {
-        vscode.window.showInformationMessage("No source texts folder found. Skipping migration.");
+        console.log("No source texts folder found. Skipping migration.");
         return;
     }
 

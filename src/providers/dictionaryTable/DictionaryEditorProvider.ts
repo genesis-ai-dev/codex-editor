@@ -249,12 +249,24 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
             console.error("Workspace folder not found. Aborting save of dictionary.");
             return Promise.reject(new Error("Workspace folder not found"));
         }
+        const metadataUri = vscode.Uri.joinPath(workspaceFolderUri, "metadata.json");
         const dictionaryUri = vscode.Uri.joinPath(
             workspaceFolderUri,
             "files",
             "project.dictionary"
         );
-        return vscode.workspace.fs.writeFile(dictionaryUri, array);
+
+        return vscode.workspace.fs.stat(metadataUri).then(
+            () => {
+                // metadata.json exists, proceed with writing the dictionary
+                return vscode.workspace.fs.writeFile(dictionaryUri, array);
+            },
+            () => {
+                // metadata.json doesn't exist, abort the save
+                console.error("metadata.json not found. Aborting save of dictionary.");
+                return Promise.reject(new Error("metadata.json not found"));
+            }
+        );
     }
 
     private serializeDictionary(document: Dictionary): string {

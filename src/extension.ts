@@ -21,11 +21,14 @@ import { registerSourceUploadCommands } from "./providers/SourceUpload/registerC
 import { migrateSourceFiles } from "./utils/codexNotebookUtils";
 import { VideoEditorProvider } from "./providers/VideoEditor/VideoEditorProvider";
 import { registerVideoPlayerCommands } from "./providers/VideoPlayer/registerCommands";
+import { SourceUploadProvider } from "./providers/SourceUpload/SourceUploadProvider";
+
 let client: LanguageClient | undefined;
 let clientCommandsDisposable: vscode.Disposable;
 
 export async function activate(context: vscode.ExtensionContext) {
-    // Create metadata.json if it doesn't exist
+    vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
+
     const fs = vscode.workspace.fs;
     const workspaceFolders = vscode.workspace.workspaceFolders;
 
@@ -34,67 +37,45 @@ export async function activate(context: vscode.ExtensionContext) {
 
         try {
             await fs.stat(metadataUri);
-            console.log("metadata.json already exists");
+            console.log("metadata.json exists");
+
+            registerCodeLensProviders(context);
+            registerTextSelectionHandler(context, () => undefined);
+            await initializeBibleData(context);
+
+            client = await registerLanguageServer(context);
+
+            if (client) {
+                clientCommandsDisposable = registerClientCommands(context, client);
+                context.subscriptions.push(clientCommandsDisposable);
+            }
+
+            await indexVerseRefsInSourceText();
+            await createIndexWithContext(context);
         } catch {
-            console.log("Creating metadata.json");
-            const initialContent = JSON.stringify({}, null, 2);
-            await fs.writeFile(metadataUri, Buffer.from(initialContent, "utf8"));
+            console.log(
+                "metadata.json not found. Skipping language server and related initializations."
+            );
         }
     } else {
         console.log("No workspace folder found");
     }
-    registerProjectManager(context);
-    registerVideoPlayerCommands(context);
-    registerSourceUploadCommands(context);
 
-    registerCodeLensProviders(context);
-    registerTextSelectionHandler(context, () => undefined);
+    registerVideoPlayerCommands(context);
+    await registerSourceUploadCommands(context);
+
+    vscode.commands.executeCommand("codex-project-manager.openSourceUpload");
+
     registerProviders(context);
     await registerCommands(context);
-    await initializeBibleData(context);
     await initializeWebviews(context);
-    // context.subscriptions.push(
-    //     vscode.window.registerCustomEditorProvider(
-    //         SourceUploadProvider.viewType,
-    //         new SourceUploadProvider(context),
-    //         {
-    //             supportsMultipleEditorsPerDocument: false,
-    //             webviewOptions: {
-    //                 retainContextWhenHidden: true,
-    //             },
-    //         }
-    //     )
-    // );
 
-    // vscode.commands.registerCommand("myExtension.openVirtualDocument", () => {
-    //     const uri = vscode.Uri.parse("sourceupload:Source Upload");
-    //     vscode.commands.executeCommand("vscode.openWith", uri, SourceUploadProvider.viewType);
-    // });
-
-    // const sourceUploadProvider = new SourceUploadProvider(context);
-    // context.subscriptions.push(
-    //     vscode.workspace.registerTextDocumentContentProvider("sourceupload", sourceUploadProvider)
-    // );
-
-    client = await registerLanguageServer(context);
-
-    if (client) {
-        // Register commands that depend on the client
-        clientCommandsDisposable = registerClientCommands(context, client);
-        context.subscriptions.push(clientCommandsDisposable);
-    }
-
-    await indexVerseRefsInSourceText();
-    await createIndexWithContext(context);
     await executeCommandsAfter();
     await temporaryMigrationScript_checkMatthewNotebook();
     await migration_changeDraftFolderToFilesFolder();
-
-    // Add the new migration function
     await migrateSourceFiles();
 
     context.subscriptions.push(
-        // FIXME: move to commands register
         vscode.commands.registerCommand(
             "translation-navigation.openSourceFile",
             async (node: Node & { sourceFile?: string }) => {
@@ -122,7 +103,9 @@ export async function activate(context: vscode.ExtensionContext) {
                             );
                         }
                     } else {
-                        vscode.window.showErrorMessage("No workspace folder found");
+                        console.error(
+                            "No workspace folder found, aborting translation-navigation.openSourceFile."
+                        );
                     }
                 }
             }

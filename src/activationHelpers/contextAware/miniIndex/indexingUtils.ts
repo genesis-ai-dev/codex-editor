@@ -24,8 +24,10 @@ export async function updateCompleteDrafts(targetFiles: FileData[]): Promise<voi
         ".project",
         "complete_drafts.txt"
     );
-    await vscode.workspace.fs.writeFile(
-        completeDraftPath,
-        Buffer.from(completeDrafts.join("\n"), "utf8")
-    );
+    if (completeDraftPath) {
+        await vscode.workspace.fs.writeFile(
+            completeDraftPath,
+            Buffer.from(completeDrafts.join("\n"), "utf8")
+        );
+    }
 }

@@ -244,6 +244,39 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             // Wait a short moment to ensure the file system has time to update
             await new Promise((resolve) => setTimeout(resolve, 500));
 
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            if (workspaceFolders) {
+                // Create chat-threads.json file
+                const chatThreadsPath = vscode.Uri.joinPath(
+                    workspaceFolders[0].uri,
+                    "chat-threads.json"
+                );
+                await vscode.workspace.fs.writeFile(
+                    chatThreadsPath,
+                    new Uint8Array(Buffer.from("[]"))
+                );
+
+                // Create files/project.dictionary file
+                const filesFolderPath = vscode.Uri.joinPath(workspaceFolders[0].uri, "files");
+                const projectDictionaryPath = vscode.Uri.joinPath(
+                    filesFolderPath,
+                    "project.dictionary"
+                );
+
+                // Ensure the 'files' folder exists
+                try {
+                    await vscode.workspace.fs.createDirectory(filesFolderPath);
+                } catch (error) {
+                    // Ignore error if directory already exists
+                }
+
+                // Create project.dictionary file with an empty JSON object
+                await vscode.workspace.fs.writeFile(
+                    projectDictionaryPath,
+                    new Uint8Array(Buffer.from("{}\n"))
+                );
+            }
+
             const newProjectOverview = await getProjectOverview();
             if (newProjectOverview) {
                 this._projectOverview = newProjectOverview;

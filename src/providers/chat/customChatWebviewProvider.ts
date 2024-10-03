@@ -195,40 +195,11 @@ const processFetchResponse = async (webviewView: vscode.WebviewView, response: R
     sendFinishMessage(webviewView);
 };
 
-const checkThatChatThreadsFileExists = async () => {
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
-        return [];
-    }
-
-    const filePath = vscode.Uri.joinPath(workspaceFolders[0].uri, "chat-threads.json");
-
-    try {
-        await vscode.workspace.fs.stat(filePath);
-        const fileContentUint8Array = await vscode.workspace.fs.readFile(filePath);
-        const fileContent = new TextDecoder().decode(fileContentUint8Array);
-        return JSON.parse(fileContent);
-    } catch (error) {
-        if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") {
-            // File doesn't exist, create an empty file
-            await vscode.workspace.fs.writeFile(filePath, new Uint8Array(Buffer.from("[]")));
-            return [];
-        } else {
-            console.error("Error accessing chat-threads.json:", error);
-            vscode.window.showErrorMessage(`Error accessing chat-threads.json: ${error}`);
-            return [];
-        }
-    }
-};
-
 export class CustomWebviewProvider {
     _extensionUri: any;
     selectionChangeListener: any;
-    chatThreads: Promise<ChatMessageThread[]>;
     constructor(extensionUri: vscode.Uri) {
         this._extensionUri = extensionUri;
-        this.chatThreads = checkThatChatThreadsFileExists();
     }
 
     async sendSelectMessage(
