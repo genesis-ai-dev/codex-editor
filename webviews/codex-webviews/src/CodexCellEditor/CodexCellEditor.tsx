@@ -34,9 +34,7 @@ const CodexCellEditor: React.FC = () => {
     );
     const [isSourceText, setIsSourceText] = useState<boolean>(false);
     const [videoUrl, setVideoUrl] = useState<string>((window as any).initialData?.videoUrl || "");
-    const [subtitlesUrl, setSubtitlesUrl] = useState<string>(
-        (window as any).initialData?.subtitlesUrl || ""
-    );
+
     const playerRef = useRef<ReactPlayer>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     // const [documentHasVideoAvailable, setDocumentHasVideoAvailable] = useState<boolean>(false);
@@ -74,7 +72,6 @@ const CodexCellEditor: React.FC = () => {
         vscode.postMessage({ command: "getContent" } as EditorPostMessages);
         setIsSourceText((window as any).initialData?.isSourceText || false);
         setVideoUrl((window as any).initialData?.videoUrl || "");
-        setSubtitlesUrl((window as any).initialData?.subtitlesUrl || "");
     }, []);
 
     useEffect(() => {
@@ -198,21 +195,6 @@ ${cues}`;
     );
     const subtitleUrl = useMemo(() => URL.createObjectURL(subtitleBlob), [subtitleBlob]);
 
-    // useEffect(() => {
-    //     console.log("subtitlesUrl in useE outside ", subtitlesUrl);
-    //     if (subtitlesUrl) {
-    //         console.log("subtitlesUrl in useE", subtitlesUrl);
-    //         fetch(subtitlesUrl)
-    //             .then((response) => response.text())
-    //             .then((content) => {
-    //                 console.log("Subtitles content:", content);
-    //             })
-    //             .catch((error) => {
-    //                 console.error("Error fetching subtitles:", error);
-    //             });
-    //     }
-    // }, [subtitlesUrl]);
-
     return (
         <div className="codex-cell-editor" style={{ direction: textDirection }}>
             <h1>{translationUnitsForSection[0]?.verseMarkers?.[0]?.split(":")[0]}</h1>
@@ -231,7 +213,7 @@ ${cues}`;
                                         {
                                             kind: "subtitles",
                                             src: subtitleUrl,
-                                            srcLang: "en",
+                                            srcLang: "en", // FIXME: make this dynamic
                                             label: "English", // FIXME: make this dynamic
                                             default: true,
                                         },
