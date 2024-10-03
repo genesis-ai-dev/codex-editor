@@ -79,7 +79,7 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             "translation-navigation.openSourceFile",
             async (node: Node & { sourceFile?: string }) => {
-                if ("sourceFile" in node && node.sourceFile) {
+                if ('sourceFile' in node && node.sourceFile) {
                     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
                     if (workspaceFolder) {
                         const sourceFileUri = vscode.Uri.joinPath(

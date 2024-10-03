@@ -5,7 +5,7 @@ import { StatusBarHandler } from "../statusBarHandler";
 import { getWorkSpaceUri } from "../../../../utils";
 import { FileData } from "./fileReaders";
 import { debounce } from "lodash";
-import { TranslationPair, Edit } from "../../../../../types";
+import { TranslationPair } from "../../../../../types";
 
 export interface minisearchDoc {
     id: string;
@@ -17,7 +17,6 @@ export interface minisearchDoc {
     targetContent: string;
     uri: string;
     line: number;
-    edits: Edit[];
 }
 
 interface TranslationPairsIndex {
@@ -43,24 +42,42 @@ export async function createTranslationPairsIndex(
     const index = await indexAllDocuments(sourceFiles, targetFiles);
 
     translationPairsIndex.removeAll();
+    // Update the configuration
+    const documents = Object.values(index).flat().map(pair => ({
+        id: `${pair.sourceCell.uri}:${pair.cellId}`,
+        cellId: pair.cellId,
+        document: pair.cellId.split(" ")[0],
+        section: pair.cellId.split(" ")[1].split(":")[0],
+        cell: pair.cellId.split(":")[1],
+        sourceContent: pair.sourceCell.content || "",
+        targetContent: pair.targetCell.content || "",
+        uri: pair.sourceCell.uri || "",
+        line: pair.sourceCell.line || -1,
+    }));
 
-    for (const [cellId, pairs] of Object.entries(index)) {
-        for (const pair of pairs) {
-            const doc: minisearchDoc = {
-                id: `${pair.sourceCell.uri}:${cellId}`,
-                cellId,
-                document: cellId.split(" ")[0],
-                section: cellId.split(" ")[1].split(":")[0],
-                cell: cellId.split(":")[1],
-                sourceContent: pair.sourceCell.content || "",
-                targetContent: pair.targetCell.content || "",
-                uri: pair.sourceCell.uri || "",
-                line: pair.sourceCell.line || -1,
-                edits: pair.edits || [],
-            };
-            translationPairsIndex.add(doc);
-        }
-    }
+    translationPairsIndex.addAll(documents);
+
+    // Configure index options
+    const indexOptions = {
+        fields: ["cellId", "document", "section", "sourceContent", "targetContent"],
+        storeFields: [
+            "id",
+            "cellId",
+            "document",
+            "section",
+            "sourceContent",
+            "targetContent",
+            "uri",
+            "line"
+        ],
+        // ... other options ...
+    };
+
+    // Create a new MiniSearch instance with the configured options
+    translationPairsIndex = new MiniSearch(indexOptions);
+
+    // Re-add all documents to the new index
+    translationPairsIndex.addAll(documents);
 
     console.log(
         "Translation pairs index created with",
@@ -74,7 +91,7 @@ export async function createTranslationPairsIndex(
         targetFiles: FileData[]
     ): Promise<TranslationPairsIndex> {
         const index: TranslationPairsIndex = {};
-        const targetCellsMap = new Map<string, { content: string; uri: string; edits: Edit[] }>();
+        const targetCellsMap = new Map<string, { content: string; uri: string }>();
 
         for (const targetFile of targetFiles) {
             for (const cell of targetFile.cells) {
@@ -86,7 +103,6 @@ export async function createTranslationPairsIndex(
                     targetCellsMap.set(cell.metadata.id, {
                         content: cell.value,
                         uri: targetFile.uri.toString(),
-                        edits: cell.metadata.edits || [], // Ensure edits are included here
                     });
                 }
             }
@@ -120,7 +136,6 @@ export async function createTranslationPairsIndex(
                                 uri: targetCell.uri,
                                 line: -1,
                             },
-                            edits: targetCell.edits,
                         });
                     }
                 }
@@ -132,7 +147,7 @@ export async function createTranslationPairsIndex(
 
     async function indexDocument(
         document: vscode.TextDocument,
-        targetVerseMap: Map<string, { content: string; edits: Edit[] }>,
+        targetVerseMap: Map<string, { content: string }>,
         translationPairsIndex: MiniSearch<minisearchDoc>
     ): Promise<number> {
         const uri = document.uri.toString();
@@ -205,7 +220,7 @@ export async function createTranslationPairsIndex(
         line: string,
         lineIndex: number,
         uri: string,
-        targetVerseMap: Map<string, { content: string; edits: Edit[] }>
+        targetVerseMap: Map<string, { content: string }>
     ): minisearchDoc | null {
         const match = line.match(verseRefRegex);
         if (match) {
@@ -226,7 +241,6 @@ export async function createTranslationPairsIndex(
                     targetContent: targetData.content,
                     uri,
                     line: lineIndex,
-                    edits: targetData.edits, // Ensure edits are included here
                 };
             }
         }
@@ -234,24 +248,24 @@ export async function createTranslationPairsIndex(
     }
 
     const debouncedIndexDocument = debounce(async (doc: vscode.TextDocument) => {
-        const targetVerseMap = new Map<string, { content: string; edits: Edit[] }>();
+        const targetVerseMap = new Map<string, { content: string }>();
         await indexDocument(doc, targetVerseMap, translationPairsIndex);
     }, 3000);
 
     context.subscriptions.push(
-        vscode.workspace.onDidOpenTextDocument(async (doc: any) => {
-            if (doc.metadata?.type === "scripture" || doc.fileName.endsWith(".codex")) {
+        vscode.workspace.onDidOpenTextDocument(async (doc: vscode.TextDocument) => {
+            if (doc.uri.path.endsWith(".codex")) {
                 await debouncedIndexDocument(doc);
             }
         }),
-        vscode.workspace.onDidCloseTextDocument(async (doc: any) => {
-            if (doc.metadata?.type === "scripture" || doc.fileName.endsWith(".codex")) {
+        vscode.workspace.onDidCloseTextDocument(async (doc: vscode.TextDocument) => {
+            if (doc.uri.path.endsWith(".codex")) {
                 await debouncedIndexDocument(doc);
             }
         }),
-        vscode.workspace.onDidChangeTextDocument(async (event: any) => {
+        vscode.workspace.onDidChangeTextDocument(async (event: vscode.TextDocumentChangeEvent) => {
             const doc = event.document;
-            if (doc.metadata?.type === "scripture" || doc.fileName.endsWith(".codex")) {
+            if (doc.uri.path.endsWith(".codex")) {
                 await debouncedIndexDocument(doc);
             }
         })
