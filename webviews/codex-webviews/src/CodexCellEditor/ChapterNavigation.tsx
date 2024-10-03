@@ -170,11 +170,12 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                     )}
                 </VSCodeButton>
                 {documentHasVideoAvailable && (
-                    <VSCodeButton
-                        appearance="icon"
-                        onClick={handleToggleVideoPlayer}
-                    >
-                        <i className="codicon codicon-close"></i>
+                    <VSCodeButton appearance="icon" onClick={handleToggleVideoPlayer}>
+                        {shouldShowVideoPlayer ? (
+                            <i className="codicon codicon-close"></i>
+                        ) : (
+                            <i className="codicon codicon-device-camera-video"></i>
+                        )}
                     </VSCodeButton>
                 )}
             </div>
