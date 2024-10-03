@@ -16,7 +16,7 @@ const CellItem: React.FC<CellItemProps> = ({ item, onUriClick }) => {
     return (
         <div className="verse-item">
             <VSCodeBadge>{item.cellId}</VSCodeBadge>
-            <div className="verse-header">
+            <div className="cell-header">
                 <div className="verse-content">
                     <p className="verse-text">{item.sourceCell.content}</p>
                 </div>
@@ -37,7 +37,7 @@ const CellItem: React.FC<CellItemProps> = ({ item, onUriClick }) => {
                     </VSCodeButton>
                 </div>
             </div>
-            <div className="verse-header">
+            <div className="cell-header">
                 <div className="verse-content">
                     <p className="verse-text">{item.targetCell.content}</p>
                 </div>

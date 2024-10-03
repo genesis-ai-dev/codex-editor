@@ -216,15 +216,15 @@ type SourceCellVersions = {
     versions: string[];
 };
 
-type EditorVerseContent = {
-    verseMarkers: string[];
+type EditorCellContent = {
+    cellMarkers: string[];
     content: string;
 };
 
 type EditorPostMessages =
-    | { command: "from-quill-spellcheck-getSpellCheckResponse"; content: EditorVerseContent }
+    | { command: "from-quill-spellcheck-getSpellCheckResponse"; content: EditorCellContent }
     | { command: "addWord"; text: string }
-    | { command: "saveHtml"; content: EditorVerseContent }
+    | { command: "saveHtml"; content: EditorCellContent }
     | { command: "getContent" }
     | {
           command: "setCurrentIdToGlobalState";
@@ -275,8 +275,8 @@ type CodexNotebookAsJSONData = vscode.NotebookCellData & {
 };
 
 interface QuillCellContent {
-    verseMarkers: string[];
-    verseContent: string;
+    cellMarkers: string[];
+    cellContent: string;
     cellType: import("./enums").CodexCellTypes;
     editHistory: Array<EditHistory>;
     timestamps?: Timestamps;
@@ -294,8 +294,8 @@ interface EditHistory {
     // ... other fields
 }
 
-interface EditorVerseContent {
-    verseMarkers: string[];
+interface EditorCellContent {
+    cellMarkers: string[];
     content: string;
 }
 

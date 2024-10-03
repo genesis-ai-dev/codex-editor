@@ -139,21 +139,21 @@ button:focus-visible {
 }
 
 /* VerseEditor styles */
-.verse-editor {
+.cell-editor {
     border: 1px solid #ccc;
     border-radius: 0.25rem;
     padding: 1rem;
     background-color: #f9f9f9;
 }
 
-.verse-header {
+.cell-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 0.5rem;
 }
 
-.verse-header h3 {
+.cell-header h3 {
     margin: 0;
 }
 
@@ -177,7 +177,7 @@ button:focus-visible {
 }
 
 /* EmptyVerseDisplay styles */
-.empty-verse-display {
+.empty-cell-display {
     display: flex;
     align-items: center;
     padding: 0.5rem;
@@ -188,16 +188,16 @@ button:focus-visible {
     transition: background-color 0.3s ease;
 }
 
-.empty-verse-display:hover {
+.empty-cell-display:hover {
     background-color: #e0e0e0;
 }
 
-.empty-verse-marker {
+.empty-cell-marker {
     font-weight: bold;
     margin-right: 0.5rem;
 }
 
-.empty-verse-prompt {
+.empty-cell-prompt {
     color: #666;
     font-style: italic;
 }
