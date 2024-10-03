@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import ReactPlayer from "react-player";
+import Quill from 'quill';
 import {
     QuillCellContent,
     EditorPostMessages,
@@ -11,6 +12,8 @@ import CellList from "./CellList";
 import { useVSCodeMessageHandler } from "./hooks/useVSCodeMessageHandler";
 import { VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
 import VideoPlayer from "./VideoPlayer";
+import registerQuillSpellChecker from "./react-quill-spellcheck";
+import registerQuillSmartEdits from "./react-quil-smart-edits";
 
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
@@ -82,6 +85,12 @@ const CodexCellEditor: React.FC = () => {
             direction: textDirection,
         } as EditorPostMessages);
     }, [textDirection]);
+
+    useEffect(() => {
+        // Initialize Quill and register SpellChecker and SmartEdits only once
+        registerQuillSpellChecker(Quill, vscode);
+        registerQuillSmartEdits(Quill);
+    }, []);
 
     const calculateTotalChapters = (units: QuillCellContent[]): number => {
         const sectionSet = new Set<string>();
