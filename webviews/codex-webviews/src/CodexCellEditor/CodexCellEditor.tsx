@@ -142,7 +142,7 @@ const CodexCellEditor: React.FC = () => {
                 playerRef.current.seekTo(startTime + OFFSET_SECONDS, "seconds");
             }
         }
-    }, [contentBeingUpdated]);
+    }, [contentBeingUpdated, OFFSET_SECONDS]);
 
     // Helper function to parse timestamp from cellId
     const parseTimestampFromCellId = (cellId: string): number | null => {
