@@ -1,26 +1,26 @@
 import React from "react";
-import { EditorVerseContent, SpellCheckResponse } from "../../../../types";
+import { EditorCellContent, SpellCheckResponse } from "../../../../types";
 import Editor from "./Editor";
 import CloseButtonWithConfirmation from "../components/CloseButtonWithConfirmation";
 import { getCleanedHtml } from "./react-quill-spellcheck";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 
-interface VerseEditorProps {
-    verseMarkers: string[];
-    verseContent: string;
-    verseIndex: number;
+interface CellEditorProps {
+    cellMarkers: string[];
+    cellContent: string;
+    cellIndex: number;
     spellCheckResponse: SpellCheckResponse | null;
-    contentBeingUpdated: EditorVerseContent;
-    setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorVerseContent>>;
+    contentBeingUpdated: EditorCellContent;
+    setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorCellContent>>;
     handleCloseEditor: () => void;
     handleSaveMarkdown: () => void;
     textDirection: "ltr" | "rtl";
 }
 
-const VerseEditor: React.FC<VerseEditorProps> = ({
-    verseMarkers,
-    verseContent,
-    verseIndex,
+const CellEditor: React.FC<CellEditorProps> = ({
+    cellMarkers,
+    cellContent,
+    cellIndex,
     spellCheckResponse,
     contentBeingUpdated,
     setContentBeingUpdated,
@@ -32,13 +32,13 @@ const VerseEditor: React.FC<VerseEditorProps> = ({
         contentBeingUpdated.content &&
         getCleanedHtml(contentBeingUpdated.content) &&
         getCleanedHtml(contentBeingUpdated.content).replace(/\s/g, "") !==
-            verseContent.replace(/\s/g, "")
+            cellContent.replace(/\s/g, "")
     );
 
     return (
-        <div className="verse-editor" style={{ direction: textDirection }}>
-            <div className="verse-header">
-                <h3>{verseMarkers.join("-")}</h3>
+        <div className="cell-editor" style={{ direction: textDirection }}>
+            <div className="cell-header">
+                <h3>{cellMarkers.join("-")}</h3>
                 {unsavedChanges ? (
                     <div
                         style={{
@@ -60,13 +60,13 @@ const VerseEditor: React.FC<VerseEditorProps> = ({
             </div>
             <div className="text-editor">
                 <Editor
-                    currentLineId={verseMarkers[0]}
-                    key={`${verseIndex}-quill`}
-                    initialValue={verseContent}
+                    currentLineId={cellMarkers[0]}
+                    key={`${cellIndex}-quill`}
+                    initialValue={cellContent}
                     spellCheckResponse={spellCheckResponse}
                     onChange={({ html }) => {
                         setContentBeingUpdated({
-                            verseMarkers,
+                            cellMarkers,
                             content: html.endsWith("\n") ? html : `${html}\n`,
                         });
                     }}
@@ -77,4 +77,4 @@ const VerseEditor: React.FC<VerseEditorProps> = ({
     );
 };
 
-export default VerseEditor;
+export default CellEditor;

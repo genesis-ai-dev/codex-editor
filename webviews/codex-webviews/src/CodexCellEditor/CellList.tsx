@@ -1,19 +1,19 @@
 import React from "react";
-import { EditorVerseContent, SpellCheckResponse } from "../../../../types";
-import VerseEditor from "./VerseEditor";
+import { EditorCellContent, SpellCheckResponse } from "../../../../types";
+import CellEditor from "./TextCellEditor";
 import CellContentDisplay from "./CellContentDisplay";
-import EmptyVerseDisplay from "./EmptyVerseDisplay";
+import EmptyCellDisplay from "./EmptyCellDisplay";
 import "@vscode/codicons/dist/codicon.css"; // Import codicons
 import { CodexCellTypes } from "../../../../types/enums";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
-interface VerseListProps {
+interface CellListProps {
     translationUnits: {
-        verseMarkers: string[];
-        verseContent: string;
+        cellMarkers: string[];
+        cellContent: string;
         cellType: CodexCellTypes;
     }[];
-    contentBeingUpdated: EditorVerseContent;
-    setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorVerseContent>>;
+    contentBeingUpdated: EditorCellContent;
+    setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorCellContent>>;
     spellCheckResponse: SpellCheckResponse | null;
     handleCloseEditor: () => void;
     handleSaveMarkdown: () => void;
@@ -23,7 +23,7 @@ interface VerseListProps {
     isSourceText: boolean;
 }
 
-const VerseList: React.FC<VerseListProps> = ({
+const CellList: React.FC<CellListProps> = ({
     translationUnits,
     contentBeingUpdated,
     setContentBeingUpdated,
@@ -35,17 +35,17 @@ const VerseList: React.FC<VerseListProps> = ({
     cellDisplayMode,
     isSourceText,
 }) => {
-    const renderVerseGroup = (group: typeof translationUnits, startIndex: number) => (
+    const renderCellGroup = (group: typeof translationUnits, startIndex: number) => (
         <span
             key={`group-${startIndex}`}
             className={`verse-group cell-display-${cellDisplayMode}`}
             style={{ direction: textDirection }}
         >
-            {group.map(({ verseMarkers, verseContent, cellType }, index) => (
+            {group.map(({ cellMarkers, cellContent, cellType }, index) => (
                 <CellContentDisplay
                     key={startIndex + index}
-                    cellIds={verseMarkers}
-                    cellContent={verseContent}
+                    cellIds={cellMarkers}
+                    cellContent={cellContent}
                     cellIndex={startIndex + index}
                     cellType={cellType}
                     setContentBeingUpdated={setContentBeingUpdated}
@@ -57,28 +57,28 @@ const VerseList: React.FC<VerseListProps> = ({
         </span>
     );
 
-    const renderVerses = () => {
+    const renderCells = () => {
         const result = [];
         let currentGroup = [];
         let groupStartIndex = 0;
 
         for (let i = 0; i < translationUnits.length; i++) {
-            const { verseMarkers, verseContent } = translationUnits[i];
+            const { cellMarkers, cellContent } = translationUnits[i];
 
             if (
                 !isSourceText &&
-                verseMarkers.join(" ") === contentBeingUpdated.verseMarkers?.join(" ")
+                cellMarkers.join(" ") === contentBeingUpdated.cellMarkers?.join(" ")
             ) {
                 if (currentGroup.length > 0) {
-                    result.push(renderVerseGroup(currentGroup, groupStartIndex));
+                    result.push(renderCellGroup(currentGroup, groupStartIndex));
                     currentGroup = [];
                 }
                 result.push(
-                    <VerseEditor
+                    <CellEditor
                         key={i}
-                        verseMarkers={verseMarkers}
-                        verseContent={verseContent}
-                        verseIndex={i}
+                        cellMarkers={cellMarkers}
+                        cellContent={cellContent}
+                        cellIndex={i}
                         spellCheckResponse={spellCheckResponse}
                         contentBeingUpdated={contentBeingUpdated}
                         setContentBeingUpdated={setContentBeingUpdated}
@@ -88,15 +88,15 @@ const VerseList: React.FC<VerseListProps> = ({
                     />
                 );
                 groupStartIndex = i + 1;
-            } else if (verseContent?.trim()?.length === 0) {
+            } else if (cellContent?.trim()?.length === 0) {
                 if (currentGroup.length > 0) {
-                    result.push(renderVerseGroup(currentGroup, groupStartIndex));
+                    result.push(renderCellGroup(currentGroup, groupStartIndex));
                     currentGroup = [];
                 }
                 result.push(
-                    <EmptyVerseDisplay
+                    <EmptyCellDisplay
                         key={i}
-                        verseMarkers={verseMarkers}
+                        cellMarkers={cellMarkers}
                         setContentBeingUpdated={setContentBeingUpdated}
                         textDirection={textDirection}
                     />
@@ -108,7 +108,7 @@ const VerseList: React.FC<VerseListProps> = ({
         }
 
         if (currentGroup.length > 0) {
-            result.push(renderVerseGroup(currentGroup, groupStartIndex));
+            result.push(renderCellGroup(currentGroup, groupStartIndex));
         }
 
         return result;
@@ -116,9 +116,9 @@ const VerseList: React.FC<VerseListProps> = ({
 
     return (
         <div className="verse-list ql-editor" style={{ direction: textDirection }}>
-            {renderVerses()}
+            {renderCells()}
         </div>
     );
 };
 
-export default VerseList;
+export default CellList;

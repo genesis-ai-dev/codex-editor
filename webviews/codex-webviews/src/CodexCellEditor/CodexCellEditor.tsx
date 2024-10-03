@@ -1,16 +1,16 @@
-import React, { useState, useEffect, useRef, } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import ReactPlayer from "react-player";
 import {
     QuillCellContent,
     EditorPostMessages,
-    EditorVerseContent,
+    EditorCellContent,
     SpellCheckResponse,
 } from "../../../../types";
 import ChapterNavigation from "./ChapterNavigation";
-import VerseList from "./VerseList";
+import CellList from "./CellList";
 import { useVSCodeMessageHandler } from "./hooks/useVSCodeMessageHandler";
 import { VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
-import { useSubtitleData } from "./utils/vttUtils";
+import VideoPlayer from "./VideoPlayer";
 
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
@@ -24,8 +24,8 @@ export enum CELL_DISPLAY_MODES {
 const CodexCellEditor: React.FC = () => {
     const [translationUnits, setTranslationUnits] = useState<QuillCellContent[]>([]);
     const [spellCheckResponse, setSpellCheckResponse] = useState<SpellCheckResponse | null>(null);
-    const [contentBeingUpdated, setContentBeingUpdated] = useState<EditorVerseContent>(
-        {} as EditorVerseContent
+    const [contentBeingUpdated, setContentBeingUpdated] = useState<EditorCellContent>(
+        {} as EditorCellContent
     );
     const [chapterNumber, setChapterNumber] = useState<number>(1);
     const [autocompletionProgress, setAutocompletionProgress] = useState<number | null>(null);
@@ -53,8 +53,8 @@ const CodexCellEditor: React.FC = () => {
         updateCell: (data: { cellId: string; newContent: string; progress: number }) => {
             setTranslationUnits((prevUnits) =>
                 prevUnits.map((unit) =>
-                    unit.verseMarkers[0] === data.cellId
-                        ? { ...unit, verseContent: data.newContent }
+                    unit.cellMarkers[0] === data.cellId
+                        ? { ...unit, cellContent: data.newContent }
                         : unit
                 )
             );
@@ -86,7 +86,7 @@ const CodexCellEditor: React.FC = () => {
     const calculateTotalChapters = (units: QuillCellContent[]): number => {
         const sectionSet = new Set<string>();
         units.forEach((unit) => {
-            const sectionNumber = unit.verseMarkers[0]?.split(" ")?.[1]?.split(":")?.[0];
+            const sectionNumber = unit.cellMarkers[0]?.split(" ")?.[1]?.split(":")?.[0];
             if (sectionNumber) {
                 sectionSet.add(sectionNumber);
             }
@@ -97,13 +97,13 @@ const CodexCellEditor: React.FC = () => {
     const totalChapters = calculateTotalChapters(translationUnits);
 
     const translationUnitsForSection = translationUnits.filter((verse) => {
-        const cellId = verse?.verseMarkers?.[0];
+        const cellId = verse?.cellMarkers?.[0];
         const sectionCellIdParts = cellId?.split(" ")?.[1]?.split(":");
         const sectionCellNumber = sectionCellIdParts?.[0];
         return sectionCellNumber === chapterNumber.toString();
     });
 
-    const handleCloseEditor = () => setContentBeingUpdated({} as EditorVerseContent);
+    const handleCloseEditor = () => setContentBeingUpdated({} as EditorCellContent);
 
     const handleSaveMarkdown = () => {
         vscode.postMessage({
@@ -135,8 +135,8 @@ const CodexCellEditor: React.FC = () => {
     useEffect(() => {
         console.log("RYDER", contentBeingUpdated);
         // Jump to the start time of the cell being edited
-        if (playerRef.current && contentBeingUpdated.verseMarkers?.length > 0) {
-            const cellId = contentBeingUpdated.verseMarkers[0];
+        if (playerRef.current && contentBeingUpdated.cellMarkers?.length > 0) {
+            const cellId = contentBeingUpdated.cellMarkers[0];
             const startTime = parseTimestampFromCellId(cellId);
             if (startTime !== null) {
                 console.log(`Seeking to ${startTime} + ${OFFSET_SECONDS} seconds`);
@@ -164,34 +164,16 @@ const CodexCellEditor: React.FC = () => {
     `;
     document.head.appendChild(styleElement);
 
-    const { subtitleUrl } = useSubtitleData(translationUnitsForSection);
     return (
         <div className="codex-cell-editor" style={{ direction: textDirection }}>
-            <h1>{translationUnitsForSection[0]?.verseMarkers?.[0]?.split(":")[0]}</h1>
+            <h1>{translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0]}</h1>
             <div className="editor-container">
                 {shouldShowVideoPlayer && (
-                    <div className="player-wrapper">
-                        <ReactPlayer
-                            ref={playerRef}
-                            url={videoUrl}
-                            controls={true}
-                            width="100%"
-                            height="auto"
-                            config={{
-                                file: {
-                                    tracks: [
-                                        {
-                                            kind: "subtitles",
-                                            src: subtitleUrl,
-                                            srcLang: "en", // FIXME: make this dynamic
-                                            label: "English", // FIXME: make this dynamic
-                                            default: true,
-                                        },
-                                    ],
-                                },
-                            }}
-                        />
-                    </div>
+                    <VideoPlayer
+                        playerRef={playerRef}
+                        videoUrl={videoUrl}
+                        translationUnitsForSection={translationUnitsForSection}
+                    />
                 )}
                 <ChapterNavigation
                     chapterNumber={chapterNumber}
@@ -208,7 +190,6 @@ const CodexCellEditor: React.FC = () => {
                     totalCellsToAutocomplete={translationUnitsForSection.length}
                     setShouldShowVideoPlayer={setShouldShowVideoPlayer}
                     shouldShowVideoPlayer={shouldShowVideoPlayer}
-                    // documentHasVideoAvailable={documentHasVideoAvailable}
                     documentHasVideoAvailable={true}
                 />
                 {autocompletionProgress !== null && (
@@ -217,7 +198,7 @@ const CodexCellEditor: React.FC = () => {
                         <span>{Math.round(autocompletionProgress * 100)}% complete</span>
                     </div>
                 )}
-                <VerseList
+                <CellList
                     translationUnits={translationUnitsForSection}
                     contentBeingUpdated={contentBeingUpdated}
                     setContentBeingUpdated={setContentBeingUpdated}

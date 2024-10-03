@@ -1,6 +1,7 @@
 import { useMemo } from "react";
+import { QuillCellContent } from "../../../../../types";
 
-export const useSubtitleData = (translationUnits: any[]) => {
+export const useSubtitleData = (translationUnits: QuillCellContent[]) => {
     const subtitleData = useMemo(() => {
         return generateVttData(translationUnits);
     }, [translationUnits]);
@@ -14,7 +15,7 @@ export const useSubtitleData = (translationUnits: any[]) => {
     return { subtitleUrl };
 };
 
-const generateVttData = (translationUnits: any[]): string => {
+const generateVttData = (translationUnits: QuillCellContent[]): string => {
     if (!translationUnits.length) return "";
 
     const formatTime = (seconds: number): string => {
@@ -26,9 +27,9 @@ const generateVttData = (translationUnits: any[]): string => {
         .map((unit, index) => {
             const startTime = unit.timestamps?.startTime ?? index;
             const endTime = unit.timestamps?.endTime ?? index + 1;
-            return `${unit.verseMarkers[0]}
+            return `${unit.cellMarkers[0]}
 ${formatTime(Number(startTime))} --> ${formatTime(Number(endTime))}
-${unit.verseContent}
+${unit.cellContent}
 
 `;
         })

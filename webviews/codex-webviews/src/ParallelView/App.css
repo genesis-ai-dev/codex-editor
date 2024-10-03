@@ -52,7 +52,7 @@ body {
     box-sizing: border-box;
 }
 
-.verse-header {
+.cell-header {
     display: flex;
     flex-direction: row;
     flex-wrap: nowrap;
@@ -97,7 +97,7 @@ vscode-badge {
         --item-spacing: 6px;
     }
 
-    .verse-header {
+    .cell-header {
         flex-direction: column;
     }
 

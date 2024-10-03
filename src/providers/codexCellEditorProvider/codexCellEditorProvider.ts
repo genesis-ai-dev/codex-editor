@@ -14,7 +14,6 @@ import {
     CodexNotebookAsJSONData,
     EditorPostMessages,
     EditorReceiveMessages,
-    EditorVerseContent,
     SpellCheckResponse,
 } from "../../../types";
 
@@ -143,7 +142,7 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                         try {
                             this.updateCellContentAndMetadata(
                                 document,
-                                e.content.verseMarkers[0],
+                                e.content.cellMarkers[0],
                                 e.content.content,
                                 EditType.USER_EDIT
                             );
@@ -562,10 +561,10 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
             const cell = currentChapterTranslationUnits[i];
 
             if (cell.cellType === CodexCellTypes.PARATEXT) continue;
-            if (cell.verseContent?.trim() === "<range>") continue;
-            if (cell.verseContent?.trim()) continue;
+            if (cell.cellContent?.trim() === "<range>") continue;
+            if (cell.cellContent?.trim()) continue;
 
-            const cellId = cell.verseMarkers[0];
+            const cellId = cell.cellMarkers[0];
             if (!cellId) {
                 throw new Error("Cell ID is undefined");
             }
@@ -601,9 +600,9 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
     }
 
     private processNotebookData(notebook: vscode.NotebookData) {
-        const translationUnits = notebook.cells.map((cell) => ({
-            verseMarkers: [cell.metadata?.id],
-            verseContent: cell.value,
+        const translationUnits: QuillCellContent[] = notebook.cells.map((cell) => ({
+            cellMarkers: [cell.metadata?.id],
+            cellContent: cell.value,
             cellType: cell.metadata?.type,
             editHistory: cell.metadata?.edits,
             timestamps: cell.metadata?.data, // FIXME: add strong types because this is where the timestamps are and it's not clear
@@ -614,48 +613,28 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
         return processedData;
     }
 
-    private mergeRangesAndProcess(
-        translationUnits: {
-            verseMarkers: string[];
-            verseContent: string;
-            cellType: CodexCellTypes;
-            editHistory: Array<any>;
-            timestamps: {
-                startTime: number;
-                endTime: number;
-            };
-        }[]
-    ) {
-        const translationUnitsWithMergedRanges: {
-            verseMarkers: string[];
-            verseContent: string;
-            cellType: CodexCellTypes;
-            editHistory: Array<any>;
-            timestamps: {
-                startTime: number;
-                endTime: number;
-            };
-        }[] = [];
+    private mergeRangesAndProcess(translationUnits: QuillCellContent[]) {
+        const translationUnitsWithMergedRanges: QuillCellContent[] = [];
 
         translationUnits.forEach((verse, index) => {
             const rangeMarker = "<range>";
-            if (verse.verseContent?.trim() === rangeMarker) {
+            if (verse.cellContent?.trim() === rangeMarker) {
                 return;
             }
 
             let forwardIndex = 1;
-            const verseMarkers = [...verse.verseMarkers];
-            let nextVerse = translationUnits[index + forwardIndex];
+            const cellMarkers = [...verse.cellMarkers];
+            let nextCell = translationUnits[index + forwardIndex];
 
-            while (nextVerse?.verseContent?.trim() === rangeMarker) {
-                verseMarkers.push(...nextVerse.verseMarkers);
+            while (nextCell?.cellContent?.trim() === rangeMarker) {
+                cellMarkers.push(...nextCell.cellMarkers);
                 forwardIndex++;
-                nextVerse = translationUnits[index + forwardIndex];
+                nextCell = translationUnits[index + forwardIndex];
             }
 
             translationUnitsWithMergedRanges.push({
-                verseMarkers,
-                verseContent: verse.verseContent,
+                cellMarkers,
+                cellContent: verse.cellContent,
                 cellType: verse.cellType,
                 editHistory: verse.editHistory,
                 timestamps: verse.timestamps,

@@ -1,5 +1,5 @@
 import React from "react";
-import { EditorVerseContent, EditorPostMessages } from "../../../../types";
+import { EditorCellContent, EditorPostMessages } from "../../../../types";
 import { HACKY_removeContiguousSpans } from "./utils";
 import { CodexCellTypes } from "../../../../types/enums";
 
@@ -8,7 +8,7 @@ interface CellContentDisplayProps {
     cellContent: string;
     cellIndex: number;
     cellType: CodexCellTypes;
-    setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorVerseContent>>;
+    setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorCellContent>>;
     vscode: any;
     textDirection: "ltr" | "rtl";
     isSourceText: boolean;
@@ -26,7 +26,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     const handleVerseClick = () => {
         if (isSourceText) return; // FIXME: if you click a source text cell.. maybe we still want to update the shared state store?
         setContentBeingUpdated({
-            verseMarkers: cellIds,
+            cellMarkers: cellIds,
             content: cellContent,
         });
         vscode.postMessage({
