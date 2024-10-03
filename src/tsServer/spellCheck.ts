@@ -38,6 +38,7 @@ export class SpellChecker {
         console.log("Dictionary path: " + this.dictionaryPath);
         const metadataPath = path.join(getWorkSpaceUri()?.fsPath || process.cwd(), "metadata.json");
         if (fs.existsSync(metadataPath)) {
+            console.log("metadata.json found in constructor. Initializing dictionary.");
             this.ensureDictionaryExists();
             this.initializeDictionary();
             this.watchDictionary();
@@ -57,13 +58,19 @@ export class SpellChecker {
     }
 
     private async ensureDictionaryExists() {
-        try {
-            await fs.promises.access(this.dictionaryPath);
-        } catch {
-            const emptyDictionary = ""; // Dictionary is JSONL
-            await fs.promises.mkdir(path.dirname(this.dictionaryPath), { recursive: true });
-            await fs.promises.writeFile(this.dictionaryPath, emptyDictionary);
-            console.log("Created new empty dictionary.");
+        const metadataPath = path.join(getWorkSpaceUri()?.fsPath || process.cwd(), "metadata.json");
+        if (fs.existsSync(metadataPath)) {
+            console.log("metadata.json found in ensureDictionaryExists. Checking for dictionary.");
+            try {
+                await fs.promises.access(this.dictionaryPath);
+            } catch {
+                const emptyDictionary = ""; // Dictionary is JSONL
+                await fs.promises.mkdir(path.dirname(this.dictionaryPath), { recursive: true });
+                await fs.promises.writeFile(this.dictionaryPath, emptyDictionary);
+                console.log("Created new empty dictionary.");
+            }
+        } else {
+            console.log("metadata.json not found. Skipping dictionary creation.");
         }
     }
 
