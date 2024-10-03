@@ -62,15 +62,12 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
         };
         const textDirection = this.getTextDirection();
         const isSourceText = document.uri.fsPath.endsWith(".source");
-        const subtitlesTrack = this.generateSubtitlesTrack(document);
-        const subtitlesUri = this.createSubtitlesUri(webviewPanel, subtitlesTrack);
 
         webviewPanel.webview.html = this.getHtmlForWebview(
             webviewPanel.webview,
             document,
             textDirection,
-            isSourceText,
-            subtitlesUri
+            isSourceText
         );
 
         const updateWebview = () => {
@@ -323,8 +320,7 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
         webview: vscode.Webview,
         document: vscode.TextDocument,
         textDirection: string,
-        isSourceText: boolean,
-        subtitlesUri: vscode.Uri
+        isSourceText: boolean
     ): string {
         const styleResetUri = webview.asWebviewUri(
             vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "reset.css")
@@ -368,7 +364,7 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; worker-src ${webview.cspSource}; connect-src https://languagetool.org/api/; img-src ${webview.cspSource} https:; font-src ${webview.cspSource}; media-src ${webview.cspSource};">
+                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; worker-src ${webview.cspSource}; connect-src https://languagetool.org/api/; img-src ${webview.cspSource} https:; font-src ${webview.cspSource}; media-src ${webview.cspSource} blob:;">
                 <link href="${styleResetUri}" rel="stylesheet" nonce="${nonce}">
                 <link href="${styleVSCodeUri}" rel="stylesheet" nonce="${nonce}">
                 <link href="${codiconsUri}" rel="stylesheet" nonce="${nonce}" />
@@ -377,8 +373,7 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                 <script nonce="${nonce}">
                     window.initialData = {
                         isSourceText: ${isSourceText},
-                        videoUrl: "${videoUri}",
-                        subtitlesUrl: "${subtitlesUri}"
+                        videoUrl: "${videoUri}"
                     };
                 </script>
             </head>
@@ -611,7 +606,7 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
             verseContent: cell.value,
             cellType: cell.metadata?.type,
             editHistory: cell.metadata?.edits,
-            timestamps: cell.metadata?.data?.timestamps,
+            timestamps: cell.metadata?.data, // FIXME: add strong types because this is where the timestamps are and it's not clear
         }));
 
         const processedData = this.mergeRangesAndProcess(translationUnits);
@@ -694,37 +689,5 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
         );
 
         await vscode.workspace.applyEdit(edit);
-    }
-
-    private generateSubtitlesTrack(document: vscode.TextDocument): string {
-        const notebookData: vscode.NotebookData = this.getDocumentAsJson(document);
-        const processedData = this.processNotebookData(notebookData);
-
-        const formatTime = (seconds: number): string => {
-            const date = new Date(seconds * 1000);
-            return date.toISOString().substr(11, 12);
-        };
-
-        const cues = processedData
-            .map((unit) => {
-                const startTime = unit.timestamps?.startTime ?? 0;
-                const endTime = unit.timestamps?.endTime ?? startTime + 1;
-                return `${unit.verseMarkers[0]}
-${formatTime(startTime)} --> ${formatTime(endTime)}
-${unit.verseContent}
-
-`;
-            })
-            .join("\n");
-
-        return `WEBVTT
-
-${cues}`;
-    }
-
-    private createSubtitlesUri(webviewPanel: vscode.WebviewPanel, subtitlesTrack: string): vscode.Uri {
-        const tempSubtitlesPath = path.join(this.context.extensionPath, 'temp-subtitles.vtt');
-        fs.writeFileSync(tempSubtitlesPath, subtitlesTrack);
-        return webviewPanel.webview.asWebviewUri(vscode.Uri.file(tempSubtitlesPath));
     }
 }
