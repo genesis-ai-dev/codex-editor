@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import ReactPlayer from "react-player";
 import {
     QuillCellContent,
@@ -34,9 +34,7 @@ const CodexCellEditor: React.FC = () => {
     );
     const [isSourceText, setIsSourceText] = useState<boolean>(false);
     const [videoUrl, setVideoUrl] = useState<string>((window as any).initialData?.videoUrl || "");
-    const [subtitlesUrl, setSubtitlesUrl] = useState<string>(
-        (window as any).initialData?.subtitlesUrl || ""
-    );
+
     const playerRef = useRef<ReactPlayer>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     // const [documentHasVideoAvailable, setDocumentHasVideoAvailable] = useState<boolean>(false);
@@ -74,7 +72,6 @@ const CodexCellEditor: React.FC = () => {
         vscode.postMessage({ command: "getContent" } as EditorPostMessages);
         setIsSourceText((window as any).initialData?.isSourceText || false);
         setVideoUrl((window as any).initialData?.videoUrl || "");
-        setSubtitlesUrl((window as any).initialData?.subtitlesUrl || "");
     }, []);
 
     useEffect(() => {
@@ -166,35 +163,38 @@ const CodexCellEditor: React.FC = () => {
     `;
     document.head.appendChild(styleElement);
 
-    //     const subtitlesTrack = useMemo(() => {
-    //         if (!translationUnits.length) return "";
+    const subtitleData = useMemo(() => {
+        if (!translationUnits.length) return "";
 
-    //         const formatTime = (seconds: number): string => {
-    //             const date = new Date(seconds * 1000);
-    //             return date.toISOString().substr(11, 12);
-    //         };
+        const formatTime = (seconds: number): string => {
+            const date = new Date(seconds * 1000);
+            return date.toISOString().substr(11, 12);
+        };
 
-    //         const cues = translationUnits
-    //             .map((unit, index) => {
-    //                 const startTime = unit.timestamps?.startTime ?? index;
-    //                 const endTime = unit.timestamps?.endTime ?? index + 1;
-    //                 return `${unit.verseMarkers[0]}
-    // ${formatTime(startTime)} --> ${formatTime(endTime)}
-    // ${unit.verseContent}
+        const cues = translationUnits
+            .map((unit, index) => {
+                console.log("unit", unit);
+                const startTime = unit.timestamps?.startTime ?? index;
+                const endTime = unit.timestamps?.endTime ?? index + 1;
+                return `${unit.verseMarkers[0]}
+${formatTime(Number(startTime))} --> ${formatTime(Number(endTime))}
+${unit.verseContent}
 
-    // `;
-    //             })
-    //             .join("\n");
+`;
+            })
+            .join("\n");
 
-    //         return `WEBVTT
+        return `WEBVTT
 
-    // ${cues}`;
-    //     }, [translationUnits]);
+${cues}`;
+    }, [translationUnits]);
 
-    // const subtitlesUrl = useMemo(() => {
-    //     return URL.createObjectURL(new Blob([subtitlesTrack], { type: "text/vtt" }));
-    // }, [subtitlesTrack]);
-    // console.log({ subtitlesUrl, subtitlesTrack });
+    const subtitleBlob = useMemo(
+        () => new Blob([subtitleData], { type: "text/vtt" }),
+        [subtitleData]
+    );
+    const subtitleUrl = useMemo(() => URL.createObjectURL(subtitleBlob), [subtitleBlob]);
+
     return (
         <div className="codex-cell-editor" style={{ direction: textDirection }}>
             <h1>{translationUnitsForSection[0]?.verseMarkers?.[0]?.split(":")[0]}</h1>
@@ -212,9 +212,9 @@ const CodexCellEditor: React.FC = () => {
                                     tracks: [
                                         {
                                             kind: "subtitles",
-                                            src: subtitlesUrl,
-                                            label: "Project subtitles",
-                                            srcLang: "en",
+                                            src: subtitleUrl,
+                                            srcLang: "en", // FIXME: make this dynamic
+                                            label: "English", // FIXME: make this dynamic
                                             default: true,
                                         },
                                     ],
