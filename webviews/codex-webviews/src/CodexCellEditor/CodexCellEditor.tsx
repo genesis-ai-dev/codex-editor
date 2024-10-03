@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import ReactPlayer from "react-player";
 import {
     QuillCellContent,
@@ -10,7 +10,7 @@ import ChapterNavigation from "./ChapterNavigation";
 import VerseList from "./VerseList";
 import { useVSCodeMessageHandler } from "./hooks/useVSCodeMessageHandler";
 import { VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
-import { useSubtitleData } from "./utils/vttUtils";
+import VideoPlayer from "./VideoPlayer";
 
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
@@ -164,34 +164,16 @@ const CodexCellEditor: React.FC = () => {
     `;
     document.head.appendChild(styleElement);
 
-    const { subtitleUrl } = useSubtitleData(translationUnitsForSection);
     return (
         <div className="codex-cell-editor" style={{ direction: textDirection }}>
             <h1>{translationUnitsForSection[0]?.verseMarkers?.[0]?.split(":")[0]}</h1>
             <div className="editor-container">
                 {shouldShowVideoPlayer && (
-                    <div className="player-wrapper">
-                        <ReactPlayer
-                            ref={playerRef}
-                            url={videoUrl}
-                            controls={true}
-                            width="100%"
-                            height="auto"
-                            config={{
-                                file: {
-                                    tracks: [
-                                        {
-                                            kind: "subtitles",
-                                            src: subtitleUrl,
-                                            srcLang: "en", // FIXME: make this dynamic
-                                            label: "English", // FIXME: make this dynamic
-                                            default: true,
-                                        },
-                                    ],
-                                },
-                            }}
-                        />
-                    </div>
+                    <VideoPlayer
+                        playerRef={playerRef}
+                        videoUrl={videoUrl}
+                        translationUnitsForSection={translationUnitsForSection}
+                    />
                 )}
                 <ChapterNavigation
                     chapterNumber={chapterNumber}
