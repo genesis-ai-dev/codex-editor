@@ -176,7 +176,7 @@ const CodexCellEditor: React.FC = () => {
     const translationUnitsWithCurrentEditorContent = useMemo(() => {
         return translationUnitsForSection?.map((unit) => {
             if (unit.cellMarkers[0] === contentBeingUpdated.cellMarkers?.[0]) {
-                return { ...unit, cellContent: contentBeingUpdated.content };
+                return { ...unit, cellContent: contentBeingUpdated.cellContent };
             }
             return unit;
         });
@@ -197,7 +197,7 @@ const CodexCellEditor: React.FC = () => {
                     chapterNumber={chapterNumber}
                     setChapterNumber={setChapterNumber}
                     totalChapters={totalChapters}
-                    unsavedChanges={!!contentBeingUpdated.content}
+                    unsavedChanges={!!contentBeingUpdated.cellContent}
                     onAutocompleteChapter={handleAutocompleteChapter}
                     onSetTextDirection={setTextDirection}
                     textDirection={textDirection}

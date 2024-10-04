@@ -21,7 +21,7 @@ const EmptyCellDisplay: React.FC<EmptyCellDisplayProps> = ({
         }
         setContentBeingUpdated({
             cellMarkers,
-            content: "",
+            cellContent: "",
         });
     };
 

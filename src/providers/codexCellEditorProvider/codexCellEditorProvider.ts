@@ -121,7 +121,7 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                         try {
                             const response = await vscode.commands.executeCommand(
                                 "translators-copilot.spellCheckText",
-                                e.content.content
+                                e.content.cellContent
                             );
                             this.postMessageToWebview(webviewPanel, {
                                 type: "providerSendsSpellCheckResponse",
@@ -136,12 +136,12 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                     case "saveHtml":
                         console.log("saveHtml message received", { e });
                         try {
-                            this.updateCellContentAndMetadata(
+                            this.updateCellContentAndMetadata({
                                 document,
-                                e.content.cellMarkers[0],
-                                e.content.content,
-                                EditType.USER_EDIT
-                            );
+                                cellId: e.content.cellMarkers[0],
+                                newContent: e.content.cellContent,
+                                editType: EditType.USER_EDIT,
+                            });
                         } catch (error) {
                             console.error("Error saving HTML:", error);
                             vscode.window.showErrorMessage("Failed to save HTML content.");
@@ -264,12 +264,17 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
         });
     }
 
-    private async updateCellContentAndMetadata(
-        document: vscode.TextDocument,
-        cellId: string,
-        newContent: string,
-        editType: EditType
-    ) {
+    private async updateCellContentAndMetadata({
+        document,
+        cellId,
+        newContent,
+        editType,
+    }: {
+        document: vscode.TextDocument;
+        cellId: string;
+        newContent: string;
+        editType: EditType;
+    }) {
         const currentFileContent = JSON.parse(document.getText()) as CodexNotebookAsJSONData;
         // FIXME: Using the deserializing using the custom codex deserializer may cause errors if used here
 
@@ -532,12 +537,12 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
 
             // Open the document and update content and metadata atomically
             const document = await vscode.workspace.openTextDocument(documentUri);
-            await this.updateCellContentAndMetadata(
+            await this.updateCellContentAndMetadata({
                 document,
-                currentCellId,
-                result,
-                EditType.LLM_GENERATION
-            );
+                cellId: currentCellId,
+                newContent: result,
+                editType: EditType.LLM_GENERATION,
+            });
 
             console.log("LLM completion result", { result });
             return result;

@@ -46,10 +46,7 @@ export class QuillSpellChecker {
      * @param quill Instance of the Qill editor.
      * @param params Options for the QuillSpellChecker instance.
      */
-    constructor(
-        public quill: Quill,
-        public params: QuillSpellCheckerParams
-    ) {
+    constructor(public quill: Quill, public params: QuillSpellCheckerParams) {
         debug("spell-checker-debug: QuillSpellChecker constructor", {
             quill,
             params,
@@ -263,7 +260,7 @@ export class QuillSpellChecker {
                     window.vscodeApi.postMessage({
                         command: "from-quill-spellcheck-getSpellCheckResponse",
                         content: {
-                            content: text,
+                            cellContent: text,
                         },
                     } as EditorPostMessages);
 
@@ -309,7 +306,7 @@ export class QuillSpellChecker {
  *
  * @param Quill Quill static instance.
  */
-export default function registerQuillSpellChecker(Quill: typeof import('quill'), vscodeApi: any) {
+export default function registerQuillSpellChecker(Quill: any, vscodeApi: any) {
     debug("spell-checker-debug: registerQuillSpellChecker", {
         Quill,
         vscodeApi,
@@ -319,13 +316,13 @@ export default function registerQuillSpellChecker(Quill: typeof import('quill'),
     (window as any).vscodeApi = vscodeApi;
 
     // Check if the module is already registered
-    if (!(Quill as any).imports?.['modules/spellChecker']) {
+    if (!(Quill as any).imports?.["modules/spellChecker"]) {
         (Quill as any).register({
             "modules/spellChecker": QuillSpellChecker,
             "formats/spck-match": createSuggestionBlotForQuillInstance(Quill),
         });
     } else {
-        console.warn('SpellChecker module is already registered. Skipping registration.');
+        console.warn("SpellChecker module is already registered. Skipping registration.");
     }
 }
 

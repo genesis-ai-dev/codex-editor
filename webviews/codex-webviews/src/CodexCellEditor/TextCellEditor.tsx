@@ -33,9 +33,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
         useContext(UnsavedChangesContext);
 
     const unsavedChangesState = !!(
-        contentBeingUpdated.content &&
-        getCleanedHtml(contentBeingUpdated.content) &&
-        getCleanedHtml(contentBeingUpdated.content).replace(/\s/g, "") !==
+        contentBeingUpdated.cellContent &&
+        getCleanedHtml(contentBeingUpdated.cellContent) &&
+        getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !==
             cellContent.replace(/\s/g, "")
     );
 
@@ -79,7 +79,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     onChange={({ html }) => {
                         setContentBeingUpdated({
                             cellMarkers,
-                            content: html.endsWith("\n") ? html : `${html}\n`,
+                            cellContent: html.endsWith("\n") ? html : `${html}\n`,
                         });
                     }}
                     textDirection={textDirection}

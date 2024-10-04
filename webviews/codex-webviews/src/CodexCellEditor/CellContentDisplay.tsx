@@ -34,7 +34,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         }
         setContentBeingUpdated({
             cellMarkers: cellIds,
-            content: cellContent,
+            cellContent: cellContent,
         });
         vscode.postMessage({
             command: "setCurrentIdToGlobalState",

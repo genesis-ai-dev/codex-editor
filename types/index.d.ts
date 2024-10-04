@@ -7,11 +7,6 @@ interface ChatMessage {
     content: string;
 }
 
-export interface Edit {
-    cellValue: string;
-    timestamp: number;
-    type: "llm-generation" | "user-edit";
-}
 interface ChatMessageWithContext extends ChatMessage {
     context?: any; // FixMe: discuss what context could be. Cound it be a link to a note?
     createdAt: string;
@@ -59,7 +54,7 @@ interface TranslationPair {
     cellId: string;
     sourceCell: MinimalCellResult;
     targetCell: MinimalCellResult;
-    edits?: Edit[]; // Make this optional as it might not always be present
+    edits?: EditHistory[]; // Make this optional as it might not always be present
 }
 
 interface CellIdGlobalState {
@@ -207,7 +202,7 @@ type TranslationPair = {
     cellId: string;
     sourceCell: MinimalCellResult;
     targetCell: MinimalCellResult;
-    edits?: Edit[]; // Make this optional as it might not always be present
+    edits?: EditHistory[]; // Make this optional as it might not always be present
 };
 
 type SourceCellVersions = {
@@ -216,10 +211,7 @@ type SourceCellVersions = {
     versions: string[];
 };
 
-type EditorCellContent = {
-    cellMarkers: string[];
-    content: string;
-};
+type EditorCellContent = Pick<QuillCellContent, "cellMarkers" | "cellContent">;
 
 type EditorPostMessages =
     | { command: "from-quill-spellcheck-getSpellCheckResponse"; content: EditorCellContent }
@@ -236,7 +228,11 @@ type EditorPostMessages =
     | { command: "openSourceText"; content: { chapterNumber: number } };
 
 type EditorReceiveMessages =
-    | { type: "providerSendsInitialContent"; content: QuillCellContent[]; isSourceText: boolean }
+    | {
+          type: "providerSendsInitialContent";
+          content: QuillCellContent[];
+          isSourceText: boolean;
+      }
     | {
           type: "providerUpdatesCell";
           content: { cellId: string; progress: number };
@@ -247,31 +243,44 @@ type EditorReceiveMessages =
     | { type: "providerSendsLLMCompletionResponse"; content: { completion: string } }
     | { type: "jumpToSection"; content: string };
 
-type CustomNotebookCellData = vscode.NotebookCellData & {
-    metadata: vscode.NotebookCellData["metadata"] & {
-        edits?: {
-            cellValue: string;
-            timestamp: number;
-            type: import("./enums").EditType;
-        }[];
-    };
+type EditHistory = {
+    cellValue: string;
+    timestamp: number;
+    type: import("./enums").EditType;
 };
-type CustomNotebookDocument = vscode.NotebookDocument & {
-    metadata: vscode.NotebookCellData["metadata"] & {
-        edits?: {
-            cellValue: string;
-            timestamp: number;
-            type: import("./enums").EditType;
-        }[];
+
+type CodexData = Timestamps; // add other data types with "&"
+
+type CustomCellMetaData = {
+    id: string;
+    type: import("./enums").CodexCellTypes;
+    data?: CodexData;
+    edits?: EditHistory[];
+    attachments?: {
+        [key: string]: {
+            url: string;
+            type: string;
+        };
     };
 };
 
-type CodexNotebookAsJSONData = vscode.NotebookCellData & {
-    metadata: vscode.NotebookData["metadata"] & {
-        [key: string]: any;
-        textDirection?: "ltr" | "rtl";
-    };
+type CustomNotebookCellData = vscode.NotebookCellData & {
+    metadata: CustomCellMetaData;
+};
+
+type CustomNotebookMetadata = {
+    id: string;
+    data?: { corpusMarker?: string };
+    textDirection?: "ltr" | "rtl";
+};
+
+type CustomNotebookDocument = vscode.NotebookDocument & {
+    metadata: CustomNotebookMetadata;
+};
+
+type CodexNotebookAsJSONData = {
     cells: CustomNotebookCellData[];
+    metadata: CustomNotebookMetadata;
 };
 
 interface QuillCellContent {
@@ -283,16 +292,16 @@ interface QuillCellContent {
 }
 
 interface Timestamps {
-    startTime: number;
-    endTime: number;
+    startTime?: number;
+    endTime?: number;
 }
 
-interface EditHistory {
-    timestamp: number;
-    type: string;
-    content: string;
-    // ... other fields
-}
+// interface EditHistory {
+//     timestamp: number;
+//     type: string;
+//     content: string;
+//     // ... other fields
+// }
 
 interface EditorCellContent {
     cellMarkers: string[];

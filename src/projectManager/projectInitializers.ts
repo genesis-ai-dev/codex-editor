@@ -14,6 +14,12 @@ import {
     getEBCorpusMetadataByLanguageCode,
 } from "../utils/ebibleCorpusUtils";
 import { vrefData } from "../utils/verseRefUtils/verseData";
+import {
+    CodexNotebookAsJSONData,
+    CustomNotebookCellData,
+    CustomNotebookDocument,
+} from "../../types";
+import { CodexCellTypes } from "../../types/enums";
 
 export async function downloadBible(
     languageType: "source" | "target"
@@ -127,13 +133,14 @@ async function handleBibleDownload(
     const bibleLines = new TextDecoder("utf-8").decode(bibleTextData).split(/\r?\n/);
 
     // Instead of zipping, we'll create a new structure
-    const bibleData: any = {
+    //FIXME: add types
+    const bibleData: CodexNotebookAsJSONData = {
         cells: [],
         metadata: {
+            id: corpusMetadata.file,
             data: {
                 corpusMarker: undefined, // We'll set this later
             },
-            navigation: [],
         },
     };
 
@@ -156,26 +163,21 @@ async function handleBibleDownload(
                 chapterCellId = `${book} ${chapter}:1:${Math.random().toString(36).substr(2, 11)}`;
                 bibleData.cells.push({
                     kind: 2,
-                    language: "paratext",
+                    languageId: "html",
                     value: `<h1>Chapter ${chapter}</h1>`,
                     metadata: {
-                        type: "paratext",
+                        type: CodexCellTypes.PARATEXT,
                         id: chapterCellId,
                     },
-                });
-                bibleData.metadata.navigation.push({
-                    cellId: chapterCellId,
-                    children: [],
-                    label: `Chapter ${chapter}`,
                 });
             }
 
             bibleData.cells.push({
                 kind: 2,
-                language: "scripture",
+                languageId: "html",
                 value: bibleText,
                 metadata: {
-                    type: "text",
+                    type: CodexCellTypes.TEXT,
                     id: vrefLine,
                     data: {},
                 },
