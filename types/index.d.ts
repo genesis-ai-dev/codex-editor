@@ -272,6 +272,7 @@ type CustomNotebookMetadata = {
     id: string;
     data?: { corpusMarker?: string };
     textDirection?: "ltr" | "rtl";
+    perf?: any;
 };
 
 type CustomNotebookDocument = vscode.NotebookDocument & {

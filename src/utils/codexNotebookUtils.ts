@@ -11,6 +11,12 @@ import { getTestamentForBook } from "./verseRefUtils/verseData";
 import grammar, { ParsedUSFM } from "usfm-grammar";
 import * as path from "path";
 import { WebVTTParser } from "webvtt-parser";
+import {
+    CodexNotebookAsJSONData,
+    CustomNotebookCellData,
+    CustomNotebookMetadata,
+} from "../../types";
+import { CodexCellTypes } from "../../types/enums";
 
 export const NOTEBOOK_TYPE = "codex-type";
 
@@ -155,8 +161,10 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
 
             for (const cell of notebookData.cells) {
                 if (cell.kind === vscode.NotebookCellKind.Markup) {
+                    // @ts-expect-error: type is not defined in the type because it is the old type
                     if (cell.metadata?.type === "chapter-heading") {
                         // This is a chapter heading cell
+                        // @ts-expect-error: type is not defined in the type because it is the old type
                         const chapter = cell.metadata.data?.chapter;
                         if (chapter && book) {
                             const h1Content = `${chapterHeadingText} ${chapter}`;
@@ -727,16 +735,16 @@ export async function createCodexNotebookFromWebVTT(
         const parser = new WebVTTParser();
         const tree = parser.parse(webvttFileContent);
 
-        const cells: vscode.NotebookCellData[] = [];
+        const cells: CustomNotebookCellData[] = [];
 
         for (const cue of tree.cues) {
             const cell = new vscode.NotebookCellData(
                 vscode.NotebookCellKind.Code,
                 cue.text,
                 "scripture"
-            );
+            ) as CustomNotebookCellData;
             cell.metadata = {
-                type: "text",
+                type: CodexCellTypes.TEXT,
                 // @ts-expect-error: identifier is not defined in the type
                 id: `${notebookName} 1:${cue.identifier || `cue-${cue.startTime}-${cue.endTime}`}`,
                 data: {
@@ -761,12 +769,16 @@ export async function createCodexNotebookFromWebVTT(
             shouldOverWrite,
         });
 
-        const targetCells: vscode.NotebookCellData[] = [];
+        const targetCells: CustomNotebookCellData[] = [];
 
         for (const cue of tree.cues) {
-            const cell = new vscode.NotebookCellData(vscode.NotebookCellKind.Code, "", "scripture");
+            const cell = new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                "",
+                "html"
+            ) as CustomNotebookCellData;
             cell.metadata = {
-                type: "text",
+                type: CodexCellTypes.TEXT,
                 // @ts-expect-error: identifier is not defined in the type
                 id: `${notebookName} 1:${cue.identifier || `cue-${cue.startTime}-${cue.endTime}`}`,
                 data: {
@@ -778,6 +790,11 @@ export async function createCodexNotebookFromWebVTT(
         }
 
         const targetNotebookData = new vscode.NotebookData(targetCells);
+        const targetNotebookMetadata: CustomNotebookMetadata = {
+            id: notebookName,
+            textDirection: "ltr",
+        };
+        targetNotebookData.metadata = targetNotebookMetadata;
         const targetSerializer = new CodexContentSerializer();
         const targetNotebookFile = await targetSerializer.serializeNotebook(
             targetNotebookData,
