@@ -55,7 +55,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             gap: "0.5rem",
                         }}
                     >
-                        <VSCodeButton onClick={handleSaveMarkdown} appearance="primary">
+                        <VSCodeButton
+                            onClick={handleSaveMarkdown}
+                            appearance="primary"
+                            className={`${showFlashingBorder ? "flashing-border" : ""}`}
+                        >
                             <i className="codicon codicon-save"></i>
                         </VSCodeButton>
                         <CloseButtonWithConfirmation handleDeleteButtonClick={handleCloseEditor} />
