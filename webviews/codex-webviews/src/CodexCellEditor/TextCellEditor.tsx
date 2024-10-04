@@ -14,7 +14,7 @@ interface CellEditorProps {
     contentBeingUpdated: EditorCellContent;
     setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorCellContent>>;
     handleCloseEditor: () => void;
-    handleSaveMarkdown: () => void;
+    handleSaveHtml: () => void;
     textDirection: "ltr" | "rtl";
 }
 
@@ -26,7 +26,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     contentBeingUpdated,
     setContentBeingUpdated,
     handleCloseEditor,
-    handleSaveMarkdown,
+    handleSaveHtml,
     textDirection,
 }) => {
     const { unsavedChanges, setUnsavedChanges, showFlashingBorder } =
@@ -56,7 +56,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         }}
                     >
                         <VSCodeButton
-                            onClick={handleSaveMarkdown}
+                            onClick={handleSaveHtml}
                             appearance="primary"
                             className={`${showFlashingBorder ? "flashing-border" : ""}`}
                         >

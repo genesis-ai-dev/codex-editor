@@ -657,7 +657,8 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
 
         // Update the notebook metadata
         if (!currentContent.metadata) {
-            currentContent.metadata = {};
+            // Note: this should never trigger
+            currentContent.metadata = { id: document.uri.toString() };
         }
         currentContent.metadata.textDirection = textDirection as "ltr" | "rtl";
 

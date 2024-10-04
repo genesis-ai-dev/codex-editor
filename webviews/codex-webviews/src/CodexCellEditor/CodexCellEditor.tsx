@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useContext } from "react";
 import ReactPlayer from "react-player";
 import Quill from "quill";
 import {
@@ -14,6 +14,7 @@ import { VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
 import VideoPlayer from "./VideoPlayer";
 import registerQuillSpellChecker from "./react-quill-spellcheck";
 import registerQuillSmartEdits from "./react-quil-smart-edits";
+import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
@@ -112,9 +113,14 @@ const CodexCellEditor: React.FC = () => {
         return sectionCellNumber === chapterNumber.toString();
     });
 
-    const handleCloseEditor = () => setContentBeingUpdated({} as EditorCellContent);
+    const { setUnsavedChanges } = useContext(UnsavedChangesContext);
 
-    const handleSaveMarkdown = () => {
+    const handleCloseEditor = () => {
+        setContentBeingUpdated({} as EditorCellContent);
+        setUnsavedChanges(false);
+    };
+
+    const handleSaveHtml = () => {
         vscode.postMessage({
             command: "saveHtml",
             content: contentBeingUpdated,
@@ -222,7 +228,7 @@ const CodexCellEditor: React.FC = () => {
                     setContentBeingUpdated={setContentBeingUpdated}
                     spellCheckResponse={spellCheckResponse}
                     handleCloseEditor={handleCloseEditor}
-                    handleSaveMarkdown={handleSaveMarkdown}
+                    handleSaveHtml={handleSaveHtml}
                     vscode={vscode}
                     textDirection={textDirection}
                     cellDisplayMode={cellDisplayMode}

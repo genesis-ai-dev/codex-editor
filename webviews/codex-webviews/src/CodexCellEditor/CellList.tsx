@@ -17,7 +17,7 @@ interface CellListProps {
     setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorCellContent>>;
     spellCheckResponse: SpellCheckResponse | null;
     handleCloseEditor: () => void;
-    handleSaveMarkdown: () => void;
+    handleSaveHtml: () => void;
     vscode: WebviewApi<unknown>;
     textDirection: "ltr" | "rtl";
     cellDisplayMode: CELL_DISPLAY_MODES;
@@ -30,7 +30,7 @@ const CellList: React.FC<CellListProps> = ({
     setContentBeingUpdated,
     spellCheckResponse,
     handleCloseEditor,
-    handleSaveMarkdown,
+    handleSaveHtml,
     vscode,
     textDirection,
     cellDisplayMode,
@@ -84,7 +84,7 @@ const CellList: React.FC<CellListProps> = ({
                         contentBeingUpdated={contentBeingUpdated}
                         setContentBeingUpdated={setContentBeingUpdated}
                         handleCloseEditor={handleCloseEditor}
-                        handleSaveMarkdown={handleSaveMarkdown}
+                        handleSaveHtml={handleSaveHtml}
                         textDirection={textDirection}
                     />
                 );
