@@ -62,6 +62,11 @@ function App() {
                 setInitialLoadAttempted(true);
                 break;
             }
+            case "actionCompleted": {
+                // Action completed, request updated project overview
+                vscode.postMessage({ command: "requestProjectOverview" });
+                break;
+            }
             default:
                 console.log("Unhandled message command:", message.command);
                 break;
@@ -106,10 +111,10 @@ function App() {
         setError(null);
         vscode.postMessage({ command, data });
 
-        // Schedule a refresh after a short delay
-        setTimeout(() => {
-            vscode.postMessage({ command: "requestProjectOverview" });
-        }, 1500); // Wait for 1.5 seconds before requesting an update
+        // Remove the delayed request
+        // setTimeout(() => {
+        //     vscode.postMessage({ command: "requestProjectOverview" });
+        // }, 1500);
     }, []);
 
     const handleSelectprimarySourceText = useCallback(
@@ -146,12 +151,34 @@ function App() {
                     </VSCodeButton>
                 </div>
             ) : noProjectFound ? (
-                <div>
+                <div
+                    style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        gap: "2rem",
+                    }}
+                >
                     <VSCodeButton
                         onClick={() => handleAction("createNewProject")}
                         style={{ marginTop: "2rem" }}
                     >
-                        <i className="codicon codicon-plus"></i> Create New Project
+                        <i className="codicon codicon-plus"></i>
+                        <div style={{ marginInline: "0.25rem" }}>Create New Project</div>
+                    </VSCodeButton>
+                    <VSCodeButton
+                        onClick={() => handleAction("importProject")}
+                        style={{ marginTop: "2rem" }}
+                    >
+                        <i className="codicon codicon-new-folder"></i>
+                        <div style={{ marginInline: "0.25rem" }}>Import Project</div>
+                    </VSCodeButton>
+                    <VSCodeButton
+                        onClick={() => handleAction("loadFromCloud")}
+                        style={{ marginTop: "2rem" }}
+                    >
+                        <i className="codicon codicon-cloud-download"></i>{" "}
+                        <div style={{ marginInline: "0.25rem" }}>Load from Cloud</div>
                     </VSCodeButton>
                 </div>
             ) : projectOverview ? (

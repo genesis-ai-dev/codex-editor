@@ -33,8 +33,8 @@ export class FileHandler {
                 throw new Error("metadata.json file not found in the workspace root");
             }
         } catch (error) {
-            vscode.window.showErrorMessage(`Error reading file: ${filePath}`);
-            console.error({ error });
+            // vscode.window.showErrorMessage(`Error reading file: ${filePath}`);
+            console.error("Error reading file in FileHandler:", { error });
             return { data: undefined, uri: undefined };
         }
     }

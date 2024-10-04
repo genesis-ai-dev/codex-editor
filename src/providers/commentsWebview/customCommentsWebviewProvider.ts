@@ -94,8 +94,8 @@ const sendCommentsToWebview = async (webviewView: vscode.WebviewView) => {
             content: fileContent,
         } as CommentPostMessages);
     } catch (error) {
-        console.error("Error reading file:", error);
-        vscode.window.showErrorMessage(`Error reading file: ${filePath}`);
+        console.error("Error reading file in sendCommentsToWebview:", error);
+        // vscode.window.showErrorMessage(`Error reading file: ${filePath}`);
     }
 };
 

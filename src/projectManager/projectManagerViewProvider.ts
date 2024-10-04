@@ -159,8 +159,9 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                     await vscode.commands.executeCommand(
                         `codex-project-manager.${message.command}`
                     );
-                    // Schedule a refresh after a short delay
-                    setTimeout(() => this.updateProjectOverview(true), 1000);
+                    // FIXME: sometimes this refreshes before the command is finished. Need to return values on all of them
+                    // Send a response back to the webview
+                    this._view?.webview.postMessage({ command: "actionCompleted" });
                     break;
                 case "createNewProject":
                     await this.createNewProject();

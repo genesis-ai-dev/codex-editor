@@ -39,8 +39,8 @@ const sendChatThreadToWebview = async (webviewView: vscode.WebviewView) => {
             content: JSON.parse(fileContent),
         } as ChatPostMessages);
     } catch (error) {
-        console.error("Error reading file:", error);
-        vscode.window.showErrorMessage(`Error reading file: ${filePath}`);
+        console.error("Error reading file in sendChatThreadToWebview:", error);
+        // vscode.window.showErrorMessage(`Error reading file: ${filePath}`);
     }
 };
 

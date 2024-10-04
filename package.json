@@ -735,17 +735,15 @@
                         "description": "Category of the project",
                         "enum": [
                             "Translation",
-                            "Scripture",
-                            "Gloss",
-                            "Parascriptural",
-                            "Peripheral"
+                            "Scripture Translation",
+                            "Subtitles",
+                            "Other"
                         ],
                         "enumDescriptions": [
                             "Translation projects.",
                             "Projects focused on scripture texts.",
-                            "Projects focused on glossaries or dictionaries.",
-                            "Projects related to parascriptural materials.",
-                            "Projects dealing with peripheral or supplementary materials."
+                            "Subtitle translation projects.",
+                            "Other projects."
                         ]
                     },
                     "codex-project-manager.userName": {

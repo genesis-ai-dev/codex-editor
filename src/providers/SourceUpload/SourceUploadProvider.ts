@@ -1,5 +1,9 @@
 import * as vscode from "vscode";
-import { createCodexNotebookFromWebVTT } from "../../utils/codexNotebookUtils";
+import {
+    importLocalUsfmSourceBible,
+    createCodexNotebookFromWebVTT,
+} from "../../utils/codexNotebookUtils";
+import { initializeProject } from "../../projectManager/projectInitializers";
 function getNonce(): string {
     let text = "";
     const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -47,19 +51,31 @@ export class SourceUploadProvider
 
         webviewPanel.webview.onDidReceiveMessage(async (message) => {
             switch (message.command) {
-                case "createCodexNotebookFromWebVTT":
+                case "processUploadedFile":
                     try {
-                        const notebookName = await vscode.window.showInputBox({
-                            prompt: "Enter the name of the notebook",
-                        });
-                        if (notebookName) {
-                            await createCodexNotebookFromWebVTT(message.fileContent, notebookName);
+                        if (message.fileType === "subtitles") {
+                            const notebookName = await vscode.window.showInputBox({
+                                prompt: "Enter the name of this source file",
+                            });
+                            if (notebookName) {
+                                await createCodexNotebookFromWebVTT(
+                                    message.fileContent,
+                                    notebookName
+                                );
+                            }
+                        } else if (message.fileType === "usfm") {
+                            // Save the uploaded USFM files and initialize the project
+                            await initializeProject(true);
+                        } else if (message.fileType === "plaintext") {
+                            // Handle plaintext import using recursive document splitter
+                            // Implement your plaintext processing logic here
+                            vscode.window.showInformationMessage(
+                                "Plaintext import is not yet implemented."
+                            );
                         }
                     } catch (error) {
-                        console.error("Error creating codex notebook from webvtt:", error);
-                        vscode.window.showErrorMessage(
-                            "Error creating codex notebook from webvtt."
-                        );
+                        console.error(`Error processing uploaded file: ${error}`);
+                        vscode.window.showErrorMessage(`Error processing uploaded file.`);
                     }
                     break;
                     // Handle file upload logic here
