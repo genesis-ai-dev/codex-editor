@@ -91,12 +91,13 @@ connection.onInitialize((params: InitializeParams) => {
     return result;
 });
 
-documents.onDidChangeContent((change) => {
-    debugLog(`Document changed: ${change.document.uri}`);
-    const diagnostics = diagnosticsProvider.updateDiagnostics(change.document);
-    debugLog(`Sending diagnostics for: ${change.document.uri}`);
-    connection.sendDiagnostics({ uri: change.document.uri, diagnostics });
-});
+// NOTE: if we watch for document changes, we wind up doing things like spell checking the entirety of any .codex document
+// documents.onDidChangeContent((change) => {
+//     debugLog(`Document changed: ${change.document.uri}`);
+//     const diagnostics = diagnosticsProvider.updateDiagnostics(change.document);
+//     debugLog(`Sending diagnostics for: ${change.document.uri}`);
+//     connection.sendDiagnostics({ uri: change.document.uri, diagnostics });
+// });
 
 connection.onCompletion((params: TextDocumentPositionParams) => {
     debugLog(

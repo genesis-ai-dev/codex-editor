@@ -148,7 +148,6 @@ const CodexCellEditor: React.FC = () => {
     const OFFSET_SECONDS = 0; // just for testing purposes
 
     useEffect(() => {
-        console.log("RYDER", contentBeingUpdated);
         // Jump to the start time of the cell being edited
         if (playerRef.current && contentBeingUpdated.cellMarkers?.length > 0) {
             const cellId = contentBeingUpdated.cellMarkers[0];
