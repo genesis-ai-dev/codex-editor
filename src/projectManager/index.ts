@@ -20,28 +20,19 @@ import {
 } from "./utils/projectUtils";
 
 export async function registerProjectManager(context: vscode.ExtensionContext) {
-    let isWalkthroughCompleted = context.workspaceState.get<boolean>(
-        "isWalkthroughCompleted",
-        false
-    );
-    let redirecting = false;
-
     console.log("Codex Project Manager is now active!");
 
     //wrapper for registered commands
     const executeWithRedirecting = (command: (...args: any[]) => Promise<void>) => {
         return async (...args: any[]) => {
-            if (redirecting) {
-                return;
-            }
-            redirecting = true;
             try {
                 await command(...args);
-            } finally {
-                redirecting = false;
+            } catch (error) {
+                console.error(error);
             }
         };
     };
+
     // Redirects the user to the walkthrough if they are not in the walkthrough
     const handleEditorChange = async (editor?: vscode.TextEditor) => {
         // Check if the project overview data is available and complete
@@ -54,35 +45,11 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
             projectOverview.sourceLanguage &&
             projectOverview.targetLanguage
         ) {
-            // If we have essential project data, mark the walkthrough as completed
-            isWalkthroughCompleted = true;
-            await context.workspaceState.update("isWalkthroughCompleted", true);
-        }
-
-        // Only redirect if not in walkthrough and the editor is not undefined
-        if (!isWalkthroughCompleted && !redirecting && editor) {
-            const isWalkthroughEditor = editor.document.uri.scheme === "walkthrough";
-            if (!isWalkthroughEditor) {
-                redirecting = true;
-                await reopenWalkthrough();
-                redirecting = false;
-            }
+            return;
         }
     };
 
-    // Delay registration of event listeners to avoid triggering on startup
-    //setTimeout(async () => {
-
     console.log("Registering event listeners...");
-    // Check if workspace folders are open
-    if (
-        !vscode.workspace.workspaceFolders ||
-        vscode.workspace.workspaceFolders.length === 0 ||
-        vscode.workspace.workspaceFolders[0].uri.fsPath === ""
-    ) {
-        // Start the walkthrough if no workspace folders are open
-        vscode.commands.executeCommand("codex-project-manager.startWalkthrough");
-    }
 
     // handle when any file or any other extension webview is opened
     vscode.window.onDidChangeVisibleTextEditors(async (editors) => {
@@ -90,10 +57,9 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
             await handleEditorChange(editor);
         }
     });
-    //}, 3000);
 
-    // Register commands
-    vscode.commands.registerCommand(
+    // Define commands
+    const openAutoSaveSettingsCommand = vscode.commands.registerCommand(
         "codex-project-manager.openAutoSaveSettings",
         executeWithRedirecting(async () => {
             await vscode.commands.executeCommand(
@@ -102,36 +68,18 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
             );
         })
     );
-    vscode.commands.registerCommand("codex-project-manager.downloadSourceText", () =>
-        downloadBible("source")
+
+    const downloadSourceTextCommand = vscode.commands.registerCommand(
+        "codex-project-manager.downloadSourceText",
+        () => downloadBible("source")
     );
-    // vscode.commands.registerCommand(
-    //     "codex-project-manager.downloadtargetTexts",
-    //     async () => {
-    //         const bibleFile = await downloadBible("target");
-    //         const response = await vscode.window.showInformationMessage(
-    //             "Would you like to load target text into the project?",
-    //             { modal: true },
-    //             "Yes"
-    //         );
-    //         if (response === "Yes") {
-    //             parseAndReplaceBibleFile(bibleFile, true);
-    //             vscode.window.showInformationMessage("Target text bible loaded.");
-    //         } else {
-    //             parseAndReplaceBibleFile(bibleFile, false);
-    //             vscode.window.showInformationMessage("Target text bible not loaded.");
-    //         }
-    //     }
-    // );
-    // Register command to edit abbreviation
-    vscode.commands.registerCommand(
+
+    const editAbbreviationCommand = vscode.commands.registerCommand(
         "codex-project-manager.editAbbreviation",
         executeWithRedirecting(async () => {
-            redirecting = true;
             const isMetadataInitialized = await checkIfMetadataIsInitialized();
 
             if (!isMetadataInitialized) {
-                // await checkForMissingFiles();
                 await initializeProjectMetadata({});
             }
 
@@ -155,8 +103,6 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
                 });
 
                 if (newProjectAbbreviation === undefined) {
-                    // User cancelled the input
-                    redirecting = false;
                     return;
                 }
             }
@@ -167,340 +113,326 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
                 vscode.ConfigurationTarget.Workspace
             );
             vscode.commands.executeCommand("codex-project-manager.updateMetadataFile");
-
-            redirecting = false;
         })
-    ),
-        // Register command to select category
-        vscode.commands.registerCommand(
-            "codex-project-manager.selectCategory",
-            executeWithRedirecting(async () => {
-                const config = vscode.workspace.getConfiguration("codex-project-manager");
-                const currentCategory = config.get("projectCategory", "");
+    );
 
-                const categories = ["Scripture", "Gloss", "Parascriptural", "Peripheral"];
+    const selectCategoryCommand = vscode.commands.registerCommand(
+        "codex-project-manager.selectCategory",
+        executeWithRedirecting(async () => {
+            const config = vscode.workspace.getConfiguration("codex-project-manager");
+            const currentCategory = config.get("projectCategory", "");
 
-                const categoryItems = categories.map((category) => ({
-                    label: category,
-                }));
-                const selectedCategory = await vscode.window.showQuickPick(categoryItems, {
-                    placeHolder: "Select project category",
-                });
+            const categories = ["Scripture", "Gloss", "Parascriptural", "Peripheral"];
 
-                if (selectedCategory !== undefined) {
-                    await config.update(
-                        "projectCategory",
-                        selectedCategory.label,
-                        vscode.ConfigurationTarget.Workspace
-                    );
-                    vscode.commands.executeCommand("codex-project-manager.updateMetadataFile");
-                    vscode.window.showInformationMessage(
-                        `Project category set to ${selectedCategory.label}.`
-                    );
-                }
-            })
-        ),
-        vscode.commands.registerCommand(
-            "codex-project-manager.setEditorFontToTargetLanguage",
-            await setTargetFont
-        );
-    // Register command to prompt user for target language
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-project-manager.changeTargetLanguage",
-            executeWithRedirecting(async () => {
-                const metadata = await accessMetadataFile();
-                if (!metadata) {
-                    vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
-                    return;
-                }
-                const config = vscode.workspace.getConfiguration();
-                const existingTargetLanguage = config.get("targetLanguage") as any;
-                console.log("existingTargetLanguage", existingTargetLanguage);
-                if (existingTargetLanguage) {
-                    const overwrite = await vscode.window.showWarningMessage(
-                        `The target language is already set to ${existingTargetLanguage.refName}. Do you want to overwrite it?`,
-                        "Yes",
-                        "No"
-                    );
-                    if (overwrite === "Yes") {
-                        const projectDetails = await promptForTargetLanguage();
-                        const targetLanguage = projectDetails?.targetLanguage;
-                        if (targetLanguage) {
-                            await updateProjectSettings(projectDetails);
-                            vscode.window.showInformationMessage(
-                                `Target language updated to ${targetLanguage.refName}.`
-                            );
-                        }
-                    } else {
-                        vscode.window.showInformationMessage("Target language update cancelled.");
-                    }
-                } else {
+            const categoryItems = categories.map((category) => ({
+                label: category,
+            }));
+            const selectedCategory = await vscode.window.showQuickPick(categoryItems, {
+                placeHolder: "Select project category",
+            });
+
+            if (selectedCategory !== undefined) {
+                await config.update(
+                    "projectCategory",
+                    selectedCategory.label,
+                    vscode.ConfigurationTarget.Workspace
+                );
+                vscode.commands.executeCommand("codex-project-manager.updateMetadataFile");
+                vscode.window.showInformationMessage(
+                    `Project category set to ${selectedCategory.label}.`
+                );
+            }
+        })
+    );
+
+    const setEditorFontToTargetLanguageCommand = vscode.commands.registerCommand(
+        "codex-project-manager.setEditorFontToTargetLanguage",
+        await setTargetFont
+    );
+
+    const changeTargetLanguageCommand = vscode.commands.registerCommand(
+        "codex-project-manager.changeTargetLanguage",
+        executeWithRedirecting(async () => {
+            const metadata = await accessMetadataFile();
+            if (!metadata) {
+                vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
+                return;
+            }
+            const config = vscode.workspace.getConfiguration();
+            const existingTargetLanguage = config.get("targetLanguage") as any;
+            console.log("existingTargetLanguage", existingTargetLanguage);
+            if (existingTargetLanguage) {
+                const overwrite = await vscode.window.showWarningMessage(
+                    `The target language is already set to ${existingTargetLanguage.refName}. Do you want to overwrite it?`,
+                    "Yes",
+                    "No"
+                );
+                if (overwrite === "Yes") {
                     const projectDetails = await promptForTargetLanguage();
                     const targetLanguage = projectDetails?.targetLanguage;
                     if (targetLanguage) {
                         await updateProjectSettings(projectDetails);
                         vscode.window.showInformationMessage(
-                            `Target language set to ${targetLanguage.refName}.`
-                        );
-                    }
-                }
-            })
-        ),
-        // Register command to prompt user for source language
-        vscode.commands.registerCommand(
-            "codex-project-manager.changeSourceLanguage",
-            executeWithRedirecting(async () => {
-                const metadata = await accessMetadataFile();
-                if (!metadata) {
-                    vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
-                    return;
-                }
-                try {
-                    const projectDetails = await promptForSourceLanguage();
-                    const sourceLanguage = projectDetails?.sourceLanguage;
-                    console.log("sourceLanguage", sourceLanguage);
-                    if (sourceLanguage) {
-                        await updateProjectSettings(projectDetails);
-                        vscode.window.showInformationMessage(
-                            `Source language set to ${sourceLanguage.refName}.`
-                        );
-                    }
-                } catch (error) {
-                    vscode.window.showErrorMessage(`Failed to set source language: ${error}`);
-                }
-            })
-        ),
-        // Register command to initialize a new project
-        vscode.commands.registerCommand(
-            "codex-project-manager.initializeNewProject",
-            executeWithRedirecting(async () => {
-                const metadata = await accessMetadataFile();
-                if (
-                    !metadata?.languages?.find(
-                        (lang: any) => lang.projectStatus === LanguageProjectStatus.TARGET
-                    )
-                ) {
-                    vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
-                    return;
-                }
-                await createProjectFiles({ shouldImportUSFM: false });
-            })
-        ),
-        // Register command to initialize an import project
-        vscode.commands.registerCommand(
-            "codex-project-manager.initializeImportProject",
-            executeWithRedirecting(async () => {
-                const metadata = await accessMetadataFile();
-                if (
-                    !metadata?.languages?.find(
-                        (lang: any) => lang.projectStatus === LanguageProjectStatus.TARGET
-                    )
-                ) {
-                    vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
-                    return;
-                }
-                await createProjectFiles({ shouldImportUSFM: true });
-            })
-        ),
-        // Register command to name the project
-        vscode.commands.registerCommand(
-            "codex-project-manager.renameProject",
-            executeWithRedirecting(async () => {
-                redirecting = true;
-                const isMetadataInitialized = await checkIfMetadataIsInitialized();
-
-                if (!isMetadataInitialized) {
-                    // await checkForMissingFiles();
-                    await initializeProjectMetadata({});
-                }
-
-                const config = vscode.workspace.getConfiguration("codex-project-manager");
-                const currentProjectName = config.get("projectName", "");
-
-                const newProjectName = await vscode.window.showInputBox({
-                    prompt: "Enter project name",
-                    value: currentProjectName,
-                });
-
-                if (newProjectName !== undefined) {
-                    await config.update(
-                        "projectName",
-                        newProjectName,
-                        vscode.ConfigurationTarget.Workspace
-                    );
-                    vscode.commands.executeCommand("codex-project-manager.updateMetadataFile");
-                }
-
-                redirecting = false;
-            })
-        ),
-        // Register command to set user name
-        vscode.commands.registerCommand(
-            "codex-project-manager.changeUserName",
-            executeWithRedirecting(async () => {
-                const metadata = await accessMetadataFile();
-                if (!metadata) {
-                    vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
-                    return;
-                }
-                const isMetadataInitialized = await checkIfMetadataIsInitialized();
-                if (!isMetadataInitialized) {
-                    await initializeProjectMetadata({});
-                }
-
-                const config = vscode.workspace.getConfiguration("codex-project-manager");
-                const currentUserName = config.get("userName", "");
-
-                const newUserName = await vscode.window.showInputBox({
-                    prompt: "Enter user name",
-                    value: currentUserName,
-                });
-
-                if (newUserName !== undefined) {
-                    await config.update(
-                        "userName",
-                        newUserName,
-                        vscode.ConfigurationTarget.Workspace
-                    );
-                    vscode.commands.executeCommand("codex-project-manager.updateMetadataFile");
-                }
-            })
-        ),
-        // Register command to open project settings
-        vscode.commands.registerCommand(
-            "codex-project-manager.openProjectSettings",
-            executeWithRedirecting(async () => {
-                vscode.commands.executeCommand(
-                    "workbench.action.openWorkspaceSettings",
-                    "codex-project-manager"
-                );
-            })
-        ),
-        // Register command to start the walkthrough
-        vscode.commands.registerCommand(
-            "codex-project-manager.startWalkthrough",
-            executeWithRedirecting(async () => {
-                vscode.commands.executeCommand(
-                    "workbench.action.openWalkthrough",
-                    {
-                        category: "project-accelerate.codex-project-manager#codexWalkthrough",
-                        step: "project-accelerate.codex-project-manager#openFolder",
-                    },
-                    true
-                );
-            })
-        ),
-        // Register command to start translating
-        vscode.commands.registerCommand(
-            "codex-project-manager.startTranslating",
-            executeWithRedirecting(async () => {
-                const projectOverview = await getProjectOverview();
-                if (!projectOverview) {
-                    return;
-                }
-                const isProjectHealthy =
-                    projectOverview.projectName &&
-                    projectOverview.sourceLanguage &&
-                    projectOverview.targetLanguage &&
-                    projectOverview.userName;
-
-                if (isProjectHealthy) {
-                    const matCodexUri = vscode.Uri.joinPath(
-                        vscode.workspace.workspaceFolders![0].uri,
-                        "files",
-                        "target",
-                        "MAT.codex"
-                    );
-                    try {
-                        // Check if MAT.codex exists
-                        await vscode.workspace.fs.stat(matCodexUri);
-                        // If it exists, open it
-                        await vscode.commands.executeCommand(
-                            "vscode.openWith",
-                            matCodexUri,
-                            "codex.cellEditor"
-                        );
-                    } catch (error) {
-                        // If MAT.codex doesn't exist or there's an error, just show the project overview
-                        console.log(
-                            "MAT.codex not found or error occurred, showing project overview instead:",
-                            error
-                        );
-                        await vscode.commands.executeCommand(
-                            "codex-project-manager.showProjectOverview"
+                            `Target language updated to ${targetLanguage.refName}.`
                         );
                     }
                 } else {
-                    // Open and focus the project manager panel
+                    vscode.window.showInformationMessage("Target language update cancelled.");
+                }
+            } else {
+                const projectDetails = await promptForTargetLanguage();
+                const targetLanguage = projectDetails?.targetLanguage;
+                if (targetLanguage) {
+                    await updateProjectSettings(projectDetails);
+                    vscode.window.showInformationMessage(
+                        `Target language set to ${targetLanguage.refName}.`
+                    );
+                }
+            }
+        })
+    );
+
+    const changeSourceLanguageCommand = vscode.commands.registerCommand(
+        "codex-project-manager.changeSourceLanguage",
+        executeWithRedirecting(async () => {
+            const metadata = await accessMetadataFile();
+            if (!metadata) {
+                vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
+                return;
+            }
+            try {
+                const projectDetails = await promptForSourceLanguage();
+                const sourceLanguage = projectDetails?.sourceLanguage;
+                console.log("sourceLanguage", sourceLanguage);
+                if (sourceLanguage) {
+                    await updateProjectSettings(projectDetails);
+                    vscode.window.showInformationMessage(
+                        `Source language set to ${sourceLanguage.refName}.`
+                    );
+                }
+            } catch (error) {
+                vscode.window.showErrorMessage(`Failed to set source language: ${error}`);
+            }
+        })
+    );
+
+    const initializeNewProjectCommand = vscode.commands.registerCommand(
+        "codex-project-manager.initializeNewProject",
+        executeWithRedirecting(async () => {
+            const metadata = await accessMetadataFile();
+            if (
+                !metadata?.languages?.find(
+                    (lang: any) => lang.projectStatus === LanguageProjectStatus.TARGET
+                )
+            ) {
+                vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
+                return;
+            }
+            await createProjectFiles({ shouldImportUSFM: false });
+        })
+    );
+
+    const initializeImportProjectCommand = vscode.commands.registerCommand(
+        "codex-project-manager.initializeImportProject",
+        executeWithRedirecting(async () => {
+            const metadata = await accessMetadataFile();
+            if (
+                !metadata?.languages?.find(
+                    (lang: any) => lang.projectStatus === LanguageProjectStatus.TARGET
+                )
+            ) {
+                vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
+                return;
+            }
+            await createProjectFiles({ shouldImportUSFM: true });
+        })
+    );
+
+    const renameProjectCommand = vscode.commands.registerCommand(
+        "codex-project-manager.renameProject",
+        executeWithRedirecting(async () => {
+            const isMetadataInitialized = await checkIfMetadataIsInitialized();
+
+            if (!isMetadataInitialized) {
+                await initializeProjectMetadata({});
+            }
+
+            const config = vscode.workspace.getConfiguration("codex-project-manager");
+            const currentProjectName = config.get("projectName", "");
+
+            const newProjectName = await vscode.window.showInputBox({
+                prompt: "Enter project name",
+                value: currentProjectName,
+            });
+
+            if (newProjectName !== undefined) {
+                await config.update(
+                    "projectName",
+                    newProjectName,
+                    vscode.ConfigurationTarget.Workspace
+                );
+                vscode.commands.executeCommand("codex-project-manager.updateMetadataFile");
+            }
+        })
+    );
+
+    const changeUserNameCommand = vscode.commands.registerCommand(
+        "codex-project-manager.changeUserName",
+        executeWithRedirecting(async () => {
+            const metadata = await accessMetadataFile();
+            if (!metadata) {
+                vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
+                return;
+            }
+            const isMetadataInitialized = await checkIfMetadataIsInitialized();
+            if (!isMetadataInitialized) {
+                await initializeProjectMetadata({});
+            }
+
+            const config = vscode.workspace.getConfiguration("codex-project-manager");
+            const currentUserName = config.get("userName", "");
+
+            const newUserName = await vscode.window.showInputBox({
+                prompt: "Enter user name",
+                value: currentUserName,
+            });
+
+            if (newUserName !== undefined) {
+                await config.update("userName", newUserName, vscode.ConfigurationTarget.Workspace);
+                vscode.commands.executeCommand("codex-project-manager.updateMetadataFile");
+            }
+        })
+    );
+
+    const openProjectSettingsCommand = vscode.commands.registerCommand(
+        "codex-project-manager.openProjectSettings",
+        executeWithRedirecting(async () => {
+            vscode.commands.executeCommand(
+                "workbench.action.openWorkspaceSettings",
+                "codex-project-manager"
+            );
+        })
+    );
+
+    const startWalkthroughCommand = vscode.commands.registerCommand(
+        "codex-project-manager.startWalkthrough",
+        executeWithRedirecting(async () => {
+            vscode.commands.executeCommand(
+                "workbench.action.openWalkthrough",
+                {
+                    category: "project-accelerate.codex-project-manager#codexWalkthrough",
+                    step: "project-accelerate.codex-project-manager#openFolder",
+                },
+                true
+            );
+        })
+    );
+
+    const startTranslatingCommand = vscode.commands.registerCommand(
+        "codex-project-manager.startTranslating",
+        executeWithRedirecting(async () => {
+            const projectOverview = await getProjectOverview();
+            if (!projectOverview) {
+                return;
+            }
+            const isProjectHealthy =
+                projectOverview.projectName &&
+                projectOverview.sourceLanguage &&
+                projectOverview.targetLanguage &&
+                projectOverview.userName;
+
+            if (isProjectHealthy) {
+                const matCodexUri = vscode.Uri.joinPath(
+                    vscode.workspace.workspaceFolders![0].uri,
+                    "files",
+                    "target",
+                    "MAT.codex"
+                );
+                try {
+                    // Check if MAT.codex exists
+                    await vscode.workspace.fs.stat(matCodexUri);
+                    // If it exists, open it
+                    await vscode.commands.executeCommand(
+                        "vscode.openWith",
+                        matCodexUri,
+                        "codex.cellEditor"
+                    );
+                } catch (error) {
+                    // If MAT.codex doesn't exist or there's an error, just show the project overview
+                    console.log(
+                        "MAT.codex not found or error occurred, showing project overview instead:",
+                        error
+                    );
                     await vscode.commands.executeCommand(
                         "codex-project-manager.showProjectOverview"
                     );
                 }
-
-                isWalkthroughCompleted = true;
-                context.workspaceState.update("isWalkthroughCompleted", true);
-            })
-        ),
-        // Register command to reinstall VSCode extensions
-        vscode.commands.registerCommand(
-            "codex-project-manager.reinstallExtensions",
-            async (extensionIds: string[]) => {
-                if (!extensionIds || extensionIds.length === 0) {
-                    vscode.window.showErrorMessage("No extension IDs provided.");
-                    return;
-                }
-
-                // Uninstall extensions
-                for (const id of extensionIds) {
-                    try {
-                        vscode.window.showInformationMessage(`Uninstalling extension: ${id}`);
-                        await vscode.commands.executeCommand(
-                            "workbench.extensions.uninstallExtension",
-                            id
-                        );
-                        await new Promise((resolve) => setTimeout(resolve, 2000));
-                    } catch (error) {
-                        vscode.window.showErrorMessage(
-                            `Failed to uninstall extension: ${id}. Error: ${error}`
-                        );
-                        return;
-                    }
-                }
-
-                // Re-install extensions
-                for (const id of extensionIds) {
-                    try {
-                        vscode.window.showInformationMessage(`Installing extension: ${id}`);
-                        await vscode.commands.executeCommand(
-                            "workbench.extensions.installExtension",
-                            id
-                        );
-                    } catch (error) {
-                        vscode.window.showErrorMessage(
-                            `Failed to install extension: ${id}. Error: ${error}`
-                        );
-                        return;
-                    }
-                }
-                // Reload window
-                try {
-                    vscode.window.showInformationMessage(`Reloading window...`);
-                    await new Promise((resolve) => setTimeout(resolve, 2000));
-                    await vscode.commands.executeCommand("workbench.action.reloadWindow");
-                } catch (error) {
-                    vscode.window.showErrorMessage(`Failed to reload window. Error: ${error}`);
-                    return;
-                }
-
-                vscode.window.showInformationMessage(
-                    `Reinstalled extensions: ${extensionIds.join(", ")}`
-                );
+            } else {
+                // Open and focus the project manager panel
+                await vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
             }
-        ),
+        })
+    );
 
-        // Register command to show project overview
-        vscode.commands.registerCommand("codex-project-manager.showProjectOverview", async () => {
+    const reinstallExtensionsCommand = vscode.commands.registerCommand(
+        "codex-project-manager.reinstallExtensions",
+        async (extensionIds: string[]) => {
+            if (!extensionIds || extensionIds.length === 0) {
+                vscode.window.showErrorMessage("No extension IDs provided.");
+                return;
+            }
+
+            // Uninstall extensions
+            for (const id of extensionIds) {
+                try {
+                    vscode.window.showInformationMessage(`Uninstalling extension: ${id}`);
+                    await vscode.commands.executeCommand(
+                        "workbench.extensions.uninstallExtension",
+                        id
+                    );
+                    await new Promise((resolve) => setTimeout(resolve, 2000));
+                } catch (error) {
+                    vscode.window.showErrorMessage(
+                        `Failed to uninstall extension: ${id}. Error: ${error}`
+                    );
+                    return;
+                }
+            }
+
+            // Re-install extensions
+            for (const id of extensionIds) {
+                try {
+                    vscode.window.showInformationMessage(`Installing extension: ${id}`);
+                    await vscode.commands.executeCommand(
+                        "workbench.extensions.installExtension",
+                        id
+                    );
+                } catch (error) {
+                    vscode.window.showErrorMessage(
+                        `Failed to install extension: ${id}. Error: ${error}`
+                    );
+                    return;
+                }
+            }
+            // Reload window
+            try {
+                vscode.window.showInformationMessage(`Reloading window...`);
+                await new Promise((resolve) => setTimeout(resolve, 2000));
+                await vscode.commands.executeCommand("workbench.action.reloadWindow");
+            } catch (error) {
+                vscode.window.showErrorMessage(`Failed to reload window. Error: ${error}`);
+                return;
+            }
+
+            vscode.window.showInformationMessage(
+                `Reinstalled extensions: ${extensionIds.join(", ")}`
+            );
+        }
+    );
+
+    const showProjectOverviewCommand = vscode.commands.registerCommand(
+        "codex-project-manager.showProjectOverview",
+        async () => {
             await vscode.commands.executeCommand("workbench.view.extension.project-manager");
             await vscode.commands.executeCommand("workbench.action.focusAuxiliaryBar");
 
@@ -510,24 +442,49 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
                 await provider.ensureWebviewReady();
                 await provider.updateProjectOverview();
             }
-        }),
+        }
+    );
 
-        // Register event listener for configuration changes
-        vscode.workspace.onDidChangeConfiguration((event) => {
-            if (event.affectsConfiguration("codex-project-manager")) {
-                updateMetadataFile();
-            }
-        }),
-
-        //register command to open AI settings
-        vscode.commands.registerCommand("codex-project-manager.openAISettings", async () => {
+    const openAISettingsCommand = vscode.commands.registerCommand(
+        "codex-project-manager.openAISettings",
+        async () => {
             vscode.commands.executeCommand("workbench.action.openSettings", "translators-copilot");
-        }),
+        }
+    );
 
-        vscode.commands.registerCommand(
-            "codex-project-manager.importLocalUsfmSourceBible",
-            importLocalUsfmSourceBible
-        )
+    const importLocalUsfmSourceBibleCommand = vscode.commands.registerCommand(
+        "codex-project-manager.importLocalUsfmSourceBible",
+        importLocalUsfmSourceBible
+    );
+
+    // Register event listener for configuration changes
+    const onDidChangeConfigurationListener = vscode.workspace.onDidChangeConfiguration((event) => {
+        if (event.affectsConfiguration("codex-project-manager")) {
+            updateMetadataFile();
+        }
+    });
+
+    // Register commands and event listeners
+    context.subscriptions.push(
+        openAutoSaveSettingsCommand,
+        downloadSourceTextCommand,
+        editAbbreviationCommand,
+        selectCategoryCommand,
+        setEditorFontToTargetLanguageCommand,
+        changeTargetLanguageCommand,
+        changeSourceLanguageCommand,
+        initializeNewProjectCommand,
+        initializeImportProjectCommand,
+        renameProjectCommand,
+        changeUserNameCommand,
+        openProjectSettingsCommand,
+        startWalkthroughCommand,
+        startTranslatingCommand,
+        reinstallExtensionsCommand,
+        showProjectOverviewCommand,
+        openAISettingsCommand,
+        importLocalUsfmSourceBibleCommand,
+        onDidChangeConfigurationListener
     );
 
     // Prompt user to install recommended extensions

@@ -133,7 +133,6 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         "codex-editor-extension.exportCodexContent",
         exportCodexContent
     );
-    context.subscriptions.push(exportCodexContentCommand);
 
     const getBibleDataRecordByIdCommand = vscode.commands.registerCommand(
         "codex-editor-extension.getBibleDataRecordById",
@@ -165,6 +164,41 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
+    const openSourceUploadCommand = vscode.commands.registerCommand(
+        "translation-navigation.openSourceFile",
+        async (node: Node & { sourceFile?: string }) => {
+            if ("sourceFile" in node && node.sourceFile) {
+                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                if (workspaceFolder) {
+                    const sourceFileUri = vscode.Uri.joinPath(
+                        workspaceFolder.uri,
+                        ".project",
+                        "sourceTexts",
+                        node.sourceFile
+                    );
+
+                    try {
+                        await vscode.commands.executeCommand(
+                            "vscode.openWith",
+                            sourceFileUri,
+                            "codex.cellEditor",
+                            { viewColumn: vscode.ViewColumn.Beside }
+                        );
+                    } catch (error) {
+                        console.error(`Failed to open source file: ${error}`);
+                        vscode.window.showErrorMessage(
+                            `Failed to open source file: ${JSON.stringify(node)}`
+                        );
+                    }
+                } else {
+                    console.error(
+                        "No workspace folder found, aborting translation-navigation.openSourceFile."
+                    );
+                }
+            }
+        }
+    );
+
     context.subscriptions.push(
         scriptureTreeViewProvider,
         scriptureExplorerRefreshCommand,
@@ -177,13 +211,13 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         openChapterCommand,
         openFileCommand,
         createCodexNotebookCommand,
-        // initializeNewProjectCommand,
         setEditorFontCommand,
-        // downloadSourceTextCommand,
         getBibleDataRecordByIdCommand,
         exportCodexContentCommand,
         getContextDataFromVrefCommand,
-        updateProjectNotebooksToUseCellsForVerseContentCommand
+        updateProjectNotebooksToUseCellsForVerseContentCommand,
+        openSourceUploadCommand,
+        exportCodexContentCommand
     );
 
     ensureBibleDownload();

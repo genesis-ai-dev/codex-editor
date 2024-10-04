@@ -32,40 +32,34 @@ export async function activate(context: vscode.ExtensionContext) {
     const fs = vscode.workspace.fs;
     const workspaceFolders = vscode.workspace.workspaceFolders;
 
+    // Always register the project manager
+    registerProjectManager(context);
+
     if (workspaceFolders && workspaceFolders.length > 0) {
         const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
 
+        let metadataExists = false;
         try {
             await fs.stat(metadataUri);
-            console.log("metadata.json exists");
-
-            registerCodeLensProviders(context);
-            registerTextSelectionHandler(context, () => undefined);
-            await initializeBibleData(context);
-
-            client = await registerLanguageServer(context);
-
-            if (client) {
-                clientCommandsDisposable = registerClientCommands(context, client);
-                context.subscriptions.push(clientCommandsDisposable);
-            }
-
-            await indexVerseRefsInSourceText();
-            await createIndexWithContext(context);
+            metadataExists = true;
         } catch {
-            console.log(
-                "metadata.json not found. Skipping language server and related initializations."
-            );
+            metadataExists = false;
+        }
+
+        if (!metadataExists) {
+            console.log("metadata.json not found. Waiting for initialization.");
+            await watchForInitialization(context, metadataUri);
+        } else {
+            await initializeExtension(context, metadataExists);
         }
     } else {
         console.log("No workspace folder found");
+        vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
     }
 
+    // Register these commands regardless of metadata existence
     registerVideoPlayerCommands(context);
     await registerSourceUploadCommands(context);
-
-    vscode.commands.executeCommand("codex-project-manager.openSourceUpload");
-
     registerProviders(context);
     await registerCommands(context);
     await initializeWebviews(context);
@@ -74,43 +68,68 @@ export async function activate(context: vscode.ExtensionContext) {
     await temporaryMigrationScript_checkMatthewNotebook();
     await migration_changeDraftFolderToFilesFolder();
     await migrateSourceFiles();
+}
 
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "translation-navigation.openSourceFile",
-            async (node: Node & { sourceFile?: string }) => {
-                if ("sourceFile" in node && node.sourceFile) {
-                    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-                    if (workspaceFolder) {
-                        const sourceFileUri = vscode.Uri.joinPath(
-                            workspaceFolder.uri,
-                            ".project",
-                            "sourceTexts",
-                            node.sourceFile
-                        );
+async function initializeExtension(context: vscode.ExtensionContext, metadataExists: boolean) {
+    console.log("Initializing extension");
 
-                        try {
-                            await vscode.commands.executeCommand(
-                                "vscode.openWith",
-                                sourceFileUri,
-                                "codex.cellEditor",
-                                { viewColumn: vscode.ViewColumn.Beside }
-                            );
-                        } catch (error) {
-                            console.error(`Failed to open source file: ${error}`);
-                            vscode.window.showErrorMessage(
-                                `Failed to open source file: ${JSON.stringify(node)}`
-                            );
-                        }
-                    } else {
-                        console.error(
-                            "No workspace folder found, aborting translation-navigation.openSourceFile."
-                        );
-                    }
-                }
-            }
-        )
-    );
+    if (metadataExists) {
+        console.log("metadata.json exists");
+        vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
+
+        const codexNotebooksUris = await vscode.workspace.findFiles("files/target/*.codex");
+        if (codexNotebooksUris.length === 0) {
+            vscode.commands.executeCommand("codex-project-manager.openSourceUpload");
+        }
+
+        registerCodeLensProviders(context);
+        registerTextSelectionHandler(context, () => undefined);
+        await initializeBibleData(context);
+
+        client = await registerLanguageServer(context);
+
+        if (client) {
+            clientCommandsDisposable = registerClientCommands(context, client);
+            context.subscriptions.push(clientCommandsDisposable);
+        }
+
+        await indexVerseRefsInSourceText();
+        await createIndexWithContext(context);
+    } else {
+        console.log("metadata.json not found. Showing project overview.");
+        vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
+    }
+}
+
+let watcher: vscode.FileSystemWatcher | undefined;
+
+async function watchForInitialization(context: vscode.ExtensionContext, metadataUri: vscode.Uri) {
+    const fs = vscode.workspace.fs;
+    watcher = vscode.workspace.createFileSystemWatcher("**/*");
+
+    const checkInitialization = async () => {
+        let metadataExists = false;
+        try {
+            await fs.stat(metadataUri);
+            metadataExists = true;
+        } catch {
+            metadataExists = false;
+        }
+
+        if (metadataExists) {
+            watcher?.dispose();
+            await initializeExtension(context, metadataExists);
+        }
+    };
+
+    watcher.onDidCreate(checkInitialization);
+    watcher.onDidChange(checkInitialization);
+    watcher.onDidDelete(checkInitialization);
+
+    context.subscriptions.push(watcher);
+
+    // Show project overview immediately, don't wait for metadata
+    vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
 }
 
 function registerCodeLensProviders(context: vscode.ExtensionContext) {
