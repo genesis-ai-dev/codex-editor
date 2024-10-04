@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import ReactPlayer, { Config } from "react-player";
 import { useSubtitleData } from "./utils/vttUtils";
 import { QuillCellContent } from "../../../../types";
@@ -17,7 +17,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     showSubtitles = true,
 }) => {
     const { subtitleUrl } = useSubtitleData(translationUnitsForSection);
-    // console.log("subtitleUrl in VideoPlayer", subtitleUrl);
     let file: Config["file"] = undefined;
     if (subtitleUrl && showSubtitles) {
         file = {
@@ -32,15 +31,29 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             ],
         };
     }
-    // console.log("file in VideoPlayer", file);
+    const [playerHeight, setPlayerHeight] = useState<number | undefined>(undefined);
+
+    useEffect(() => {
+        if (playerRef.current) {
+            // @ts-expect-error: wrapper is not typed
+            const height = playerRef.current.wrapper.clientHeight;
+            setPlayerHeight(height);
+        }
+    }, [playerRef]);
+
     return (
-        <div className="player-wrapper">
+        <div
+            className="player-wrapper"
+            style={{ height: playerHeight || "auto", backgroundColor: "black" }}
+        >
             <ReactPlayer
+                key={subtitleUrl} // Add the key prop with subtitleUrl as the value
                 ref={playerRef}
                 url={videoUrl}
+                playing={true}
                 controls={true}
                 width="100%"
-                height="auto"
+                // height={playerHeight || "auto"} // Set the height to the fixed value or "auto" if not available
                 config={{
                     file: file,
                 }}

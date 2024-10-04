@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import ReactPlayer from "react-player";
-import Quill from 'quill';
+import Quill from "quill";
 import {
     QuillCellContent,
     EditorPostMessages,
@@ -173,6 +173,15 @@ const CodexCellEditor: React.FC = () => {
     `;
     document.head.appendChild(styleElement);
 
+    const translationUnitsWithCurrentEditorContent = useMemo(() => {
+        return translationUnitsForSection?.map((unit) => {
+            if (unit.cellMarkers[0] === contentBeingUpdated.cellMarkers?.[0]) {
+                return { ...unit, cellContent: contentBeingUpdated.content };
+            }
+            return unit;
+        });
+    }, [translationUnits, contentBeingUpdated]);
+
     return (
         <div className="codex-cell-editor" style={{ direction: textDirection }}>
             <h1>{translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0]}</h1>
@@ -181,7 +190,7 @@ const CodexCellEditor: React.FC = () => {
                     <VideoPlayer
                         playerRef={playerRef}
                         videoUrl={videoUrl}
-                        translationUnitsForSection={translationUnitsForSection}
+                        translationUnitsForSection={translationUnitsWithCurrentEditorContent}
                     />
                 )}
                 <ChapterNavigation

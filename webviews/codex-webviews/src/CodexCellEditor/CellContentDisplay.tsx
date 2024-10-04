@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useContext } from "react";
 import { EditorCellContent, EditorPostMessages } from "../../../../types";
 import { HACKY_removeContiguousSpans } from "./utils";
 import { CodexCellTypes } from "../../../../types/enums";
+import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 
 interface CellContentDisplayProps {
     cellIds: string[];
@@ -23,8 +24,14 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     textDirection,
     isSourceText,
 }) => {
+    const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
+
     const handleVerseClick = () => {
-        if (isSourceText) return; // FIXME: if you click a source text cell.. maybe we still want to update the shared state store?
+        if (unsavedChanges || isSourceText) {
+            // FIXME: if you click a source text cell.. maybe we still want to update the shared state store?
+            toggleFlashingBorder();
+            return;
+        }
         setContentBeingUpdated({
             cellMarkers: cellIds,
             content: cellContent,
