@@ -13,7 +13,8 @@ import {
     CompletionContext,
 } from "vscode-languageserver/node";
 import { verseRefRegex } from "./types";
-import { Dictionary, DictionaryEntry, SpellCheckResult } from "./types";
+import { SpellCheckResult } from "./types";
+import { Dictionary, DictionaryEntry } from "codex-types";
 import * as fs from "fs";
 import * as path from "path";
 import { URI } from "vscode-uri";
@@ -54,7 +55,7 @@ export class SpellChecker {
             await this.loadDictionary();
         } catch (error: any) {
             console.error(`Failed to initialize dictionary: ${error.message}`);
-            this.dictionary = { entries: [] };
+            this.dictionary = { entries: [] } as unknown as Dictionary;
         }
     }
 
@@ -95,7 +96,12 @@ export class SpellChecker {
                     console.error(`Error parsing dictionary entry: ${line}`, error);
                 }
             }
-            this.dictionary = { entries };
+            this.dictionary = {
+                entries,
+                id: "project",
+                label: "Project",
+                metadata: {},
+            } as Dictionary;
         }
 
         if (this.dictionary && Array.isArray(this.dictionary.entries)) {
@@ -108,7 +114,7 @@ export class SpellChecker {
                     .join(", ")}`
             );
         } else {
-            this.dictionary = { entries: [] };
+            this.dictionary = { entries: [] } as unknown as Dictionary;
             console.log("Initialized empty dictionary.");
         }
     }
@@ -229,7 +235,12 @@ export class SpellChecker {
             word = cleanWord(word);
 
             if (!this.dictionary) {
-                this.dictionary = { entries: [] };
+                this.dictionary = {
+                    entries: [],
+                    id: this.generateUniqueId(),
+                    label: "Project",
+                    metadata: {},
+                } as unknown as Dictionary;
             }
 
             if (this.dictionary.entries.some((entry) => entry.headWord === word)) {
@@ -240,6 +251,14 @@ export class SpellChecker {
                 id: this.generateUniqueId(),
                 headWord: word,
                 hash: this.generateHash(word),
+                headForm: word,
+                variantForms: [],
+                definition: "",
+                translationEquivalents: [],
+                links: [],
+                linkedEntries: [],
+                notes: [],
+                metadata: {},
             };
             this.dictionary.entries.push(newEntry);
             newEntries.push(newEntry);
