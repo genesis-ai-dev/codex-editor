@@ -1,6 +1,6 @@
 import MiniSearch from "minisearch";
 import * as vscode from "vscode";
-import { SourceCellVersions, TranslationPair, Edit } from "../../../../../types";
+import { SourceCellVersions, TranslationPair } from "../../../../../types";
 
 export function searchTargetCellsByQuery(
     translationPairsIndex: MiniSearch,
@@ -16,11 +16,7 @@ export function searchTargetCellsByQuery(
             fuzzy: fuzziness,
             boost: { targetContent: 2, cellId: 1 },
         })
-        .slice(0, k)
-        .map((result) => ({
-            ...result,
-            edits: result.edits || [],
-        }));
+        .slice(0, k);
 }
 
 export function getSourceCellByCellIdFromAllSourceCells(
@@ -45,7 +41,7 @@ export function getSourceCellByCellIdFromAllSourceCells(
 export function getTargetCellByCellId(translationPairsIndex: MiniSearch, cellId: string) {
     const results = translationPairsIndex.search(cellId);
     const result = results.find((result) => result.cellId === cellId);
-    return result ? { ...result, edits: result.edits || [] } : null;
+    return result ? result : null;
 }
 
 export function getTranslationPairFromProject(
@@ -73,7 +69,6 @@ export function getTranslationPairFromProject(
                 uri: result.uri,
                 line: result.line,
             },
-            edits: result.edits || [],
         };
     }
     return null;
@@ -128,7 +123,6 @@ export function getTranslationPairsFromSourceCellQuery(
             uri: result.uri,
             line: result.line,
         },
-        edits: result.edits || [],
     }));
 }
 
@@ -153,7 +147,7 @@ export function searchParallelCells(
         boost: { targetContent: 2, cellId: 1 },
     });
 
-    console.log("Raw target search results:", JSON.stringify(targetResults, null, 2));
+    console.log("Raw target search results:", JSON.stringify(targetResults.map(r => ({cellId: r.cellId})), null, 2));
 
     const translationPairs: TranslationPair[] = targetResults.slice(0, k).map((result) => {
         console.log("Processing result:", JSON.stringify(result, null, 2));
@@ -162,39 +156,32 @@ export function searchParallelCells(
         const sourceResult = sourceTextIndex.getStoredFields(result.cellId);
         const sourceContent = sourceResult ? sourceResult.content : "";
 
+        // Retrieve the stored fields for the target cell
+        const storedFields = translationPairsIndex.getStoredFields(result.id);
+
+        if (!storedFields) {
+            console.warn(`No stored fields found for result with id: ${result.id}`);
+            return null;
+        }
+
         return {
             cellId: result.cellId,
             sourceCell: {
                 cellId: result.cellId,
                 content: sourceContent as string,
-                uri: result.uri,
-                line: result.line,
+                uri: storedFields.uri,
+                line: storedFields.line,
             },
             targetCell: {
                 cellId: result.cellId,
-                content: result.targetContent as string,
-                uri: result.uri,
-                line: result.line,
+                content: storedFields.targetContent as string,
+                uri: storedFields.uri,
+                line: storedFields.line,
             },
-            edits: result.edits || [],
-        };
-    });
+        } as TranslationPair;
+    }).filter((pair): pair is NonNullable<TranslationPair> => pair !== null);
 
     console.log("Processed translation pairs:", JSON.stringify(translationPairs, null, 2));
 
     return translationPairs;
-}
-
-export function getEditHistories(translationPairsIndex: MiniSearch, cellId: string): Edit[] {
-    const result = translationPairsIndex.search(cellId, {
-        fields: ["cellId"],
-        combineWith: "AND",
-        filter: (result) => result.cellId === cellId,
-    })[0];
-
-    if (result && result.edits) {
-        return result.edits;
-    }
-
-    return [];
 }

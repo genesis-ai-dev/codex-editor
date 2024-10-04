@@ -1,0 +1,32 @@
+[data-grammar-suggestion] {
+    text-decoration: underline;
+    text-decoration-color: blue;
+    text-decoration-style: wavy;
+    cursor: pointer;
+}
+
+.grammar-suggestion-popup {
+    background-color: white;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 10px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.grammar-suggestion-popup button {
+    margin-right: 5px;
+    padding: 5px 10px;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+.grammar-suggestion-popup .accept {
+    background-color: #4CAF50;
+    color: white;
+}
+
+.grammar-suggestion-popup .reject {
+    background-color: #f44336;
+    color: white;
+}

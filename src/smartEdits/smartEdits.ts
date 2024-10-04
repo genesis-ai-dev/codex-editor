@@ -1,23 +1,14 @@
 import Chatbot from "./chat";
 import MiniSearch from "minisearch";
 import { minisearchDoc } from "../activationHelpers/contextAware/miniIndex/indexes/translationPairsIndex";
-import { Edit, TranslationPair } from "../../types";
+import { TranslationPair } from "../../types";
 import {
     searchParallelCells,
-    getEditHistories,
     getTranslationPairFromProject,
 } from "../activationHelpers/contextAware/miniIndex/indexes/search";
 
-interface CellEditHistory {
-    edits: Edit[];
-}
-
-interface CellsEditHistory {
-    [cellId: string]: CellEditHistory;
-}
-
 const SYSTEM_MESSAGE =
-    "You are a helpful assistant. Given past edit histories of similar texts, you will help edit the current text.";
+    "You are a helpful assistant. Given similar texts, you will help edit the current text.";
 
 export class SmartEdits {
     private chatbot: Chatbot;
@@ -32,9 +23,9 @@ export class SmartEdits {
 
     async edit(text: string): Promise<string> {
         const similarEntries = this.findSimilarEntries(text);
-        const editHistories = this.getEditHistories(similarEntries);
-        const editHistoryString = this.formatEditHistories(editHistories);
-        const message = this.createEditMessage(editHistoryString, text);
+        const similarTexts = this.getSimilarTexts(similarEntries);
+        const similarTextsString = this.formatSimilarTexts(similarTexts);
+        const message = this.createEditMessage(similarTextsString, text);
         return this.chatbot.getCompletion(message);
     }
 
@@ -43,25 +34,26 @@ export class SmartEdits {
         return results.map((result) => result.cellId);
     }
 
-    private getEditHistories(cellIds: string[]): CellsEditHistory {
-        const editHistories: CellsEditHistory = {};
+    private getSimilarTexts(cellIds: string[]): { [cellId: string]: string } {
+        const similarTexts: { [cellId: string]: string } = {};
         cellIds.forEach((cellId) => {
-            const edits = getEditHistories(this.translationPairsIndex, cellId);
-            editHistories[cellId] = { edits };
+            const pair = getTranslationPairFromProject(this.translationPairsIndex, cellId);
+            if (pair) {
+                similarTexts[cellId] = pair.targetCell.content;
+            }
         });
-        return editHistories;
+        return similarTexts;
     }
 
-    private formatEditHistories(editHistories: CellsEditHistory): string {
-        return Object.entries(editHistories)
-            .map(([cellId, cellHistory]) => {
-                const cellValue = cellHistory.edits.map((edit) => edit.cellValue).join("\n");
-                return `Cell ${cellId}:\n${cellValue}`;
+    private formatSimilarTexts(similarTexts: { [cellId: string]: string }): string {
+        return Object.entries(similarTexts)
+            .map(([cellId, text]) => {
+                return `Cell ${cellId}:\n${text}`;
             })
             .join("\n");
     }
 
-    private createEditMessage(editHistoryString: string, text: string): string {
-        return `Edit Histories of Similar Texts:\n${editHistoryString}\n\nEdit the following text based on the edit patterns you've seen in similar texts, or leave it as is if nothing needs to be changed:\n${text}`;
+    private createEditMessage(similarTextsString: string, text: string): string {
+        return `Similar Texts:\n${similarTextsString}\n\nEdit the following text based on the patterns you've seen in similar texts, or leave it as is if nothing needs to be changed:\n${text}`;
     }
 }

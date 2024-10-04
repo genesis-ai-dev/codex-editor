@@ -5,7 +5,6 @@ export const useSubtitleData = (translationUnits: QuillCellContent[]) => {
     const subtitleData = useMemo(() => {
         return generateVttData(translationUnits);
     }, [translationUnits]);
-
     const subtitleBlob = useMemo(
         () => new Blob([subtitleData], { type: "text/vtt" }),
         [subtitleData]

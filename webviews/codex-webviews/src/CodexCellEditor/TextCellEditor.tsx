@@ -1,9 +1,10 @@
-import React from "react";
+import React, { useContext, useEffect } from "react";
 import { EditorCellContent, SpellCheckResponse } from "../../../../types";
 import Editor from "./Editor";
 import CloseButtonWithConfirmation from "../components/CloseButtonWithConfirmation";
 import { getCleanedHtml } from "./react-quill-spellcheck";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 
 interface CellEditorProps {
     cellMarkers: string[];
@@ -28,12 +29,19 @@ const CellEditor: React.FC<CellEditorProps> = ({
     handleSaveMarkdown,
     textDirection,
 }) => {
-    const unsavedChanges = !!(
+    const { unsavedChanges, setUnsavedChanges, showFlashingBorder } =
+        useContext(UnsavedChangesContext);
+
+    const unsavedChangesState = !!(
         contentBeingUpdated.content &&
         getCleanedHtml(contentBeingUpdated.content) &&
         getCleanedHtml(contentBeingUpdated.content).replace(/\s/g, "") !==
             cellContent.replace(/\s/g, "")
     );
+
+    useEffect(() => {
+        setUnsavedChanges(unsavedChangesState);
+    }, [unsavedChangesState]);
 
     return (
         <div className="cell-editor" style={{ direction: textDirection }}>
@@ -58,7 +66,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     </VSCodeButton>
                 )}
             </div>
-            <div className="text-editor">
+            <div className={`text-editor ${showFlashingBorder ? "flashing-border" : ""}`}>
                 <Editor
                     currentLineId={cellMarkers[0]}
                     key={`${cellIndex}-quill`}

@@ -126,10 +126,12 @@ export class DictionarySummaryProvider implements vscode.WebviewViewProvider {
 
                     // Filter out words that are already in the dictionary
                     const existingWords = new Set(
-                        dictionary.entries.map((entry) => entry.headWord.toLowerCase())
+                        dictionary.entries
+                            .filter(entry => entry && entry.headWord) // Add this filter
+                            .map((entry) => entry.headWord.toLowerCase())
                     );
                     const newFrequentWords = allFrequentWords.filter(
-                        (word) => !existingWords.has(word.toLowerCase())
+                        (word) => word && !existingWords.has(word.toLowerCase())
                     );
 
                     this._view?.webview.postMessage({
@@ -250,7 +252,19 @@ export class DictionarySummaryProvider implements vscode.WebviewViewProvider {
             const entries = data
                 .split("\n")
                 .filter((line) => line.trim().length > 0)
-                .map((line) => JSON.parse(line.trim()) as DictionaryEntry);
+                .map((line, index) => {
+                    try {
+                        const entry = JSON.parse(line.trim()) as DictionaryEntry;
+                        if (!entry.headWord) {
+                            console.warn(`Entry at line ${index + 1} is missing headWord:`, entry);
+                        }
+                        return entry;
+                    } catch (e) {
+                        console.error(`Failed to parse entry at line ${index + 1}:`, line, e);
+                        return null;
+                    }
+                })
+                .filter((entry): entry is DictionaryEntry => entry !== null);
             return {
                 id: "",
                 label: "",

@@ -240,3 +240,19 @@ li {
     gap: 0.5rem;
     margin-inline: 0.5rem;
 }
+
+.flashing-border {
+    animation: flashing 1s linear infinite;
+}
+
+@keyframes flashing {
+    0% {
+        outline: 2px solid transparent;
+    }
+    50% {
+        outline: 2px solid var(--vscode-editorWarning-foreground);
+    }
+    100% {
+        outline-color: transparent;
+    }
+}

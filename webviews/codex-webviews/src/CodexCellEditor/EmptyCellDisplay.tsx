@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useContext } from "react";
 import { EditorCellContent } from "../../../../types";
+import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 
 interface EmptyCellDisplayProps {
     cellMarkers: string[];
@@ -12,7 +13,12 @@ const EmptyCellDisplay: React.FC<EmptyCellDisplayProps> = ({
     setContentBeingUpdated,
     textDirection,
 }) => {
+    const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
     const handleClick = () => {
+        if (unsavedChanges) {
+            toggleFlashingBorder();
+            return;
+        }
         setContentBeingUpdated({
             cellMarkers,
             content: "",
@@ -26,7 +32,7 @@ const EmptyCellDisplay: React.FC<EmptyCellDisplayProps> = ({
             style={{ direction: textDirection }}
         >
             <span className="empty-cell-marker">{cellMarkers.join("-")}</span>
-            <span className="empty-cell-prompt">Click to add cell</span>
+            <span className="empty-cell-prompt">Click to add cell content</span>
         </div>
     );
 };

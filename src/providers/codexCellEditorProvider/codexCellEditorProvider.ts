@@ -1,11 +1,7 @@
 import * as vscode from "vscode";
-import * as fs from "fs";
-import * as path from "path";
-
-import { getUri } from "../translationNotes/utilities/getUri";
 import { initializeStateStore } from "../../stateStore";
 import { fetchCompletionConfig } from "../translationSuggestions/inlineCompletionsProvider";
-import { CodexContentSerializer, CodexNotebookReader } from "../../serializer";
+import { CodexNotebookReader } from "../../serializer";
 import { workspaceStoreListener } from "../../utils/workspaceEventListener";
 import { llmCompletion } from "../translationSuggestions/llmCompletion";
 import { CodexCellTypes, EditType } from "../../../types/enums";

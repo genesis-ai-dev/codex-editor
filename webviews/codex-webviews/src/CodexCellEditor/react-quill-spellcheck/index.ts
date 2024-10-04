@@ -309,19 +309,24 @@ export class QuillSpellChecker {
  *
  * @param Quill Quill static instance.
  */
-export default function registerQuillSpellChecker(Quill: any, vscodeApi: any) {
+export default function registerQuillSpellChecker(Quill: typeof import('quill'), vscodeApi: any) {
     debug("spell-checker-debug: registerQuillSpellChecker", {
         Quill,
         vscodeApi,
     });
 
     // Store the VSCode API in the global variable
-    window.vscodeApi = vscodeApi;
+    (window as any).vscodeApi = vscodeApi;
 
-    Quill.register({
-        "modules/spellChecker": QuillSpellChecker,
-        "formats/spck-match": createSuggestionBlotForQuillInstance(Quill),
-    });
+    // Check if the module is already registered
+    if (!(Quill as any).imports?.['modules/spellChecker']) {
+        (Quill as any).register({
+            "modules/spellChecker": QuillSpellChecker,
+            "formats/spck-match": createSuggestionBlotForQuillInstance(Quill),
+        });
+    } else {
+        console.warn('SpellChecker module is already registered. Skipping registration.');
+    }
 }
 
 export { getCleanedHtml, removeSuggestionBoxes } from "./SuggestionBoxes";

@@ -6,6 +6,7 @@ import EmptyCellDisplay from "./EmptyCellDisplay";
 import "@vscode/codicons/dist/codicon.css"; // Import codicons
 import { CodexCellTypes } from "../../../../types/enums";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
+import { WebviewApi } from "vscode-webview";
 interface CellListProps {
     translationUnits: {
         cellMarkers: string[];
@@ -17,7 +18,7 @@ interface CellListProps {
     spellCheckResponse: SpellCheckResponse | null;
     handleCloseEditor: () => void;
     handleSaveMarkdown: () => void;
-    vscode: any;
+    vscode: WebviewApi<unknown>;
     textDirection: "ltr" | "rtl";
     cellDisplayMode: CELL_DISPLAY_MODES;
     isSourceText: boolean;
