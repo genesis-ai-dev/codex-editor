@@ -19,7 +19,8 @@ import * as path from "path";
 import { URI } from "vscode-uri";
 import { Connection } from "vscode-languageserver/node";
 import { cleanWord } from "../utils/cleaningUtils";
-import { getWorkSpaceUri } from "../utils";
+
+let folderUri: URI | undefined;
 
 export class SpellChecker {
     private dictionary: Dictionary | null = null;
@@ -29,14 +30,14 @@ export class SpellChecker {
 
     constructor(workspaceFolder: string | undefined, connection: Connection | null = null) {
         if (workspaceFolder) {
-            const folderUri = URI.parse(workspaceFolder);
+            folderUri = URI.parse(workspaceFolder);
             this.dictionaryPath = path.join(folderUri.fsPath, "files", "project.dictionary");
         } else {
             // Fallback to a default path if no workspace folder is provided
             this.dictionaryPath = path.join(process.cwd(), "files", "project.dictionary");
         }
         console.log("Dictionary path: " + this.dictionaryPath);
-        const metadataPath = path.join(getWorkSpaceUri()?.fsPath || process.cwd(), "metadata.json");
+        const metadataPath = path.join(folderUri?.fsPath || process.cwd(), "metadata.json");
         if (fs.existsSync(metadataPath)) {
             console.log("metadata.json found in constructor. Initializing dictionary.");
             this.ensureDictionaryExists();
@@ -58,7 +59,7 @@ export class SpellChecker {
     }
 
     private async ensureDictionaryExists() {
-        const metadataPath = path.join(getWorkSpaceUri()?.fsPath || process.cwd(), "metadata.json");
+        const metadataPath = path.join(folderUri?.fsPath || process.cwd(), "metadata.json");
         if (fs.existsSync(metadataPath)) {
             console.log("metadata.json found in ensureDictionaryExists. Checking for dictionary.");
             try {
