@@ -30,6 +30,11 @@ export async function readSourceAndTargetFiles(): Promise<{
     const sourceUris = await vscode.workspace.findFiles(sourcePattern);
     const targetUris = await vscode.workspace.findFiles(targetPattern);
 
+    console.log(
+        "Target File URIs:",
+        targetUris.map((uri) => uri.fsPath)
+    );
+
     const sourceFiles = await Promise.all(sourceUris.map(readFile));
     const targetFiles = await Promise.all(targetUris.map(readFile));
 
