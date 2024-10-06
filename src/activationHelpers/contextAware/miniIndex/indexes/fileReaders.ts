@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
 import { getWorkSpaceUri } from "../../../../utils";
-import { Edit } from "../../../../../types";
 
 export interface FileData {
     uri: vscode.Uri;
@@ -8,7 +7,6 @@ export interface FileData {
         metadata?: {
             type?: string;
             id?: string;
-            edits?: Edit[];
         };
         value: string;
     }>;
@@ -48,10 +46,9 @@ async function readFile(uri: vscode.Uri): Promise<FileData> {
                 ...cell,
                 metadata: {
                     ...cell.metadata,
-                    edits: cell.metadata?.edits || [],
                 },
             };
-     
+
             return cellData;
         }),
     };
