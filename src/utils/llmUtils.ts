@@ -21,6 +21,13 @@ export async function callLLM(messages: ChatMessage[], config: CompletionConfig)
         // Set the API key as an environment variable
         process.env.OPENAI_API_KEY = config.apiKey;
 
+        let model = config.model as OpenAIModel | string;
+        if (model === "custom") {
+            model = config.customModel as OpenAIModel;
+        }
+
+        console.log("model", model);
+
         try {
             const completion = await tokenjs.chat.completions.create({
                 provider: "openai",

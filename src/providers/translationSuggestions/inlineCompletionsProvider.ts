@@ -19,6 +19,7 @@ export interface CompletionConfig {
     endpoint: string;
     apiKey: string;
     model: string;
+    customModel: string;
     contextSize: string;
     additionalResourceDirectory: string;
     contextOmission: boolean;

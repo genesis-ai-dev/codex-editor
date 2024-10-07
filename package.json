@@ -958,22 +958,30 @@
                     "translators-copilot.llmEndpoint": {
                         "type": "string",
                         "default": "https://api.openai.com/v1",
-                        "description": "The endpoint for the completion API. Currently only supports OpenAI API."
+                        "description": "The endpoint for the completion API. Currently only supports OpenAI API, or openai-compatible local endpoints such as LM Studio, etc."
+                    },
+                    "translators-copilot.wsEndpoint": {
+                        "type": "string",
+                        "default": "wss://api.openai.com/v1/chat/completions",
+                        "description": "The endpoint for the realtime chat API. Currently only supports OpenAI API."
                     },
                     "translators-copilot.model": {
                         "title": "LLM Model",
                         "type": "string",
                         "enum": [
-                            "local",
-                            "gpt-3.5-turbo",
-                            "gpt-4",
-                            "gpt-4-turbo",
+                            "custom",
                             "gpt-4o",
                             "gpt-4o-mini",
                             "davinci"
                         ],
                         "default": "gpt-4o-mini",
-                        "description": "Model name selected for inference. Ignorable for local LLM."
+                        "description": "Model name selected for inference. Ignorable for local LLM. If you are using a custom LLM, set to 'custom' and update the customModel setting below."
+                    },
+                    "translators-copilot.customModel": {
+                        "title": "Custom LLM Model",
+                        "type": "string",
+                        "default": "",
+                        "description": "Custom LLM model to use for inference. Ignorable for OpenAI API."
                     },
                     "translators-copilot.sourceBookWhitelist": {
                         "title": "Source Book Whitelist",
