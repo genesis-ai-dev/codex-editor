@@ -31,7 +31,7 @@ class Chatbot {
         try {
             const completion = await this.tokenjs.chat.completions.create({
                 provider: "openai",
-                model: "gpt-3.5-turbo" as OpenAIModel,
+                model: "gpt-4-turbo-preview" as OpenAIModel,
                 messages,
             });
 
@@ -42,6 +42,18 @@ class Chatbot {
         } finally {
             delete process.env.OPENAI_API_KEY;
         }
+    }
+
+    private getJson(content: string): any {
+        try {
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                return JSON.parse(jsonMatch[0]);
+            }
+        } catch (error) {
+            console.error("Error parsing JSON from LLM response:", error);
+        }
+        return null;
     }
 
     async addMessage(role: "user" | "assistant", content: string): Promise<void> {
@@ -59,10 +71,16 @@ class Chatbot {
     }
 
     async getCompletion(prompt: string): Promise<string> {
-        return this.callLLM([
+        const response = await this.callLLM([
             { role: "system", content: "You are a helpful assistant." },
             { role: "user", content: prompt },
         ]);
+        return response;
+    }
+
+    async getJsonCompletion(prompt: string): Promise<any> {
+        const response = await this.getCompletion(prompt);
+        return this.getJson(response);
     }
 }
 

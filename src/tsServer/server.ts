@@ -18,6 +18,8 @@ import {
     ReplacementsEntity,
 } from "../../webviews/codex-webviews/src/CodexCellEditor/react-quill-spellcheck/types";
 
+import { SmartEdits } from "../smartEdits/smartEdits";
+
 const DEBUG_MODE = true; // Flag for debug mode
 
 const connection = createConnection(ProposedFeatures.all);
@@ -44,6 +46,7 @@ const specialPhrases = [
 
 connection.onInitialize((params: InitializeParams) => {
     const workspaceFolder = params.workspaceFolders?.[0].uri;
+
     debugLog(`Initializing with workspace folder: ${workspaceFolder}`);
 
     // Initialize services

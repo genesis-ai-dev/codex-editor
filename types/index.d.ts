@@ -62,10 +62,28 @@ interface EditHistoryItem {
     timestamp: number;
     type: import("./enums").EditType;
 }
+
+// Relating to Smart Edits
 interface SmartEditContext {
     cellId: string;
     currentCellValue: string;
     edits: EditHistoryItem[];
+}
+
+interface SmartSuggestion {
+    oldString: string;
+    newString: string;
+}
+
+interface SavedSuggestions {
+    cellId: string;
+    lastCellValue: string;
+    suggestions: SmartSuggestion[];
+}
+
+interface SmartEdit {
+    context: SmartEditContext;
+    suggestions: SmartSuggestion[];
 }
 
 interface CellIdGlobalState {
