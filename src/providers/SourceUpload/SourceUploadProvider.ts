@@ -4,6 +4,8 @@ import {
     createCodexNotebookFromWebVTT,
 } from "../../utils/codexNotebookUtils";
 import { initializeProject } from "../../projectManager/projectInitializers";
+import { FileType } from "../../../types";
+
 function getNonce(): string {
     let text = "";
     const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -53,33 +55,41 @@ export class SourceUploadProvider
             switch (message.command) {
                 case "processUploadedFile":
                     try {
-                        if (message.fileType === "subtitles") {
-                            const notebookName = await vscode.window.showInputBox({
-                                prompt: "Enter the name of this source file",
-                            });
-                            if (notebookName) {
-                                await createCodexNotebookFromWebVTT(
-                                    message.fileContent,
-                                    notebookName
+                        const fileType = message.fileType as FileType;
+                        const notebookName = await vscode.window.showInputBox({
+                            prompt: "Enter the name of this source file",
+                        });
+                        switch (fileType) {
+                            case "subtitles":
+                                if (notebookName) {
+                                    await createCodexNotebookFromWebVTT(
+                                        message.fileContent,
+                                        notebookName
+                                    );
+                                }
+                                break;
+                            case "usfm":
+                                // Save the uploaded USFM files and initialize the project
+                                await initializeProject(true);
+                                break;
+                            case "plaintext":
+                                // Handle plaintext import using recursive document splitter
+                                vscode.window.showInformationMessage(
+                                    "Plaintext import is not yet implemented."
                                 );
-                            }
-                        } else if (message.fileType === "usfm") {
-                            // Save the uploaded USFM files and initialize the project
-                            await initializeProject(true);
-                        } else if (message.fileType === "plaintext") {
-                            // Handle plaintext import using recursive document splitter
-                            // Implement your plaintext processing logic here
-                            vscode.window.showInformationMessage(
-                                "Plaintext import is not yet implemented."
-                            );
+                                break;
+                            default:
+                                vscode.window.showErrorMessage(
+                                    `Unsupported file type: ${fileType}`
+                                );
                         }
                     } catch (error) {
                         console.error(`Error processing uploaded file: ${error}`);
                         vscode.window.showErrorMessage(`Error processing uploaded file.`);
                     }
                     break;
-                    // Handle file upload logic here
-                    console.log("File uploaded:", message.file);
+                default:
+                    console.log("Unknown command:", message.command);
                     break;
             }
         });

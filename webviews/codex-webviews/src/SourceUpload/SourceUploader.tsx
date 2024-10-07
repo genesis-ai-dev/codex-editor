@@ -2,13 +2,24 @@ import React, { useCallback, useEffect, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { useVSCodeMessageHandler } from "./hooks/useVSCodeMessageHandler";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { FileTypeMap, SupportedFileExtension, FileType } from "../../../../types";
 
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
 
+const fileTypeMap: FileTypeMap = {
+    vtt: "subtitles",
+    txt: "plaintext",
+    usfm: "usfm",
+    sfm: "usfm",
+    SFM: "usfm",
+    USFM: "usfm",
+};
+
 const SourceUploader: React.FC = () => {
     const [fileContent, setFileContent] = React.useState<string>("");
     const [selectedFile, setSelectedFile] = useState<File>();
+    const [fileType, setFileType] = useState<FileType | "">("");
 
     useVSCodeMessageHandler({
         setFile: (file: File) => {
@@ -33,6 +44,16 @@ const SourceUploader: React.FC = () => {
                 setFileContent(content);
             };
             reader.readAsText(selectedFile);
+
+            // Determine file type based on extension
+            const extension = selectedFile.name.split(".").pop() as
+                | SupportedFileExtension
+                | undefined;
+            if (extension && extension in fileTypeMap) {
+                setFileType(fileTypeMap[extension]);
+            } else {
+                setFileType("plaintext");
+            }
         }
     }, [selectedFile]);
 
@@ -41,8 +62,12 @@ const SourceUploader: React.FC = () => {
     });
 
     const handleUpload = () => {
-        if (selectedFile) {
-            vscode.postMessage({ command: "createCodexNotebookFromWebVTT", fileContent });
+        if (selectedFile && fileContent) {
+            vscode.postMessage({
+                command: "processUploadedFile",
+                fileContent,
+                fileType,
+            });
         }
     };
 

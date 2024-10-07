@@ -471,3 +471,16 @@ declare function searchParallelCells(
     query: string,
     k?: number
 ): TranslationPair[];
+
+export type SupportedFileExtension = "vtt" | "txt" | "usfm" | "sfm" | "SFM" | "USFM";
+
+export type FileType = "subtitles" | "plaintext" | "usfm";
+
+export interface FileTypeMap {
+    vtt: "subtitles";
+    txt: "plaintext";
+    usfm: "usfm";
+    sfm: "usfm";
+    SFM: "usfm";
+    USFM: "usfm";
+}
