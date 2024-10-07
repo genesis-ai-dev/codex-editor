@@ -83,6 +83,7 @@ connection.onInitialize((params: InitializeParams) => {
 
 connection.onRequest("spellcheck/check", async (params: { text: string }) => {
     debugLog("SERVER: Received spellcheck/check request:", { params });
+
     const text = params.text.toLowerCase();
 
     const matches: MatchesEntity[] = [];

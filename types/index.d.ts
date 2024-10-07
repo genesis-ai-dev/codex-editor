@@ -57,6 +57,17 @@ interface TranslationPair {
     edits?: EditHistory[]; // Make this optional as it might not always be present
 }
 
+interface EditHistoryItem {
+    cellValue: string;
+    timestamp: number;
+    type: import("./enums").EditType;
+}
+interface SmartEditContext {
+    cellId: string;
+    currentCellValue: string;
+    edits: EditHistoryItem[];
+}
+
 interface CellIdGlobalState {
     cellId: string;
     uri: string;
