@@ -234,6 +234,7 @@ export async function fetchCompletionConfig(): Promise<CompletionConfig> {
             endpoint: config.get("llmEndpoint") || "https://api.openai.com/v1",
             apiKey: config.get("api_key") || "",
             model: config.get("model") || "gpt-4o",
+            customModel: config.get("customModel") || "",
             contextSize: config.get("contextSize") || "large",
             additionalResourceDirectory: config.get("additionalResourcesDirectory") || "",
             contextOmission: config.get("experimentalContextOmission") || false,
