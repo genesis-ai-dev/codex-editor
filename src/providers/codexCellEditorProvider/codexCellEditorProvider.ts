@@ -102,14 +102,22 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
 
         webviewPanel.webview.onDidReceiveMessage(async (e: EditorPostMessages) => {
             try {
+                console.log("message received (codexCellEditorProvider.ts): ", { e });
                 switch (e.command) {
                     case "addWord": {
                         console.log("addWord message received", { e });
                         try {
-                            await vscode.commands.executeCommand("spellcheck.addWord", e.text);
+                            const result = await vscode.commands.executeCommand(
+                                "spellcheck.addWord",
+                                e.words
+                            );
+                            console.log("spellcheck.addWord command result:", result);
+                            vscode.window.showInformationMessage(
+                                "Word added to dictionary successfully."
+                            );
                         } catch (error) {
                             console.error("Error adding word:", error);
-                            vscode.window.showErrorMessage("Failed to add word to dictionary.");
+                            vscode.window.showErrorMessage(`Failed to add word to dictionary:`);
                         }
                         return;
                     }

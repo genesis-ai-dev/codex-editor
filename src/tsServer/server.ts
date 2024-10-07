@@ -18,7 +18,7 @@ import {
     ReplacementsEntity,
 } from "../../webviews/codex-webviews/src/CodexCellEditor/react-quill-spellcheck/types";
 
-const DEBUG_MODE = false; // Flag for debug mode
+const DEBUG_MODE = true; // Flag for debug mode
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
@@ -143,6 +143,7 @@ connection.onRequest("spellcheck/check", async (params: { text: string }) => {
 connection.onRequest("spellcheck/addWord", async (params: { words: string[] }) => {
     debugLog("Received spellcheck/addWord request:", { params });
     if (!spellChecker) {
+        debugLog("SpellChecker is not initialized.");
         throw new Error("SpellChecker is not initialized.");
     }
 
@@ -151,7 +152,7 @@ connection.onRequest("spellcheck/addWord", async (params: { words: string[] }) =
         debugLog("Words successfully added to the dictionary.");
         return { success: true };
     } catch (error: any) {
-        console.error("Error adding words to the dictionary:", error);
+        debugLog("Error adding words to the dictionary:", error);
         throw new Error(`Failed to add words: ${error.message}`);
     }
 });

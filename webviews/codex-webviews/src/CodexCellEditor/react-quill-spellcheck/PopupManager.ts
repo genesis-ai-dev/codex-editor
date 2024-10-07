@@ -123,7 +123,7 @@ export default class PopupManager {
     private addWordToDictionary(word: string) {
         console.log(`Attempting to add word to dictionary: ${word}`);
         window.vscodeApi?.postMessage({
-            type: "addWord",
+            command: "addWord",
             words: [word],
         });
         this.closePopup();
