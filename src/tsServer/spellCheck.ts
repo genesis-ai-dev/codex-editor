@@ -226,42 +226,44 @@ export class SpellChecker {
         }
     }
 
-    async addWordsToDictionary(words: string[]) {
-        console.log("Calling addWordsToDictionary inside server");
-        const newEntries: DictionaryEntry[] = [];
-        await this.ensureDictionaryWellFormed();
-
-        for (let word of words) {
-            word = cleanWord(word);
-
-            if (!this.dictionary) {
-                this.dictionary = {
-                    entries: [],
-                    id: this.generateUniqueId(),
-                    label: "Project",
-                    metadata: {},
-                } as unknown as Dictionary;
-            }
-
-            if (this.dictionary.entries.some((entry) => entry.headWord === word)) {
-                continue;
-            }
-
-            const newEntry: DictionaryEntry = {
+    /**
+     * Adds new words to the dictionary and persists them to the dictionary file.
+     * @param words Array of words to add.
+     */
+    async addWords(words: string[]): Promise<void> {
+        if (!this.dictionary) {
+            this.dictionary = {
                 id: this.generateUniqueId(),
-                headWord: word,
-                hash: this.generateHash(word),
-                headForm: word,
-                variantForms: [],
-                definition: "",
-                translationEquivalents: [],
-                links: [],
-                linkedEntries: [],
-                notes: [],
+                label: "Custom Dictionary",
                 metadata: {},
+                entries: [],
             };
-            this.dictionary.entries.push(newEntry);
-            newEntries.push(newEntry);
+        }
+
+        const newEntries: DictionaryEntry[] = [];
+
+        for (const word of words) {
+            const cleanedWord = cleanWord(word);
+            const exists = this.dictionary.entries.some(
+                (entry) => entry.headWord.toLowerCase() === cleanedWord.toLowerCase()
+            );
+            if (!exists) {
+                const newEntry: DictionaryEntry = {
+                    id: `${Date.now()}-${Math.random()}`, // Generate a unique ID
+                    headWord: cleanedWord,
+                    headForm: cleanedWord,
+                    variantForms: [],
+                    definition: "",
+                    translationEquivalents: [],
+                    links: [],
+                    linkedEntries: [],
+                    notes: [],
+                    metadata: {},
+                    hash: this.generateHash(cleanedWord),
+                };
+                this.dictionary.entries.push(newEntry);
+                newEntries.push(newEntry);
+            }
         }
 
         if (newEntries.length > 0) {
@@ -269,10 +271,12 @@ export class SpellChecker {
                 const serializedEntries =
                     newEntries.map((entry) => JSON.stringify(entry)).join("\n") + "\n";
                 await fs.promises.appendFile(this.dictionaryPath, serializedEntries, "utf8");
-                // No need to reload the dictionary here
+                console.log("New words successfully added to the dictionary.");
             } catch (error) {
-                console.error("Error saving dictionary:", error);
+                console.error("Error saving new words to the dictionary:", error);
             }
+        } else {
+            console.log("No new words to add. All words already exist in the dictionary.");
         }
     }
 
@@ -305,6 +309,30 @@ export class SpellChecker {
         if (this.dictionaryWatcher) {
             this.dictionaryWatcher.close();
             this.dictionaryWatcher = null;
+        }
+    }
+
+    /**
+     * Saves the current dictionary to the dictionary file in JSONL format.
+     */
+    private async saveDictionary(): Promise<void> {
+        if (!this.dictionaryPath) {
+            console.error("No dictionary path defined.");
+            return;
+        }
+        if (!this.dictionary) {
+            console.error("Dictionary is not initialized.");
+            return;
+        }
+
+        const lines =
+            this.dictionary.entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n";
+
+        try {
+            await fs.promises.writeFile(this.dictionaryPath, lines, "utf8");
+            console.log("Dictionary successfully saved.");
+        } catch (error) {
+            console.error("Error saving dictionary:", error);
         }
     }
 }

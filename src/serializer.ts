@@ -61,7 +61,6 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
             cells: [],
             metadata: data.metadata,
         };
-
         for (const cell of data.cells) {
             contents.cells.push({
                 kind: cell.kind,
@@ -70,6 +69,7 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
                 metadata: {
                     ...cell.metadata,
                     id: cell.metadata?.id,
+                    type: cell.metadata?.type || "default", // FIXME: Add a default type if not present, user?
                 },
             });
         }

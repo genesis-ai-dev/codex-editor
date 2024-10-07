@@ -187,10 +187,8 @@ export async function insertDraftsIntoTargetNotebooks({
     for (const [book, drafts] of zeroDraftMap.entries()) {
         const notebookFiles = await vscode.workspace.findFiles(`**/${book}.codex`);
         console.log(`Found ${drafts.size} cells for book ${book}`);
-
         for (const notebookFile of notebookFiles) {
-            const notebook: CustomNotebookDocument =
-                await vscode.workspace.openNotebookDocument(notebookFile);
+            const notebook = await vscode.workspace.openNotebookDocument(notebookFile);
             const workspaceEdit = new vscode.WorkspaceEdit();
 
             for (let cellIndex = 0; cellIndex < notebook.cellCount; cellIndex++) {

@@ -38,7 +38,7 @@ export class SmartEdits {
         const similarTexts: { [cellId: string]: string } = {};
         cellIds.forEach((cellId) => {
             const pair = getTranslationPairFromProject(this.translationPairsIndex, cellId);
-            if (pair) {
+            if (pair && pair.targetCell.content) {
                 similarTexts[cellId] = pair.targetCell.content;
             }
         });

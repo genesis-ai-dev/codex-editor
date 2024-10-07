@@ -35,15 +35,24 @@ export function registerClientCommands(
             if (client) {
                 console.log("sending request inside addWord");
                 const wordsArray = Array.isArray(words) ? words : [words];
-                return client.sendRequest("spellcheck/addWord", { words: wordsArray });
+                try {
+                    const response = await client.sendRequest("spellcheck/addWord", {
+                        words: wordsArray,
+                    });
+                    console.log("Add word response:", response);
+                    vscode.window.showInformationMessage(
+                        "Word(s) added to dictionary successfully."
+                    );
+                } catch (error: any) {
+                    console.error("Error adding word:", error);
+                    vscode.window.showErrorMessage(`Error adding word: ${error.message}`);
+                }
             }
         })
     );
 
-    // Add all disposables to the extension context
     context.subscriptions.push(...disposables);
 
-    // Return a disposable that will dispose of all registered commands
     return {
         dispose: () => {
             disposables.forEach((d) => d.dispose());

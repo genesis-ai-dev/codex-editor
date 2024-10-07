@@ -3,15 +3,7 @@ import {
     TextDocuments,
     ProposedFeatures,
     InitializeParams,
-    TextDocumentSyncKind,
     InitializeResult,
-    TextDocumentPositionParams,
-    CodeActionParams,
-    PublishDiagnosticsParams,
-    CompletionContext,
-    Connection,
-    Hover,
-    DocumentSymbol,
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import {
@@ -21,11 +13,12 @@ import {
     SpellCheckCompletionItemProvider,
 } from "./spellCheck";
 import { WordSuggestionProvider } from "./forecasting";
-import { URI } from "vscode-uri";
-import { tokenizeText } from "../utils/nlpUtils";
+import {
+    MatchesEntity,
+    ReplacementsEntity,
+} from "../../webviews/codex-webviews/src/CodexCellEditor/react-quill-spellcheck/types";
 
 const DEBUG_MODE = false; // Flag for debug mode
-const TOKENIZE_METHOD_SHOULD_BE_SET_IN_CONFIG = "words";
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
@@ -42,6 +35,12 @@ function debugLog(...args: any[]) {
         console.log(...args);
     }
 }
+
+// Define special phrases with their replacements and colors
+const specialPhrases = [
+    { phrase: "hello world", replacement: "hi", color: "purple" },
+    // Add more phrases as needed
+];
 
 connection.onInitialize((params: InitializeParams) => {
     const workspaceFolder = params.workspaceFolders?.[0].uri;
@@ -64,183 +63,110 @@ connection.onInitialize((params: InitializeParams) => {
     completionItemProvider = new SpellCheckCompletionItemProvider(spellChecker);
     debugLog("SpellCheckCompletionItemProvider initialized.");
 
-    if (workspaceFolder) {
-        const fsPath = URI.parse(workspaceFolder).fsPath;
-        debugLog(`Creating WordSuggestionProvider with workspace folder: ${fsPath}`);
-        wordSuggestionProvider = new WordSuggestionProvider(fsPath);
-        debugLog("WordSuggestionProvider initialized.");
-    } else {
-        console.warn("No workspace folder provided. WordSuggestionProvider not initialized.");
-    }
+    debugLog("Initializing WordSuggestionProvider...");
+    wordSuggestionProvider = new WordSuggestionProvider(workspaceFolder || "");
+    debugLog("WordSuggestionProvider initialized.");
 
-    const result: InitializeResult = {
+    return {
         capabilities: {
-            textDocumentSync: TextDocumentSyncKind.Incremental,
+            textDocumentSync: {
+                openClose: true,
+                change: 1, // Incremental
+            },
             completionProvider: {
-                resolveProvider: false,
-                triggerCharacters: [" "],
+                resolveProvider: true,
             },
-            codeActionProvider: true,
-            hoverProvider: true,
-            documentSymbolProvider: true,
-            executeCommandProvider: {
-                commands: ["spellcheck.addToDictionary", "server.getSimilarWords"],
-            },
+            // Add other capabilities as needed
         },
-    };
-    return result;
-});
-
-// NOTE: if we watch for document changes, we wind up doing things like spell checking the entirety of any .codex document
-// documents.onDidChangeContent((change) => {
-//     debugLog(`Document changed: ${change.document.uri}`);
-//     const diagnostics = diagnosticsProvider.updateDiagnostics(change.document);
-//     debugLog(`Sending diagnostics for: ${change.document.uri}`);
-//     connection.sendDiagnostics({ uri: change.document.uri, diagnostics });
-// });
-
-connection.onCompletion((params: TextDocumentPositionParams) => {
-    debugLog(
-        `Completion requested for document: ${params.textDocument.uri} at position: ${params.position}`
-    );
-    const document = documents.get(params.textDocument.uri);
-    if (!document) {
-        console.warn(`Document not found: ${params.textDocument.uri}`);
-        return [];
-    }
-
-    // Create a dummy CancellationToken since we don't have one in this context
-    const dummyToken = {
-        isCancellationRequested: false,
-        onCancellationRequested: () => ({ dispose: () => {} }),
-    };
-
-    // Create a default CompletionContext
-    const defaultContext: CompletionContext = {
-        triggerKind: 1, // Invoked
-        triggerCharacter: undefined,
-    };
-
-    debugLog("About to get spell check suggestions...");
-    const spellCheckSuggestions = completionItemProvider.provideCompletionItems(
-        document,
-        params.position,
-        dummyToken,
-        defaultContext
-    );
-
-    debugLog("About to get word suggestions...");
-    const wordSuggestions = wordSuggestionProvider.provideCompletionItems(
-        document,
-        params.position,
-        dummyToken,
-        defaultContext
-    );
-
-    debugLog("Returning combined suggestions.");
-    return [...spellCheckSuggestions, ...wordSuggestions];
-});
-
-connection.onCodeAction((params: CodeActionParams) => {
-    debugLog(`Code action requested for document: ${params.textDocument.uri}`);
-    const document = documents.get(params.textDocument.uri);
-    if (!document) {
-        console.warn(`Document not found: ${params.textDocument.uri}`);
-        return [];
-    }
-
-    debugLog("Providing code actions...");
-    return codeActionProvider.provideCodeActions(document, params.range, params.context);
-});
-
-// TODO: Implement other handlers (hover, document symbols, etc.)
-
-// Add this new handler
-connection.onExecuteCommand(async (params) => {
-    debugLog("Received execute command:", params.command);
-
-    if (params.command === "spellcheck.addToDictionary" && params.arguments) {
-        const words = params.arguments as string[];
-        debugLog(`Adding words to dictionary: ${words}`);
-        await spellChecker.addWordsToDictionary(words);
-        debugLog("Words added to dictionary.");
-        connection.sendNotification("spellcheck/dictionaryUpdated");
-    }
-
-    if (params.command === "server.getSimilarWords") {
-        debugLog("Handling server.getSimilarWords command");
-        const [word] = params.arguments || [];
-        if (typeof word === "string") {
-            try {
-                debugLog(`Getting similar words for: ${word}`);
-                const similarWords = wordSuggestionProvider.getSimilarWords(word);
-                debugLog("Similar words:", similarWords);
-                return similarWords;
-            } catch (error) {
-                console.error("Error getting similar words:", error);
-                return [];
-            }
-        } else {
-            console.error("Invalid arguments for server.getSimilarWords");
-            return [];
-        }
-    }
-    // ... other command handlers ...
+    } as InitializeResult;
 });
 
 connection.onRequest("spellcheck/check", async (params: { text: string }) => {
     debugLog("SERVER: Received spellcheck/check request:", { params });
+    const text = params.text.toLowerCase();
+
+    const matches: MatchesEntity[] = [];
+
+    // Handle special phrases first to avoid overlapping with single-word matches
+    specialPhrases.forEach(({ phrase, replacement, color }, index) => {
+        let startIndex = 0;
+        const phraseLower = phrase.toLowerCase();
+
+        while ((startIndex = text.indexOf(phraseLower, startIndex)) !== -1) {
+            matches.push({
+                id: `SPECIAL_PHRASE_${index}_${matches.length}`,
+                text: phrase,
+                replacements: [{ value: replacement }],
+                offset: startIndex,
+                length: phrase.length,
+                color: color, // Assign specified color
+            });
+            startIndex += phrase.length;
+        }
+    });
+
+    // Perform regular spellcheck for other words
     const words = tokenizeText({
-        method: TOKENIZE_METHOD_SHOULD_BE_SET_IN_CONFIG,
+        method: "words",
         text: params.text,
     });
-    debugLog(`Checking spelling for words: ${words}`);
-    const matches = words
-        .map((word, index) => {
-            const spellCheckResult = spellChecker.spellCheck(word);
-            const offset = params.text.indexOf(word);
-            debugLog("spell-checker-debug: spellCheckResult", {
-                spellCheckResult,
+
+    words.forEach((word, index) => {
+        const lowerWord = word.toLowerCase();
+
+        // Skip if the word is part of any special phrase matched
+        const isPartOfSpecialPhrase = specialPhrases.some(({ phrase }) =>
+            phrase.toLowerCase().includes(lowerWord)
+        );
+        if (isPartOfSpecialPhrase) return;
+
+        const spellCheckResult = spellChecker.spellCheck(word);
+        const offset = params.text.toLowerCase().indexOf(lowerWord, 0);
+        if (spellCheckResult.corrections.length > 0) {
+            matches.push({
+                id: `UNKNOWN_WORD_${matches.length}`,
+                text: word,
+                replacements: spellCheckResult.corrections
+                    .filter((c) => !!c)
+                    .map((correction) => ({ value: correction })),
+                offset: offset,
+                length: word.length,
+                color: "red", // Default color for spelling errors
             });
-            if (spellCheckResult.corrections.length > 0) {
-                return {
-                    id: `UNKNOWN_WORD_${index}`,
-                    text: word,
-                    replacements: spellCheckResult.corrections
-                        .filter((c) => !!c)
-                        .map((correction) => ({ value: correction })),
-                    offset: offset,
-                    length: word.length,
-                };
-            }
-            return null;
-        })
-        .filter((match) => match !== null);
+        }
+    });
 
     debugLog(`Returning matches: ${JSON.stringify(matches)}`);
     return matches;
 });
 
 connection.onRequest("spellcheck/addWord", async (params: { words: string[] }) => {
-    debugLog("Received addWord request:", params.words);
-    await spellChecker.addWordsToDictionary(params.words);
-    debugLog("Words added to dictionary.");
-    return { success: true };
+    debugLog("Received spellcheck/addWord request:", { params });
+    if (!spellChecker) {
+        throw new Error("SpellChecker is not initialized.");
+    }
+
+    try {
+        await spellChecker.addWords(params.words);
+        debugLog("Words successfully added to the dictionary.");
+        return { success: true };
+    } catch (error: any) {
+        console.error("Error adding words to the dictionary:", error);
+        throw new Error(`Failed to add words: ${error.message}`);
+    }
 });
 
-connection.onHover((params: TextDocumentPositionParams): Hover | null => {
-    debugLog(
-        `Hover requested for document: ${params.textDocument.uri} at position: ${params.position}`
-    );
-    // For now, return null to indicate no hover information
-    return null;
-});
-
-connection.onDocumentSymbol((params): DocumentSymbol[] => {
-    debugLog(`Document symbol requested for document: ${params.textDocument.uri}`);
-    // For now, return an empty array to indicate no document symbols
-    return [];
-});
+// ... include other request handlers as needed
 
 documents.listen(connection);
 connection.listen();
+
+/**
+ * Tokenizes the input text into words.
+ * @param params Tokenization parameters.
+ * @returns An array of words.
+ */
+function tokenizeText(params: { method: string; text: string }): string[] {
+    // Simple word tokenizer; can be replaced with a more robust solution
+    return params.text.match(/\b\w+\b/g) || [];
+}

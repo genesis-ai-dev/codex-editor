@@ -13,7 +13,6 @@ import { useVSCodeMessageHandler } from "./hooks/useVSCodeMessageHandler";
 import { VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
 import VideoPlayer from "./VideoPlayer";
 import registerQuillSpellChecker from "./react-quill-spellcheck";
-import registerQuillSmartEdits from "./react-quil-smart-edits";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 
 const vscode = acquireVsCodeApi();
@@ -89,8 +88,7 @@ const CodexCellEditor: React.FC = () => {
 
     useEffect(() => {
         // Initialize Quill and register SpellChecker and SmartEdits only once
-        registerQuillSpellChecker(Quill, vscode);
-        registerQuillSmartEdits(Quill);
+        registerQuillSpellChecker(Quill as any, vscode);
     }, []);
 
     const calculateTotalChapters = (units: QuillCellContent[]): number => {

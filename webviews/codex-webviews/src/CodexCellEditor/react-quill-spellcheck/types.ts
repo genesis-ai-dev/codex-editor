@@ -27,6 +27,7 @@ export interface MatchesEntity {
     replacements?: ReplacementsEntity[] | null;
     offset: number;
     length: number;
+    color?: string; // Property for highlight color
 }
 export interface ReplacementsEntity {
     value: string;

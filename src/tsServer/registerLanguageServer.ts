@@ -33,7 +33,6 @@ export async function registerLanguageServer(
     };
 
     const clientOptions: LanguageClientOptions = {
-        // Let's only select the Codex Notebooks to get language server features
         documentSelector: [
             { notebook: NOTEBOOK_TYPE, language: "*" },
             { scheme: "file", pattern: "**/*.codex" },
@@ -53,33 +52,25 @@ export async function registerLanguageServer(
 
     console.log("Attempting to start the Codex Copilot Language Server...");
     try {
-        await client.start().then(() => {
-            context.subscriptions.push(client);
-            // Listen for custom notifications from the server
-            client.onNotification("custom/dictionaryUpdated", () => {
-                vscode.commands.executeCommand("dictionaryTable.dictionaryUpdated");
-            });
-            console.log("Codex Copilot Language Server started successfully.");
+        await client.start();
+        context.subscriptions.push(client);
+        client.onNotification("custom/dictionaryUpdated", () => {
+            vscode.commands.executeCommand("dictionaryTable.dictionaryUpdated");
         });
+        console.log("Codex Copilot Language Server started successfully.");
     } catch (error) {
         console.error("Failed to start the Codex Copilot Language Server:", error);
         console.error("Server module path:", serverModule);
         console.error("Client options:", JSON.stringify(clientOptions, null, 2));
-        // vscode.window.showErrorMessage(`Failed to start Codex Copilot Language Server: ${error}`);
-
         // Attempt to restart the server
-        console.log("Attempting to restart the Codex Copilot Language Server...");
         try {
             await client.stop();
-            await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait for 1 second
+            await new Promise((resolve) => setTimeout(resolve, 1000));
             await client.start();
             console.log("Codex Copilot Language Server restarted successfully.");
             context.subscriptions.push(client);
         } catch (restartError: any) {
             console.error("Failed to restart the Codex Copilot Language Server:", restartError);
-            // vscode.window.showErrorMessage(
-            //     `Failed to restart Codex Copilot Language Server: ${restartError.message}`
-            // );
         }
     }
 
