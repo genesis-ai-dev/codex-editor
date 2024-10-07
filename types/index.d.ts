@@ -248,7 +248,17 @@ type EditorCellContent = {
 
 type EditorPostMessages =
     | { command: "from-quill-spellcheck-getSpellCheckResponse"; content: EditorCellContent }
+    | { command: "updateCellTimestamps"; content: { cellId: string; timestamps: Timestamps } }
     | { command: "addWord"; text: string }
+    | {
+          command: "makeChildOfCell";
+          content: {
+              newCellId: string;
+              cellIdOfCellBeforeNewCell: string;
+              cellType: CodexCellTypes;
+              data: CustomNotebookCellData["metadata"]["data"];
+          };
+      }
     | { command: "saveHtml"; content: EditorCellContent }
     | { command: "getContent" }
     | {

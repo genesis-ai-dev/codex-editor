@@ -1,19 +1,14 @@
 import React from "react";
-import { EditorCellContent, SpellCheckResponse } from "../../../../types";
+import { EditorCellContent, QuillCellContent, SpellCheckResponse } from "../../../../types";
 import CellEditor from "./TextCellEditor";
 import CellContentDisplay from "./CellContentDisplay";
 import EmptyCellDisplay from "./EmptyCellDisplay";
 import "@vscode/codicons/dist/codicon.css"; // Import codicons
-import { CodexCellTypes } from "../../../../types/enums";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 import { WebviewApi } from "vscode-webview";
 import { HACKY_removeContiguousSpans } from "./utils";
 interface CellListProps {
-    translationUnits: {
-        cellMarkers: string[];
-        cellContent: string;
-        cellType: CodexCellTypes;
-    }[];
+    translationUnits: QuillCellContent[];
     contentBeingUpdated: EditorCellContent;
     setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorCellContent>>;
     spellCheckResponse: SpellCheckResponse | null;
@@ -84,7 +79,7 @@ const CellList: React.FC<CellListProps> = ({
         let groupStartIndex = 0;
 
         for (let i = 0; i < translationUnits.length; i++) {
-            const { cellMarkers, cellContent } = translationUnits[i];
+            const { cellMarkers, cellContent, cellType } = translationUnits[i];
 
             if (
                 !isSourceText &&
@@ -100,6 +95,7 @@ const CellList: React.FC<CellListProps> = ({
                         cellMarkers={cellMarkers}
                         cellContent={cellContent}
                         cellIndex={i}
+                        cellType={cellType}
                         spellCheckResponse={spellCheckResponse}
                         contentBeingUpdated={contentBeingUpdated}
                         setContentBeingUpdated={setContentBeingUpdated}

@@ -11,6 +11,8 @@ import {
     EditorPostMessages,
     EditorReceiveMessages,
     SpellCheckResponse,
+    CustomNotebookCellData,
+    Timestamps,
 } from "../../../types";
 
 function getNonce(): string {
@@ -70,7 +72,6 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
 
             const processedData = this.processNotebookData(notebookData);
 
-            console.log("hfiuhfiuhfiufh processedData about to go to webview", { processedData });
             this.postMessageToWebview(webviewPanel, {
                 type: "providerSendsInitialContent",
                 content: processedData,
@@ -256,6 +257,35 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                             vscode.window.showErrorMessage("Failed to open source text.");
                         }
                         return;
+                    }
+                    case "makeChildOfCell": {
+                        console.log("makeChildOfCell message received", { e });
+                        try {
+                            this.addCell({
+                                documentUri: document.uri,
+                                newCellId: e.content.newCellId,
+                                cellIdOfCellBeforeNewCell: e.content.cellIdOfCellBeforeNewCell,
+                                cellType: e.content.cellType,
+                                data: e.content.data,
+                            });
+                        } catch (error) {
+                            console.error("Error making child:", error);
+                            vscode.window.showErrorMessage("Failed to make child.");
+                        }
+                        return;
+                    }
+                    case "updateCellTimestamps": {
+                        console.log("updateCellTimestamps message received", { e });
+                        try {
+                            this.updateCellTimestamps({
+                                documentUri: document.uri,
+                                cellId: e.content.cellId,
+                                timestamps: e.content.timestamps,
+                            });
+                        } catch (error) {
+                            console.error("Error updating cell timestamps:", error);
+                            vscode.window.showErrorMessage("Failed to update cell timestamps.");
+                        }
                     }
                 }
             } catch (error) {
@@ -679,5 +709,98 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
         );
 
         await vscode.workspace.applyEdit(edit);
+    }
+
+    private async updateCellTimestamps({
+        documentUri,
+        cellId,
+        timestamps,
+    }: {
+        documentUri: vscode.Uri;
+        cellId: string;
+        timestamps: Timestamps;
+    }) {
+        try {
+            const document = await vscode.workspace.openTextDocument(documentUri);
+            const currentFileContent = JSON.parse(document.getText()) as CodexNotebookAsJSONData;
+            // FIXME: Using the deserializing using the custom codex deserializer may cause errors if used here
+
+            const indexOfCellToUpdate = currentFileContent.cells.findIndex(
+                (cell) => cell.metadata?.id === cellId
+            );
+
+            if (indexOfCellToUpdate === -1) {
+                throw new Error("Could not find cell to update");
+            }
+
+            const cellToUpdate = currentFileContent.cells[indexOfCellToUpdate];
+            cellToUpdate.metadata.data = timestamps;
+
+            const edit = new vscode.WorkspaceEdit();
+            edit.replace(
+                document.uri,
+                new vscode.Range(0, 0, document.lineCount, 0),
+                JSON.stringify(currentFileContent, null, 2)
+            );
+
+            await vscode.workspace.applyEdit(edit);
+        } catch (error) {
+            console.error("Error updating cell timestamps:", error);
+            vscode.window.showErrorMessage("Failed to update cell timestamps.");
+        }
+    }
+
+    private async addCell({
+        documentUri,
+        newCellId,
+        cellIdOfCellBeforeNewCell,
+        cellType,
+        data,
+    }: {
+        documentUri: vscode.Uri;
+        newCellId: string;
+        cellIdOfCellBeforeNewCell: string;
+        cellType: CodexCellTypes;
+        data: CustomNotebookCellData["metadata"]["data"];
+    }) {
+        try {
+            const document = await vscode.workspace.openTextDocument(documentUri);
+            const currentFileContent = JSON.parse(document.getText()) as CodexNotebookAsJSONData;
+            // FIXME: Using the deserializing using the custom codex deserializer may cause errors if used here
+
+            const indexOfParentCell = currentFileContent.cells.findIndex(
+                (cell) => cell.metadata?.id === cellIdOfCellBeforeNewCell
+            );
+
+            if (indexOfParentCell === -1) {
+                throw new Error("Could not find cell to update");
+            }
+
+            const parentCell = currentFileContent.cells[indexOfParentCell];
+            // add new cell after parent cell
+            currentFileContent.cells.splice(indexOfParentCell + 1, 0, {
+                value: "",
+                languageId: "html",
+                kind: vscode.NotebookCellKind.Code,
+                metadata: {
+                    id: newCellId,
+                    type: cellType,
+                    edits: [],
+                    data: data,
+                },
+            });
+
+            const edit = new vscode.WorkspaceEdit();
+            edit.replace(
+                document.uri,
+                new vscode.Range(0, 0, document.lineCount, 0),
+                JSON.stringify(currentFileContent, null, 2)
+            );
+
+            await vscode.workspace.applyEdit(edit);
+        } catch (error) {
+            console.error("Error making child:", error);
+            vscode.window.showErrorMessage("Failed to make new cell.");
+        }
     }
 }

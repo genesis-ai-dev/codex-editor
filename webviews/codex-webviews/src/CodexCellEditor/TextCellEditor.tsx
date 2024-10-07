@@ -1,15 +1,17 @@
 import React, { useContext, useEffect } from "react";
-import { EditorCellContent, SpellCheckResponse } from "../../../../types";
+import { EditorCellContent, EditorPostMessages, SpellCheckResponse } from "../../../../types";
 import Editor from "./Editor";
 import CloseButtonWithConfirmation from "../components/CloseButtonWithConfirmation";
 import { getCleanedHtml } from "./react-quill-spellcheck";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
+import { CodexCellTypes } from "../../../../types/enums";
 
 interface CellEditorProps {
     cellMarkers: string[];
     cellContent: string;
     cellIndex: number;
+    cellType: CodexCellTypes;
     spellCheckResponse: SpellCheckResponse | null;
     contentBeingUpdated: EditorCellContent;
     setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorCellContent>>;
@@ -22,6 +24,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     cellMarkers,
     cellContent,
     cellIndex,
+    cellType,
     spellCheckResponse,
     contentBeingUpdated,
     setContentBeingUpdated,
@@ -42,6 +45,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
     useEffect(() => {
         setUnsavedChanges(unsavedChangesState);
     }, [unsavedChangesState]);
+
+    const makeChild = () => {
+        // const cellComponents = .split(":");
+        const newChildId = `${cellMarkers[cellMarkers.length - 1]}:${Math.random()
+            .toString(36)
+            .substring(7)}`;
+            
+
+        const messageContent: EditorPostMessages = {
+            command: "makeChildOfCell",
+            content: {
+                newCellId: newChildId,
+                cellIdOfCellBeforeNewCell: cellMarkers[cellMarkers.length - 1],
+                cellType: cellType,
+                data: {}, // TODO: add timestamps
+            },
+        };
+        window.vscodeApi.postMessage(messageContent);
+    };
 
     return (
         <div className="cell-editor" style={{ direction: textDirection }}>
@@ -85,6 +107,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     textDirection={textDirection}
                 />
             </div>
+            <button onClick={makeChild}> make child </button>
         </div>
     );
 };
