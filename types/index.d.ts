@@ -225,6 +225,7 @@ type MinimalCellResult = {
     content?: string;
     uri?: string;
     line?: number;
+    notebookId?: string;
 };
 
 type TranslationPair = {
@@ -238,6 +239,7 @@ type SourceCellVersions = {
     cellId: string;
     content: string;
     versions: string[];
+    notebookId: string;
 };
 
 type EditorCellContent = {
@@ -326,6 +328,9 @@ type CustomNotebookMetadata = {
             type: string;
         };
     };
+    originalName: string;
+    sourceUri: vscode.Uri;
+    codexUri: vscode.Uri;
 };
 
 type CustomNotebookDocument = vscode.NotebookDocument & {

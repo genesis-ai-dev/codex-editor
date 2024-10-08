@@ -5,6 +5,8 @@ import { vrefData } from "../../utils/verseRefUtils/verseData";
 import * as path from "path";
 import { debounce, isEqual } from "lodash";
 
+// TODO: we should probably use the notebookMetadataManager to get the metadata for the notebooks, though we would need to add some more data to the metadata manager to get navigation info/cell content where cells contain headings
+
 export class Node extends vscode.TreeItem {
     public children?: Node[];
 

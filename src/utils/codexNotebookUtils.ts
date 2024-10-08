@@ -17,6 +17,7 @@ import {
     CustomNotebookMetadata,
 } from "../../types";
 import { CodexCellTypes } from "../../types/enums";
+import { NotebookMetadataManager } from "./notebookMetadataManager";
 
 export const NOTEBOOK_TYPE = "codex-type";
 
@@ -285,7 +286,10 @@ export async function createProjectCommentFiles({
     });
 }
 
-export async function importLocalUsfmSourceBible(passedUri?: vscode.Uri): Promise<string[]> {
+export async function importLocalUsfmSourceBible(
+    passedUri?: vscode.Uri,
+    notebookId?: string
+): Promise<string[]> {
     let folderUri: vscode.Uri | undefined;
     const importedNotebookIds: string[] = [];
 
@@ -303,8 +307,8 @@ export async function importLocalUsfmSourceBible(passedUri?: vscode.Uri): Promis
             folderUri = passedUri;
         } else if (stat.type === vscode.FileType.File) {
             // If it's a file, we'll process just this file
-            const notebookId = await processUsfmFile(passedUri);
-            if (notebookId) importedNotebookIds.push(notebookId);
+            const processedNotebookId = await processUsfmFile(passedUri, notebookId);
+            if (processedNotebookId) importedNotebookIds.push(processedNotebookId);
             return importedNotebookIds;
         }
     }
@@ -339,7 +343,10 @@ export async function importLocalUsfmSourceBible(passedUri?: vscode.Uri): Promis
     return importedNotebookIds;
 }
 
-async function processUsfmFile(fileUri: vscode.Uri): Promise<string | undefined> {
+async function processUsfmFile(
+    fileUri: vscode.Uri,
+    notebookId?: string
+): Promise<string | undefined> {
     console.log(`Processing file: ${fileUri.fsPath}`);
     const fileContent = await vscode.workspace.fs.readFile(fileUri);
     console.log(`File content length: ${fileContent.byteLength} bytes`);
@@ -373,6 +380,10 @@ async function processUsfmFile(fileUri: vscode.Uri): Promise<string | undefined>
 
         console.log(`Extracted ${verses.length} verses from ${fileUri.fsPath}`);
 
+        const metadataManager = NotebookMetadataManager.getInstance();
+        const baseName = bookCode || fileUri.path.split("/").pop()?.split(".")[0] || `new_source`;
+        const generatedNotebookId = notebookId || metadataManager.generateNewId(baseName);
+
         const bookData = {
             cells: verses.map((verse) => ({
                 kind: 2,
@@ -385,6 +396,8 @@ async function processUsfmFile(fileUri: vscode.Uri): Promise<string | undefined>
                 },
             })),
             metadata: {
+                id: generatedNotebookId,
+                originalName: baseName,
                 data: {
                     corpusMarker:
                         getTestamentForBook(bookCode) === "OT"
@@ -445,8 +458,7 @@ async function processUsfmFile(fileUri: vscode.Uri): Promise<string | undefined>
         );
 
         console.log(`Created .source file for ${bookCode}`);
-        const timestamp = new Date().toISOString();
-        return `${bookCode}-${timestamp}`; // Return the bookCode as the notebook ID
+        return generatedNotebookId;
     } catch (error) {
         console.error(`Error processing file ${fileUri.fsPath}:`, error);
         vscode.window.showErrorMessage(
@@ -812,9 +824,13 @@ export async function createCodexNotebookFromWebVTT(
         }
 
         const targetNotebookData = new vscode.NotebookData(targetCells);
+        const targetFilePath = `files/target/${notebookName}.codex`;
         const targetNotebookMetadata: CustomNotebookMetadata = {
             id: notebookName,
             textDirection: "ltr",
+            originalName: notebookName,
+            sourceUri: vscode.Uri.file(sourceFilePath),
+            codexUri: vscode.Uri.file(targetFilePath),
         };
         targetNotebookData.metadata = targetNotebookMetadata;
         const targetSerializer = new CodexContentSerializer();
@@ -822,7 +838,6 @@ export async function createCodexNotebookFromWebVTT(
             targetNotebookData,
             new vscode.CancellationTokenSource().token
         );
-        const targetFilePath = `files/target/${notebookName}.codex`;
         await generateFile({
             filepath: targetFilePath,
             fileContent: targetNotebookFile,
