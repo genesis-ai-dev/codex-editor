@@ -7,6 +7,7 @@ import * as fs from "fs/promises"; // Add this import if not already present
 import * as path from "path";
 import * as grammar from "usfm-grammar";
 import { ParsedUSFM } from "usfm-grammar";
+import { NotebookMetadataManager } from "../utils/notebookMetadataManager";
 
 const DEBUG_MODE = true; // Set this to false to disable debug logging
 
@@ -48,9 +49,9 @@ interface AlignedCell {
 export async function importTranslations(
     context: vscode.ExtensionContext,
     fileUri: vscode.Uri,
-    sourceFileName: string
+    sourceNotebookId: string
 ): Promise<void> {
-    debug("Starting importTranslations", { fileUri: fileUri.toString(), sourceFileName });
+    debug("Starting importTranslations", { fileUri: fileUri.toString(), sourceNotebookId });
 
     const fileExtension = vscode.workspace
         .asRelativePath(fileUri)
@@ -116,19 +117,18 @@ export async function importTranslations(
 
         debug("Imported content length", importedContent.length);
 
-        // Find the corresponding .codex file based on the sourceFileName
-        const codexFileName = sourceFileName?.replace(/\.[^.]+$/, ".codex");
-        debug("Searching for .codex file", codexFileName);
-        const codexFiles = await vscode.workspace.findFiles(`**/${codexFileName}`);
-        debug("Codex files found", codexFiles);
+        // Find the corresponding .codex file based on the sourceNotebookId
+        const metadataManager = NotebookMetadataManager.getInstance();
+        await metadataManager.loadMetadata();
+        const sourceMetadata = metadataManager.getMetadataById(sourceNotebookId);
 
-        if (codexFiles.length === 0) {
+        if (!sourceMetadata || !sourceMetadata.codexUri) {
             debug("No matching .codex file found");
             vscode.window.showErrorMessage("No matching .codex file found.");
             return;
         }
 
-        const codexFile = codexFiles[0];
+        const codexFile = sourceMetadata.codexUri;
         debug("Matching .codex file found", codexFile.toString());
 
         await insertZeroDrafts(importedContent, cellAligner, codexFile);

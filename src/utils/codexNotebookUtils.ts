@@ -285,8 +285,9 @@ export async function createProjectCommentFiles({
     });
 }
 
-export async function importLocalUsfmSourceBible(passedUri?: vscode.Uri) {
+export async function importLocalUsfmSourceBible(passedUri?: vscode.Uri): Promise<string[]> {
     let folderUri: vscode.Uri | undefined;
+    const importedNotebookIds: string[] = [];
 
     if (!passedUri) {
         const selectedUris = await vscode.window.showOpenDialog({
@@ -302,20 +303,21 @@ export async function importLocalUsfmSourceBible(passedUri?: vscode.Uri) {
             folderUri = passedUri;
         } else if (stat.type === vscode.FileType.File) {
             // If it's a file, we'll process just this file
-            await processUsfmFile(passedUri);
-            return;
+            const notebookId = await processUsfmFile(passedUri);
+            if (notebookId) importedNotebookIds.push(notebookId);
+            return importedNotebookIds;
         }
     }
 
     if (!folderUri) {
         vscode.window.showErrorMessage("No folder selected");
-        return;
+        return importedNotebookIds;
     }
 
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
         vscode.window.showErrorMessage("No workspace folder found");
-        return;
+        return importedNotebookIds;
     }
 
     const usfmFiles = await vscode.workspace.fs.readDirectory(folderUri);
@@ -328,14 +330,16 @@ export async function importLocalUsfmSourceBible(passedUri?: vscode.Uri) {
             usfmFileExtensions.some((ext) => fileName.toLowerCase().endsWith(ext))
         ) {
             const fileUri = vscode.Uri.joinPath(folderUri, fileName);
-            await processUsfmFile(fileUri);
+            const notebookId = await processUsfmFile(fileUri);
+            if (notebookId) importedNotebookIds.push(notebookId);
         }
     }
 
     vscode.window.showInformationMessage(`Bible imported successfully as individual book files.`);
+    return importedNotebookIds;
 }
 
-async function processUsfmFile(fileUri: vscode.Uri) {
+async function processUsfmFile(fileUri: vscode.Uri): Promise<string | undefined> {
     console.log(`Processing file: ${fileUri.fsPath}`);
     const fileContent = await vscode.workspace.fs.readFile(fileUri);
     console.log(`File content length: ${fileContent.byteLength} bytes`);
@@ -441,6 +445,8 @@ async function processUsfmFile(fileUri: vscode.Uri) {
         );
 
         console.log(`Created .source file for ${bookCode}`);
+        const timestamp = new Date().toISOString();
+        return `${bookCode}-${timestamp}`; // Return the bookCode as the notebook ID
     } catch (error) {
         console.error(`Error processing file ${fileUri.fsPath}:`, error);
         vscode.window.showErrorMessage(
@@ -448,6 +454,7 @@ async function processUsfmFile(fileUri: vscode.Uri) {
                 error instanceof Error ? error.message : String(error)
             }`
         );
+        return undefined;
     }
 }
 
@@ -745,7 +752,7 @@ export async function createCodexNotebookFromWebVTT(
     webvttFileContent: string,
     notebookName: string,
     shouldOverWrite = false
-) {
+): Promise<string> {
     try {
         const parser = new WebVTTParser();
         const tree = parser.parse(webvttFileContent);
@@ -825,10 +832,14 @@ export async function createCodexNotebookFromWebVTT(
         vscode.window.showInformationMessage(
             `Codex notebook created from WebVTT file: ${notebookName}.codex`
         );
+        const timestamp = new Date().toISOString();
+
+        return `${notebookName}-${timestamp}`; // Return the notebookName as the notebook ID
     } catch (error) {
         console.error(`Error creating Codex notebook from WebVTT file: ${error}`);
         vscode.window.showErrorMessage(
             `Failed to create Codex notebook from WebVTT file: ${error}`
         );
+        throw error; // Re-throw the error to be handled by the caller
     }
 }
