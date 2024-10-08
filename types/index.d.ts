@@ -282,7 +282,10 @@ type EditHistory = {
     type: import("./enums").EditType;
 };
 
-type CodexData = Timestamps; // add other data types with "&"
+type CodexData = Timestamps & {
+    sourceCellId?: string;
+    isParatext?: boolean;
+};
 
 type CustomCellMetaData = {
     id: string;

@@ -34,8 +34,9 @@ interface ImportedContent {
 }
 
 interface AlignedCell {
-    notebookCell: vscode.NotebookCell;
+    notebookCell: vscode.NotebookCell | null;
     importedContent: ImportedContent;
+    isParatext?: boolean;
 }
 
 export async function importTranslations(
@@ -149,7 +150,6 @@ async function insertZeroDrafts(
 ): Promise<void> {
     debug("Starting insertZeroDrafts");
     const codexNotebook = new CodexNotebookReader(codexFile);
-    const workspaceEdit = new vscode.WorkspaceEdit();
 
     const codexNotebookCells = await codexNotebook
         .getCells()
@@ -162,6 +162,7 @@ async function insertZeroDrafts(
 
     let insertedCount = 0;
     let skippedCount = 0;
+    let paratextCount = 0;
 
     const serializer = new CodexContentSerializer();
     const notebookData = await serializer.deserializeNotebook(
@@ -169,39 +170,62 @@ async function insertZeroDrafts(
         new vscode.CancellationTokenSource().token
     );
 
-    for (const { notebookCell, importedContent } of alignedCells) {
-        const cellContent = notebookCell.document.getText().trim();
+    const newCells: CustomNotebookCellData[] = [];
 
-        if (cellContent === "") {
-            debug("Inserting content into empty cell");
-            const updatedCellData: CustomNotebookCellData = {
+    for (const alignedCell of alignedCells) {
+        if (alignedCell.isParatext) {
+            // Handle paratext cells
+            const newCellData: CustomNotebookCellData = {
                 kind: vscode.NotebookCellKind.Code,
                 languageId: "html",
-                value: importedContent.content,
+                value: alignedCell.importedContent.content,
                 metadata: {
-                    ...notebookCell.metadata,
-                    type: CodexCellTypes.TEXT,
-                    id: notebookCell.metadata.id, // ! PICKING UP !!!!!!!!! [RYDER]
+                    type: CodexCellTypes.PARATEXT, // Changed from TEXT to PARATEXT
+                    id: `paratext-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                     data: {
-                        ...notebookCell.metadata.data,
-                        startTime: importedContent.startTime,
-                        endTime: importedContent.endTime,
+                        startTime: alignedCell.importedContent.startTime,
+                        endTime: alignedCell.importedContent.endTime,
                     },
                 },
             };
-
-            const cellIndex = await codexNotebook
-                .getCells()
-                .then((cells) => cells.indexOf(notebookCell));
-                // FIXME: Is this robust to splitting/merging cells?
-
-            notebookData.cells[cellIndex] = updatedCellData;
-            insertedCount++;
-        } else {
-            debug("Skipping non-empty cell");
-            skippedCount++;
+            newCells.push(newCellData);
+            paratextCount++;
+        } else if (alignedCell.notebookCell) {
+            const cellContent = alignedCell.notebookCell.document.getText().trim();
+            if (cellContent === "") {
+                // Insert content into empty cell
+                const updatedCellData: CustomNotebookCellData = {
+                    kind: vscode.NotebookCellKind.Code,
+                    languageId: "html",
+                    value: alignedCell.importedContent.content,
+                    metadata: {
+                        ...alignedCell.notebookCell.metadata,
+                        type: CodexCellTypes.TEXT,
+                        id: alignedCell.notebookCell.metadata.id,
+                        data: {
+                            ...alignedCell.notebookCell.metadata.data,
+                            startTime: alignedCell.importedContent.startTime,
+                            endTime: alignedCell.importedContent.endTime,
+                        },
+                    },
+                };
+                newCells.push(updatedCellData);
+                insertedCount++;
+            } else {
+                // Keep the existing cell
+                const existingCellData = notebookData.cells.find(
+                    (cell) => cell.metadata.id === alignedCell.notebookCell?.metadata.id
+                );
+                if (existingCellData) {
+                    newCells.push(existingCellData);
+                }
+                skippedCount++;
+            }
         }
     }
+
+    // Replace the cells in the notebook with the new order
+    notebookData.cells = newCells;
 
     const updatedNotebookContent = await serializer.serializeNotebook(
         notebookData,
@@ -210,9 +234,13 @@ async function insertZeroDrafts(
 
     await vscode.workspace.fs.writeFile(codexFile, updatedNotebookContent);
 
-    debug("Insertion summary", { inserted: insertedCount, skipped: skippedCount });
+    debug("Insertion summary", {
+        inserted: insertedCount,
+        skipped: skippedCount,
+        paratext: paratextCount,
+    });
     vscode.window.showInformationMessage(
-        `Inserted ${insertedCount} drafts, skipped ${skippedCount} cells.`
+        `Inserted ${insertedCount} drafts, added ${paratextCount} paratext cells, skipped ${skippedCount} cells.`
     );
 }
 
@@ -229,50 +257,65 @@ function timestampMismatchResolver(
     return true;
 }
 
+function calculateOverlap(
+    sourceStart: number,
+    sourceEnd: number,
+    targetStart: number,
+    targetEnd: number
+): number {
+    const overlapStart = Math.max(sourceStart, targetStart);
+    const overlapEnd = Math.min(sourceEnd, targetEnd);
+    return Math.max(0, overlapEnd - overlapStart);
+}
+
 function alignVTTCells(
     notebookCells: vscode.NotebookCell[],
     importedContent: ImportedContent[]
 ): AlignedCell[] {
-    debug("Aligning VTT cells", {
+    debug("Aligning VTT cells with improved overlap strategy and order preservation", {
         notebookCellsCount: notebookCells.length,
         importedContentCount: importedContent.length,
     });
-    return notebookCells
-        .map((cell) => {
-            const cellStartTime = cell.metadata?.data?.startTime;
-            const cellEndTime = cell.metadata?.data?.endTime;
-            const cellId = cell.metadata?.data?.id;
 
-            debug("Cell metadata", { cellStartTime, cellEndTime, cellId });
+    const alignedCells: AlignedCell[] = [];
+    let totalOverlaps = 0;
 
-            const matchedContent = importedContent.find(
-                (content) =>
-                    (cellStartTime &&
-                        cellEndTime &&
-                        Math.abs(content.startTime! - cellStartTime) < 0.1 &&
-                        Math.abs(content.endTime! - cellEndTime) < 0.1) ||
-                    (cellId && cellId === content.id)
-            );
-
-            if (matchedContent) {
-                debug("Matched content found for cell", {
-                    cellId: cell.document.uri.toString(),
-                    contentStartTime: matchedContent.startTime,
-                    contentEndTime: matchedContent.endTime,
-                    contentId: matchedContent.id,
-                });
-            } else {
-                debug("No matched content found for cell", {
-                    cellIdBeingMatched: cell.document.uri.toString(),
-                    cellStartTime,
-                    cellEndTime,
-                    cellId,
-                });
+    importedContent.forEach((importedItem, index) => {
+        const sourceCell = notebookCells.find((cell) => {
+            const sourceStart = cell.metadata?.data?.startTime;
+            const sourceEnd = cell.metadata?.data?.endTime;
+            if (sourceStart === undefined || sourceEnd === undefined || importedItem.startTime === undefined || importedItem.endTime === undefined) {
+                return false;
             }
+            const overlap = calculateOverlap(sourceStart, sourceEnd, importedItem.startTime, importedItem.endTime);
+            return overlap > 0;
+        });
 
-            return matchedContent ? { notebookCell: cell, importedContent: matchedContent } : null;
-        })
-        .filter((cell): cell is AlignedCell => cell !== null);
+        if (sourceCell) {
+            alignedCells.push({ notebookCell: sourceCell, importedContent: importedItem });
+            totalOverlaps += calculateOverlap(
+                sourceCell.metadata?.data?.startTime,
+                sourceCell.metadata?.data?.endTime,
+                importedItem.startTime!,
+                importedItem.endTime!
+            );
+        } else {
+            alignedCells.push({
+                notebookCell: null,
+                importedContent: importedItem,
+                isParatext: true,
+            });
+        }
+    });
+
+    if (totalOverlaps === 0 && importedContent.length > 0) {
+        vscode.window.showErrorMessage(
+            "No overlapping subtitles found. Please check the selected file."
+        );
+        throw new Error("No overlapping subtitles found.");
+    }
+
+    return alignedCells;
 }
 
 function alignPlaintextCells(

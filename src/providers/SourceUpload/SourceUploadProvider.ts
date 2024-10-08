@@ -11,7 +11,6 @@ function getNonce(): string {
     }
     return text;
 }
-
 export class SourceUploadProvider
     implements vscode.TextDocumentContentProvider, vscode.CustomTextEditorProvider
 {
@@ -19,6 +18,8 @@ export class SourceUploadProvider
     onDidChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
     onDidChange = this.onDidChangeEmitter.event;
     private fileSystemWatcher: vscode.FileSystemWatcher | undefined;
+    private refreshDebounceTimeout: NodeJS.Timeout | undefined;
+    private watchedFiles: Set<string> = new Set();
 
     constructor(private readonly context: vscode.ExtensionContext) {
         this.setupFileSystemWatcher();
@@ -26,13 +27,41 @@ export class SourceUploadProvider
 
     private setupFileSystemWatcher() {
         this.fileSystemWatcher = vscode.workspace.createFileSystemWatcher("**/*.{source,codex}");
-        this.fileSystemWatcher.onDidCreate(() => this.refreshWebview());
-        this.fileSystemWatcher.onDidDelete(() => this.refreshWebview());
-        this.fileSystemWatcher.onDidChange(() => this.refreshWebview());
+        this.fileSystemWatcher.onDidCreate(this.handleFileCreated.bind(this));
+        this.fileSystemWatcher.onDidDelete(this.handleFileDeleted.bind(this));
+        this.fileSystemWatcher.onDidChange(this.handleFileChanged.bind(this));
+    }
+
+    private handleFileCreated(uri: vscode.Uri) {
+        const filePath = uri.fsPath;
+        if (!this.watchedFiles.has(filePath)) {
+            this.watchedFiles.add(filePath);
+            this.refreshWebview();
+        }
+    }
+
+    private handleFileDeleted(uri: vscode.Uri) {
+        const filePath = uri.fsPath;
+        if (this.watchedFiles.has(filePath)) {
+            this.watchedFiles.delete(filePath);
+            this.refreshWebview();
+        }
+    }
+
+    private handleFileChanged(uri: vscode.Uri) {
+        const filePath = uri.fsPath;
+        if (this.watchedFiles.has(filePath)) {
+            this.refreshWebview();
+        }
     }
 
     private refreshWebview() {
-        vscode.commands.executeCommand("workbench.action.webview.reloadWebviewAction");
+        if (this.refreshDebounceTimeout) {
+            clearTimeout(this.refreshDebounceTimeout);
+        }
+        this.refreshDebounceTimeout = setTimeout(() => {
+            vscode.commands.executeCommand("workbench.action.webview.reloadWebviewAction");
+        }, 1000);
     }
 
     public async resolveCustomDocument(
