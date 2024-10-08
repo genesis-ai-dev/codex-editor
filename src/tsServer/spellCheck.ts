@@ -231,6 +231,7 @@ export class SpellChecker {
      * @param words Array of words to add.
      */
     async addWords(words: string[]): Promise<void> {
+        console.log("Adding words to dictionary: (spellCheck.ts)", words);
         if (!this.dictionary) {
             this.dictionary = {
                 id: this.generateUniqueId(),
@@ -272,6 +273,9 @@ export class SpellChecker {
                     newEntries.map((entry) => JSON.stringify(entry)).join("\n") + "\n";
                 await fs.promises.appendFile(this.dictionaryPath, serializedEntries, "utf8");
                 console.log("New words successfully added to the dictionary.");
+
+                // Trigger a dictionary reload to reflect changes in diagnostics
+                await this.loadDictionary();
             } catch (error) {
                 console.error("Error saving new words to the dictionary:", error);
             }

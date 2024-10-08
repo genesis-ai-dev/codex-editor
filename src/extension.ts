@@ -10,6 +10,8 @@ import { registerCompletionsCodeLensProviders } from "./activationHelpers/contex
 import { initializeBibleData } from "./activationHelpers/contextAware/sourceData";
 import { registerLanguageServer } from "./tsServer/registerLanguageServer";
 import { registerClientCommands } from "./tsServer/registerClientCommands";
+import registerClientOnRequests from "./tsServer/registerClientOnRequests";
+import { registerSmartEditCommands } from "./smartEdits/registerSmartEditCommands";
 import { LanguageClient } from "vscode-languageclient/node";
 import { registerProjectManager } from "./projectManager";
 import {
@@ -59,6 +61,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Register these commands regardless of metadata existence
     registerVideoPlayerCommands(context);
+    registerSmartEditCommands(context); // For the language server onRequest stuff
     await registerSourceUploadCommands(context);
     registerProviders(context);
     await registerCommands(context);
@@ -90,6 +93,7 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
 
         if (client) {
             clientCommandsDisposable = registerClientCommands(context, client);
+            await registerClientOnRequests(client); // So that the language server thread can interface with the main extension commands
             context.subscriptions.push(clientCommandsDisposable);
         }
 

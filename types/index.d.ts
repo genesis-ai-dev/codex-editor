@@ -57,6 +57,35 @@ interface TranslationPair {
     edits?: EditHistory[]; // Make this optional as it might not always be present
 }
 
+interface EditHistoryItem {
+    cellValue: string;
+    timestamp: number;
+    type: import("./enums").EditType;
+}
+
+// Relating to Smart Edits
+interface SmartEditContext {
+    cellId: string;
+    currentCellValue: string;
+    edits: EditHistoryItem[];
+}
+
+interface SmartSuggestion {
+    oldString: string;
+    newString: string;
+}
+
+interface SavedSuggestions {
+    cellId: string;
+    lastCellValue: string;
+    suggestions: SmartSuggestion[];
+}
+
+interface SmartEdit {
+    context: SmartEditContext;
+    suggestions: SmartSuggestion[];
+}
+
 interface CellIdGlobalState {
     cellId: string;
     uri: string;
@@ -211,7 +240,11 @@ type SourceCellVersions = {
     versions: string[];
 };
 
-type EditorCellContent = Pick<QuillCellContent, "cellMarkers" | "cellContent">;
+type EditorCellContent = {
+    cellMarkers: string[];
+    cellContent: string;
+    cellChanged: boolean; // Needed to add this
+};
 
 type EditorPostMessages =
     | { command: "from-quill-spellcheck-getSpellCheckResponse"; content: EditorCellContent }

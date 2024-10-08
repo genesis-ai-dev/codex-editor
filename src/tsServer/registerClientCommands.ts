@@ -10,9 +10,9 @@ export function registerClientCommands(
     disposables.push(
         vscode.commands.registerCommand(
             "translators-copilot.spellCheckText",
-            async (text: string) => {
+            async (text: string, cellChanged: boolean) => {
                 if (client) {
-                    return client.sendRequest("spellcheck/check", { text });
+                    return client.sendRequest("spellcheck/check", { text, cellChanged });
                 }
             }
         )
@@ -31,22 +31,25 @@ export function registerClientCommands(
 
     disposables.push(
         vscode.commands.registerCommand("spellcheck.addWord", async (words: string | string[]) => {
-            console.log("spellcheck.addWord", { words });
+            console.log("spellcheck.addWord command executed", { words });
             if (client) {
-                console.log("sending request inside addWord");
+                console.log("sending request to language server");
                 const wordsArray = Array.isArray(words) ? words : [words];
                 try {
                     const response = await client.sendRequest("spellcheck/addWord", {
                         words: wordsArray,
                     });
-                    console.log("Add word response:", response);
+                    console.log("Add word response from language server:", response);
                     vscode.window.showInformationMessage(
                         "Word(s) added to dictionary successfully."
                     );
                 } catch (error: any) {
-                    console.error("Error adding word:", error);
+                    console.error("Error sending request to language server:", error);
                     vscode.window.showErrorMessage(`Error adding word: ${error.message}`);
                 }
+            } else {
+                console.error("Language client is not initialized");
+                vscode.window.showErrorMessage("Language client is not initialized");
             }
         })
     );

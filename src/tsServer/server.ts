@@ -17,11 +17,15 @@ import {
     MatchesEntity,
     ReplacementsEntity,
 } from "../../webviews/codex-webviews/src/CodexCellEditor/react-quill-spellcheck/types";
+import { RequestType } from "vscode-languageserver";
 
-const DEBUG_MODE = false; // Flag for debug mode
+const DEBUG_MODE = true; // Flag for debug mode
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
+const ExecuteCommandRequest = new RequestType<{ command: string; args: any[] }, any, void>(
+    "workspace/executeCommand"
+);
 
 let spellChecker: SpellChecker;
 let diagnosticsProvider: SpellCheckDiagnosticsProvider;
@@ -37,13 +41,14 @@ function debugLog(...args: any[]) {
 }
 
 // Define special phrases with their replacements and colors
-const specialPhrases = [
+let specialPhrases = [
     { phrase: "hello world", replacement: "hi", color: "purple" },
     // Add more phrases as needed
 ];
 
 connection.onInitialize((params: InitializeParams) => {
     const workspaceFolder = params.workspaceFolders?.[0].uri;
+
     debugLog(`Initializing with workspace folder: ${workspaceFolder}`);
 
     // Initialize services
@@ -80,13 +85,41 @@ connection.onInitialize((params: InitializeParams) => {
         },
     } as InitializeResult;
 });
+let lastCellChanged: boolean = false;
 
-connection.onRequest("spellcheck/check", async (params: { text: string }) => {
+connection.onRequest("spellcheck/check", async (params: { text: string; cellChanged: boolean }) => {
     debugLog("SERVER: Received spellcheck/check request:", { params });
+
     const text = params.text.toLowerCase();
 
     const matches: MatchesEntity[] = [];
 
+    // Get smart edit suggestions only if the cellId has changed
+    if (params.cellChanged !== lastCellChanged) {
+        specialPhrases = []
+        const smartEditSuggestions = await connection.sendRequest(ExecuteCommandRequest, {
+            command: "codex-smart-edits.getEdits",
+            args: [params.text, params.cellChanged],
+        });
+
+        debugLog("Received smart edit suggestions:", smartEditSuggestions);
+
+        // Clear previous special phrases from smart edits
+
+        // Process smart edit suggestions as special phrases
+        smartEditSuggestions.forEach((suggestion: any, index: number) => {
+            specialPhrases.push({
+                phrase: suggestion.oldString,
+                replacement: suggestion.newString,
+                color: "purple", // Use a different color for smart edit suggestions
+            });
+        });
+
+        // Update the last processed cellId
+        lastCellChanged = params.cellChanged;
+    }
+
+    debugLog("Special phrases:", specialPhrases);
     // Handle special phrases first to avoid overlapping with single-word matches
     specialPhrases.forEach(({ phrase, replacement, color }, index) => {
         let startIndex = 0;
@@ -143,6 +176,7 @@ connection.onRequest("spellcheck/check", async (params: { text: string }) => {
 connection.onRequest("spellcheck/addWord", async (params: { words: string[] }) => {
     debugLog("Received spellcheck/addWord request:", { params });
     if (!spellChecker) {
+        debugLog("SpellChecker is not initialized.");
         throw new Error("SpellChecker is not initialized.");
     }
 
@@ -151,12 +185,10 @@ connection.onRequest("spellcheck/addWord", async (params: { words: string[] }) =
         debugLog("Words successfully added to the dictionary.");
         return { success: true };
     } catch (error: any) {
-        console.error("Error adding words to the dictionary:", error);
+        debugLog("Error adding words to the dictionary:", error);
         throw new Error(`Failed to add words: ${error.message}`);
     }
 });
-
-// ... include other request handlers as needed
 
 documents.listen(connection);
 connection.listen();
