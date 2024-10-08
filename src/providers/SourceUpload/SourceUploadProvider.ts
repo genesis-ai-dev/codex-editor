@@ -36,7 +36,7 @@ export class SourceUploadProvider
         const filePath = uri.fsPath;
         if (!this.watchedFiles.has(filePath)) {
             this.watchedFiles.add(filePath);
-            this.refreshWebview();
+            this.refreshWebview(`[handleFileCreated] ${filePath} created`);
         }
     }
 
@@ -44,18 +44,19 @@ export class SourceUploadProvider
         const filePath = uri.fsPath;
         if (this.watchedFiles.has(filePath)) {
             this.watchedFiles.delete(filePath);
-            this.refreshWebview();
+            this.refreshWebview(`[handleFileDeleted] ${filePath} deleted`);
         }
     }
 
     private handleFileChanged(uri: vscode.Uri) {
         const filePath = uri.fsPath;
         if (this.watchedFiles.has(filePath)) {
-            this.refreshWebview();
+            this.refreshWebview(`[handleFileChanged] ${filePath} changed`);
         }
     }
 
-    private refreshWebview() {
+    private refreshWebview(callingSignature: string) {
+        console.log("Refreshing webview due to file change", callingSignature);
         if (this.refreshDebounceTimeout) {
             clearTimeout(this.refreshDebounceTimeout);
         }
@@ -118,7 +119,7 @@ export class SourceUploadProvider
                         );
                         await importSourceText(this.context, fileUri);
                         vscode.window.showInformationMessage("Source text uploaded successfully.");
-                        this.refreshWebview();
+                        this.refreshWebview(`[uploadSourceText] ${message.fileName}`);
                     } catch (error) {
                         console.error(`Error uploading source text: ${error}`);
                         vscode.window.showErrorMessage(`Error uploading source text: ${error}`);
@@ -133,7 +134,7 @@ export class SourceUploadProvider
                         );
                         await importTranslations(this.context, fileUri, message.sourceFileName);
                         vscode.window.showInformationMessage("Translation uploaded successfully.");
-                        this.refreshWebview();
+                        this.refreshWebview(`[uploadTranslation] ${message.fileName}`);
                     } catch (error) {
                         console.error(`Error uploading translation: ${error}`);
                         vscode.window.showErrorMessage(`Error uploading translation: ${error}`);

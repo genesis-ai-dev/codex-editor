@@ -167,6 +167,8 @@ async function insertZeroDrafts(
     let insertedCount = 0;
     let skippedCount = 0;
     let paratextCount = 0;
+    let currentBook: string = ""; // To track the current book
+    let currentChapter: string | number = 0; // To track the current chapter, default to 0 for leading paratext
 
     const serializer = new CodexContentSerializer();
     const notebookData = await serializer.deserializeNotebook(
@@ -177,15 +179,28 @@ async function insertZeroDrafts(
     const newCells: CustomNotebookCellData[] = [];
 
     for (const alignedCell of alignedCells) {
+        if (alignedCell.notebookCell) {
+            // Update currentBook and currentChapter based on non-paratext cells
+            const cellIdParts = alignedCell.notebookCell.metadata.id.split(" ");
+            currentBook = cellIdParts[0] || codexFile.path.split("/").pop()?.split(".")[0] || "";
+            currentChapter = cellIdParts[1]?.split(":")[0] || "1";
+        }
+
         if (alignedCell.isParatext) {
+            // Determine the section for the paratext cell
+            const section = currentChapter || "1";
+            const paratextId = `${currentBook} ${section}:paratext-${Date.now()}-${Math.random()
+                .toString(36)
+                .substr(2, 9)}`;
+
             // Handle paratext cells
             const newCellData: CustomNotebookCellData = {
                 kind: vscode.NotebookCellKind.Code,
                 languageId: "html",
                 value: alignedCell.importedContent.content,
                 metadata: {
-                    type: CodexCellTypes.PARATEXT, // Changed from TEXT to PARATEXT
-                    id: `paratext-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    type: CodexCellTypes.PARATEXT,
+                    id: paratextId, // Ensure the ID starts with [book] [section]
                     data: {
                         startTime: alignedCell.importedContent.startTime,
                         endTime: alignedCell.importedContent.endTime,

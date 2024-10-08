@@ -109,7 +109,7 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                         try {
                             const result = await vscode.commands.executeCommand(
                                 "spellcheck.addWord",
-                                e.words
+                                e.text
                             );
                             console.log("spellcheck.addWord command result:", result);
                             vscode.window.showInformationMessage(

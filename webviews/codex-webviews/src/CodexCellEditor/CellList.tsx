@@ -7,6 +7,7 @@ import "@vscode/codicons/dist/codicon.css"; // Import codicons
 import { CodexCellTypes } from "../../../../types/enums";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 import { WebviewApi } from "vscode-webview";
+import { HACKY_removeContiguousSpans } from "./utils";
 interface CellListProps {
     translationUnits: {
         cellMarkers: string[];
@@ -42,19 +43,38 @@ const CellList: React.FC<CellListProps> = ({
             className={`verse-group cell-display-${cellDisplayMode}`}
             style={{ direction: textDirection }}
         >
-            {group.map(({ cellMarkers, cellContent, cellType }, index) => (
-                <CellContentDisplay
-                    key={startIndex + index}
-                    cellIds={cellMarkers}
-                    cellContent={cellContent}
-                    cellIndex={startIndex + index}
-                    cellType={cellType}
-                    setContentBeingUpdated={setContentBeingUpdated}
-                    vscode={vscode}
-                    textDirection={textDirection}
-                    isSourceText={isSourceText}
-                />
-            ))}
+            {group.map(({ cellMarkers, cellContent, cellType }, index) => {
+                if (cellType === CodexCellTypes.PARATEXT) {
+                    return (
+                        <div
+                            key={startIndex + index}
+                            className="paratext-cell"
+                            style={{ backgroundColor: "#f9f9f9", padding: "0.5rem", borderRadius: "4px" }}
+                        >
+                            <span className="paratext-label">Paratext:</span>
+                            <span
+                                dangerouslySetInnerHTML={{
+                                    __html: HACKY_removeContiguousSpans(cellContent),
+                                }}
+                            />
+                        </div>
+                    );
+                }
+
+                return (
+                    <CellContentDisplay
+                        key={startIndex + index}
+                        cellIds={cellMarkers}
+                        cellContent={cellContent}
+                        cellIndex={startIndex + index}
+                        cellType={cellType}
+                        setContentBeingUpdated={setContentBeingUpdated}
+                        vscode={vscode}
+                        textDirection={textDirection}
+                        isSourceText={isSourceText}
+                    />
+                );
+            })}
         </span>
     );
 

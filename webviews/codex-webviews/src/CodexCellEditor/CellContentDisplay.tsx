@@ -35,6 +35,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         setContentBeingUpdated({
             cellMarkers: cellIds,
             cellContent: cellContent,
+            cellChanged: unsavedChanges,
         });
         vscode.postMessage({
             command: "setCurrentIdToGlobalState",
@@ -56,11 +57,17 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     // FIXME: we need to allow for the ref/id to be displayed at the start or end of the cell
     return (
         <span
-            className="verse-display"
+            className={`verse-display ${
+                cellType === CodexCellTypes.PARATEXT ? "paratext-display" : ""
+            }`}
             onClick={handleVerseClick}
             style={{ direction: textDirection }}
         >
             {cellType === CodexCellTypes.TEXT && <sup>{verseRefForDisplay}</sup>}
+            {/* Display a visual indicator for paratext cells */}
+            {cellType === CodexCellTypes.PARATEXT && (
+                <span className="paratext-indicator">[Paratext]</span>
+            )}
             <span
                 style={{ direction: textDirection }}
                 dangerouslySetInnerHTML={{

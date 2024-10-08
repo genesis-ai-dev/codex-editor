@@ -256,3 +256,29 @@ li {
         outline-color: transparent;
     }
 }
+
+/* Style for paratext cells in CellContentDisplay */
+.paratext-display {
+    background-color: #f0f8ff; /* Light blue background */
+    border-left: 4px solid #8a2be2; /* Purple border to indicate paratext */
+    padding: 0.5rem;
+    border-radius: 4px;
+}
+
+.paratext-indicator {
+    font-style: italic;
+    color: #555;
+    margin-right: 0.5rem;
+}
+
+.paratext-cell {
+    background-color: #f9f9f9;
+    padding: 0.5rem;
+    border-radius: 4px;
+    margin-bottom: 0.5rem;
+}
+
+.paratext-label {
+    font-weight: bold;
+    margin-right: 0.5rem;
+}
