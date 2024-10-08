@@ -3,6 +3,10 @@ import { WebVTTParser } from "webvtt-parser";
 import { CodexContentSerializer, CodexNotebookReader } from "../serializer";
 import { SupportedFileExtension, FileType, FileTypeMap, CustomNotebookCellData } from "../../types";
 import { CodexCellTypes } from "../../types/enums";
+import * as fs from "fs/promises"; // Add this import if not already present
+import * as path from "path";
+import * as grammar from "usfm-grammar";
+import { ParsedUSFM } from "usfm-grammar";
 
 const DEBUG_MODE = true; // Set this to false to disable debug logging
 
@@ -284,10 +288,20 @@ function alignVTTCells(
         const sourceCell = notebookCells.find((cell) => {
             const sourceStart = cell.metadata?.data?.startTime;
             const sourceEnd = cell.metadata?.data?.endTime;
-            if (sourceStart === undefined || sourceEnd === undefined || importedItem.startTime === undefined || importedItem.endTime === undefined) {
+            if (
+                sourceStart === undefined ||
+                sourceEnd === undefined ||
+                importedItem.startTime === undefined ||
+                importedItem.endTime === undefined
+            ) {
                 return false;
             }
-            const overlap = calculateOverlap(sourceStart, sourceEnd, importedItem.startTime, importedItem.endTime);
+            const overlap = calculateOverlap(
+                sourceStart,
+                sourceEnd,
+                importedItem.startTime,
+                importedItem.endTime
+            );
             return overlap > 0;
         });
 
@@ -341,9 +355,7 @@ function alignPlaintextCells(
         const match = importedItem.content.match(cellIdRegex);
         if (match) {
             const [, file, cellId, content] = match;
-            const notebookCell = notebookCells.find(
-                (cell) => cell.metadata.id === cellId
-            );
+            const notebookCell = notebookCells.find((cell) => cell.metadata.id === cellId);
 
             if (notebookCell) {
                 alignedCells.push({
@@ -399,9 +411,7 @@ function alignUSFMCells(
 
         const verseId = importedItem.id; // Assuming 'id' is in the format 'BOOK CHAPTER:VERSE'
 
-        const notebookCell = notebookCells.find(
-            (cell) => cell.metadata.id === verseId
-        );
+        const notebookCell = notebookCells.find((cell) => cell.metadata.id === verseId);
 
         if (notebookCell) {
             alignedCells.push({
@@ -431,14 +441,85 @@ function alignUSFMCells(
 
 async function parsePlaintext(fileUri: vscode.Uri): Promise<ImportedContent[]> {
     debug("Parsing plaintext file", fileUri.toString());
-    // Placeholder function for parsing plaintext files
-    // Implement logic for reading and parsing plaintext content
-    return [];
+
+    const importedContent: ImportedContent[] = [];
+
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const fileContentString = new TextDecoder("utf-8").decode(fileContent);
+        const lines = fileContentString.split(/\r?\n/);
+
+        const cellIdRegex = /^(\w+)\s+(\w+:\w+)(?::\w+)*\s+(.*)$/;
+
+        for (const line of lines) {
+            if (!line.trim()) {
+                // Skip empty lines
+                continue;
+            }
+
+            const match = line.match(cellIdRegex);
+            if (match) {
+                const [, file, cellId, content] = match;
+                importedContent.push({
+                    id: cellId,
+                    content: content.trim(),
+                });
+            } else {
+                // If line doesn't match the pattern, treat it as paratext
+                importedContent.push({
+                    id: `paratext-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    content: line.trim(),
+                });
+            }
+        }
+
+        debug("Parsed plaintext content", importedContent);
+    } catch (error: any) {
+        debug("Error parsing plaintext file:", error);
+        vscode.window.showErrorMessage(`Error parsing plaintext file: ${error.message}`);
+    }
+
+    return importedContent;
 }
 
 async function parseUSFM(fileUri: vscode.Uri): Promise<ImportedContent[]> {
     debug("Parsing USFM file", fileUri.toString());
-    // Placeholder function for parsing USFM files
-    // Implement logic for reading and parsing USFM content
-    return [];
+
+    const importedContent: ImportedContent[] = [];
+
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const fileContentString = new TextDecoder("utf-8").decode(fileContent);
+
+        // Use usfm-grammar in relaxed mode for parsing
+        const relaxedUsfmParser = new grammar.USFMParser(fileContentString, grammar.LEVEL.RELAXED);
+        const jsonOutput = relaxedUsfmParser.toJSON() as any as ParsedUSFM;
+
+        const bookCode = jsonOutput.book.bookCode;
+        jsonOutput.chapters.forEach((chapter: any) => {
+            const chapterNumber = chapter.chapterNumber;
+            chapter.contents.forEach((content: any) => {
+                if (content.verseNumber !== undefined && content.verseText !== undefined) {
+                    const verseId = `${bookCode} ${chapterNumber}:${content.verseNumber}`;
+                    importedContent.push({
+                        id: verseId,
+                        content: content.verseText.trim(),
+                    });
+                } else if (content.text && !content.marker) {
+                    // Treat lines without a marker as paratext
+                    importedContent.push({
+                        id: `paratext-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                        content: content.text.trim(),
+                    });
+                }
+            });
+        });
+
+        debug("Parsed USFM content", importedContent);
+    } catch (error: any) {
+        debug("Error parsing USFM file:", error);
+        vscode.window.showErrorMessage(`Error parsing USFM file: ${error.message}`);
+    }
+
+    return importedContent;
 }
