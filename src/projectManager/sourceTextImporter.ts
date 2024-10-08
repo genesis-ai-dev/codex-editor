@@ -39,8 +39,10 @@ export async function importSourceText(
 }
 
 async function importSubtitles(fileUri: vscode.Uri): Promise<void> {
-    const notebookName = fileUri.path.split("/").pop() || `new_source_${Date.now()}`;
-    await createCodexNotebookFromWebVTT(fileUri.fsPath, notebookName);
+    const notebookName = fileUri.path.split("/").pop()?.split(".")[0] || `new_source_${Date.now()}`;
+    const fileContent = await vscode.workspace.fs.readFile(fileUri);
+    const fileContentString = new TextDecoder().decode(fileContent);
+    await createCodexNotebookFromWebVTT(fileContentString, notebookName);
 }
 
 async function importPlaintext(fileUri: vscode.Uri): Promise<void> {
