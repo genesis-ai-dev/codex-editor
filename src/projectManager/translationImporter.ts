@@ -19,7 +19,7 @@ function debug(...args: any[]): void {
 type CellAligner = (
     notebookCells: vscode.NotebookCell[],
     importedContent: ImportedContent[]
-) => AlignedCell[];
+) => Promise<AlignedCell[]>;
 
 export const fileTypeMap: FileTypeMap = {
     vtt: "subtitles",
@@ -41,6 +41,8 @@ interface AlignedCell {
     notebookCell: vscode.NotebookCell | null;
     importedContent: ImportedContent;
     isParatext?: boolean;
+    // Added: Indicates if this cell is an additional overlap
+    isAdditionalOverlap?: boolean;
 }
 
 export async function importTranslations(
@@ -161,7 +163,7 @@ async function insertZeroDrafts(
 
     debug("Codex notebook cells found", codexNotebookCells.length);
 
-    const alignedCells = cellAligner(codexNotebookCells, importedContent);
+    const alignedCells = await cellAligner(codexNotebookCells, importedContent);
     debug("Aligned cells", alignedCells.length);
 
     let insertedCount = 0;
@@ -179,7 +181,7 @@ async function insertZeroDrafts(
     const newCells: CustomNotebookCellData[] = [];
 
     for (const alignedCell of alignedCells) {
-        if (alignedCell.notebookCell) {
+        if (alignedCell.notebookCell && !alignedCell.isParatext) {
             // Update currentBook and currentChapter based on non-paratext cells
             const cellIdParts = alignedCell.notebookCell.metadata.id.split(" ");
             currentBook = cellIdParts[0] || codexFile.path.split("/").pop()?.split(".")[0] || "";
@@ -189,9 +191,7 @@ async function insertZeroDrafts(
         if (alignedCell.isParatext) {
             // Determine the section for the paratext cell
             const section = currentChapter || "1";
-            const paratextId = `${currentBook} ${section}:paratext-${Date.now()}-${Math.random()
-                .toString(36)
-                .substr(2, 9)}`;
+            const paratextId = `${currentBook} ${section}:${alignedCell.importedContent.id}`;
 
             // Handle paratext cells
             const newCellData: CustomNotebookCellData = {
@@ -220,7 +220,7 @@ async function insertZeroDrafts(
                     metadata: {
                         ...alignedCell.notebookCell.metadata,
                         type: CodexCellTypes.TEXT,
-                        id: alignedCell.notebookCell.metadata.id,
+                        id: alignedCell.importedContent.id, // Use the potentially nested ID
                         data: {
                             ...alignedCell.notebookCell.metadata.data,
                             startTime: alignedCell.importedContent.startTime,
@@ -287,10 +287,10 @@ function calculateOverlap(
     return Math.max(0, overlapEnd - overlapStart);
 }
 
-function alignVTTCells(
+async function alignVTTCells(
     notebookCells: vscode.NotebookCell[],
     importedContent: ImportedContent[]
-): AlignedCell[] {
+): Promise<AlignedCell[]> {
     debug("Aligning VTT cells with improved overlap strategy and order preservation", {
         notebookCellsCount: notebookCells.length,
         importedContentCount: importedContent.length,
@@ -299,7 +299,15 @@ function alignVTTCells(
     const alignedCells: AlignedCell[] = [];
     let totalOverlaps = 0;
 
-    importedContent.forEach((importedItem, index) => {
+    // Map to track how many overlaps each source cell has
+    const sourceCellOverlapCount: { [key: string]: number } = {};
+
+    importedContent.forEach((importedItem) => {
+        if (!importedItem.content.trim()) {
+            // Skip empty lines
+            return;
+        }
+
         const sourceCell = notebookCells.find((cell) => {
             const sourceStart = cell.metadata?.data?.startTime;
             const sourceEnd = cell.metadata?.data?.endTime;
@@ -321,17 +329,35 @@ function alignVTTCells(
         });
 
         if (sourceCell) {
-            alignedCells.push({ notebookCell: sourceCell, importedContent: importedItem });
-            totalOverlaps += calculateOverlap(
-                sourceCell.metadata?.data?.startTime,
-                sourceCell.metadata?.data?.endTime,
-                importedItem.startTime!,
-                importedItem.endTime!
-            );
+            const sourceId = sourceCell.metadata.id;
+            if (!sourceCellOverlapCount[sourceId]) {
+                sourceCellOverlapCount[sourceId] = 1;
+                alignedCells.push({ 
+                    notebookCell: sourceCell, 
+                    importedContent: {
+                        ...importedItem,
+                        id: sourceId // Use the source cell's ID for the first overlap
+                    }
+                });
+            } else {
+                sourceCellOverlapCount[sourceId]++;
+                const nestedId = `${sourceId}:${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                alignedCells.push({
+                    notebookCell: sourceCell,
+                    isAdditionalOverlap: true,
+                    importedContent: {
+                        ...importedItem,
+                        id: nestedId,
+                    },
+                });
+            }
+            totalOverlaps++;
         } else {
+            // If no matching cell, mark as paratext
+            const paratextId = `paratext-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
             alignedCells.push({
                 notebookCell: null,
-                importedContent: importedItem,
+                importedContent: { ...importedItem, id: paratextId },
                 isParatext: true,
             });
         }
@@ -347,10 +373,10 @@ function alignVTTCells(
     return alignedCells;
 }
 
-function alignPlaintextCells(
+async function alignPlaintextCells(
     notebookCells: vscode.NotebookCell[],
     importedContent: ImportedContent[]
-): AlignedCell[] {
+): Promise<AlignedCell[]> {
     debug("Aligning plaintext cells by matching cell IDs", {
         notebookCellsCount: notebookCells.length,
         importedContentCount: importedContent.length,
@@ -406,10 +432,10 @@ function alignPlaintextCells(
     return alignedCells;
 }
 
-function alignUSFMCells(
+async function alignUSFMCells(
     notebookCells: vscode.NotebookCell[],
     importedContent: ImportedContent[]
-): AlignedCell[] {
+): Promise<AlignedCell[]> {
     debug("Aligning USFM cells by matching verse identifiers", {
         notebookCellsCount: notebookCells.length,
         importedContentCount: importedContent.length,

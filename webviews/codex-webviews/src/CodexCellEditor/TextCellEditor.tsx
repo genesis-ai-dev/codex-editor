@@ -45,7 +45,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     useEffect(() => {
         setUnsavedChanges(unsavedChangesState);
-    }, [unsavedChangesState]);
+    }, [unsavedChangesState, setUnsavedChanges]);
 
     useEffect(() => {
         if (showFlashingBorder && cellEditorRef.current) {
@@ -54,16 +54,19 @@ const CellEditor: React.FC<CellEditorProps> = ({
     }, [showFlashingBorder]);
 
     const makeChild = () => {
-        // const cellComponents = .split(":");
-        const newChildId = `${cellMarkers[cellMarkers.length - 1]}:${Math.random()
+        const parentCellId = cellMarkers[0].includes(":")
+            ? cellMarkers[0].split(":").slice(0, 2).join(":")
+            : `${cellMarkers[0]}:1`; // Fallback to chapter 1 if not present
+
+        const newChildId = `${parentCellId}:${Date.now()}-${Math.random()
             .toString(36)
-            .substring(7)}`;
+            .substr(2, 9)}`;
 
         const messageContent: EditorPostMessages = {
             command: "makeChildOfCell",
             content: {
                 newCellId: newChildId,
-                cellIdOfCellBeforeNewCell: cellMarkers[cellMarkers.length - 1],
+                cellIdOfCellBeforeNewCell: parentCellId,
                 cellType: cellType,
                 data: {}, // TODO: add timestamps
             },
@@ -71,17 +74,20 @@ const CellEditor: React.FC<CellEditorProps> = ({
         window.vscodeApi.postMessage(messageContent);
     };
 
-    const addPretextCell = () => {
-        // const cellComponents = .split(":");
-        const newChildId = `${cellMarkers[cellMarkers.length - 1]}:${Math.random()
+    const addParatextCell = () => {
+        const parentCellId = cellMarkers[0].includes(":")
+            ? cellMarkers[0].split(":").slice(0, 2).join(":")
+            : `${cellMarkers[0]}:1`; // Fallback to chapter 1 if not present
+
+        const newChildId = `${parentCellId}:paratext-${Date.now()}-${Math.random()
             .toString(36)
-            .substring(7)}`;
+            .substr(2, 9)}`;
 
         const messageContent: EditorPostMessages = {
             command: "makeChildOfCell",
             content: {
                 newCellId: newChildId,
-                cellIdOfCellBeforeNewCell: cellMarkers[cellMarkers.length - 1],
+                cellIdOfCellBeforeNewCell: parentCellId,
                 cellType: CodexCellTypes.PARATEXT,
                 data: {},
             },
@@ -152,13 +158,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     gap: "0.5rem",
                 }}
             >
-                <VSCodeButton onClick={addPretextCell} appearance="icon">
+                <VSCodeButton onClick={addParatextCell} appearance="icon" title="Add Paratext Cell">
                     <i className="codicon codicon-diff-added"></i>
                 </VSCodeButton>
-                <VSCodeButton onClick={makeChild} appearance="icon">
+                <VSCodeButton onClick={makeChild} appearance="icon" title="Add Child Cell">
                     <i className="codicon codicon-type-hierarchy-sub"></i>
                 </VSCodeButton>
-                <VSCodeButton onClick={deleteCell} appearance="icon">
+                <VSCodeButton onClick={deleteCell} appearance="icon" title="Delete Cell">
                     <i className="codicon codicon-delete"></i>
                 </VSCodeButton>
             </div>
