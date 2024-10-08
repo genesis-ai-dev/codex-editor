@@ -383,13 +383,50 @@ function alignUSFMCells(
     notebookCells: vscode.NotebookCell[],
     importedContent: ImportedContent[]
 ): AlignedCell[] {
-    debug("Aligning USFM cells", {
+    debug("Aligning USFM cells by matching verse identifiers", {
         notebookCellsCount: notebookCells.length,
         importedContentCount: importedContent.length,
     });
-    // Placeholder function for aligning USFM cells
-    // Implement logic for matching USFM content with notebook cells
-    return [];
+
+    const alignedCells: AlignedCell[] = [];
+    let totalMatches = 0;
+
+    importedContent.forEach((importedItem) => {
+        if (!importedItem.content.trim()) {
+            // Skip empty lines
+            return;
+        }
+
+        const verseId = importedItem.id; // Assuming 'id' is in the format 'BOOK CHAPTER:VERSE'
+
+        const notebookCell = notebookCells.find(
+            (cell) => cell.metadata.id === verseId
+        );
+
+        if (notebookCell) {
+            alignedCells.push({
+                notebookCell,
+                importedContent: importedItem,
+            });
+            totalMatches++;
+        } else {
+            // If no matching cell, mark as paratext
+            alignedCells.push({
+                notebookCell: null,
+                importedContent: importedItem,
+                isParatext: true,
+            });
+        }
+    });
+
+    if (totalMatches === 0 && importedContent.length > 0) {
+        vscode.window.showErrorMessage(
+            "No matching verse identifiers found in USFM. Please check the file format."
+        );
+        throw new Error("No matching verse identifiers found in USFM.");
+    }
+
+    return alignedCells;
 }
 
 async function parsePlaintext(fileUri: vscode.Uri): Promise<ImportedContent[]> {
