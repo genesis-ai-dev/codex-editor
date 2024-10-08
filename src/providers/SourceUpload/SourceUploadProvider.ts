@@ -11,59 +11,15 @@ function getNonce(): string {
     }
     return text;
 }
+
 export class SourceUploadProvider
     implements vscode.TextDocumentContentProvider, vscode.CustomTextEditorProvider
 {
     public static readonly viewType = "sourceUploadProvider";
     onDidChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
     onDidChange = this.onDidChangeEmitter.event;
-    private fileSystemWatcher: vscode.FileSystemWatcher | undefined;
-    private refreshDebounceTimeout: NodeJS.Timeout | undefined;
-    private watchedFiles: Set<string> = new Set();
 
-    constructor(private readonly context: vscode.ExtensionContext) {
-        this.setupFileSystemWatcher();
-    }
-
-    private setupFileSystemWatcher() {
-        this.fileSystemWatcher = vscode.workspace.createFileSystemWatcher("**/*.{source,codex}");
-        this.fileSystemWatcher.onDidCreate(this.handleFileCreated.bind(this));
-        this.fileSystemWatcher.onDidDelete(this.handleFileDeleted.bind(this));
-        this.fileSystemWatcher.onDidChange(this.handleFileChanged.bind(this));
-    }
-
-    private handleFileCreated(uri: vscode.Uri) {
-        const filePath = uri.fsPath;
-        if (!this.watchedFiles.has(filePath)) {
-            this.watchedFiles.add(filePath);
-            this.refreshWebview(`[handleFileCreated] ${filePath} created`);
-        }
-    }
-
-    private handleFileDeleted(uri: vscode.Uri) {
-        const filePath = uri.fsPath;
-        if (this.watchedFiles.has(filePath)) {
-            this.watchedFiles.delete(filePath);
-            this.refreshWebview(`[handleFileDeleted] ${filePath} deleted`);
-        }
-    }
-
-    private handleFileChanged(uri: vscode.Uri) {
-        const filePath = uri.fsPath;
-        if (this.watchedFiles.has(filePath)) {
-            this.refreshWebview(`[handleFileChanged] ${filePath} changed`);
-        }
-    }
-
-    private refreshWebview(callingSignature: string) {
-        console.log("Refreshing webview due to file change", callingSignature);
-        if (this.refreshDebounceTimeout) {
-            clearTimeout(this.refreshDebounceTimeout);
-        }
-        this.refreshDebounceTimeout = setTimeout(() => {
-            vscode.commands.executeCommand("workbench.action.webview.reloadWebviewAction");
-        }, 1000);
-    }
+    constructor(private readonly context: vscode.ExtensionContext) {}
 
     public async resolveCustomDocument(
         document: vscode.CustomDocument,
@@ -95,21 +51,9 @@ export class SourceUploadProvider
         webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview);
 
         webviewPanel.webview.onDidReceiveMessage(async (message) => {
-            const sourceFiles = await vscode.workspace.findFiles("**/*.source");
-            const targetFiles = await vscode.workspace.findFiles("**/*.codex");
             switch (message.command) {
                 case "getCodexFiles":
-                    webviewPanel.webview.postMessage({
-                        command: "updateCodexFiles",
-                        sourceFiles: sourceFiles.map((uri) => ({
-                            name: uri.fsPath.split("/").pop(),
-                            uri: uri.toString(),
-                        })),
-                        targetFiles: targetFiles.map((uri) => ({
-                            name: uri.fsPath.split("/").pop(),
-                            uri: uri.toString(),
-                        })),
-                    });
+                    await this.updateCodexFiles(webviewPanel);
                     break;
                 case "uploadSourceText":
                     try {
@@ -119,7 +63,7 @@ export class SourceUploadProvider
                         );
                         await importSourceText(this.context, fileUri);
                         vscode.window.showInformationMessage("Source text uploaded successfully.");
-                        this.refreshWebview(`[uploadSourceText] ${message.fileName}`);
+                        await this.updateCodexFiles(webviewPanel);
                     } catch (error) {
                         console.error(`Error uploading source text: ${error}`);
                         vscode.window.showErrorMessage(`Error uploading source text: ${error}`);
@@ -134,7 +78,7 @@ export class SourceUploadProvider
                         );
                         await importTranslations(this.context, fileUri, message.sourceFileName);
                         vscode.window.showInformationMessage("Translation uploaded successfully.");
-                        this.refreshWebview(`[uploadTranslation] ${message.fileName}`);
+                        await this.updateCodexFiles(webviewPanel);
                     } catch (error) {
                         console.error(`Error uploading translation: ${error}`);
                         vscode.window.showErrorMessage(`Error uploading translation: ${error}`);
@@ -142,6 +86,39 @@ export class SourceUploadProvider
                     break;
             }
         });
+    }
+
+    private async updateCodexFiles(webviewPanel: vscode.WebviewPanel) {
+        const sourceFiles = await vscode.workspace.findFiles("**/*.source");
+        const targetFiles = await vscode.workspace.findFiles("**/*.codex");
+
+        const existingSourceFiles = await this.filterExistingFiles(sourceFiles);
+        const existingTargetFiles = await this.filterExistingFiles(targetFiles);
+
+        webviewPanel.webview.postMessage({
+            command: "updateCodexFiles",
+            sourceFiles: existingSourceFiles.map((uri) => ({
+                name: uri.fsPath.split("/").pop(),
+                uri: uri.toString(),
+            })),
+            targetFiles: existingTargetFiles.map((uri) => ({
+                name: uri.fsPath.split("/").pop(),
+                uri: uri.toString(),
+            })),
+        });
+    }
+
+    private async filterExistingFiles(files: vscode.Uri[]): Promise<vscode.Uri[]> {
+        const existingFiles: vscode.Uri[] = [];
+        for (const file of files) {
+            try {
+                await vscode.workspace.fs.stat(file);
+                existingFiles.push(file);
+            } catch (error) {
+                // File doesn't exist, skip it
+            }
+        }
+        return existingFiles;
     }
 
     private async saveUploadedFile(content: string, fileName: string): Promise<vscode.Uri> {
