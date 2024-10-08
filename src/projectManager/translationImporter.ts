@@ -322,13 +322,61 @@ function alignPlaintextCells(
     notebookCells: vscode.NotebookCell[],
     importedContent: ImportedContent[]
 ): AlignedCell[] {
-    debug("Aligning plaintext cells", {
+    debug("Aligning plaintext cells by matching cell IDs", {
         notebookCellsCount: notebookCells.length,
         importedContentCount: importedContent.length,
     });
-    // Placeholder function for aligning plaintext cells
-    // Implement logic for matching plaintext content with notebook cells
-    return [];
+
+    const alignedCells: AlignedCell[] = [];
+    let totalMatches = 0;
+
+    const cellIdRegex = /^(\w+)\s+(\w+:\w+)(?::\w+)*\s+(.*)$/;
+
+    importedContent.forEach((importedItem, index) => {
+        if (!importedItem.content.trim()) {
+            // Skip empty lines
+            return;
+        }
+
+        const match = importedItem.content.match(cellIdRegex);
+        if (match) {
+            const [, file, cellId, content] = match;
+            const notebookCell = notebookCells.find(
+                (cell) => cell.metadata.id === cellId
+            );
+
+            if (notebookCell) {
+                alignedCells.push({
+                    notebookCell,
+                    importedContent: { ...importedItem, content },
+                });
+                totalMatches++;
+            } else {
+                // If no matching cell, mark as paratext
+                alignedCells.push({
+                    notebookCell: null,
+                    importedContent: { ...importedItem, content },
+                    isParatext: true,
+                });
+            }
+        } else {
+            // If line doesn't match the pattern, treat it as paratext
+            alignedCells.push({
+                notebookCell: null,
+                importedContent: importedItem,
+                isParatext: true,
+            });
+        }
+    });
+
+    if (totalMatches === 0 && importedContent.length > 0) {
+        vscode.window.showErrorMessage(
+            "No matching cell IDs found in plaintext. Please check the file format."
+        );
+        throw new Error("No matching cell IDs found in plaintext.");
+    }
+
+    return alignedCells;
 }
 
 function alignUSFMCells(
