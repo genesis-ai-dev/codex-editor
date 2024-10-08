@@ -24,13 +24,222 @@ function getNonce(): string {
     return text;
 }
 
-export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider {
+class CodexCellDocument implements vscode.CustomDocument {
+    uri: vscode.Uri;
+    private _documentData: CodexNotebookAsJSONData;
+    private _edits: Array<any>;
+    private _onDidDispose = new vscode.EventEmitter<void>();
+    public readonly onDidDispose = this._onDidDispose.event;
+
+    private readonly _onDidChangeDocument = new vscode.EventEmitter<{
+        readonly content?: string;
+        readonly edits: any[];
+    }>();
+    public readonly onDidChangeContent = this._onDidChangeDocument.event;
+
+    constructor(uri: vscode.Uri, initialContent: string) {
+        this.uri = uri;
+        this._documentData = initialContent.trim().length === 0 ? {} : JSON.parse(initialContent);
+        this._edits = [];
+    }
+
+    dispose(): void {
+        this._onDidDispose.fire();
+        this._onDidDispose.dispose();
+        this._onDidChangeDocument.dispose();
+    }
+
+    static async create(
+        uri: vscode.Uri,
+        backupId: string | undefined,
+        token: vscode.CancellationToken
+    ): Promise<CodexCellDocument> {
+        // If we have a backup, read that. Otherwise read the resource from the workspace
+        const dataFile = backupId ? vscode.Uri.parse(backupId) : uri;
+        const fileData = await vscode.workspace.fs.readFile(dataFile);
+        return new CodexCellDocument(uri, fileData.toString());
+    }
+
+    private static async readFile(uri: vscode.Uri): Promise<string> {
+        const fileData = await vscode.workspace.fs.readFile(uri);
+        return fileData.toString();
+    }
+
+    // Methods to manipulate the document data
+    public updateCellContent(cellId: string, newContent: string, editType: EditType) {
+        const indexOfCellToUpdate = this._documentData.cells.findIndex(
+            (cell) => cell.metadata?.id === cellId
+        );
+
+        if (indexOfCellToUpdate === -1) {
+            throw new Error("Could not find cell to update");
+        }
+
+        const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
+
+        // Update cell content and metadata in memory
+        cellToUpdate.value = newContent;
+        if (!cellToUpdate.metadata.edits) {
+            cellToUpdate.metadata.edits = [];
+        }
+        cellToUpdate.metadata.edits.push({
+            cellValue: newContent,
+            timestamp: Date.now(),
+            type: editType,
+        });
+
+        // Record the edit
+        this._edits.push({
+            type: "updateCellContent",
+            cellId,
+            newContent,
+            editType,
+        });
+
+        // Notify listeners about the change
+        this._onDidChangeDocument.fire({
+            edits: [{ cellId, newContent, editType }],
+        });
+    }
+
+    public async save(cancellation: vscode.CancellationToken): Promise<void> {
+        const text = JSON.stringify(this._documentData, null, 2);
+        await vscode.workspace.fs.writeFile(this.uri, Buffer.from(text));
+        this._edits = []; // Clear edits after saving
+    }
+
+    public async saveAs(
+        targetResource: vscode.Uri,
+        cancellation: vscode.CancellationToken
+    ): Promise<void> {
+        const text = JSON.stringify(this._documentData, null, 2);
+        await vscode.workspace.fs.writeFile(targetResource, Buffer.from(text));
+    }
+
+    public async revert(cancellation: vscode.CancellationToken): Promise<void> {
+        const diskContent = await vscode.workspace.fs.readFile(this.uri);
+        this._documentData = JSON.parse(diskContent.toString());
+        this._edits = [];
+        this._onDidChangeDocument.fire({
+            content: this.getText(),
+            edits: [],
+        });
+    }
+
+    public async backup(
+        destination: vscode.Uri,
+        cancellation: vscode.CancellationToken
+    ): Promise<vscode.CustomDocumentBackup> {
+        await this.saveAs(destination, cancellation);
+        return {
+            id: destination.toString(),
+            delete: () => vscode.workspace.fs.delete(destination),
+        };
+    }
+
+    public getText(): string {
+        return JSON.stringify(this._documentData, null, 2);
+    }
+
+    // Additional methods for other edit operations...
+
+    // For example, updating cell timestamps
+    public updateCellTimestamps(cellId: string, timestamps: Timestamps) {
+        const indexOfCellToUpdate = this._documentData.cells.findIndex(
+            (cell) => cell.metadata?.id === cellId
+        );
+
+        if (indexOfCellToUpdate === -1) {
+            throw new Error("Could not find cell to update");
+        }
+
+        const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
+        cellToUpdate.metadata.data = timestamps;
+
+        // Record the edit
+        this._edits.push({
+            type: "updateCellTimestamps",
+            cellId,
+            timestamps,
+        });
+
+        // Notify listeners about the change
+        this._onDidChangeDocument.fire({
+            edits: [{ cellId, timestamps }],
+        });
+    }
+
+    // Method to add a new cell
+    public addCell(
+        newCellId: string,
+        cellIdOfCellBeforeNewCell: string,
+        cellType: CodexCellTypes,
+        data: CustomNotebookCellData["metadata"]["data"]
+    ) {
+        const indexOfParentCell = this._documentData.cells.findIndex(
+            (cell) => cell.metadata?.id === cellIdOfCellBeforeNewCell
+        );
+
+        if (indexOfParentCell === -1) {
+            throw new Error("Could not find cell to update");
+        }
+
+        // Add new cell after parent cell
+        this._documentData.cells.splice(indexOfParentCell + 1, 0, {
+            value: "",
+            languageId: "html",
+            kind: vscode.NotebookCellKind.Code,
+            metadata: {
+                id: newCellId,
+                type: cellType,
+                edits: [],
+                data: data,
+            },
+        });
+
+        // Record the edit
+        this._edits.push({
+            type: "addCell",
+            newCellId,
+            cellIdOfCellBeforeNewCell,
+            cellType,
+            data,
+        });
+
+        // Notify listeners about the change
+        this._onDidChangeDocument.fire({
+            edits: [{ newCellId, cellIdOfCellBeforeNewCell, cellType, data }],
+        });
+    }
+
+    // Method to update notebook metadata
+    public updateNotebookMetadata(textDirection: string) {
+        if (!this._documentData.metadata) {
+            this._documentData.metadata = { id: this.uri.toString() };
+        }
+        this._documentData.metadata.textDirection = textDirection as "ltr" | "rtl";
+
+        // Record the edit
+        this._edits.push({
+            type: "updateNotebookMetadata",
+            textDirection,
+        });
+
+        // Notify listeners about the change
+        this._onDidChangeDocument.fire({
+            edits: [{ textDirection }],
+        });
+    }
+}
+
+export class CodexCellEditorProvider implements vscode.CustomEditorProvider<CodexCellDocument> {
     public static register(context: vscode.ExtensionContext): vscode.Disposable {
         const provider = new CodexCellEditorProvider(context);
         const providerRegistration = vscode.window.registerCustomEditorProvider(
             CodexCellEditorProvider.viewType,
             provider,
             {
+                supportsMultipleEditorsPerDocument: false,
                 webviewOptions: {
                     retainContextWhenHidden: true,
                 },
@@ -43,17 +252,21 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
 
     constructor(private readonly context: vscode.ExtensionContext) {}
 
-    /**
-     * Called when our custom editor is opened.
-     *
-     *
-     */
-    public async resolveCustomTextEditor(
-        document: vscode.TextDocument,
+    public async openCustomDocument(
+        uri: vscode.Uri,
+        openContext: { backupId?: string },
+        _token: vscode.CancellationToken
+    ): Promise<CodexCellDocument> {
+        const document = await CodexCellDocument.create(uri, openContext.backupId, _token);
+        return document;
+    }
+
+    public async resolveCustomEditor(
+        document: CodexCellDocument,
         webviewPanel: vscode.WebviewPanel,
         _token: vscode.CancellationToken
     ): Promise<void> {
-        console.log("resolveCustomTextEditor called");
+        console.log("resolveCustomEditor called");
         webviewPanel.webview.options = {
             enableScripts: true,
         };
@@ -90,15 +303,18 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
             navigateToSection(value);
         });
 
-        const changeDocumentSubscription = vscode.workspace.onDidChangeTextDocument((e) => {
-            if (e.document.uri.toString() === document.uri.toString()) {
+        const listeners: vscode.Disposable[] = [];
+
+        listeners.push(
+            document.onDidChangeContent((e) => {
+                // Update the webview when the document changes
                 updateWebview();
-            }
-        });
+            })
+        );
 
         webviewPanel.onDidDispose(() => {
             jumpToCellListenerDispose();
-            changeDocumentSubscription.dispose();
+            listeners.forEach((l) => l.dispose());
         });
 
         webviewPanel.webview.onDidReceiveMessage(async (e: EditorPostMessages) => {
@@ -146,26 +362,16 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                     case "saveHtml":
                         console.log("saveHtml message received", { e });
                         try {
-                            this.updateCellContentAndMetadata({
-                                document,
-                                cellId: e.content.cellMarkers[0],
-                                newContent: e.content.cellContent,
-                                editType: EditType.USER_EDIT,
-                            });
+                            document.updateCellContent(
+                                e.content.cellMarkers[0],
+                                e.content.cellContent,
+                                EditType.USER_EDIT
+                            );
                         } catch (error) {
                             console.error("Error saving HTML:", error);
                             vscode.window.showErrorMessage("Failed to save HTML content.");
                         }
                         return;
-                    // case "updateMetadataWithUnsavedChanges":
-                    //     console.log("update message received", { e });
-                    //     try {
-                    //         this.updateTextDocument(document, e.content);
-                    //     } catch (error) {
-                    //         console.error("Error updating metadata:", error);
-                    //         vscode.window.showErrorMessage("Failed to update metadata.");
-                    //     }
-                    //     return;
                     case "getContent":
                         updateWebview();
                         return;
@@ -228,7 +434,7 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                             direction: e.direction,
                         });
                         try {
-                            await this.updateNotebookMetadata(document, e.direction);
+                            document.updateNotebookMetadata(e.direction);
                         } catch (error) {
                             console.error("Error updating notebook metadata:", error);
                             vscode.window.showErrorMessage("Failed to update notebook metadata.");
@@ -239,7 +445,7 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                         console.log("openSourceText message received", { e });
                         try {
                             const currentFileName = vscode.workspace.asRelativePath(
-                                document.fileName
+                                document.uri.fsPath
                             );
                             const baseFileName = currentFileName.split("/").pop() || "";
                             const sourceFileName = baseFileName.replace(".codex", ".source");
@@ -261,13 +467,12 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                     case "makeChildOfCell": {
                         console.log("makeChildOfCell message received", { e });
                         try {
-                            this.addCell({
-                                documentUri: document.uri,
-                                newCellId: e.content.newCellId,
-                                cellIdOfCellBeforeNewCell: e.content.cellIdOfCellBeforeNewCell,
-                                cellType: e.content.cellType,
-                                data: e.content.data,
-                            });
+                            document.addCell(
+                                e.content.newCellId,
+                                e.content.cellIdOfCellBeforeNewCell,
+                                e.content.cellType,
+                                e.content.data
+                            );
                         } catch (error) {
                             console.error("Error making child:", error);
                             vscode.window.showErrorMessage("Failed to make child.");
@@ -277,15 +482,12 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
                     case "updateCellTimestamps": {
                         console.log("updateCellTimestamps message received", { e });
                         try {
-                            this.updateCellTimestamps({
-                                documentUri: document.uri,
-                                cellId: e.content.cellId,
-                                timestamps: e.content.timestamps,
-                            });
+                            document.updateCellTimestamps(e.content.cellId, e.content.timestamps);
                         } catch (error) {
                             console.error("Error updating cell timestamps:", error);
                             vscode.window.showErrorMessage("Failed to update cell timestamps.");
                         }
+                        return;
                     }
                 }
             } catch (error) {
@@ -303,61 +505,39 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
         });
     }
 
-    private async updateCellContentAndMetadata({
-        document,
-        cellId,
-        newContent,
-        editType,
-    }: {
-        document: vscode.TextDocument;
-        cellId: string;
-        newContent: string;
-        editType: EditType;
-    }) {
-        const currentFileContent = JSON.parse(document.getText()) as CodexNotebookAsJSONData;
-        // FIXME: Using the deserializing using the custom codex deserializer may cause errors if used here
-
-        const indexOfCellToUpdate = currentFileContent.cells.findIndex(
-            (cell) => cell.metadata?.id === cellId
-        );
-
-        if (indexOfCellToUpdate === -1) {
-            throw new Error("Could not find cell to update");
-        }
-
-        const cellToUpdate = currentFileContent.cells[indexOfCellToUpdate];
-
-        // Update cell content
-        cellToUpdate.value = newContent;
-
-        // Update metadata
-        if (!cellToUpdate.metadata.edits) {
-            cellToUpdate.metadata.edits = [];
-        }
-
-        cellToUpdate.metadata.edits.push({
-            cellValue: newContent,
-            timestamp: Date.now(),
-            type: editType,
-        });
-
-        // Replace the entire document
-        const edit = new vscode.WorkspaceEdit();
-        edit.replace(
-            document.uri,
-            new vscode.Range(0, 0, document.lineCount, 0),
-            JSON.stringify(currentFileContent, null, 2)
-        );
-
-        await vscode.workspace.applyEdit(edit);
+    public async saveCustomDocument(
+        document: CodexCellDocument,
+        cancellation: vscode.CancellationToken
+    ): Promise<void> {
+        await document.save(cancellation);
     }
 
-    /**
-     * Get the static html used for the editor webviews.
-     */
+    public async saveCustomDocumentAs(
+        document: CodexCellDocument,
+        destination: vscode.Uri,
+        cancellation: vscode.CancellationToken
+    ): Promise<void> {
+        await document.saveAs(destination, cancellation);
+    }
+
+    public async revertCustomDocument(
+        document: CodexCellDocument,
+        cancellation: vscode.CancellationToken
+    ): Promise<void> {
+        await document.revert(cancellation);
+    }
+
+    public async backupCustomDocument(
+        document: CodexCellDocument,
+        context: vscode.CustomDocumentBackupContext,
+        cancellation: vscode.CancellationToken
+    ): Promise<vscode.CustomDocumentBackup> {
+        return document.backup(context.destination, cancellation);
+    }
+
     private getHtmlForWebview(
         webview: vscode.Webview,
-        document: vscode.TextDocument,
+        document: CodexCellDocument,
         textDirection: string,
         isSourceText: boolean
     ): string {
@@ -423,10 +603,7 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
             </html>`;
     }
 
-    /**
-     * Try to get a current document as json text.
-     */
-    private getDocumentAsJson(document: vscode.TextDocument): any {
+    private getDocumentAsJson(document: CodexCellDocument): any {
         const text = document.getText();
         if (text.trim().length === 0) {
             return {};
@@ -439,115 +616,6 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
         }
     }
 
-    /**
-     * Write out the json to a given document.
-     */
-    // private updateTextDocument(
-    //     document: vscode.TextDocument,
-    //     data: EditorVerseContent,
-    //     editType: EditType
-    // ) {
-    //     this.updateCellContentAndMetadata(document, data.verseMarkers[0], data.content, editType);
-
-    // const currentContent = JSON.parse(document.getText()) as CodexNotebookAsJSONData;
-    // // FIXME: Using the deserializing using the custom codex deserializer causes errors if used here
-
-    // const edit = new vscode.WorkspaceEdit();
-
-    // const indexOfCellToUpdate = currentContent.cells.findIndex(
-    //     (cell) => cell.metadata?.id === data.verseMarkers[0]
-    // );
-
-    // if (indexOfCellToUpdate === -1) {
-    //     throw new Error("Could not find cell to update");
-    // }
-    // const cellToUpdate = currentContent.cells[indexOfCellToUpdate];
-
-    // cellToUpdate.value = data.content;
-
-    // if (!cellToUpdate.metadata.edits) {
-    //     cellToUpdate.metadata.edits = [];
-    // }
-
-    // cellToUpdate.metadata.edits.push({
-    //     cellValue: data.content,
-    //     timestamp: Date.now(),
-    //     type: EditType.USER_EDIT,
-    // });
-
-    // // Just replace the entire document every time for this example extension.
-    // // A more complete extension should compute minimal edits instead.
-    // edit.replace(
-    //     document.uri,
-    //     new vscode.Range(0, 0, document.lineCount, 0),
-    //     JSON.stringify(currentContent, null, 2)
-    // );
-
-    // return vscode.workspace.applyEdit(edit);
-    // }
-
-    // private updateMetadataEditsWithLLMResponse(
-    //     document: vscode.TextDocument,
-    //     data: EditorVerseContent
-    // ) {
-    //     const currentContent = JSON.parse(document.getText()) as CodexNotebookAsJSONData;
-    //     // FIXME: Using the deserializing using the custom codex deserializer causes errors if used here
-
-    //     const edit = new vscode.WorkspaceEdit();
-
-    //     const indexOfCellToUpdate = currentContent.cells.findIndex(
-    //         (cell) => cell.metadata?.id === data.verseMarkers[0]
-    //     );
-
-    //     if (indexOfCellToUpdate === -1) {
-    //         throw new Error("Could not find cell to update");
-    //     }
-    //     const cellToUpdate = currentContent.cells[indexOfCellToUpdate];
-
-    //     if (!cellToUpdate.metadata.edits) {
-    //         cellToUpdate.metadata.edits = [];
-    //     }
-
-    //     cellToUpdate.metadata.edits.push({
-    //         cellValue: data.content,
-    //         timestamp: Date.now(),
-    //         type: EditType.LLM_GENERATION,
-    //     });
-
-    //     // Just replace the entire document every time for this example extension.
-    //     // A more complete extension should compute minimal edits instead.
-    //     edit.replace(
-    //         document.uri,
-    //         new vscode.Range(0, 0, document.lineCount, 0),
-    //         JSON.stringify(currentContent, null, 2)
-    //     );
-
-    //     return vscode.workspace.applyEdit(edit);
-    // }
-
-    // private getVerseDataArray(): string[] {
-    //     try {
-    //         const filePath = path.join(
-    //             this.context.extensionPath,
-    //             "src",
-    //             "tsServer",
-    //             "files",
-    //             "versedata.txt"
-    //         );
-    //         const fileContent = fs.readFileSync(filePath, "utf-8");
-    //         return fileContent
-    //             .split("\n")
-    //             .map((line) => line.trim())
-    //             .filter((line) => line !== "");
-    //     } catch (error) {
-    //         console.error("updateTextDocument Error reading verse data file:", error);
-    //         vscode.window.showErrorMessage(
-    //             "Failed to read verse data file. Please check the file path and permissions."
-    //         );
-    //         return [];
-    //     }
-    // }
-
     private getTextDirection(): string {
         return vscode.workspace.getConfiguration("translators-copilot").get("textDirection", "ltr");
     }
@@ -555,7 +623,6 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
     private updateTextDirection(webviewPanel: vscode.WebviewPanel): void {
         const textDirection = this.getTextDirection();
         this.postMessageToWebview(webviewPanel, {
-            // FIXME: we are currently overriding styles at a global level, but it's not affecting source texts...?
             type: "providerUpdatesTextDirection",
             textDirection: textDirection as "ltr" | "rtl",
         });
@@ -576,12 +643,8 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
 
             // Open the document and update content and metadata atomically
             const document = await vscode.workspace.openTextDocument(documentUri);
-            await this.updateCellContentAndMetadata({
-                document,
-                cellId: currentCellId,
-                newContent: result,
-                editType: EditType.LLM_GENERATION,
-            });
+            const codexDocument = new CodexCellDocument(documentUri, document.getText());
+            codexDocument.updateCellContent(currentCellId, result, EditType.LLM_GENERATION);
 
             console.log("LLM completion result", { result });
             return result;
@@ -691,116 +754,8 @@ export class CodexCellEditorProvider implements vscode.CustomTextEditorProvider 
         webviewPanel.webview.postMessage(message);
     }
 
-    private async updateNotebookMetadata(document: vscode.TextDocument, textDirection: string) {
-        const currentContent = JSON.parse(document.getText()) as CodexNotebookAsJSONData;
-
-        // Update the notebook metadata
-        if (!currentContent.metadata) {
-            // Note: this should never trigger
-            currentContent.metadata = { id: document.uri.toString() };
-        }
-        currentContent.metadata.textDirection = textDirection as "ltr" | "rtl";
-
-        const edit = new vscode.WorkspaceEdit();
-        edit.replace(
-            document.uri,
-            new vscode.Range(0, 0, document.lineCount, 0),
-            JSON.stringify(currentContent, null, 2)
-        );
-
-        await vscode.workspace.applyEdit(edit);
-    }
-
-    private async updateCellTimestamps({
-        documentUri,
-        cellId,
-        timestamps,
-    }: {
-        documentUri: vscode.Uri;
-        cellId: string;
-        timestamps: Timestamps;
-    }) {
-        try {
-            const document = await vscode.workspace.openTextDocument(documentUri);
-            const currentFileContent = JSON.parse(document.getText()) as CodexNotebookAsJSONData;
-            // FIXME: Using the deserializing using the custom codex deserializer may cause errors if used here
-
-            const indexOfCellToUpdate = currentFileContent.cells.findIndex(
-                (cell) => cell.metadata?.id === cellId
-            );
-
-            if (indexOfCellToUpdate === -1) {
-                throw new Error("Could not find cell to update");
-            }
-
-            const cellToUpdate = currentFileContent.cells[indexOfCellToUpdate];
-            cellToUpdate.metadata.data = timestamps;
-
-            const edit = new vscode.WorkspaceEdit();
-            edit.replace(
-                document.uri,
-                new vscode.Range(0, 0, document.lineCount, 0),
-                JSON.stringify(currentFileContent, null, 2)
-            );
-
-            await vscode.workspace.applyEdit(edit);
-        } catch (error) {
-            console.error("Error updating cell timestamps:", error);
-            vscode.window.showErrorMessage("Failed to update cell timestamps.");
-        }
-    }
-
-    private async addCell({
-        documentUri,
-        newCellId,
-        cellIdOfCellBeforeNewCell,
-        cellType,
-        data,
-    }: {
-        documentUri: vscode.Uri;
-        newCellId: string;
-        cellIdOfCellBeforeNewCell: string;
-        cellType: CodexCellTypes;
-        data: CustomNotebookCellData["metadata"]["data"];
-    }) {
-        try {
-            const document = await vscode.workspace.openTextDocument(documentUri);
-            const currentFileContent = JSON.parse(document.getText()) as CodexNotebookAsJSONData;
-            // FIXME: Using the deserializing using the custom codex deserializer may cause errors if used here
-
-            const indexOfParentCell = currentFileContent.cells.findIndex(
-                (cell) => cell.metadata?.id === cellIdOfCellBeforeNewCell
-            );
-
-            if (indexOfParentCell === -1) {
-                throw new Error("Could not find cell to update");
-            }
-
-            const parentCell = currentFileContent.cells[indexOfParentCell];
-            // add new cell after parent cell
-            currentFileContent.cells.splice(indexOfParentCell + 1, 0, {
-                value: "",
-                languageId: "html",
-                kind: vscode.NotebookCellKind.Code,
-                metadata: {
-                    id: newCellId,
-                    type: cellType,
-                    edits: [],
-                    data: data,
-                },
-            });
-
-            const edit = new vscode.WorkspaceEdit();
-            edit.replace(
-                document.uri,
-                new vscode.Range(0, 0, document.lineCount, 0),
-                JSON.stringify(currentFileContent, null, 2)
-            );
-
-            await vscode.workspace.applyEdit(edit);
-        } catch (error) {
-            console.error("Error making child:", error);
-            vscode.window.showErrorMessage("Failed to make new cell.");
-        }
-    }
+    private readonly _onDidChangeCustomDocument = new vscode.EventEmitter<
+        vscode.CustomDocumentEditEvent<CodexCellDocument>
+    >();
+    public readonly onDidChangeCustomDocument = this._onDidChangeCustomDocument.event;
 }
