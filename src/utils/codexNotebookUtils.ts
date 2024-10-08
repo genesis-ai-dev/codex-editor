@@ -124,7 +124,6 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
             }
 
             const serializer = new CodexContentSerializer();
-            console.log({ file });
             const notebookData = await serializer.deserializeNotebook(
                 file,
                 new vscode.CancellationTokenSource().token

@@ -28,6 +28,8 @@ class CodexCellDocument implements vscode.CustomDocument {
     uri: vscode.Uri;
     private _documentData: CodexNotebookAsJSONData;
     private _edits: Array<any>;
+    private _isDirty: boolean = false;
+
     private _onDidDispose = new vscode.EventEmitter<void>();
     public readonly onDidDispose = this._onDidDispose.event;
 
@@ -65,6 +67,10 @@ class CodexCellDocument implements vscode.CustomDocument {
         return fileData.toString();
     }
 
+    public get isDirty(): boolean {
+        return this._isDirty;
+    }
+
     // Methods to manipulate the document data
     public updateCellContent(cellId: string, newContent: string, editType: EditType) {
         const indexOfCellToUpdate = this._documentData.cells.findIndex(
@@ -96,7 +102,8 @@ class CodexCellDocument implements vscode.CustomDocument {
             editType,
         });
 
-        // Notify listeners about the change
+        // Set dirty flag and notify listeners about the change
+        this._isDirty = true;
         this._onDidChangeDocument.fire({
             edits: [{ cellId, newContent, editType }],
         });
@@ -106,6 +113,7 @@ class CodexCellDocument implements vscode.CustomDocument {
         const text = JSON.stringify(this._documentData, null, 2);
         await vscode.workspace.fs.writeFile(this.uri, Buffer.from(text));
         this._edits = []; // Clear edits after saving
+        this._isDirty = false; // Reset dirty flag
     }
 
     public async saveAs(
@@ -114,12 +122,14 @@ class CodexCellDocument implements vscode.CustomDocument {
     ): Promise<void> {
         const text = JSON.stringify(this._documentData, null, 2);
         await vscode.workspace.fs.writeFile(targetResource, Buffer.from(text));
+        this._isDirty = false; // Reset dirty flag
     }
 
     public async revert(cancellation: vscode.CancellationToken): Promise<void> {
         const diskContent = await vscode.workspace.fs.readFile(this.uri);
         this._documentData = JSON.parse(diskContent.toString());
         this._edits = [];
+        this._isDirty = false; // Reset dirty flag
         this._onDidChangeDocument.fire({
             content: this.getText(),
             edits: [],
@@ -163,7 +173,8 @@ class CodexCellDocument implements vscode.CustomDocument {
             timestamps,
         });
 
-        // Notify listeners about the change
+        // Set dirty flag and notify listeners about the change
+        this._isDirty = true;
         this._onDidChangeDocument.fire({
             edits: [{ cellId, timestamps }],
         });
@@ -206,7 +217,8 @@ class CodexCellDocument implements vscode.CustomDocument {
             data,
         });
 
-        // Notify listeners about the change
+        // Set dirty flag and notify listeners about the change
+        this._isDirty = true;
         this._onDidChangeDocument.fire({
             edits: [{ newCellId, cellIdOfCellBeforeNewCell, cellType, data }],
         });
@@ -225,7 +237,8 @@ class CodexCellDocument implements vscode.CustomDocument {
             textDirection,
         });
 
-        // Notify listeners about the change
+        // Set dirty flag and notify listeners about the change
+        this._isDirty = true;
         this._onDidChangeDocument.fire({
             edits: [{ textDirection }],
         });
@@ -251,6 +264,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private static readonly viewType = "codex.cellEditor";
 
     constructor(private readonly context: vscode.ExtensionContext) {}
+
+    private readonly _onDidChangeCustomDocument = new vscode.EventEmitter<
+        vscode.CustomDocumentContentChangeEvent<CodexCellDocument>
+    >();
+    public readonly onDidChangeCustomDocument = this._onDidChangeCustomDocument.event;
 
     public async openCustomDocument(
         uri: vscode.Uri,
@@ -309,6 +327,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             document.onDidChangeContent((e) => {
                 // Update the webview when the document changes
                 updateWebview();
+
+                // Fire the event to let VS Code know the document has changed
+                this._onDidChangeCustomDocument.fire({ document });
             })
         );
 
@@ -397,7 +418,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     case "llmCompletion": {
                         try {
                             const completionResult = await this.performLLMCompletion(
-                                document.uri,
+                                document,
                                 e.content.currentLineId
                             );
                             console.log("completionResult", {
@@ -418,8 +439,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     case "requestAutocompleteChapter": {
                         console.log("requestAutocompleteChapter message received", { e });
                         try {
-                            const autocompleteChapterResult = await this.performAutocompleteChapter(
-                                document.uri,
+                            await this.performAutocompleteChapter(
+                                document,
                                 webviewPanel,
                                 e.content as QuillCellContent[]
                             );
@@ -628,11 +649,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         });
     }
 
-    private async performLLMCompletion(documentUri: vscode.Uri, currentCellId: string) {
+    private async performLLMCompletion(document: CodexCellDocument, currentCellId: string) {
         try {
             // Fetch completion configuration
             const completionConfig = await fetchCompletionConfig();
-            const notebookReader = new CodexNotebookReader(documentUri);
+            const notebookReader = new CodexNotebookReader(document.uri);
             // Perform LLM completion
             const result = await llmCompletion(
                 notebookReader,
@@ -641,10 +662,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 new vscode.CancellationTokenSource().token
             );
 
-            // Open the document and update content and metadata atomically
-            const document = await vscode.workspace.openTextDocument(documentUri);
-            const codexDocument = new CodexCellDocument(documentUri, document.getText());
-            codexDocument.updateCellContent(currentCellId, result, EditType.LLM_GENERATION);
+            // Update content and metadata atomically
+            document.updateCellContent(currentCellId, result, EditType.LLM_GENERATION);
 
             console.log("LLM completion result", { result });
             return result;
@@ -656,7 +675,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     }
 
     private async performAutocompleteChapter(
-        documentUri: vscode.Uri,
+        document: CodexCellDocument,
         webviewPanel: vscode.WebviewPanel,
         currentChapterTranslationUnits: QuillCellContent[]
     ) {
@@ -674,7 +693,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
             try {
                 // Perform LLM completion for the current cell
-                await this.performLLMCompletion(documentUri, cellId);
+                await this.performLLMCompletion(document, cellId);
 
                 // Send an update to the webview
                 this.postMessageToWebview(webviewPanel, {
@@ -753,9 +772,4 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     ) {
         webviewPanel.webview.postMessage(message);
     }
-
-    private readonly _onDidChangeCustomDocument = new vscode.EventEmitter<
-        vscode.CustomDocumentEditEvent<CodexCellDocument>
-    >();
-    public readonly onDidChangeCustomDocument = this._onDidChangeCustomDocument.event;
 }

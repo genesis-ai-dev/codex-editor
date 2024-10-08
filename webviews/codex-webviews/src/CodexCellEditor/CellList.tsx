@@ -7,6 +7,7 @@ import "@vscode/codicons/dist/codicon.css"; // Import codicons
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 import { WebviewApi } from "vscode-webview";
 import { HACKY_removeContiguousSpans } from "./utils";
+import { CodexCellTypes } from "../../../../types/enums";
 interface CellListProps {
     translationUnits: QuillCellContent[];
     contentBeingUpdated: EditorCellContent;

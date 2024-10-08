@@ -51,7 +51,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
         const newChildId = `${cellMarkers[cellMarkers.length - 1]}:${Math.random()
             .toString(36)
             .substring(7)}`;
-            
 
         const messageContent: EditorPostMessages = {
             command: "makeChildOfCell",
@@ -102,12 +101,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         setContentBeingUpdated({
                             cellMarkers,
                             cellContent: html.endsWith("\n") ? html : `${html}\n`,
+                            cellChanged: true,
                         });
                     }}
                     textDirection={textDirection}
                 />
             </div>
-            <button onClick={makeChild}> make child </button>
+            <div
+                style={{
+                    display: "flex",
+                    flexDirection: "row",
+                    justifyContent: "flex-end",
+                    width: "100%",
+                    paddingTop: "1em",
+                }}
+            >
+                <VSCodeButton onClick={makeChild} appearance="icon">
+                    <i className="codicon codicon-type-hierarchy-sub"></i>
+                </VSCodeButton>
+            </div>
         </div>
     );
 };
