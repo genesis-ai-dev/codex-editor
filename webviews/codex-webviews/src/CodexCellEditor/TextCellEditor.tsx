@@ -1,4 +1,4 @@
-import React, { useContext, useEffect } from "react";
+import React, { useContext, useEffect, useRef } from "react";
 import { EditorCellContent, EditorPostMessages, SpellCheckResponse } from "../../../../types";
 import Editor from "./Editor";
 import CloseButtonWithConfirmation from "../components/CloseButtonWithConfirmation";
@@ -34,6 +34,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 }) => {
     const { unsavedChanges, setUnsavedChanges, showFlashingBorder } =
         useContext(UnsavedChangesContext);
+    const cellEditorRef = useRef<HTMLDivElement>(null);
 
     const unsavedChangesState = !!(
         contentBeingUpdated.cellContent &&
@@ -45,6 +46,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
     useEffect(() => {
         setUnsavedChanges(unsavedChangesState);
     }, [unsavedChangesState]);
+
+    useEffect(() => {
+        if (showFlashingBorder && cellEditorRef.current) {
+            cellEditorRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+    }, [showFlashingBorder]);
 
     const makeChild = () => {
         // const cellComponents = .split(":");
@@ -65,7 +72,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     };
 
     return (
-        <div className="cell-editor" style={{ direction: textDirection }}>
+        <div ref={cellEditorRef} className="cell-editor" style={{ direction: textDirection }}>
             <div className="cell-header">
                 <h3>{cellMarkers.join("-")}</h3>
                 {unsavedChanges ? (
