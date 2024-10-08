@@ -11,14 +11,29 @@ function getNonce(): string {
     }
     return text;
 }
+
 export class SourceUploadProvider
     implements vscode.TextDocumentContentProvider, vscode.CustomTextEditorProvider
 {
     public static readonly viewType = "sourceUploadProvider";
     onDidChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
     onDidChange = this.onDidChangeEmitter.event;
+    private fileSystemWatcher: vscode.FileSystemWatcher | undefined;
 
-    constructor(private readonly context: vscode.ExtensionContext) {}
+    constructor(private readonly context: vscode.ExtensionContext) {
+        this.setupFileSystemWatcher();
+    }
+
+    private setupFileSystemWatcher() {
+        this.fileSystemWatcher = vscode.workspace.createFileSystemWatcher("**/*.{source,codex}");
+        this.fileSystemWatcher.onDidCreate(() => this.refreshWebview());
+        this.fileSystemWatcher.onDidDelete(() => this.refreshWebview());
+        this.fileSystemWatcher.onDidChange(() => this.refreshWebview());
+    }
+
+    private refreshWebview() {
+        vscode.commands.executeCommand("workbench.action.webview.reloadWebviewAction");
+    }
 
     public async resolveCustomDocument(
         document: vscode.CustomDocument,
@@ -28,6 +43,7 @@ export class SourceUploadProvider
     provideTextDocumentContent(uri: vscode.Uri): string {
         return "Source Upload Provider Content";
     }
+
     async openCustomDocument(
         uri: vscode.Uri,
         openContext: vscode.CustomDocumentOpenContext,
@@ -73,7 +89,7 @@ export class SourceUploadProvider
                         );
                         await importSourceText(this.context, fileUri);
                         vscode.window.showInformationMessage("Source text uploaded successfully.");
-                        webviewPanel.webview.postMessage({ command: "getCodexFiles" });
+                        this.refreshWebview();
                     } catch (error) {
                         console.error(`Error uploading source text: ${error}`);
                         vscode.window.showErrorMessage(`Error uploading source text: ${error}`);
@@ -88,8 +104,7 @@ export class SourceUploadProvider
                         );
                         await importTranslations(this.context, fileUri, message.sourceFileName);
                         vscode.window.showInformationMessage("Translation uploaded successfully.");
-                        // Refresh the file lists after upload
-                        webviewPanel.webview.postMessage({ command: "getCodexFiles" });
+                        this.refreshWebview();
                     } catch (error) {
                         console.error(`Error uploading translation: ${error}`);
                         vscode.window.showErrorMessage(`Error uploading translation: ${error}`);
@@ -144,7 +159,7 @@ export class SourceUploadProvider
                 <link href="${styleResetUri}" rel="stylesheet" nonce="${nonce}">
                 <link href="${styleVSCodeUri}" rel="stylesheet" nonce="${nonce}">
                 <link href="${codiconsUri}" rel="stylesheet" nonce="${nonce}" />
-                <title>Codex Cell Editor</title>
+                <title>Codex Uploader</title>
             </head>
             <body>
                 <div id="root"></div>
