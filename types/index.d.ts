@@ -278,6 +278,7 @@ type EditorReceiveMessages =
           type: "providerSendsInitialContent";
           content: QuillCellContent[];
           isSourceText: boolean;
+          sourceCellMap: { [k: string]: { content: string; versions: string[] } };
       }
     | {
           type: "providerUpdatesCell";

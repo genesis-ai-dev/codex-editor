@@ -14,6 +14,7 @@ import { VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
 import VideoPlayer from "./VideoPlayer";
 import registerQuillSpellChecker from "./react-quill-spellcheck";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
+import SourceCellContext from "./contextProviders/SourceCellContext";
 
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
@@ -41,12 +42,20 @@ const CodexCellEditor: React.FC = () => {
 
     const playerRef = useRef<ReactPlayer>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
+    const { setSourceCellMap } = useContext(SourceCellContext);
     // const [documentHasVideoAvailable, setDocumentHasVideoAvailable] = useState<boolean>(false);
     console.log("FIXME: setVideoUrl needs a form", setVideoUrl);
     useVSCodeMessageHandler({
-        setContent: (content: QuillCellContent[], isSourceText: boolean) => {
+        setContent: (
+            content: QuillCellContent[],
+            isSourceText: boolean,
+            sourceCellMap: { [k: string]: { content: string; versions: string[] } }
+        ) => {
+            // const sourceCellMapObject = Object.fromEntries(sourceCellMap);
+            console.log("sourceCellMap in CodexCellEditor", { sourceCellMap });
             setTranslationUnits(content);
             setIsSourceText(isSourceText);
+            setSourceCellMap(sourceCellMap);
         },
         setSpellCheckResponse: setSpellCheckResponse,
         jumpToCell: (cellId) => {

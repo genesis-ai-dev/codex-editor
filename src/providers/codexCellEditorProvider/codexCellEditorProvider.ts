@@ -27,6 +27,7 @@ function getNonce(): string {
 class CodexCellDocument implements vscode.CustomDocument {
     uri: vscode.Uri;
     private _documentData: CodexNotebookAsJSONData;
+    public _sourceCellMap: { [k: string]: { content: string; versions: string[] } } = {};
     private _edits: Array<any>;
     private _isDirty: boolean = false;
 
@@ -43,6 +44,13 @@ class CodexCellDocument implements vscode.CustomDocument {
         this.uri = uri;
         this._documentData = initialContent.trim().length === 0 ? {} : JSON.parse(initialContent);
         this._edits = [];
+        initializeStateStore().then(async ({ getStoreState }) => {
+            const sourceCellMap = await getStoreState("sourceCellMap");
+            console.log("sourceCellMap", sourceCellMap);
+            if (sourceCellMap) {
+                this._sourceCellMap = sourceCellMap;
+            }
+        });
     }
 
     dispose(): void {
@@ -180,6 +188,27 @@ class CodexCellDocument implements vscode.CustomDocument {
         });
     }
 
+    public deleteCell(cellId: string) {
+        const indexOfCellToDelete = this._documentData.cells.findIndex(
+            (cell) => cell.metadata?.id === cellId
+        );
+
+        if (indexOfCellToDelete === -1) {
+            throw new Error("Could not find cell to delete");
+        }
+        this._documentData.cells.splice(indexOfCellToDelete, 1);
+
+        // Record the edit
+        this._edits.push({
+            type: "deleteCell",
+            cellId,
+        });
+
+        this._isDirty = true;
+        this._onDidChangeDocument.fire({
+            edits: [{ cellId }],
+        });
+    }
     // Method to add a new cell
     public addCell(
         newCellId: string,
@@ -302,11 +331,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             const notebookData: vscode.NotebookData = this.getDocumentAsJson(document);
 
             const processedData = this.processNotebookData(notebookData);
-
+            console.log("document._sourceCellMap", document._sourceCellMap);
             this.postMessageToWebview(webviewPanel, {
                 type: "providerSendsInitialContent",
                 content: processedData,
                 isSourceText: isSourceText,
+                sourceCellMap: document._sourceCellMap,
             });
         };
 
@@ -500,6 +530,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         }
                         return;
                     }
+                    case "deleteCell": {
+                        console.log("deleteCell message received", { e });
+                        try {
+                            document.deleteCell(e.content.cellId);
+                        } catch (error) {
+                            console.error("Error deleting cell:", error);
+                            vscode.window.showErrorMessage("Failed to delete cell.");
+                        }
+                        return;
+                    }
                     case "updateCellTimestamps": {
                         console.log("updateCellTimestamps message received", { e });
                         try {
@@ -604,7 +644,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; worker-src ${webview.cspSource}; connect-src https://languagetool.org/api/; img-src ${webview.cspSource} https:; font-src ${webview.cspSource}; media-src ${webview.cspSource} blob:;">
+                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${
+                    webview.cspSource
+                } 'unsafe-inline'; script-src 'nonce-${nonce}'; worker-src ${
+                    webview.cspSource
+                }; connect-src https://languagetool.org/api/; img-src ${
+                    webview.cspSource
+                } https:; font-src ${webview.cspSource}; media-src ${webview.cspSource} blob:;">
                 <link href="${styleResetUri}" rel="stylesheet" nonce="${nonce}">
                 <link href="${styleVSCodeUri}" rel="stylesheet" nonce="${nonce}">
                 <link href="${codiconsUri}" rel="stylesheet" nonce="${nonce}" />
@@ -613,7 +659,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 <script nonce="${nonce}">
                     window.initialData = {
                         isSourceText: ${isSourceText},
-                        videoUrl: "${videoUri}"
+                        videoUrl: "${videoUri}",
+                        sourceCellMap: ${JSON.stringify(document._sourceCellMap)}
                     };
                 </script>
             </head>
