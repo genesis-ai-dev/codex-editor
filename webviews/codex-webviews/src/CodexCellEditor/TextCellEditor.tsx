@@ -71,6 +71,34 @@ const CellEditor: React.FC<CellEditorProps> = ({
         window.vscodeApi.postMessage(messageContent);
     };
 
+    const addPretextCell = () => {
+        // const cellComponents = .split(":");
+        const newChildId = `${cellMarkers[cellMarkers.length - 1]}:${Math.random()
+            .toString(36)
+            .substring(7)}`;
+
+        const messageContent: EditorPostMessages = {
+            command: "makeChildOfCell",
+            content: {
+                newCellId: newChildId,
+                cellIdOfCellBeforeNewCell: cellMarkers[cellMarkers.length - 1],
+                cellType: CodexCellTypes.PARATEXT,
+                data: {},
+            },
+        };
+        window.vscodeApi.postMessage(messageContent);
+    };
+
+    const deleteCell = () => {
+        const messageContent: EditorPostMessages = {
+            command: "deleteCell",
+            content: {
+                cellId: cellMarkers[0],
+            },
+        };
+        window.vscodeApi.postMessage(messageContent);
+    };
+
     return (
         <div ref={cellEditorRef} className="cell-editor" style={{ direction: textDirection }}>
             <div className="cell-header">
@@ -121,10 +149,17 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     justifyContent: "flex-end",
                     width: "100%",
                     paddingTop: "1em",
+                    gap: "0.5rem",
                 }}
             >
+                <VSCodeButton onClick={addPretextCell} appearance="icon">
+                    <i className="codicon codicon-diff-added"></i>
+                </VSCodeButton>
                 <VSCodeButton onClick={makeChild} appearance="icon">
                     <i className="codicon codicon-type-hierarchy-sub"></i>
+                </VSCodeButton>
+                <VSCodeButton onClick={deleteCell} appearance="icon">
+                    <i className="codicon codicon-delete"></i>
                 </VSCodeButton>
             </div>
         </div>
