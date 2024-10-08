@@ -10,6 +10,7 @@ import { registerCompletionsCodeLensProviders } from "./activationHelpers/contex
 import { initializeBibleData } from "./activationHelpers/contextAware/sourceData";
 import { registerLanguageServer } from "./tsServer/registerLanguageServer";
 import { registerClientCommands } from "./tsServer/registerClientCommands";
+import registerClientOnRequests from "./tsServer/registerClientOnRequests";
 import { LanguageClient } from "vscode-languageclient/node";
 import { registerProjectManager } from "./projectManager";
 import {
@@ -90,6 +91,7 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
 
         if (client) {
             clientCommandsDisposable = registerClientCommands(context, client);
+            await registerClientOnRequests(client); // So that the language server thread can interface with the main extension commands
             context.subscriptions.push(clientCommandsDisposable);
         }
 

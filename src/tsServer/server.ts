@@ -17,13 +17,16 @@ import {
     MatchesEntity,
     ReplacementsEntity,
 } from "../../webviews/codex-webviews/src/CodexCellEditor/react-quill-spellcheck/types";
-
+import { RequestType } from "vscode-languageserver";
 import { SmartEdits } from "../smartEdits/smartEdits";
 
 const DEBUG_MODE = true; // Flag for debug mode
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
+const ExecuteCommandRequest = new RequestType<{ command: string; args: any[] }, any, void>(
+    "workspace/executeCommand"
+);
 
 let spellChecker: SpellChecker;
 let diagnosticsProvider: SpellCheckDiagnosticsProvider;
@@ -39,7 +42,7 @@ function debugLog(...args: any[]) {
 }
 
 // Define special phrases with their replacements and colors
-const specialPhrases = [
+let specialPhrases = [
     { phrase: "hello world", replacement: "hi", color: "purple" },
     // Add more phrases as needed
 ];
@@ -160,8 +163,6 @@ connection.onRequest("spellcheck/addWord", async (params: { words: string[] }) =
         throw new Error(`Failed to add words: ${error.message}`);
     }
 });
-
-// ... include other request handlers as needed
 
 documents.listen(connection);
 connection.listen();

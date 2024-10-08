@@ -1,11 +1,5 @@
 import Chatbot from "./chat";
-import MiniSearch from "minisearch";
-import { minisearchDoc } from "../activationHelpers/contextAware/miniIndex/indexes/translationPairsIndex";
 import { TranslationPair, SmartEditContext, SmartSuggestion, SavedSuggestions } from "../../types";
-import {
-    searchParallelCells,
-    getTranslationPairFromProject,
-} from "../activationHelpers/contextAware/miniIndex/indexes/search";
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as vscode from "vscode";
@@ -30,18 +24,10 @@ Your suggestions should follow this format:
 
 export class SmartEdits {
     private chatbot: Chatbot;
-    private translationPairsIndex: MiniSearch<minisearchDoc>;
-    private sourceTextIndex: MiniSearch;
     private smartEditsPath: string;
 
-    constructor(
-        translationPairsIndex: MiniSearch<minisearchDoc>,
-        sourceTextIndex: MiniSearch,
-        workspaceUri: vscode.Uri
-    ) {
+    constructor(workspaceUri: vscode.Uri) {
         this.chatbot = new Chatbot(SYSTEM_MESSAGE);
-        this.translationPairsIndex = translationPairsIndex;
-        this.sourceTextIndex = sourceTextIndex;
         this.smartEditsPath = path.join(workspaceUri.fsPath, "files", "smart_edits.json");
         console.log("SmartEdits initialized with path:", this.smartEditsPath);
     }
@@ -56,7 +42,7 @@ export class SmartEdits {
         }
 
         console.log("Finding similar entries...");
-        const similarEntries = this.findSimilarEntries(text);
+        const similarEntries = await this.findSimilarEntries(text);
         console.log(`Found ${similarEntries.length} similar entries`);
 
         console.log("Getting similar texts...");
@@ -125,45 +111,53 @@ export class SmartEdits {
         }
     }
 
-    private findSimilarEntries(text: string): string[] {
+    private async findSimilarEntries(text: string): Promise<TranslationPair[]> {
         console.log("Finding similar entries for text:", text);
-        const results = searchParallelCells(this.translationPairsIndex, this.sourceTextIndex, text);
-        const cellIds = results.map((result) => result.cellId);
-        console.log(`Found ${cellIds.length} similar entries`);
-        return cellIds;
+        try {
+            const results = await vscode.commands.executeCommand<TranslationPair[]>(
+                "translators-copilot.searchParallelCells",
+                text
+            );
+            console.log(`Found ${results?.length || 0} similar entries`);
+            return results || [];
+        } catch (error) {
+            console.error("Error searching parallel cells:", error);
+            return [];
+        }
     }
 
-    private async getSimilarTexts(cellIds: string[]): Promise<SmartEditContext[]> {
-        console.log(`Getting similar texts for ${cellIds.length} cellIds`);
+    private async getSimilarTexts(similarEntries: TranslationPair[]): Promise<SmartEditContext[]> {
+        console.log(`Getting similar texts for ${similarEntries.length} entries`);
         const similarTexts: SmartEditContext[] = [];
-        for (const cellId of cellIds) {
-            const pair = getTranslationPairFromProject(this.translationPairsIndex, cellId);
-            if (pair && pair.targetCell.uri) {
+        for (const entry of similarEntries) {
+            if (entry.targetCell.uri) {
                 try {
-                    const filePath = pair.targetCell.uri.replace(
+                    const filePath = entry.targetCell.uri.replace(
                         "/.projects/sourceTexts/",
                         "/files/target"
                     );
-                    console.log(`Reading file for cellId ${cellId}: ${filePath}`);
+                    console.log(`Reading file for cellId ${entry.cellId}: ${filePath}`);
                     const fileContent = await fs.readFile(filePath, "utf8");
                     const jsonContent = JSON.parse(fileContent);
-                    const cell = jsonContent.cells.find((cell: any) => cell.metadata.id === cellId);
+                    const cell = jsonContent.cells.find(
+                        (cell: any) => cell.metadata.id === entry.cellId
+                    );
                     if (cell) {
                         const context: SmartEditContext = {
-                            cellId: cellId,
+                            cellId: entry.cellId,
                             currentCellValue: cell.value,
                             edits: cell.metadata.edits || [],
                         };
                         similarTexts.push(context);
-                        console.log(`Added context for cellId: ${cellId}`);
+                        console.log(`Added context for cellId: ${entry.cellId}`);
                     } else {
-                        console.log(`Cell not found for cellId: ${cellId}`);
+                        console.log(`Cell not found for cellId: ${entry.cellId}`);
                     }
                 } catch (error) {
-                    console.error(`Error reading file for cellId ${cellId}:`, error);
+                    console.error(`Error reading file for cellId ${entry.cellId}:`, error);
                 }
             } else {
-                console.log(`No valid pair found for cellId: ${cellId}`);
+                console.log(`No valid URI found for cellId: ${entry.cellId}`);
             }
         }
         console.log(`Retrieved ${similarTexts.length} similar texts`);
