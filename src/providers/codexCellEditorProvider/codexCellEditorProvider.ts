@@ -227,7 +227,7 @@ class CodexCellDocument implements vscode.CustomDocument {
     // Method to update notebook metadata
     public updateNotebookMetadata(textDirection: string) {
         if (!this._documentData.metadata) {
-            this._documentData.metadata = { id: this.uri.toString() };
+            throw new Error("No metadata found on notebook.");
         }
         this._documentData.metadata.textDirection = textDirection as "ltr" | "rtl";
 
