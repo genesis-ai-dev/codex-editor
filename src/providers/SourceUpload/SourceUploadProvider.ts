@@ -1,10 +1,7 @@
 import * as vscode from "vscode";
-import {
-    importLocalUsfmSourceBible,
-    createCodexNotebookFromWebVTT,
-} from "../../utils/codexNotebookUtils";
-import { initializeProject } from "../../projectManager/projectInitializers";
+import { importTranslations } from "../../projectManager/translationImporter";
 import { FileType } from "../../../types";
+import { importSourceText } from "../../projectManager/sourceTextImporter";
 
 function getNonce(): string {
     let text = "";
@@ -52,47 +49,62 @@ export class SourceUploadProvider
         webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview);
 
         webviewPanel.webview.onDidReceiveMessage(async (message) => {
+            const sourceFiles = await vscode.workspace.findFiles("**/*.source");
+            const targetFiles = await vscode.workspace.findFiles("**/*.codex");
             switch (message.command) {
-                case "processUploadedFile":
+                case "getCodexFiles":
+                    webviewPanel.webview.postMessage({
+                        command: "updateCodexFiles",
+                        sourceFiles: sourceFiles.map((uri) => ({
+                            name: uri.fsPath.split("/").pop(),
+                            uri: uri.toString(),
+                        })),
+                        targetFiles: targetFiles.map((uri) => ({
+                            name: uri.fsPath.split("/").pop(),
+                            uri: uri.toString(),
+                        })),
+                    });
+                    break;
+                case "uploadSourceText":
                     try {
-                        const fileType = message.fileType as FileType;
-                        const notebookName = await vscode.window.showInputBox({
-                            prompt: "Enter the name of this source file",
-                        });
-                        switch (fileType) {
-                            case "subtitles":
-                                if (notebookName) {
-                                    await createCodexNotebookFromWebVTT(
-                                        message.fileContent,
-                                        notebookName
-                                    );
-                                }
-                                break;
-                            case "usfm":
-                                // Save the uploaded USFM files and initialize the project
-                                await initializeProject(true);
-                                break;
-                            case "plaintext":
-                                // Handle plaintext import using recursive document splitter
-                                vscode.window.showInformationMessage(
-                                    "Plaintext import is not yet implemented."
-                                );
-                                break;
-                            default:
-                                vscode.window.showErrorMessage(
-                                    `Unsupported file type: ${fileType}`
-                                );
-                        }
+                        const fileUri = await this.saveUploadedFile(
+                            message.fileContent,
+                            message.fileName
+                        );
+                        await importSourceText(this.context, fileUri);
+                        vscode.window.showInformationMessage("Source text uploaded successfully.");
+                        webviewPanel.webview.postMessage({ command: "getCodexFiles" });
                     } catch (error) {
-                        console.error(`Error processing uploaded file: ${error}`);
-                        vscode.window.showErrorMessage(`Error processing uploaded file.`);
+                        console.error(`Error uploading source text: ${error}`);
+                        vscode.window.showErrorMessage(`Error uploading source text: ${error}`);
                     }
                     break;
-                default:
-                    console.log("Unknown command:", message.command);
+                case "uploadTranslation":
+                    console.log("uploadTranslation message in provider", message);
+                    try {
+                        const fileUri = await this.saveUploadedFile(
+                            message.fileContent,
+                            message.fileName
+                        );
+                        await importTranslations(this.context, fileUri, message.sourceFileName);
+                        vscode.window.showInformationMessage("Translation uploaded successfully.");
+                        // Refresh the file lists after upload
+                        webviewPanel.webview.postMessage({ command: "getCodexFiles" });
+                    } catch (error) {
+                        console.error(`Error uploading translation: ${error}`);
+                        vscode.window.showErrorMessage(`Error uploading translation: ${error}`);
+                    }
                     break;
             }
         });
+    }
+
+    private async saveUploadedFile(content: string, fileName: string): Promise<vscode.Uri> {
+        const tempDirUri = vscode.Uri.joinPath(this.context.globalStorageUri, "temp");
+        await vscode.workspace.fs.createDirectory(tempDirUri);
+        const fileUri = vscode.Uri.joinPath(tempDirUri, fileName);
+        await vscode.workspace.fs.writeFile(fileUri, Buffer.from(content, "utf8"));
+        return fileUri;
     }
 
     private getHtmlForWebview(webview: vscode.Webview): string {

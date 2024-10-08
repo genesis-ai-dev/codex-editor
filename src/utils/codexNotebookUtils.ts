@@ -286,16 +286,30 @@ export async function createProjectCommentFiles({
     });
 }
 
-export async function importLocalUsfmSourceBible() {
-    const folderUri = await vscode.window.showOpenDialog({
-        canSelectFiles: false,
-        canSelectFolders: true,
-        canSelectMany: false,
-        openLabel: "Select USFM Folder",
-    });
+export async function importLocalUsfmSourceBible(passedUri?: vscode.Uri) {
+    let folderUri: vscode.Uri | undefined;
 
-    if (!folderUri || folderUri.length === 0) {
-        vscode.window.showInformationMessage("No folder selected");
+    if (!passedUri) {
+        const selectedUris = await vscode.window.showOpenDialog({
+            canSelectFiles: false,
+            canSelectFolders: true,
+            canSelectMany: false,
+            openLabel: "Select USFM Folder",
+        });
+        folderUri = selectedUris?.[0];
+    } else {
+        const stat = await vscode.workspace.fs.stat(passedUri);
+        if (stat.type === vscode.FileType.Directory) {
+            folderUri = passedUri;
+        } else if (stat.type === vscode.FileType.File) {
+            // If it's a file, we'll process just this file
+            await processUsfmFile(passedUri);
+            return;
+        }
+    }
+
+    if (!folderUri) {
+        vscode.window.showErrorMessage("No folder selected");
         return;
     }
 
@@ -305,9 +319,7 @@ export async function importLocalUsfmSourceBible() {
         return;
     }
 
-    const usfmFiles = await vscode.workspace.fs.readDirectory(folderUri[0]);
-    const bibleContent: string[] = [];
-
+    const usfmFiles = await vscode.workspace.fs.readDirectory(folderUri);
     console.log(`Found ${usfmFiles.length} files in the selected folder`);
 
     const usfmFileExtensions = [".usfm", ".sfm", ".SFM", ".USFM"];
@@ -316,124 +328,128 @@ export async function importLocalUsfmSourceBible() {
             fileType === vscode.FileType.File &&
             usfmFileExtensions.some((ext) => fileName.toLowerCase().endsWith(ext))
         ) {
-            console.log(`Processing file: ${fileName}`);
-            const fileUri = vscode.Uri.joinPath(folderUri[0], fileName);
-            const fileContent = await vscode.workspace.fs.readFile(fileUri);
-            console.log(`File content length: ${fileContent.byteLength} bytes`);
-
-            try {
-                const relaxedUsfmParser = new grammar.USFMParser(
-                    new TextDecoder().decode(fileContent),
-                    grammar.LEVEL.RELAXED
-                );
-                const jsonOutput = relaxedUsfmParser.toJSON() as any as ParsedUSFM;
-                console.log(
-                    `Parsed JSON output for ${fileName}:`,
-                    JSON.stringify(jsonOutput, null, 2)
-                );
-
-                // Convert JSON output to .source format
-                const bookCode = jsonOutput.book.bookCode;
-                const verses = jsonOutput.chapters.flatMap((chapter: any) =>
-                    chapter.contents
-                        .filter(
-                            (content: any) =>
-                                content.verseNumber !== undefined || content.verseText !== undefined
-                        )
-                        .map(
-                            (verse: any) =>
-                                `${bookCode} ${chapter.chapterNumber}:${verse.verseNumber} ${
-                                    verse.verseText || verse.text
-                                }`
-                        )
-                );
-
-                console.log(`Extracted ${verses.length} verses from ${fileName}`);
-
-                // Instead of appending to bibleContent, create a separate file for each book
-                const bookData = {
-                    cells: verses.map((verse) => ({
-                        kind: 2,
-                        language: "scripture",
-                        value: verse.split(" ").slice(3).join(" "),
-                        metadata: {
-                            type: "text",
-                            id: verse.split(" ").slice(0, 3).join(" "),
-                            navigation: [],
-                        },
-                    })),
-                    metadata: {
-                        data: {
-                            corpusMarker:
-                                getTestamentForBook(bookCode) === "OT"
-                                    ? "Old Testament"
-                                    : getTestamentForBook(bookCode) === "NT"
-                                      ? "New Testament"
-                                      : undefined,
-                        },
-                        navigation: [],
-                    },
-                };
-
-                // Add chapter headings and update navigation
-                let currentChapter = "";
-                const navigationCells: NavigationCell[] = [];
-                bookData.cells.forEach((cell, index) => {
-                    const [, chapter] = cell.metadata.id.split(" ");
-                    if (chapter !== currentChapter) {
-                        currentChapter = chapter;
-                        const chapterCellId = `${bookCode} ${chapter}:1:${Math.random()
-                            .toString(36)
-                            .substr(2, 11)}`;
-                        bookData.cells.splice(index, 0, {
-                            kind: 2,
-                            language: "paratext",
-                            value: `<h1>Chapter ${chapter}</h1>`,
-                            metadata: {
-                                type: "paratext",
-                                id: chapterCellId,
-                                navigation: [],
-                            },
-                        });
-                        navigationCells.push({
-                            cellId: chapterCellId,
-                            children: [],
-                            label: `Chapter ${chapter}`,
-                        });
-                    }
-                });
-
-                bookData.metadata.navigation = navigationCells as any;
-
-                const bookFilePath = path.join(
-                    workspaceFolder.uri.fsPath,
-                    ".project",
-                    "sourceTexts",
-                    `${bookCode}.source`
-                );
-
-                await vscode.workspace.fs.writeFile(
-                    vscode.Uri.file(bookFilePath),
-                    new TextEncoder().encode(JSON.stringify(bookData, null, 2))
-                );
-
-                console.log(`Created .source file for ${bookCode}`);
-            } catch (error) {
-                console.error(
-                    `Error processing file in importLocalUsfmSourceBible ${fileName}:`,
-                    error
-                );
-                vscode.window.showErrorMessage(
-                    `Error processing file ${fileName}: ${
-                        error instanceof Error ? error.message : String(error)
-                    }`
-                );
-            }
+            const fileUri = vscode.Uri.joinPath(folderUri, fileName);
+            await processUsfmFile(fileUri);
         }
     }
 
-    // Remove the code that creates a single combined file
     vscode.window.showInformationMessage(`Bible imported successfully as individual book files.`);
+}
+
+async function processUsfmFile(fileUri: vscode.Uri) {
+    console.log(`Processing file: ${fileUri.fsPath}`);
+    const fileContent = await vscode.workspace.fs.readFile(fileUri);
+    console.log(`File content length: ${fileContent.byteLength} bytes`);
+
+    try {
+        const relaxedUsfmParser = new grammar.USFMParser(
+            new TextDecoder().decode(fileContent),
+            grammar.LEVEL.RELAXED
+        );
+        const jsonOutput = relaxedUsfmParser.toJSON() as any as ParsedUSFM;
+        console.log(
+            `Parsed JSON output for ${fileUri.fsPath}:`,
+            JSON.stringify(jsonOutput, null, 2)
+        );
+
+        // Convert JSON output to .source format
+        const bookCode = jsonOutput.book.bookCode;
+        const verses = jsonOutput.chapters.flatMap((chapter: any) =>
+            chapter.contents
+                .filter(
+                    (content: any) =>
+                        content.verseNumber !== undefined || content.verseText !== undefined
+                )
+                .map(
+                    (verse: any) =>
+                        `${bookCode} ${chapter.chapterNumber}:${verse.verseNumber} ${
+                            verse.verseText || verse.text
+                        }`
+                )
+        );
+
+        console.log(`Extracted ${verses.length} verses from ${fileUri.fsPath}`);
+
+        const bookData = {
+            cells: verses.map((verse) => ({
+                kind: 2,
+                language: "scripture",
+                value: verse.split(" ").slice(3).join(" "),
+                metadata: {
+                    type: "text",
+                    id: verse.split(" ").slice(0, 3).join(" "),
+                    navigation: [],
+                },
+            })),
+            metadata: {
+                data: {
+                    corpusMarker:
+                        getTestamentForBook(bookCode) === "OT"
+                            ? "Old Testament"
+                            : getTestamentForBook(bookCode) === "NT"
+                              ? "New Testament"
+                              : undefined,
+                },
+                navigation: [],
+            },
+        };
+
+        // Add chapter headings and update navigation
+        let currentChapter = "";
+        const navigationCells: NavigationCell[] = [];
+        bookData.cells.forEach((cell, index) => {
+            const [, chapter] = cell.metadata.id.split(" ");
+            if (chapter !== currentChapter) {
+                currentChapter = chapter;
+                const chapterCellId = `${bookCode} ${chapter}:1:${Math.random()
+                    .toString(36)
+                    .substr(2, 11)}`;
+                bookData.cells.splice(index, 0, {
+                    kind: 2,
+                    language: "paratext",
+                    value: `<h1>Chapter ${chapter}</h1>`,
+                    metadata: {
+                        type: "paratext",
+                        id: chapterCellId,
+                        navigation: [],
+                    },
+                });
+                navigationCells.push({
+                    cellId: chapterCellId,
+                    children: [],
+                    label: `Chapter ${chapter}`,
+                });
+            }
+        });
+
+        bookData.metadata.navigation = navigationCells as any;
+
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            throw new Error("No workspace folder found");
+        }
+
+        const bookFilePath = vscode.Uri.joinPath(
+            workspaceFolder.uri,
+            ".project",
+            "sourceTexts",
+            `${bookCode}.source`
+        );
+
+        await vscode.workspace.fs.writeFile(
+            bookFilePath,
+            new TextEncoder().encode(JSON.stringify(bookData, null, 2))
+        );
+
+        console.log(`Created .source file for ${bookCode}`);
+    } catch (error) {
+        console.error(`Error processing file ${fileUri.fsPath}:`, error);
+        vscode.window.showErrorMessage(
+            `Error processing file ${fileUri.fsPath}: ${
+                error instanceof Error ? error.message : String(error)
+            }`
+        );
+    }
 }
 
 /**

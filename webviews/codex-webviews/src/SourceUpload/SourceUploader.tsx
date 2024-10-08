@@ -1,13 +1,16 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
-import { useVSCodeMessageHandler } from "./hooks/useVSCodeMessageHandler";
-import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
-import { FileTypeMap, SupportedFileExtension, FileType } from "../../../../types";
+import { VSCodeButton, VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react";
+import { FileType, SupportedFileExtension } from "../../../../types";
 
 const vscode = acquireVsCodeApi();
-(window as any).vscodeApi = vscode;
 
-const fileTypeMap: FileTypeMap = {
+interface CodexFile {
+    name: string;
+    uri: string;
+}
+
+const fileTypeMap: Record<SupportedFileExtension, FileType> = {
     vtt: "subtitles",
     txt: "plaintext",
     usfm: "usfm",
@@ -17,59 +20,53 @@ const fileTypeMap: FileTypeMap = {
 };
 
 const SourceUploader: React.FC = () => {
-    const [fileContent, setFileContent] = React.useState<string>("");
-    const [selectedFile, setSelectedFile] = useState<File>();
+    const [sourceFiles, setSourceFiles] = useState<CodexFile[]>([]);
+    const [targetFiles, setTargetFiles] = useState<CodexFile[]>([]);
+    const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [fileType, setFileType] = useState<FileType | "">("");
-
-    useVSCodeMessageHandler({
-        setFile: (file: File) => {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const content = e.target?.result?.toString() || "";
-                setFileContent(content);
-            };
-            reader.readAsText(file);
-        },
-    });
-
-    const onDrop = useCallback((acceptedFiles: File[]) => {
-        setSelectedFile(acceptedFiles[0]);
-    }, []);
+    const [isSourceUpload, setIsSourceUpload] = useState<boolean>(false);
+    const [selectedSourceFile, setSelectedSourceFile] = useState<string | null>(null);
 
     useEffect(() => {
-        if (selectedFile) {
+        vscode.postMessage({ command: "getCodexFiles" });
+    }, []);
+
+    const onDrop = useCallback((acceptedFiles: File[]) => {
+        if (acceptedFiles.length > 0) {
+            setSelectedFile(acceptedFiles[0]);
+            const extension = acceptedFiles[0].name.split(".").pop() as SupportedFileExtension;
+            setFileType(fileTypeMap[extension] || "plaintext");
+        }
+    }, []);
+
+    const { getRootProps, getInputProps } = useDropzone({ onDrop });
+
+    const handleUpload = async () => {
+        if (selectedFile && fileType) {
             const reader = new FileReader();
             reader.onload = (e) => {
                 const content = e.target?.result?.toString() || "";
-                setFileContent(content);
+                vscode.postMessage({
+                    command: isSourceUpload ? "uploadSourceText" : "uploadTranslation",
+                    fileContent: content,
+                    fileType: fileType,
+                    fileName: selectedFile.name,
+                    sourceFileName: selectedSourceFile,
+                });
             };
             reader.readAsText(selectedFile);
-
-            // Determine file type based on extension
-            const extension = selectedFile.name.split(".").pop() as
-                | SupportedFileExtension
-                | undefined;
-            if (extension && extension in fileTypeMap) {
-                setFileType(fileTypeMap[extension]);
-            } else {
-                setFileType("plaintext");
-            }
-        }
-    }, [selectedFile]);
-
-    const { getRootProps, getInputProps } = useDropzone({
-        onDrop,
-    });
-
-    const handleUpload = () => {
-        if (selectedFile && fileContent) {
-            vscode.postMessage({
-                command: "processUploadedFile",
-                fileContent,
-                fileType,
-            });
         }
     };
+
+    window.addEventListener("message", (event) => {
+        const message = event.data;
+        switch (message.command) {
+            case "updateCodexFiles":
+                setSourceFiles(message.sourceFiles);
+                setTargetFiles(message.targetFiles);
+                break;
+        }
+    });
 
     return (
         <div
@@ -82,86 +79,64 @@ const SourceUploader: React.FC = () => {
                 justifyContent: "center",
             }}
         >
-            <div
-                style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    gap: "10px",
-                    backgroundColor: "var(--vscode-sideBar-background)",
-                    padding: "50px 50px 55px 50px",
-                    borderRadius: "10px",
-                }}
-            >
-                <h1>Upload a Source File</h1>
-                <div className="dropzone">
-                    <input {...getInputProps()} />
-                    <div
-                        style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            alignItems: "center",
-                            gap: "20px",
-                        }}
-                    >
-                        <div
-                            style={{
-                                display: "flex",
-                                flexDirection: "row",
-                                alignItems: "center",
-                                gap: "10px",
-                                marginTop: "10px",
-                                marginBottom: "15px",
-                            }}
-                        >
-                            <i className="codicon codicon-file" style={{ fontSize: "40px" }}></i>
-                            <i
-                                className="codicon codicon-arrow-right"
-                                style={{ fontSize: "40px" }}
-                            ></i>
-                            <i className="codicon codicon-folder" style={{ fontSize: "40px" }}></i>
-                        </div>
+            <h1>File Upload</h1>
 
-                        {selectedFile ? (
-                            <>
-                                <h2>Selected file: {selectedFile.name}</h2>
-                                <div
-                                    style={{
-                                        display: "flex",
-                                        flexDirection: "row",
-                                        alignItems: "center",
-                                        gap: "10px",
-                                    }}
-                                >
-                                    <VSCodeButton type="button" onClick={handleUpload}>
-                                        <i
-                                            className="codicon codicon-check"
-                                            style={{ fontSize: "40px" }}
-                                        ></i>
-                                    </VSCodeButton>
-                                    <VSCodeButton
-                                        type="button"
-                                        onClick={() => setSelectedFile(undefined)}
-                                        style={{ backgroundColor: "red" }}
-                                    >
-                                        <i
-                                            className="codicon codicon-close"
-                                            style={{ fontSize: "40px" }}
-                                        ></i>
-                                    </VSCodeButton>
-                                </div>
-                            </>
-                        ) : (
-                            <VSCodeButton {...getRootProps()}>
-                                <i
-                                    className="codicon codicon-cloud-upload"
-                                    style={{ fontSize: "40px" }}
-                                ></i>
-                            </VSCodeButton>
-                        )}
-                    </div>
-                </div>
+            <VSCodeCheckbox
+                checked={isSourceUpload}
+                onChange={() => setIsSourceUpload(!isSourceUpload)}
+            >
+                Upload Source Text
+            </VSCodeCheckbox>
+
+            <h2>Existing Source Files (.source)</h2>
+            <ul>
+                {sourceFiles.map((file) => (
+                    <li key={file.uri}>{file.name}</li>
+                ))}
+            </ul>
+
+            <h2>Existing Target Files (.codex)</h2>
+            <ul>
+                {targetFiles.map((file) => (
+                    <li key={file.uri}>{file.name}</li>
+                ))}
+            </ul>
+
+            <div
+                {...getRootProps()}
+                style={{ border: "2px dashed #ccc", padding: "20px", marginTop: "20px" }}
+            >
+                <input {...getInputProps()} />
+                <p>
+                    Drag 'n' drop a {isSourceUpload ? "source" : "translation"} file here, or click
+                    to select a file
+                </p>
             </div>
+            {selectedFile && <p>Selected file: {selectedFile.name}</p>}
+
+            {!isSourceUpload && (
+                <div>
+                    <h3>Select corresponding source file:</h3>
+                    <select
+                        value={selectedSourceFile || ""}
+                        onChange={(e) => setSelectedSourceFile(e.target.value)}
+                    >
+                        <option value="">Select a source file</option>
+                        {sourceFiles.map((file) => (
+                            <option key={file.uri} value={file.name}>
+                                {file.name}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+            )}
+
+            <VSCodeButton
+                onClick={handleUpload}
+                disabled={!selectedFile || (!isSourceUpload && !selectedSourceFile)}
+            >
+                Upload {isSourceUpload ? "Source Text" : "Translation"}
+            </VSCodeButton>
         </div>
     );
 };
