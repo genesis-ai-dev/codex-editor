@@ -31,7 +31,7 @@ class Chatbot {
         try {
             const completion = await this.tokenjs.chat.completions.create({
                 provider: "openai",
-                model: "gpt-4-turbo-preview" as OpenAIModel,
+                model: "gpt-4o-mini" as OpenAIModel,
                 messages,
             });
 
