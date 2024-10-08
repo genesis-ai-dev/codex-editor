@@ -25,6 +25,7 @@ Your suggestions should follow this format:
             "suggestions": []
         }
         4. Focus on meaningful content changes, not just HTML structure modifications.
+        5. Pay close attention to what commonly changes between revisions, and attempt to supply suggestions that impliment these if it makes sense.
     `;
 
 export class SmartEdits {
@@ -194,15 +195,33 @@ export class SmartEdits {
 
     private formatSimilarTexts(similarTexts: SmartEditContext[]): string {
         console.log(`Formatting ${similarTexts.length} similar texts`);
-        const formattedTexts = similarTexts.map((context) => {
-            const revisions = context.edits
-                .map((edit, index) => {
-                    return `revision ${index + 1}: ${JSON.stringify(edit.cellValue)}`;
-                })
-                .join(",\n");
-            return `"${context.cellId}": {\n${revisions}\n}`;
-        });
+        const formattedTexts = similarTexts
+            .map((context) => {
+                const edits = context.edits;
+                if (edits.length === 0) return "";
+
+                const firstEdit = this.stripHtml(edits[0].cellValue);
+                const lastEdit = this.stripHtml(edits[edits.length - 1].cellValue);
+
+                if (edits.length === 1 || firstEdit === lastEdit) return "";
+
+                const revisions = `first revision: ${JSON.stringify(firstEdit)},\nlast revision: ${JSON.stringify(lastEdit)}`;
+                return `"${context.cellId}": {\n${revisions}\n}`;
+            })
+            .filter((text) => text !== "");
         return `{\n${formattedTexts.join(",\n")}\n}`;
+    }
+
+    private stripHtml(text: string): string {
+        // Remove HTML tags
+        let strippedText = text.replace(/<[^>]*>/g, "");
+        // Remove common HTML entities
+        strippedText = strippedText.replace(/&nbsp;|&amp;|&lt;|&gt;|&quot;|&#39;/g, "");
+        // Remove other numeric HTML entities
+        strippedText = strippedText.replace(/&#\d+;/g, "");
+        // Remove any remaining & entities
+        strippedText = strippedText.replace(/&[a-zA-Z]+;/g, "");
+        return strippedText;
     }
 
     private createEditMessage(similarTextsString: string, text: string): string {
