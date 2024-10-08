@@ -240,7 +240,11 @@ type SourceCellVersions = {
     versions: string[];
 };
 
-type EditorCellContent = Pick<QuillCellContent, "cellMarkers" | "cellContent">;
+type EditorCellContent = {
+    cellMarkers: string[];
+    cellContent: string;
+    cellChanged: boolean; // Needed to add this
+};
 
 type EditorPostMessages =
     | { command: "from-quill-spellcheck-getSpellCheckResponse"; content: EditorCellContent }

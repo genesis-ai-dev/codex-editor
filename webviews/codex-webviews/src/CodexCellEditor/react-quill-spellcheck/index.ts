@@ -24,6 +24,7 @@ export class QuillSpellChecker {
     public boxes = new SuggestionBoxes(this);
     public matches: MatchesEntity[] = [];
     protected onRequestComplete: () => void = () => null;
+    private cellChanged: boolean = false;
 
     constructor(
         public quill: Quill,
@@ -76,6 +77,7 @@ export class QuillSpellChecker {
 
     private handleEditorChange = (eventName: string, ...args: any[]) => {
         debug("editor-change event", { eventName, args });
+        this.cellChanged = !this.cellChanged;
         this.popups.initialize();
     };
 
@@ -196,8 +198,8 @@ export class QuillSpellChecker {
 
                 (window as any).vscodeApi.postMessage({
                     command: "from-quill-spellcheck-getSpellCheckResponse",
-                    content: { cellContent: text },
-                } as EditorPostMessages);
+                    content: { cellContent: text, cellChanged: this.cellChanged },
+                });
 
                 setTimeout(() => {
                     (window as any).removeEventListener("message", messageListener);

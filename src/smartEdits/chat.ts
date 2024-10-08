@@ -72,7 +72,7 @@ class Chatbot {
 
     async getCompletion(prompt: string): Promise<string> {
         const response = await this.callLLM([
-            { role: "system", content: "You are a helpful assistant." },
+            { role: "system", content: this.systemMessage },
             { role: "user", content: prompt },
         ]);
         return response;

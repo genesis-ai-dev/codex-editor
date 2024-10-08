@@ -18,7 +18,6 @@ import {
     ReplacementsEntity,
 } from "../../webviews/codex-webviews/src/CodexCellEditor/react-quill-spellcheck/types";
 import { RequestType } from "vscode-languageserver";
-import { SmartEdits } from "../smartEdits/smartEdits";
 
 const DEBUG_MODE = true; // Flag for debug mode
 
@@ -86,14 +85,41 @@ connection.onInitialize((params: InitializeParams) => {
         },
     } as InitializeResult;
 });
+let lastCellChanged: boolean = false;
 
-connection.onRequest("spellcheck/check", async (params: { text: string }) => {
+connection.onRequest("spellcheck/check", async (params: { text: string; cellChanged: boolean }) => {
     debugLog("SERVER: Received spellcheck/check request:", { params });
 
     const text = params.text.toLowerCase();
 
     const matches: MatchesEntity[] = [];
 
+    // Get smart edit suggestions only if the cellId has changed
+    if (params.cellChanged !== lastCellChanged) {
+        specialPhrases = []
+        const smartEditSuggestions = await connection.sendRequest(ExecuteCommandRequest, {
+            command: "codex-smart-edits.getEdits",
+            args: [params.text, params.cellChanged],
+        });
+
+        debugLog("Received smart edit suggestions:", smartEditSuggestions);
+
+        // Clear previous special phrases from smart edits
+
+        // Process smart edit suggestions as special phrases
+        smartEditSuggestions.forEach((suggestion: any, index: number) => {
+            specialPhrases.push({
+                phrase: suggestion.oldString,
+                replacement: suggestion.newString,
+                color: "purple", // Use a different color for smart edit suggestions
+            });
+        });
+
+        // Update the last processed cellId
+        lastCellChanged = params.cellChanged;
+    }
+
+    debugLog("Special phrases:", specialPhrases);
     // Handle special phrases first to avoid overlapping with single-word matches
     specialPhrases.forEach(({ phrase, replacement, color }, index) => {
         let startIndex = 0;

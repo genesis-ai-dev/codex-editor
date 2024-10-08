@@ -3,28 +3,35 @@ import { TranslationPair, SmartEditContext, SmartSuggestion, SavedSuggestions } 
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as vscode from "vscode";
-
 const SYSTEM_MESSAGE = `You are a helpful assistant. Given similar edits across a corpus, you will suggest edits to a new text. 
 Your suggestions should follow this format:
-    {'suggestions': [
-        {
-            "oldString": "The old string to be replaced",
-            "newString": "The new string to replace the old string"
-        },
-        {
-            "oldString": "The old string to be replaced",
-            "newString": "The new string to replace the old string"
-        }
-    ]}
+    {
+        "suggestions": [
+            {
+                "oldString": "The old string to be replaced",
+                "newString": "The new string to replace the old string"
+            },
+            {
+                "oldString": "The old string to be replaced",
+                "newString": "The new string to replace the old string"
+            }
+        ]
+    }
     Rules:
         1. These will be in languages you may not be familiar with, so try your best anyways and use the context to infer the correct potential edits.
-        2. Do not make edits based only on HTML, but include whatever HTML tags are in the text rather than removing them. 
-        3. If no edits are needed, return an empty array.
+        2. Do not make edits based only on HTML. Preserve all HTML tags in the text.
+        3. If no edits are needed, return this default response:
+        {
+            "suggestions": []
+        }
+        4. Focus on meaningful content changes, not just HTML structure modifications.
     `;
 
 export class SmartEdits {
     private chatbot: Chatbot;
     private smartEditsPath: string;
+    private lastProcessedCellId: string | null = null;
+    private lastSuggestions: SmartSuggestion[] = [];
 
     constructor(workspaceUri: vscode.Uri) {
         this.chatbot = new Chatbot(SYSTEM_MESSAGE);
@@ -34,16 +41,33 @@ export class SmartEdits {
 
     async getEdits(text: string, cellId: string): Promise<SmartSuggestion[]> {
         console.log(`Getting edits for cellId: ${cellId}`);
-        const savedSuggestions = await this.loadSavedSuggestions(cellId);
 
-        if (savedSuggestions && savedSuggestions.lastCellValue === text) {
-            console.log("Using saved suggestions for cellId:", cellId);
-            return savedSuggestions.suggestions;
-        }
-
-        console.log("Finding similar entries...");
         const similarEntries = await this.findSimilarEntries(text);
         console.log(`Found ${similarEntries.length} similar entries`);
+
+        if (similarEntries.length === 0) {
+            console.log("No similar entries found. Returning empty suggestions.");
+            this.lastProcessedCellId = cellId;
+            this.lastSuggestions = [];
+            return [];
+        }
+
+        const firstResultCellId = similarEntries[0].cellId;
+        console.log(`Using cellId from first result: ${firstResultCellId}`);
+
+        if (firstResultCellId === this.lastProcessedCellId) {
+            console.log("Cell hasn't changed. Returning last suggestions.");
+            return this.lastSuggestions;
+        }
+
+        const savedSuggestions = await this.loadSavedSuggestions(firstResultCellId);
+
+        if (savedSuggestions && savedSuggestions.lastCellValue === text) {
+            console.log("Using saved suggestions for cellId:", firstResultCellId);
+            this.lastProcessedCellId = firstResultCellId;
+            this.lastSuggestions = savedSuggestions.suggestions;
+            return savedSuggestions.suggestions;
+        }
 
         console.log("Getting similar texts...");
         const similarTexts = await this.getSimilarTexts(similarEntries);
@@ -65,7 +89,9 @@ export class SmartEdits {
         }
 
         console.log(`Generated ${suggestions.length} suggestions`);
-        await this.saveSuggestions(cellId, text, suggestions);
+        await this.saveSuggestions(firstResultCellId, text, suggestions);
+        this.lastProcessedCellId = firstResultCellId;
+        this.lastSuggestions = suggestions;
         return suggestions;
     }
 
@@ -125,19 +151,21 @@ export class SmartEdits {
             return [];
         }
     }
-
     private async getSimilarTexts(similarEntries: TranslationPair[]): Promise<SmartEditContext[]> {
         console.log(`Getting similar texts for ${similarEntries.length} entries`);
         const similarTexts: SmartEditContext[] = [];
         for (const entry of similarEntries) {
             if (entry.targetCell.uri) {
                 try {
-                    const filePath = entry.targetCell.uri.replace(
-                        "/.projects/sourceTexts/",
-                        "/files/target"
-                    );
+                    let filePath = entry.targetCell.uri
+                        .toString()
+                        .replace(".project/sourceTexts", "files/target");
+                    filePath = filePath.replace(".source", ".codex");
                     console.log(`Reading file for cellId ${entry.cellId}: ${filePath}`);
-                    const fileContent = await fs.readFile(filePath, "utf8");
+                    const fileContent = await fs.readFile(
+                        vscode.Uri.parse(filePath).fsPath,
+                        "utf8"
+                    );
                     const jsonContent = JSON.parse(fileContent);
                     const cell = jsonContent.cells.find(
                         (cell: any) => cell.metadata.id === entry.cellId
@@ -179,8 +207,8 @@ export class SmartEdits {
 
     private createEditMessage(similarTextsString: string, text: string): string {
         console.log("Creating edit message");
-        const message = `Similar Texts:\n${similarTextsString}\n\nEdit the following text based on the patterns you've seen in similar texts, or leave it as is if nothing needs to be changed:\n${text}`;
-        console.log("Edit message created");
+        const message = `Similar Texts:\n${similarTextsString}\n\nEdit the following text based on the patterns you've seen in similar texts, always return the json format specified. Do not suggest edits that are merely HTML changes. Focus on meaningful content modifications.\nText: ${text}`;
+        console.log("Edit message created: ", message);
         return message;
     }
 }
