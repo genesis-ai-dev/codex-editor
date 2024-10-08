@@ -27,6 +27,7 @@ import { updateCompleteDrafts } from "../indexingUtils";
 import { readSourceAndTargetFiles } from "./fileReaders";
 import { debounce } from "lodash";
 import { MinimalCellResult, TranslationPair } from "../../../../../types";
+import { NotebookMetadataManager } from "../../../../utils/notebookMetadataManager";
 
 type WordFrequencyMap = Map<string, number>;
 
@@ -90,7 +91,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 context,
                 translationPairsIndex,
                 sourceFiles,
-                targetFiles
+                targetFiles,
+                metadataManager,
             );
         }
     }, 3000);
@@ -98,7 +100,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     const debouncedUpdateSourceTextIndex = debounce(async (doc: vscode.TextDocument) => {
         if (!(await isDocumentAlreadyOpen(doc.uri))) {
             const { sourceFiles } = await readSourceAndTargetFiles();
-            await createSourceTextIndex(sourceTextIndex, sourceFiles);
+            await createSourceTextIndex(sourceTextIndex, sourceFiles, metadataManager);
         }
     }, 3000);
 
@@ -114,6 +116,9 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             await createZeroDraftIndex(zeroDraftIndex, zeroDraftIndex.documentCount === 0);
         }
     }, 3000);
+
+    const metadataManager = NotebookMetadataManager.getInstance();
+    await metadataManager.loadMetadata();
 
     async function rebuildIndexes(force: boolean = false) {
         statusBarHandler.setIndexingActive();
@@ -134,11 +139,13 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 translationPairsIndex,
                 sourceFiles,
                 targetFiles,
+                metadataManager,
                 force || translationPairsIndex.documentCount === 0
             );
             await createSourceTextIndex(
                 sourceTextIndex,
                 sourceFiles,
+                metadataManager,
                 force || sourceTextIndex.documentCount === 0
             );
             wordsIndex = await initializeWordsIndex(wordsIndex, targetFiles);

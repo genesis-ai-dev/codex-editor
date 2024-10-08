@@ -6,6 +6,7 @@ import { getWorkSpaceUri } from "../../../../utils";
 import { FileData } from "./fileReaders";
 import { debounce } from "lodash";
 import { TranslationPair } from "../../../../../types";
+import { NotebookMetadataManager } from "../../../../utils/notebookMetadataManager";
 
 export interface minisearchDoc {
     id: string;
@@ -28,6 +29,7 @@ export async function createTranslationPairsIndex(
     translationPairsIndex: MiniSearch<minisearchDoc>,
     sourceFiles: FileData[],
     targetFiles: FileData[],
+    metadataManager: NotebookMetadataManager,
     force: boolean = false
 ): Promise<void> {
     console.time("createTranslationPairsIndex");
@@ -39,21 +41,23 @@ export async function createTranslationPairsIndex(
         return;
     }
 
-    const index = await indexAllDocuments(sourceFiles, targetFiles);
+    const index = await indexAllDocuments(sourceFiles, targetFiles, metadataManager);
 
     translationPairsIndex.removeAll();
     // Update the configuration
-    const documents = Object.values(index).flat().map(pair => ({
-        id: `${pair.sourceCell.uri}:${pair.cellId}`,
-        cellId: pair.cellId,
-        document: pair.cellId.split(" ")[0],
-        section: pair.cellId.split(" ")[1].split(":")[0],
-        cell: pair.cellId.split(":")[1],
-        sourceContent: pair.sourceCell.content || "",
-        targetContent: pair.targetCell.content || "",
-        uri: pair.sourceCell.uri || "",
-        line: pair.sourceCell.line || -1,
-    }));
+    const documents = Object.values(index)
+        .flat()
+        .map((pair) => ({
+            id: `${pair.sourceCell.uri}:${pair.cellId}`,
+            cellId: pair.cellId,
+            document: pair.cellId.split(" ")[0],
+            section: pair.cellId.split(" ")[1].split(":")[0],
+            cell: pair.cellId.split(":")[1],
+            sourceContent: pair.sourceCell.content || "",
+            targetContent: pair.targetCell.content || "",
+            uri: pair.sourceCell.uri || "",
+            line: pair.sourceCell.line || -1,
+        }));
 
     translationPairsIndex.addAll(documents);
 
@@ -68,7 +72,7 @@ export async function createTranslationPairsIndex(
             "sourceContent",
             "targetContent",
             "uri",
-            "line"
+            "line",
         ],
         // ... other options ...
     };
@@ -88,10 +92,14 @@ export async function createTranslationPairsIndex(
 
     async function indexAllDocuments(
         sourceFiles: FileData[],
-        targetFiles: FileData[]
+        targetFiles: FileData[],
+        metadataManager: NotebookMetadataManager
     ): Promise<TranslationPairsIndex> {
         const index: TranslationPairsIndex = {};
-        const targetCellsMap = new Map<string, { content: string; uri: string }>();
+        const targetCellsMap = new Map<
+            string,
+            { content: string; uri: string; notebookId: string }
+        >();
 
         for (const targetFile of targetFiles) {
             for (const cell of targetFile.cells) {
@@ -103,6 +111,7 @@ export async function createTranslationPairsIndex(
                     targetCellsMap.set(cell.metadata.id, {
                         content: cell.value,
                         uri: targetFile.uri.toString(),
+                        notebookId: targetFile.id,
                     });
                 }
             }
@@ -129,12 +138,14 @@ export async function createTranslationPairsIndex(
                                 content: sourceCell.value,
                                 uri: sourceFile.uri.toString(),
                                 line: -1,
+                                notebookId: sourceFile.id,
                             },
                             targetCell: {
                                 cellId,
                                 content: targetCell.content,
                                 uri: targetCell.uri,
                                 line: -1,
+                                notebookId: targetCell.notebookId,
                             },
                         });
                     }

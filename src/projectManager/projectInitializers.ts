@@ -104,6 +104,7 @@ async function handleBibleDownload(
     workspaceRoot: string,
     languageType: string
 ) {
+    // FIXME: this has not been 
     const vrefPath = await ensureVrefList(workspaceRoot);
 
     const bibleTextPath = path.join(
@@ -138,6 +139,9 @@ async function handleBibleDownload(
         cells: [],
         metadata: {
             id: corpusMetadata.file,
+            originalName: corpusMetadata.file,
+            sourceUri: vscode.Uri.file(bibleTextPath),
+            codexUri: vscode.Uri.file(bibleTextPath),
             data: {
                 corpusMarker: undefined, // We'll set this later
             },

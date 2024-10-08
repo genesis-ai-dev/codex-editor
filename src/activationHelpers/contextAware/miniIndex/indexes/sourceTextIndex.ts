@@ -2,13 +2,15 @@ import MiniSearch from "minisearch";
 import * as vscode from "vscode";
 import { SourceCellVersions } from "../../../../../types";
 import { FileData } from "./fileReaders";
+import { NotebookMetadataManager } from "../../../../utils/notebookMetadataManager";
 
 export async function createSourceTextIndex(
     sourceTextIndex: MiniSearch<SourceCellVersions>,
     sourceFiles: FileData[],
+    metadataManager: NotebookMetadataManager,
     force: boolean = false
 ): Promise<MiniSearch<SourceCellVersions>> {
-    const cellMap = new Map<string, { content: string; versions: string[] }>();
+    const cellMap = new Map<string, { content: string; versions: string[]; notebookId: string }>();
 
     // Filter for all .source files
     const allSourceFiles = sourceFiles.filter((file) => file.uri.fsPath.endsWith(".source"));
@@ -19,7 +21,7 @@ export async function createSourceTextIndex(
     }
 
     for (const sourceFile of allSourceFiles) {
-        const version = sourceFile.uri.fsPath.split("/").pop()?.replace(".source", "") || "";
+        const version = sourceFile.id; // Use the notebook ID as the version
 
         for (const cell of sourceFile.cells) {
             if (cell.metadata?.type === "text" && cell.metadata?.id && cell.value.trim() !== "") {
@@ -28,14 +30,14 @@ export async function createSourceTextIndex(
                     const existingCell = cellMap.get(cellId)!;
                     existingCell.versions.push(version);
                 } else {
-                    cellMap.set(cellId, { content: cell.value, versions: [version] });
+                    cellMap.set(cellId, { content: cell.value, versions: [version], notebookId: sourceFile.id });
                 }
             }
         }
     }
 
     // Update the index with all cells from all .source files
-    for (const [cellId, { content, versions }] of cellMap.entries()) {
+    for (const [cellId, { content, versions, notebookId }] of cellMap.entries()) {
         const existingDoc = sourceTextIndex.getStoredFields(cellId);
         if (
             !existingDoc ||
@@ -49,6 +51,7 @@ export async function createSourceTextIndex(
                 cellId,
                 content,
                 versions,
+                notebookId,
             });
         }
     }

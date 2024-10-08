@@ -23,25 +23,29 @@ export async function importSourceText(
         const metadataManager = NotebookMetadataManager.getInstance();
         await metadataManager.loadMetadata();
 
-        let notebookId: string;
+        const baseName = fileUri.path.split("/").pop()?.split(".")[0] || `new_source`;
+        const notebookId = metadataManager.generateNewId(baseName);
+
+        let importedNotebookId: string;
 
         switch (fileType) {
             case "subtitles":
-                notebookId = await importSubtitles(fileUri);
+                importedNotebookId = await importSubtitles(fileUri, notebookId);
                 break;
             case "plaintext":
-                notebookId = await importPlaintext(fileUri);
+                importedNotebookId = await importPlaintext(fileUri, notebookId);
                 break;
             case "usfm":
-                notebookId = await importUSFM(fileUri);
+                importedNotebookId = await importUSFM(fileUri, notebookId);
                 break;
             default:
                 throw new Error("Unsupported file type for source text.");
         }
 
         metadataManager.addOrUpdateMetadata({
-            id: notebookId,
+            id: importedNotebookId,
             sourceUri: fileUri,
+            originalName: baseName,
         });
 
         vscode.window.showInformationMessage("Source text imported successfully.");
@@ -50,25 +54,21 @@ export async function importSourceText(
     }
 }
 
-async function importSubtitles(fileUri: vscode.Uri): Promise<string> {
-    const notebookName = fileUri.path.split("/").pop()?.split(".")[0] || `new_source_${Date.now()}`;
+async function importSubtitles(fileUri: vscode.Uri, notebookId: string): Promise<string> {
     const fileContent = await vscode.workspace.fs.readFile(fileUri);
     const fileContentString = new TextDecoder().decode(fileContent);
-    const notebookId = await createCodexNotebookFromWebVTT(fileContentString, notebookName);
+    await createCodexNotebookFromWebVTT(fileContentString, notebookId);
     return notebookId;
 }
 
-async function importPlaintext(fileUri: vscode.Uri): Promise<string> {
+async function importPlaintext(fileUri: vscode.Uri, notebookId: string): Promise<string> {
     // TODO: Implement plaintext import logic
     // This might involve reading the file and creating a new Codex notebook
     // with appropriate cell structure
     throw new Error("Plaintext import not yet implemented");
 }
 
-async function importUSFM(fileUri: vscode.Uri): Promise<string> {
-    // FIXME: there is some inconsistency here because importLocalUsfmSourceBible returns an array of notebook ids, since you usually parse a whole folder of USFM files
-    // but the UI for importing a single USFM file translation expects a single notebook id
-    // so we're going to need to change the UI to handle an array of notebook ids, or to handle the case where a single notebook id is returned
-    const notebookIds = await importLocalUsfmSourceBible(fileUri);
-    return notebookIds[0];
+async function importUSFM(fileUri: vscode.Uri, notebookId: string): Promise<string> {
+    const importedNotebookIds = await importLocalUsfmSourceBible(fileUri, notebookId);
+    return importedNotebookIds[0] || notebookId;
 }

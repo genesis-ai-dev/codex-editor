@@ -1,8 +1,10 @@
 import * as vscode from "vscode";
 import { getWorkSpaceUri } from "../../../../utils";
+import { NotebookMetadataManager } from "../../../../utils/notebookMetadataManager";
 
 export interface FileData {
     uri: vscode.Uri;
+    id: string;
     cells: Array<{
         metadata?: {
             type?: string;
@@ -35,27 +37,33 @@ export async function readSourceAndTargetFiles(): Promise<{
         targetUris.map((uri) => uri.fsPath)
     );
 
-    const sourceFiles = await Promise.all(sourceUris.map(readFile));
-    const targetFiles = await Promise.all(targetUris.map(readFile));
+    const metadataManager = NotebookMetadataManager.getInstance();
+    await metadataManager.loadMetadata();
+
+    const sourceFiles = await Promise.all(sourceUris.map(uri => readFile(uri, metadataManager)));
+    const targetFiles = await Promise.all(targetUris.map(uri => readFile(uri, metadataManager)));
 
     return { sourceFiles, targetFiles };
 }
 
-async function readFile(uri: vscode.Uri): Promise<FileData> {
+async function readFile(uri: vscode.Uri, metadataManager: NotebookMetadataManager): Promise<FileData> {
     const content = await vscode.workspace.fs.readFile(uri);
     const data = JSON.parse(content.toString());
+    const metadata = metadataManager.getMetadataByUri(uri);
+    
+    if (!metadata || !metadata.id) {
+        throw new Error(`No metadata found for file: ${uri.toString()}`);
+    }
+
     const fileData: FileData = {
         uri,
-        cells: data.cells.map((cell: any) => {
-            const cellData = {
-                ...cell,
-                metadata: {
-                    ...cell.metadata,
-                },
-            };
-
-            return cellData;
-        }),
+        id: metadata.id,
+        cells: data.cells.map((cell: any) => ({
+            ...cell,
+            metadata: {
+                ...cell.metadata,
+            },
+        })),
     };
     console.log(`File ${uri.toString()} has ${fileData.cells.length} cells`);
     return fileData;
