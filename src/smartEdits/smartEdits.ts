@@ -3,6 +3,8 @@ import { TranslationPair, SmartEditContext, SmartSuggestion, SavedSuggestions } 
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as vscode from "vscode";
+import { diffWords } from "diff";
+
 const SYSTEM_MESSAGE = `You are a helpful assistant. Given similar edits across a corpus, you will suggest edits to a new text. 
 Your suggestions should follow this format:
     {
@@ -25,7 +27,7 @@ Your suggestions should follow this format:
             "suggestions": []
         }
         4. Focus on meaningful content changes, not just HTML structure modifications.
-        5. Pay close attention to what commonly changes between revisions, and attempt to supply suggestions that impliment these if it makes sense.
+        5. Pay close attention to what commonly changes between revisions, and attempt to supply suggestions that implement these if it makes sense.
     `;
 
 export class SmartEdits {
@@ -152,6 +154,7 @@ export class SmartEdits {
             return [];
         }
     }
+
     private async getSimilarTexts(similarEntries: TranslationPair[]): Promise<SmartEditContext[]> {
         console.log(`Getting similar texts for ${similarEntries.length} entries`);
         const similarTexts: SmartEditContext[] = [];
@@ -205,8 +208,13 @@ export class SmartEdits {
 
                 if (edits.length === 1 || firstEdit === lastEdit) return "";
 
-                const revisions = `first revision: ${JSON.stringify(firstEdit)},\nlast revision: ${JSON.stringify(lastEdit)}`;
-                return `"${context.cellId}": {\n${revisions}\n}`;
+                const diff = this.generateDiff(firstEdit, lastEdit);
+                return `"${context.cellId}": {
+                        revision 1: ${JSON.stringify(firstEdit)}
+                        revision 2: ${JSON.stringify(lastEdit)}
+                        diff:
+                    ${diff}
+}`;
             })
             .filter((text) => text !== "");
         return `{\n${formattedTexts.join(",\n")}\n}`;
@@ -222,6 +230,21 @@ export class SmartEdits {
         // Remove any remaining & entities
         strippedText = strippedText.replace(/&[a-zA-Z]+;/g, "");
         return strippedText;
+    }
+
+    private generateDiff(oldText: string, newText: string): string {
+        const diff = diffWords(oldText, newText);
+        return diff
+            .map((part) => {
+                if (part.added) {
+                    return `    + ${part.value}`;
+                }
+                if (part.removed) {
+                    return `    - ${part.value}`;
+                }
+                return `      ${part.value}`;
+            })
+            .join("");
     }
 
     private createEditMessage(similarTextsString: string, text: string): string {
