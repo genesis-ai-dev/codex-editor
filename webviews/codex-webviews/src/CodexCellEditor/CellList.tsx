@@ -38,19 +38,23 @@ const CellList: React.FC<CellListProps> = ({
             className={`verse-group cell-display-${cellDisplayMode}`}
             style={{ direction: textDirection }}
         >
-            {group.map(({ cellMarkers, cellContent, cellType }, index) => {
+            {group.map(({ cellMarkers, cellContent, cellType, cellLabel }, index) => {
                 return (
-                    <CellContentDisplay
-                        key={startIndex + index}
-                        cellIds={cellMarkers}
-                        cellContent={cellContent}
-                        cellIndex={startIndex + index}
-                        cellType={cellType}
-                        setContentBeingUpdated={setContentBeingUpdated}
-                        vscode={vscode}
-                        textDirection={textDirection}
-                        isSourceText={isSourceText}
-                    />
+                    <>
+                        {"cell label at CellList component " + JSON.stringify(cellLabel)}
+                        <CellContentDisplay
+                            key={startIndex + index}
+                            cellIds={cellMarkers}
+                            cellContent={cellContent}
+                            cellIndex={startIndex + index}
+                            cellType={cellType}
+                            cellLabel={cellLabel}
+                            setContentBeingUpdated={setContentBeingUpdated}
+                            vscode={vscode}
+                            textDirection={textDirection}
+                            isSourceText={isSourceText}
+                        />
+                    </>
                 );
             })}
         </span>
@@ -62,7 +66,7 @@ const CellList: React.FC<CellListProps> = ({
         let groupStartIndex = 0;
 
         for (let i = 0; i < translationUnits.length; i++) {
-            const { cellMarkers, cellContent, cellType } = translationUnits[i];
+            const { cellMarkers, cellContent, cellType, cellLabel } = translationUnits[i];
 
             if (
                 !isSourceText &&
@@ -79,6 +83,7 @@ const CellList: React.FC<CellListProps> = ({
                         cellContent={cellContent}
                         cellIndex={i}
                         cellType={cellType}
+                        cellLabel={cellLabel}
                         spellCheckResponse={spellCheckResponse}
                         contentBeingUpdated={contentBeingUpdated}
                         setContentBeingUpdated={setContentBeingUpdated}
@@ -97,6 +102,7 @@ const CellList: React.FC<CellListProps> = ({
                     <EmptyCellDisplay
                         key={i}
                         cellMarkers={cellMarkers}
+                        cellLabel={cellLabel}
                         setContentBeingUpdated={setContentBeingUpdated}
                         textDirection={textDirection}
                     />

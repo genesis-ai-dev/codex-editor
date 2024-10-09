@@ -245,7 +245,8 @@ type SourceCellVersions = {
 type EditorCellContent = {
     cellMarkers: string[];
     cellContent: string;
-    cellChanged: boolean; // Needed to add this
+    cellChanged: boolean;
+    cellLabel: string;
 };
 
 type EditorPostMessages =
@@ -271,7 +272,8 @@ type EditorPostMessages =
     | { command: "llmCompletion"; content: { currentLineId: string } }
     | { command: "requestAutocompleteChapter"; content: QuillCellContent[] }
     | { command: "updateTextDirection"; direction: "ltr" | "rtl" }
-    | { command: "openSourceText"; content: { chapterNumber: number } };
+    | { command: "openSourceText"; content: { chapterNumber: number } }
+    | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string } };
 
 type EditorReceiveMessages =
     | {
@@ -349,23 +351,12 @@ interface QuillCellContent {
     cellType: import("./enums").CodexCellTypes;
     editHistory: Array<EditHistory>;
     timestamps?: Timestamps;
+    cellLabel?: string;
 }
 
 interface Timestamps {
     startTime?: number;
     endTime?: number;
-}
-
-// interface EditHistory {
-//     timestamp: number;
-//     type: string;
-//     content: string;
-//     // ... other fields
-// }
-
-interface EditorCellContent {
-    cellMarkers: string[];
-    content: string;
 }
 
 interface SpellCheckResponse {

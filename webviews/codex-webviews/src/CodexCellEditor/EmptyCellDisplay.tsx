@@ -4,12 +4,14 @@ import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 
 interface EmptyCellDisplayProps {
     cellMarkers: string[];
+    cellLabel?: string;
     setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorCellContent>>;
     textDirection: "ltr" | "rtl";
 }
 
 const EmptyCellDisplay: React.FC<EmptyCellDisplayProps> = ({
     cellMarkers,
+    cellLabel,
     setContentBeingUpdated,
     textDirection,
 }) => {
@@ -22,6 +24,8 @@ const EmptyCellDisplay: React.FC<EmptyCellDisplayProps> = ({
         setContentBeingUpdated({
             cellMarkers,
             cellContent: "",
+            cellChanged: false,
+            cellLabel: cellLabel || "",
         });
     };
 
@@ -31,7 +35,7 @@ const EmptyCellDisplay: React.FC<EmptyCellDisplayProps> = ({
             onClick={handleClick}
             style={{ direction: textDirection }}
         >
-            <span className="empty-cell-marker">{cellMarkers.join("-")}</span>
+            <span className="empty-cell-marker">{cellLabel || cellMarkers.join("-")}</span>
             <span className="empty-cell-prompt">Click to add cell content</span>
         </div>
     );

@@ -272,6 +272,34 @@ class CodexCellDocument implements vscode.CustomDocument {
             edits: [{ textDirection }],
         });
     }
+
+    public updateCellLabel(cellId: string, newLabel: string) {
+        const indexOfCellToUpdate = this._documentData.cells.findIndex(
+            (cell) => cell.metadata?.id === cellId
+        );
+
+        if (indexOfCellToUpdate === -1) {
+            throw new Error("Could not find cell to update");
+        }
+
+        const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
+
+        // Update cell label in memory
+        cellToUpdate.metadata.cellLabel = newLabel;
+
+        // Record the edit
+        this._edits.push({
+            type: "updateCellLabel",
+            cellId,
+            newLabel,
+        });
+
+        // Set dirty flag and notify listeners about the change
+        this._isDirty = true;
+        this._onDidChangeDocument.fire({
+            edits: [{ cellId, newLabel }],
+        });
+    }
 }
 
 export class CodexCellEditorProvider implements vscode.CustomEditorProvider<CodexCellDocument> {
@@ -550,6 +578,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         }
                         return;
                     }
+                    case "updateCellLabel": {
+                        console.log("updateCellLabel message received", { e });
+                        try {
+                            document.updateCellLabel(e.content.cellId, e.content.cellLabel);
+                        } catch (error) {
+                            console.error("Error updating cell label:", error);
+                            vscode.window.showErrorMessage("Failed to update cell label.");
+                        }
+                        return;
+                    }
                 }
             } catch (error) {
                 console.error("Unexpected error in message handler:", error);
@@ -775,6 +813,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             cellType: cell.metadata?.type,
             editHistory: cell.metadata?.edits,
             timestamps: cell.metadata?.data, // FIXME: add strong types because this is where the timestamps are and it's not clear
+            cellLabel: cell.metadata?.cellLabel,
         }));
 
         const processedData = this.mergeRangesAndProcess(translationUnits);
@@ -807,6 +846,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 cellType: verse.cellType,
                 editHistory: verse.editHistory,
                 timestamps: verse.timestamps,
+                cellLabel: verse.cellLabel
             });
         });
 

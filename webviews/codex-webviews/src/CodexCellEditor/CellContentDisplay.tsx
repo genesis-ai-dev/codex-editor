@@ -9,6 +9,7 @@ interface CellContentDisplayProps {
     cellContent: string;
     cellIndex: number;
     cellType: CodexCellTypes;
+    cellLabel?: string;
     setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorCellContent>>;
     vscode: any;
     textDirection: "ltr" | "rtl";
@@ -19,6 +20,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     cellIds,
     cellContent,
     cellType,
+    cellLabel,
     setContentBeingUpdated,
     vscode,
     textDirection,
@@ -36,7 +38,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             cellMarkers: cellIds,
             cellContent: cellContent,
             cellChanged: unsavedChanges,
-        });
+            cellLabel: cellLabel,
+        } as EditorCellContent);
         vscode.postMessage({
             command: "setCurrentIdToGlobalState",
             content: { currentLineId: cellIds[0] },
@@ -54,6 +57,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             verseMarkerVerseNumbers[verseMarkerVerseNumbers.length - 1]
         }`;
     }
+    // truncate display vref to just show the last 3 chars max
+    verseRefForDisplay = verseRefForDisplay.slice(-3);
+
+    const displayLabel = cellLabel || verseRefForDisplay;
+
     // FIXME: we need to allow for the ref/id to be displayed at the start or end of the cell
     return (
         <span
@@ -63,7 +71,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             onClick={handleVerseClick}
             style={{ direction: textDirection }}
         >
-            {cellType === CodexCellTypes.TEXT && <sup>{verseRefForDisplay}</sup>}
+            {cellType === CodexCellTypes.TEXT && <sup>{displayLabel}</sup>}
             {/* Display a visual indicator for paratext cells */}
             {cellType === CodexCellTypes.PARATEXT && (
                 <span className="paratext-indicator">[Paratext]</span>

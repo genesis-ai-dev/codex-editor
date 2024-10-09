@@ -62,11 +62,20 @@ const CodexCellEditor: React.FC = () => {
             const chapter = cellId?.split(" ")[1]?.split(":")[0];
             setChapterNumber(parseInt(chapter) || 1);
         },
-        updateCell: (data: { cellId: string; newContent: string; progress: number }) => {
+        updateCell: (data: {
+            cellId: string;
+            newContent: string;
+            progress: number;
+            cellLabel?: string;
+        }) => {
             setTranslationUnits((prevUnits) =>
                 prevUnits.map((unit) =>
                     unit.cellMarkers[0] === data.cellId
-                        ? { ...unit, cellContent: data.newContent }
+                        ? {
+                              ...unit,
+                              cellContent: data.newContent,
+                              cellLabel: data.cellLabel || unit.cellLabel,
+                          }
                         : unit
                 )
             );

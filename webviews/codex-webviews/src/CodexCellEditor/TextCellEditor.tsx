@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useRef } from "react";
+import React, { useContext, useEffect, useRef, useState } from "react";
 import { EditorCellContent, EditorPostMessages, SpellCheckResponse } from "../../../../types";
 import Editor from "./Editor";
 import CloseButtonWithConfirmation from "../components/CloseButtonWithConfirmation";
@@ -19,6 +19,7 @@ interface CellEditorProps {
     handleCloseEditor: () => void;
     handleSaveHtml: () => void;
     textDirection: "ltr" | "rtl";
+    cellLabel?: string;
 }
 
 const CellEditor: React.FC<CellEditorProps> = ({
@@ -32,6 +33,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     handleCloseEditor,
     handleSaveHtml,
     textDirection,
+    cellLabel,
 }) => {
     const { unsavedChanges, setUnsavedChanges, showFlashingBorder } =
         useContext(UnsavedChangesContext);
@@ -59,6 +61,38 @@ const CellEditor: React.FC<CellEditorProps> = ({
             cellEditorRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
         }
     }, [showFlashingBorder]);
+
+    const [editableLabel, setEditableLabel] = useState(cellLabel || "");
+
+    useEffect(() => {
+        setEditableLabel(cellLabel || "");
+    }, [cellLabel]);
+
+    const handleLabelChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setEditableLabel(e.target.value);
+    };
+
+    const handleLabelBlur = () => {
+        // Update the cell label in the notebook data
+        const messageContent: EditorPostMessages = {
+            command: "updateCellLabel",
+            content: {
+                cellId: cellMarkers[0],
+                cellLabel: editableLabel,
+            },
+        };
+        window.vscodeApi.postMessage(messageContent);
+
+        // Update local state
+        setContentBeingUpdated((prev) => ({
+            ...prev,
+            cellLabel: editableLabel,
+        }));
+    };
+
+    const handleLabelSave = () => {
+        handleLabelBlur();
+    };
 
     const makeChild = () => {
         const parentCellId = cellMarkers[0].includes(":")
@@ -115,12 +149,24 @@ const CellEditor: React.FC<CellEditorProps> = ({
     return (
         <div ref={cellEditorRef} className="cell-editor" style={{ direction: textDirection }}>
             <div className="cell-header">
-                <h3>{cellMarkers.join("-")}</h3>
+                <div className="label-input-container">
+                    <input
+                        type="text"
+                        value={editableLabel}
+                        onChange={handleLabelChange}
+                        onBlur={handleLabelBlur}
+                        placeholder="Enter cell label"
+                    />
+                    <VSCodeButton onClick={handleLabelSave} appearance="icon" title="Save Label">
+                        <i className="codicon codicon-save"></i>
+                    </VSCodeButton>
+                </div>
                 {unsavedChanges ? (
                     <div
                         style={{
                             display: "flex",
                             flexDirection: "row",
+                            flexWrap: "nowrap",
                             gap: "0.5rem",
                         }}
                     >
@@ -150,6 +196,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             cellMarkers,
                             cellContent: html.endsWith("\n") ? html : `${html}\n`,
                             cellChanged: true,
+                            cellLabel: editableLabel,
                         });
                     }}
                     textDirection={textDirection}
