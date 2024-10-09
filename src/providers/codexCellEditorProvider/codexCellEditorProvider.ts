@@ -846,7 +846,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 cellType: verse.cellType,
                 editHistory: verse.editHistory,
                 timestamps: verse.timestamps,
-                cellLabel: verse.cellLabel
+                cellLabel: verse.cellLabel,
             });
         });
 

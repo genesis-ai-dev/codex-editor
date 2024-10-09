@@ -40,21 +40,18 @@ const CellList: React.FC<CellListProps> = ({
         >
             {group.map(({ cellMarkers, cellContent, cellType, cellLabel }, index) => {
                 return (
-                    <>
-                        {"cell label at CellList component " + JSON.stringify(cellLabel)}
-                        <CellContentDisplay
-                            key={startIndex + index}
-                            cellIds={cellMarkers}
-                            cellContent={cellContent}
-                            cellIndex={startIndex + index}
-                            cellType={cellType}
-                            cellLabel={cellLabel}
-                            setContentBeingUpdated={setContentBeingUpdated}
-                            vscode={vscode}
-                            textDirection={textDirection}
-                            isSourceText={isSourceText}
-                        />
-                    </>
+                    <CellContentDisplay
+                        key={startIndex + index}
+                        cellIds={cellMarkers}
+                        cellContent={cellContent}
+                        cellIndex={startIndex + index}
+                        cellType={cellType}
+                        cellLabel={cellLabel}
+                        setContentBeingUpdated={setContentBeingUpdated}
+                        vscode={vscode}
+                        textDirection={textDirection}
+                        isSourceText={isSourceText}
+                    />
                 );
             })}
         </span>

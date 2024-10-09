@@ -116,7 +116,6 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
     private _projectOverview?: ProjectOverview;
 
     constructor(context: vscode.ExtensionContext) {
-        console.log("constructor in projectManagerViewProvider");
         this._context = context;
     }
 
@@ -139,10 +138,8 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
 
         // Add message listener
         webviewView.webview.onDidReceiveMessage(async (message: any) => {
-            console.log("message in provider", message);
             switch (message.command) {
                 case "requestProjectOverview":
-                    console.log("requestProjectOverview called in provider");
                     await this.updateProjectOverview(true);
                     break;
                 case "openProjectSettings":
@@ -155,7 +152,6 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 case "downloadSourceText":
                 case "openAISettings":
                 case "openSourceUpload":
-                    console.log(`${message.command} called`);
                     await vscode.commands.executeCommand(
                         `codex-project-manager.${message.command}`
                     );
@@ -200,7 +196,6 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
     private async updateProjectOverview(force: boolean = false) {
         try {
             const newProjectOverview = await getProjectOverview();
-            console.log("newProjectOverview", { newProjectOverview });
             const primarySourceText = vscode.workspace
                 .getConfiguration("codex-project-manager")
                 .get("primarySourceText");
