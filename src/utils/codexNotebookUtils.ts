@@ -73,10 +73,14 @@ export const createCodexNotebook = async (cells: vscode.NotebookCellData[] = [])
 };
 
 export interface NotebookMetadata {
+    id: string;
     data: {
         corpusMarker?: string;
         [key: string]: any | undefined;
     };
+    sourceUri: vscode.Uri;
+    codexUri: vscode.Uri;
+    originalName: string;
     sourceFile: string;
     navigation: NavigationCell[];
     perf?: any;
@@ -234,7 +238,21 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
             const updatedNotebookData = new vscode.NotebookData(newCells);
 
             const notebookMetadata: NotebookMetadata = {
-                sourceFile: book,
+                id: book,
+                sourceFile: `${book}.source`,
+                sourceUri: vscode.Uri.joinPath(
+                    vscode.workspace.workspaceFolders![0].uri,
+                    ".project",
+                    "sourceTexts",
+                    `${book}.source`
+                ),
+                codexUri: vscode.Uri.joinPath(
+                    vscode.workspace.workspaceFolders![0].uri,
+                    "files",
+                    "target",
+                    `${book}.codex`
+                ),
+                originalName: book,
                 data: {
                     corpusMarker: corpusMarker,
                 },
@@ -847,9 +865,10 @@ export async function createCodexNotebookFromWebVTT(
         vscode.window.showInformationMessage(
             `Codex notebook created from WebVTT file: ${notebookName}.codex`
         );
-        const timestamp = new Date().toISOString();
+        // const timestamp = new Date().toISOString();
 
-        return `${notebookName}-${timestamp}`; // Return the notebookName as the notebook ID
+        // return `${notebookName}-${timestamp}`; // Return the notebookName as the notebook ID
+        return notebookName;
     } catch (error) {
         console.error(`Error creating Codex notebook from WebVTT file: ${error}`);
         vscode.window.showErrorMessage(

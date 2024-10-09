@@ -117,21 +117,40 @@ export async function importTranslations(
 
         debug("Imported content length", importedContent.length);
 
-        // Find the corresponding .codex file based on the sourceNotebookId
         const metadataManager = NotebookMetadataManager.getInstance();
         await metadataManager.loadMetadata();
+
         const sourceMetadata = metadataManager.getMetadataById(sourceNotebookId);
 
-        if (!sourceMetadata || !sourceMetadata.codexUri) {
-            debug("No matching .codex file found");
-            vscode.window.showErrorMessage("No matching .codex file found.");
+        if (!sourceMetadata) {
+            debug("No matching metadata found for the source notebook");
+            vscode.window.showErrorMessage("No matching metadata found for the source notebook.");
             return;
         }
 
+        if (!sourceMetadata.codexUri) {
+            debug("No .codex file found. Creating a new one.");
+            const baseName = sourceMetadata.originalName;
+            const codexUri = vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, 'files', 'target', `${baseName}.codex`);
+            sourceMetadata.codexUri = codexUri;
+            
+            // Create an empty .codex file
+            await vscode.workspace.fs.writeFile(codexUri, new Uint8Array());
+            
+            metadataManager.addOrUpdateMetadata(sourceMetadata);
+        }
+
         const codexFile = sourceMetadata.codexUri;
-        debug("Matching .codex file found", codexFile.toString());
+        debug("Matching .codex file found or created", codexFile.toString());
 
         await insertZeroDrafts(importedContent, cellAligner, codexFile);
+
+        // Update metadata after insertion
+        metadataManager.addOrUpdateMetadata({
+            ...sourceMetadata,
+            codexUri: codexFile,
+        });
+
         vscode.window.showInformationMessage("Translation imported successfully.");
         debug("Translation import completed successfully");
     } catch (error: any) {
