@@ -105,6 +105,16 @@ export class NotebookMetadataManager {
         return undefined;
     }
 
+    public getMetadataBySourceFileName(sourceFileName: string): NotebookMetadata | undefined {
+        const baseName = sourceFileName.endsWith('.source') ? sourceFileName.slice(0, -7) : sourceFileName;
+        for (const metadata of this.metadataMap.values()) {
+            if (metadata.id === baseName) {
+                return metadata;
+            }
+        }
+        return undefined;
+    }
+
     public async addOrUpdateMetadata(metadata: NotebookMetadata): Promise<void> {
         const existingMetadata = this.metadataMap.get(metadata.id);
         if (existingMetadata) {

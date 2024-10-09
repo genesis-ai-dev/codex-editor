@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { importTranslations } from "../../projectManager/translationImporter";
 import { FileType } from "../../../types";
 import { importSourceText } from "../../projectManager/sourceTextImporter";
+import { NotebookMetadataManager } from "../../utils/notebookMetadataManager";
 
 function getNonce(): string {
     let text = "";
@@ -76,13 +77,24 @@ export class SourceUploadProvider
                             message.fileContent,
                             message.fileName
                         );
-                        await importTranslations(this.context, fileUri, message.sourceFileName);
+                        const metadataManager = NotebookMetadataManager.getInstance();
+                        await metadataManager.loadMetadata();
+                        const sourceMetadata = metadataManager.getMetadataBySourceFileName(
+                            message.sourceFileName
+                        );
+                        if (!sourceMetadata) {
+                            throw new Error("Source notebook metadata not found");
+                        }
+                        await importTranslations(this.context, fileUri, sourceMetadata.id);
                         vscode.window.showInformationMessage("Translation uploaded successfully.");
                         await this.updateCodexFiles(webviewPanel);
                     } catch (error) {
                         console.error(`Error uploading translation: ${error}`);
                         vscode.window.showErrorMessage(`Error uploading translation: ${error}`);
                     }
+                    break;
+                default:
+                    console.log("Unknown message command", message.command);
                     break;
             }
         });
