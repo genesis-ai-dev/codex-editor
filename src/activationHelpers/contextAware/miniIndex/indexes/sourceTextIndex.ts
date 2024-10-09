@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { SourceCellVersions } from "../../../../../types";
 import { FileData } from "./fileReaders";
 import { NotebookMetadataManager } from "../../../../utils/notebookMetadataManager";
+import { initializeStateStore } from "../../../../stateStore";
 
 export async function createSourceTextIndex(
     sourceTextIndex: MiniSearch<SourceCellVersions>,
@@ -30,7 +31,11 @@ export async function createSourceTextIndex(
                     const existingCell = cellMap.get(cellId)!;
                     existingCell.versions.push(version);
                 } else {
-                    cellMap.set(cellId, { content: cell.value, versions: [version], notebookId: sourceFile.id });
+                    cellMap.set(cellId, {
+                        content: cell.value,
+                        versions: [version],
+                        notebookId: sourceFile.id,
+                    });
                 }
             }
         }
@@ -59,6 +64,12 @@ export async function createSourceTextIndex(
     console.log(
         `Source texts index updated with ${sourceTextIndex.documentCount} cells from ${allSourceFiles.length} source files`
     );
+
+    initializeStateStore().then(({ updateStoreState }) => {
+        // Update cellId
+        const cellMapObject = Object.fromEntries(cellMap);
+        updateStoreState({ key: "sourceCellMap", value: cellMapObject });
+    });
 
     return sourceTextIndex;
 }

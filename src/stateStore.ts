@@ -8,7 +8,11 @@ type StateStoreUpdate =
     | { key: "obsRef"; value: OBSRef }
     | { key: "apiKey"; value: string }
     | { key: "verseRef"; value: { verseRef: string; uri: string } }
-    | { key: "cellId"; value: CellIdGlobalState };
+    | { key: "cellId"; value: CellIdGlobalState }
+    | {
+          key: "sourceCellMap";
+          value: { [k: string]: { content: string; versions: string[] } };
+      };
 
 type StateStoreKey = StateStoreUpdate["key"];
 type StateStoreValue<K extends StateStoreKey> = Extract<StateStoreUpdate, { key: K }>["value"];

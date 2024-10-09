@@ -78,11 +78,17 @@ export class SpellChecker {
 
     private async loadDictionary() {
         console.log(this.dictionaryPath);
-        const content = await fs.promises.readFile(this.dictionaryPath, "utf-8");
+        let content: string;
+        try {
+            content = await fs.promises.readFile(this.dictionaryPath, "utf-8");
+        } catch (error) {
+            console.log("Error reading dictionary file:", error);
+            content = "";
+        }
 
         // Try parsing as JSON first (for older dictionaries)
         try {
-            this.dictionary = JSON.parse(content);
+            this.dictionary = JSON.parse(content) as Dictionary;
         } catch (e: any) {
             console.log("hit an error in loadDictionary", e);
             // If JSON parsing fails, assume it's JSONL
@@ -90,7 +96,7 @@ export class SpellChecker {
             const lines = content.split("\n").filter((line) => line.trim() !== "");
             for (const line of lines) {
                 try {
-                    const entry = JSON.parse(line.trim());
+                    const entry = JSON.parse(line.trim()) as DictionaryEntry;
                     entries.push(entry);
                 } catch (error) {
                     console.error(`Error parsing dictionary entry: ${line}`, error);
@@ -101,27 +107,36 @@ export class SpellChecker {
                 id: "project",
                 label: "Project",
                 metadata: {},
-            } as Dictionary;
+            };
         }
 
         if (this.dictionary && Array.isArray(this.dictionary.entries)) {
             const wordCount = this.dictionary.entries.length;
             console.log(`Dictionary loaded with ${wordCount} words.`);
-            console.log(
-                `First few words: ${this.dictionary.entries
-                    .slice(0, 5)
-                    .map((e) => e.headWord)
-                    .join(", ")}`
-            );
+            if (wordCount > 0) {
+                console.log(
+                    `First few words: ${this.dictionary.entries
+                        .slice(0, 5)
+                        .map((e) => e.headWord)
+                        .join(", ")}`
+                );
+            } else {
+                console.log("Dictionary is empty.");
+            }
         } else {
-            this.dictionary = { entries: [] } as unknown as Dictionary;
+            this.dictionary = {
+                entries: [],
+                id: "project",
+                label: "Project",
+                metadata: {},
+            };
             console.log("Initialized empty dictionary.");
         }
     }
 
     spellCheck(word: string): SpellCheckResult {
         if (!this.dictionary || this.dictionary.entries.length === 0) {
-            return { word, corrections: [] };
+            return { word, corrections: [word] }; // Return the word itself as a correction when dictionary is empty
         }
 
         const originalWord = word;
@@ -223,6 +238,9 @@ export class SpellChecker {
             const serializedEntries =
                 validEntries.map((entry) => JSON.stringify(entry)).join("\n") + "\n";
             await fs.promises.writeFile(this.dictionaryPath, serializedEntries, "utf8");
+        } else {
+            // If no valid entries, create an empty dictionary
+            await fs.promises.writeFile(this.dictionaryPath, "", "utf8");
         }
     }
 

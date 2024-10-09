@@ -6,6 +6,7 @@ import { getCleanedHtml } from "./react-quill-spellcheck";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import { CodexCellTypes } from "../../../../types/enums";
+import SourceCellContext from "./contextProviders/SourceCellContext";
 
 interface CellEditorProps {
     cellMarkers: string[];
@@ -34,8 +35,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
 }) => {
     const { unsavedChanges, setUnsavedChanges, showFlashingBorder } =
         useContext(UnsavedChangesContext);
+    const { sourceCellMap } = useContext(SourceCellContext);
     const cellEditorRef = useRef<HTMLDivElement>(null);
-
+    const sourceCellContent = sourceCellMap?.[cellMarkers[0]];
+    console.log("sourceCellMap", {
+        sourceCellMap,
+        sourceCell: cellMarkers[0],
+        sourceCellContent,
+    });
     const unsavedChangesState = !!(
         contentBeingUpdated.cellContent &&
         getCleanedHtml(contentBeingUpdated.cellContent) &&
@@ -164,9 +171,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 <VSCodeButton onClick={makeChild} appearance="icon" title="Add Child Cell">
                     <i className="codicon codicon-type-hierarchy-sub"></i>
                 </VSCodeButton>
-                <VSCodeButton onClick={deleteCell} appearance="icon" title="Delete Cell">
-                    <i className="codicon codicon-delete"></i>
-                </VSCodeButton>
+                {!sourceCellContent && (
+                    <VSCodeButton onClick={deleteCell} appearance="icon">
+                        <i className="codicon codicon-trash"></i>
+                    </VSCodeButton>
+                    // TODO: add an way to undo the deletion
+                )}
             </div>
         </div>
     );

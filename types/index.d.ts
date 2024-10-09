@@ -252,7 +252,7 @@ type EditorPostMessages =
     | { command: "from-quill-spellcheck-getSpellCheckResponse"; content: EditorCellContent }
     | { command: "updateCellTimestamps"; content: { cellId: string; timestamps: Timestamps } }
     | { command: "deleteCell"; content: { cellId: string } }
-    | { command: "addWord"; text: string }
+    | { command: "addWord"; words: string[] }
     | {
           command: "makeChildOfCell";
           content: {
@@ -278,6 +278,7 @@ type EditorReceiveMessages =
           type: "providerSendsInitialContent";
           content: QuillCellContent[];
           isSourceText: boolean;
+          sourceCellMap: { [k: string]: { content: string; versions: string[] } };
       }
     | {
           type: "providerUpdatesCell";

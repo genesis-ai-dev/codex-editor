@@ -6,8 +6,7 @@ import EmptyCellDisplay from "./EmptyCellDisplay";
 import "@vscode/codicons/dist/codicon.css"; // Import codicons
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 import { WebviewApi } from "vscode-webview";
-import { HACKY_removeContiguousSpans } from "./utils";
-import { CodexCellTypes } from "../../../../types/enums";
+
 interface CellListProps {
     translationUnits: QuillCellContent[];
     contentBeingUpdated: EditorCellContent;
@@ -40,23 +39,6 @@ const CellList: React.FC<CellListProps> = ({
             style={{ direction: textDirection }}
         >
             {group.map(({ cellMarkers, cellContent, cellType }, index) => {
-                if (cellType === CodexCellTypes.PARATEXT) {
-                    return (
-                        <div
-                            key={startIndex + index}
-                            className="paratext-cell"
-                            style={{ backgroundColor: "#f9f9f9", padding: "0.5rem", borderRadius: "4px" }}
-                        >
-                            <span className="paratext-label">Paratext:</span>
-                            <span
-                                dangerouslySetInnerHTML={{
-                                    __html: HACKY_removeContiguousSpans(cellContent),
-                                }}
-                            />
-                        </div>
-                    );
-                }
-
                 return (
                     <CellContentDisplay
                         key={startIndex + index}
