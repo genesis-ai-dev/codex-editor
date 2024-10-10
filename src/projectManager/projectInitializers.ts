@@ -104,7 +104,7 @@ async function handleBibleDownload(
     workspaceRoot: string,
     languageType: string
 ) {
-    // FIXME: this has not been 
+    // FIXME: this has not been
     const vrefPath = await ensureVrefList(workspaceRoot);
 
     const bibleTextPath = path.join(

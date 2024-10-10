@@ -92,7 +92,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 translationPairsIndex,
                 sourceFiles,
                 targetFiles,
-                metadataManager,
+                metadataManager
             );
         }
     }, 3000);

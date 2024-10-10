@@ -37,7 +37,7 @@ const NotebookMetadataModal: React.FC<NotebookMetadataModalProps> = ({
                                     <div className="input-with-button">
                                         <VSCodeTextField
                                             type="text"
-                                            value={tempVideoUrl || value as string}
+                                            value={tempVideoUrl || (value as string)}
                                             onChange={(e: any) =>
                                                 onMetadataChange(key, e.target.value)
                                             }

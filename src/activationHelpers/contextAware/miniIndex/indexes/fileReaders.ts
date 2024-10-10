@@ -40,17 +40,20 @@ export async function readSourceAndTargetFiles(): Promise<{
     const metadataManager = NotebookMetadataManager.getInstance();
     await metadataManager.loadMetadata();
 
-    const sourceFiles = await Promise.all(sourceUris.map(uri => readFile(uri, metadataManager)));
-    const targetFiles = await Promise.all(targetUris.map(uri => readFile(uri, metadataManager)));
+    const sourceFiles = await Promise.all(sourceUris.map((uri) => readFile(uri, metadataManager)));
+    const targetFiles = await Promise.all(targetUris.map((uri) => readFile(uri, metadataManager)));
 
     return { sourceFiles, targetFiles };
 }
 
-async function readFile(uri: vscode.Uri, metadataManager: NotebookMetadataManager): Promise<FileData> {
+async function readFile(
+    uri: vscode.Uri,
+    metadataManager: NotebookMetadataManager
+): Promise<FileData> {
     const content = await vscode.workspace.fs.readFile(uri);
     const data = JSON.parse(content.toString());
     const metadata = metadataManager.getMetadataByUri(uri);
-    
+
     if (!metadata || !metadata.id) {
         throw new Error(`No metadata found for file: ${uri.toString()}`);
     }

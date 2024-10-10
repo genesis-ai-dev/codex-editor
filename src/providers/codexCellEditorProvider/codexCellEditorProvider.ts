@@ -763,7 +763,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     webview.cspSource
                 }; connect-src https://languagetool.org/api/; img-src ${
                     webview.cspSource
-                } https:; font-src ${webview.cspSource}; media-src ${webview.cspSource} https: blob:;">
+                } https:; font-src ${webview.cspSource}; media-src ${
+                    webview.cspSource
+                } https: blob:;">
                 <link href="${styleResetUri}" rel="stylesheet" nonce="${nonce}">
                 <link href="${styleVSCodeUri}" rel="stylesheet" nonce="${nonce}">
                 <link href="${codiconsUri}" rel="stylesheet" nonce="${nonce}" />

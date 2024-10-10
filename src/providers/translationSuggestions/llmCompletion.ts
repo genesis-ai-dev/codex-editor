@@ -90,7 +90,9 @@ export async function llmCompletion(
                 cellContent.replace(/<[^>]*?>/g, "").trim() ||
                 "[not translated yet; do not try to translate this cell but focus on the final cell below]";
 
-            const result = `${cellIds.join(", ")}: ${combinedSourceContent} -> ${cellContentWithoutHTMLTags}`;
+            const result = `${cellIds.join(
+                ", "
+            )}: ${combinedSourceContent} -> ${cellContentWithoutHTMLTags}`;
             return result;
         })
     );

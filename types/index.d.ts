@@ -295,7 +295,8 @@ type EditorReceiveMessages =
     | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl" }
     | { type: "providerSendsLLMCompletionResponse"; content: { completion: string } }
     | { type: "jumpToSection"; content: string }
-    | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata };
+    | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata }
+    | { type: "updateVideoUrlInWebview"; content: string };
 
 type EditHistory = {
     cellValue: string;

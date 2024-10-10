@@ -131,12 +131,17 @@ export async function importTranslations(
         if (!sourceMetadata.codexUri) {
             debug("No .codex file found. Creating a new one.");
             const baseName = sourceMetadata.originalName;
-            const codexUri = vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, 'files', 'target', `${baseName}.codex`);
+            const codexUri = vscode.Uri.joinPath(
+                vscode.workspace.workspaceFolders![0].uri,
+                "files",
+                "target",
+                `${baseName}.codex`
+            );
             sourceMetadata.codexUri = codexUri;
-            
+
             // Create an empty .codex file
             await vscode.workspace.fs.writeFile(codexUri, new Uint8Array());
-            
+
             metadataManager.addOrUpdateMetadata(sourceMetadata);
         }
 
@@ -351,16 +356,18 @@ async function alignVTTCells(
             const sourceId = sourceCell.metadata.id;
             if (!sourceCellOverlapCount[sourceId]) {
                 sourceCellOverlapCount[sourceId] = 1;
-                alignedCells.push({ 
-                    notebookCell: sourceCell, 
+                alignedCells.push({
+                    notebookCell: sourceCell,
                     importedContent: {
                         ...importedItem,
-                        id: sourceId // Use the source cell's ID for the first overlap
-                    }
+                        id: sourceId, // Use the source cell's ID for the first overlap
+                    },
                 });
             } else {
                 sourceCellOverlapCount[sourceId]++;
-                const nestedId = `${sourceId}:${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                const nestedId = `${sourceId}:${Date.now()}-${Math.random()
+                    .toString(36)
+                    .substr(2, 9)}`;
                 alignedCells.push({
                     notebookCell: sourceCell,
                     isAdditionalOverlap: true,

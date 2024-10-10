@@ -36,7 +36,11 @@ class Chatbot {
                 temperature: this.config.get("temperature") || 0.8,
             });
 
-            if (completion.choices && completion.choices.length > 0 && completion.choices[0].message) {
+            if (
+                completion.choices &&
+                completion.choices.length > 0 &&
+                completion.choices[0].message
+            ) {
                 return completion.choices[0].message.content?.trim() ?? "";
             } else {
                 throw new Error("Unexpected response format from the LLM");

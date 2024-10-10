@@ -32,6 +32,7 @@ export function getSourceCellByCellIdFromAllSourceCells(
             cellId: searchResults?.cellId as string,
             content: searchResults?.content as string,
             versions: searchResults?.versions as string[],
+            notebookId: searchResults?.notebookId as string,
         };
     }
     console.log(`No result found for cellId: ${cellId}`);
@@ -147,39 +148,49 @@ export function searchParallelCells(
         boost: { targetContent: 2, cellId: 1 },
     });
 
-    console.log("Raw target search results:", JSON.stringify(targetResults.map(r => ({cellId: r.cellId})), null, 2));
+    console.log(
+        "Raw target search results:",
+        JSON.stringify(
+            targetResults.map((r) => ({ cellId: r.cellId })),
+            null,
+            2
+        )
+    );
 
-    const translationPairs: TranslationPair[] = targetResults.slice(0, k).map((result) => {
-        console.log("Processing result:", JSON.stringify(result, null, 2));
+    const translationPairs: TranslationPair[] = targetResults
+        .slice(0, k)
+        .map((result) => {
+            console.log("Processing result:", JSON.stringify(result, null, 2));
 
-        // Get source content from sourceTextIndex
-        const sourceResult = sourceTextIndex.getStoredFields(result.cellId);
-        const sourceContent = sourceResult ? sourceResult.content : "";
+            // Get source content from sourceTextIndex
+            const sourceResult = sourceTextIndex.getStoredFields(result.cellId);
+            const sourceContent = sourceResult ? sourceResult.content : "";
 
-        // Retrieve the stored fields for the target cell
-        const storedFields = translationPairsIndex.getStoredFields(result.id);
+            // Retrieve the stored fields for the target cell
+            const storedFields = translationPairsIndex.getStoredFields(result.id);
 
-        if (!storedFields) {
-            console.warn(`No stored fields found for result with id: ${result.id}`);
-            return null;
-        }
+            if (!storedFields) {
+                console.warn(`No stored fields found for result with id: ${result.id}`);
+                return null;
+            }
 
-        return {
-            cellId: result.cellId,
-            sourceCell: {
+            return {
                 cellId: result.cellId,
-                content: sourceContent as string,
-                uri: storedFields.uri,
-                line: storedFields.line,
-            },
-            targetCell: {
-                cellId: result.cellId,
-                content: storedFields.targetContent as string,
-                uri: storedFields.uri,
-                line: storedFields.line,
-            },
-        } as TranslationPair;
-    }).filter((pair): pair is NonNullable<TranslationPair> => pair !== null);
+                sourceCell: {
+                    cellId: result.cellId,
+                    content: sourceContent as string,
+                    uri: storedFields.uri,
+                    line: storedFields.line,
+                },
+                targetCell: {
+                    cellId: result.cellId,
+                    content: storedFields.targetContent as string,
+                    uri: storedFields.uri,
+                    line: storedFields.line,
+                },
+            } as TranslationPair;
+        })
+        .filter((pair): pair is NonNullable<TranslationPair> => pair !== null);
 
     console.log("Processed translation pairs:", JSON.stringify(translationPairs, null, 2));
 

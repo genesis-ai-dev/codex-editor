@@ -110,7 +110,9 @@ const ResourcesTable = () => {
                                 )}
                             </td>
                             <td
-                                title={`Released on : ${new Date(resource.released).toLocaleDateString()}`}
+                                title={`Released on : ${new Date(
+                                    resource.released
+                                ).toLocaleDateString()}`}
                             >
                                 {resource.release.tag_name}
                             </td>

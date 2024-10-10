@@ -127,7 +127,7 @@ export class DictionarySummaryProvider implements vscode.WebviewViewProvider {
                     // Filter out words that are already in the dictionary
                     const existingWords = new Set(
                         dictionary.entries
-                            .filter(entry => entry && entry.headWord) // Add this filter
+                            .filter((entry) => entry && entry.headWord) // Add this filter
                             .map((entry) => entry.headWord.toLowerCase())
                     );
                     const newFrequentWords = allFrequentWords.filter(

@@ -404,7 +404,9 @@ export class SpellCheckDiagnosticsProvider {
                         };
                         diagnostics.push({
                             range,
-                            message: `Possible spelling mistake. Suggestions: ${spellCheckResult.corrections.join(", ")}`,
+                            message: `Possible spelling mistake. Suggestions: ${spellCheckResult.corrections.join(
+                                ", "
+                            )}`,
                             severity: DiagnosticSeverity.Information,
                             source: "Spell-Check",
                         });

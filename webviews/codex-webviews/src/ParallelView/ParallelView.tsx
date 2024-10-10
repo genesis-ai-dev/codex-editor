@@ -109,7 +109,6 @@ function ParallelView() {
                         </p>
                     )}
                     <VSCodeDivider />
-                    
                 </div>
             </VSCodePanelView>
         </VSCodePanels>
