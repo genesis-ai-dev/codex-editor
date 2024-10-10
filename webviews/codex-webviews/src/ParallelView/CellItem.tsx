@@ -39,7 +39,10 @@ const CellItem: React.FC<CellItemProps> = ({ item, onUriClick }) => {
             </div>
             <div className="cell-header">
                 <div className="verse-content">
-                    <p className="verse-text">{item.targetCell.content}</p>
+                    <p
+                        className="verse-text"
+                        dangerouslySetInnerHTML={{ __html: item.targetCell.content || "" }}
+                    ></p>
                 </div>
                 <div className="verse-actions">
                     <VSCodeButton

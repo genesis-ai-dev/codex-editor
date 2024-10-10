@@ -109,45 +109,7 @@ function ParallelView() {
                         </p>
                     )}
                     <VSCodeDivider />
-                    <div
-                        className="chat-input-container"
-                        style={{
-                            position: "fixed",
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
-                            padding: "10px",
-                            display: "flex",
-                            alignItems: "flex-end",
-                            backgroundColor: "var(--vscode-editor-background)",
-                            boxShadow: "0 -2px 10px rgba(0, 0, 0, 0.1)",
-                        }}
-                    >
-                        <VSCodeTextArea
-                            value={chatInput}
-                            onChange={(e) => {
-                                const target = e.target as HTMLTextAreaElement;
-                                setChatInput(target.value);
-                            }}
-                            onKeyPress={(e) => {
-                                if (e.key === "Enter" && !e.shiftKey) {
-                                    e.preventDefault();
-                                    handleSendMessage();
-                                }
-                            }}
-                            placeholder="Type your message here..."
-                            resize="vertical"
-                            style={{
-                                flexGrow: 1,
-                                marginRight: "10px",
-                                minHeight: "50px",
-                                maxHeight: "200px",
-                            }}
-                        />
-                        <VSCodeButton onClick={handleSendMessage} appearance="primary">
-                            Send
-                        </VSCodeButton>
-                    </div>
+                    
                 </div>
             </VSCodePanelView>
         </VSCodePanels>

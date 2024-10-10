@@ -1,5 +1,8 @@
 export function cleanWord(word: string | undefined | null): string {
     // this is for the spellchecker
+    if (word === undefined || word === null) {
+        return "";
+    }
     return (
         word
             // Remove non-letter/non-number characters from start and end

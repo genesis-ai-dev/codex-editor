@@ -111,7 +111,10 @@ export default class PopupManager {
         const button = document.createElement("button");
         button.className = "quill-spck-match-popup-action";
         button.textContent = label;
-        button.addEventListener("click", onClick);
+        button.addEventListener("click", () => {
+            onClick();
+            this.hideDiagnostic();
+        });
         return button;
     }
 
@@ -128,6 +131,13 @@ export default class PopupManager {
         });
         this.closePopup();
         console.log(`Requested to add word: ${word}`);
+    }
+
+    private hideDiagnostic() {
+        if (this.currentSuggestionElement) {
+            this.currentSuggestionElement.style.textDecoration = "none";
+            this.currentSuggestionElement.style.borderBottom = "none";
+        }
     }
 
     private findRoot(element: HTMLElement): HTMLElement {

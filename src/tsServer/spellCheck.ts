@@ -136,12 +136,17 @@ export class SpellChecker {
 
     spellCheck(word: string): SpellCheckResult {
         if (!this.dictionary || this.dictionary.entries.length === 0) {
-            return { word, corrections: [word] }; // Return the word itself as a correction when dictionary is empty
+            return { word, corrections: [word] };
         }
 
         const originalWord = word;
         const cleanedWord = cleanWord(word);
+
         const isInDictionary = this.dictionary.entries.some((entry) => {
+            if (!entry.headWord) {
+                console.warn("Encountered dictionary entry without headWord:", entry);
+                return false;
+            }
             const entryWithoutPunctuation = entry.headWord.replace(/[^\p{L}\p{N}'-]/gu, "");
             return entryWithoutPunctuation === cleanedWord;
         });
@@ -163,13 +168,14 @@ export class SpellChecker {
         const leadingPunctuation = word.match(/^[^\p{L}\p{N}]+/u)?.[0] || "";
         const trailingPunctuation = word.match(/[^\p{L}\p{N}]+$/u)?.[0] || "";
 
-        return this.dictionary!.entries.map((entry) => ({
-            word: entry.headWord,
-            distance: this.levenshteinDistance(
-                cleanedWord.toLowerCase(),
-                entry.headWord.toLowerCase()
-            ),
-        }))
+        return this.dictionary!.entries.filter((entry) => entry.headWord) // Filter out entries without headWord
+            .map((entry) => ({
+                word: entry.headWord,
+                distance: this.levenshteinDistance(
+                    cleanedWord.toLowerCase(),
+                    entry.headWord.toLowerCase()
+                ),
+            }))
             .sort((a, b) => a.distance - b.distance)
             .slice(0, 3)
             .map((suggestion) => {
@@ -263,9 +269,13 @@ export class SpellChecker {
 
         for (const word of words) {
             const cleanedWord = cleanWord(word);
-            const exists = this.dictionary.entries.some(
-                (entry) => entry.headWord.toLowerCase() === cleanedWord.toLowerCase()
-            );
+            if (!cleanedWord) {
+                console.warn(`Skipping empty word: "${word}"`);
+                continue;
+            }
+            const exists = this.dictionary.entries.some((entry) => {
+                return entry.headWord && entry.headWord.toLowerCase() === cleanedWord.toLowerCase();
+            });
             if (!exists) {
                 const newEntry: DictionaryEntry = {
                     id: `${Date.now()}-${Math.random()}`, // Generate a unique ID
@@ -296,6 +306,7 @@ export class SpellChecker {
                 await this.loadDictionary();
             } catch (error) {
                 console.error("Error saving new words to the dictionary:", error);
+                throw new Error(`Failed to add words: ${error}`);
             }
         } else {
             console.log("No new words to add. All words already exist in the dictionary.");

@@ -37,7 +37,7 @@ let wordSuggestionProvider: WordSuggestionProvider;
 // Custom debug function
 function debugLog(...args: any[]) {
     if (DEBUG_MODE) {
-        console.log(...args);
+        console.log(new Date().toISOString(), ...args);
     }
 }
 
@@ -92,7 +92,6 @@ connection.onRequest("spellcheck/check", async (params: { text: string; cellChan
     debugLog("SERVER: Received spellcheck/check request:", { params });
 
     const text = params.text.toLowerCase();
-
     const matches: MatchesEntity[] = [];
 
     // Get smart edit suggestions only if the cellId has changed
@@ -138,34 +137,51 @@ connection.onRequest("spellcheck/check", async (params: { text: string; cellChan
             startIndex += phrase.length;
         }
     });
-
+    debugLog("Made it past special phrases");
     // Perform regular spellcheck for other words
     const words = tokenizeText({
         method: "words",
         text: params.text,
     });
     words.forEach((word, index) => {
-        const lowerWord = word.toLowerCase();
+        try {
+            if (!word) return; // Skip empty words
+            const lowerWord = word.toLowerCase();
+            debugLog("Processing word:", word);
 
-        // Skip if the word is part of any special phrase matched
-        const isPartOfSpecialPhrase = specialPhrases.some(({ phrase }) =>
-            phrase.toLowerCase().includes(lowerWord)
-        );
-        if (isPartOfSpecialPhrase) return;
+            // Skip if the word is part of any special phrase matched
+            const isPartOfSpecialPhrase = specialPhrases.some(({ phrase }) =>
+                phrase.toLowerCase().includes(lowerWord)
+            );
+            if (isPartOfSpecialPhrase) return;
 
-        const spellCheckResult = spellChecker.spellCheck(word);
-        const offset = params.text.toLowerCase().indexOf(lowerWord, 0);
-        if (spellCheckResult.corrections.length > 0) {
-            matches.push({
-                id: `UNKNOWN_WORD_${matches.length}`,
-                text: word,
-                replacements: spellCheckResult.corrections
-                    .filter((c) => !!c)
-                    .map((correction) => ({ value: correction })),
-                offset: offset,
-                length: word.length,
-                color: "red", // Default color for spelling errors
-            });
+            const spellCheckResult = spellChecker.spellCheck(word);
+            if (!spellCheckResult) {
+                debugLog("Spell check result is undefined for word:", word);
+                return;
+            }
+
+            const offset = params.text.toLowerCase().indexOf(lowerWord, 0);
+            if (offset === -1) {
+                debugLog("Word not found in text:", word);
+                return;
+            }
+
+            if (spellCheckResult.corrections && spellCheckResult.corrections.length > 0) {
+                matches.push({
+                    id: `UNKNOWN_WORD_${matches.length}`,
+                    text: word,
+                    replacements: spellCheckResult.corrections
+                        .filter((c) => c !== null && c !== undefined)
+                        .map((correction) => ({ value: correction })),
+                    offset: offset,
+                    length: word.length,
+                    color: "red", // Default color for spelling errors
+                });
+            }
+        } catch (error) {
+            debugLog("Error processing word:", word, error);
+            // Continue to the next word
         }
     });
 
@@ -186,7 +202,7 @@ connection.onRequest("spellcheck/addWord", async (params: { words: string[] }) =
         return { success: true };
     } catch (error: any) {
         debugLog("Error adding words to the dictionary:", error);
-        throw new Error(`Failed to add words: ${error.message}`);
+        return { success: false, error: error.message };
     }
 });
 
@@ -200,5 +216,5 @@ connection.listen();
  */
 function tokenizeText(params: { method: string; text: string }): string[] {
     // Simple word tokenizer; can be replaced with a more robust solution
-    return params.text.match(/\b\p{L}+\b/gu) || params.text.split(" "); // FIXME: There is probably a better way.
+    return params.text.match(/\b\p{L}+\b/gu) || params.text.split(" ") || []; // FIXME: There is probably a better way.
 }
