@@ -1,21 +1,19 @@
 import * as vscode from "vscode";
-import { TokenJS } from "token.js";
-import { OpenAIModel, GroqModel } from "token.js/dist/chat";
-
-interface ChatMessage {
-    role: "system" | "user" | "assistant";
-    content: string;
-}
+import OpenAI from "openai";
+import { ChatMessage } from "../../types";
 
 class Chatbot {
-    private tokenjs: TokenJS;
+    private openai: OpenAI;
     private config: vscode.WorkspaceConfiguration;
     private messages: ChatMessage[];
     private maxBuffer: number;
 
     constructor(private systemMessage: string) {
-        this.tokenjs = new TokenJS();
         this.config = vscode.workspace.getConfiguration("translators-copilot");
+        this.openai = new OpenAI({
+            apiKey: this.getApiKey(),
+            baseURL: this.config.get("llmEndpoint") || "https://api.openai.com/v1",
+        });
         this.messages = [{ role: "system", content: systemMessage }];
         this.maxBuffer = 20;
     }
@@ -25,22 +23,32 @@ class Chatbot {
     }
 
     private async callLLM(messages: ChatMessage[]): Promise<string> {
-        const apiKey = this.getApiKey();
-        process.env.OPENAI_API_KEY = apiKey;
-
         try {
-            const completion = await this.tokenjs.chat.completions.create({
-                provider: "openai",
-                model: "gpt-4o-mini" as OpenAIModel,
-                messages,
+            let model = this.config.get("model") as string;
+            if (model === "custom") {
+                model = this.config.get("customModel") as string;
+            }
+
+            const completion = await this.openai.chat.completions.create({
+                model: model,
+                messages: messages,
+                max_tokens: this.config.get("max_tokens") || 2048,
+                temperature: this.config.get("temperature") || 0.8,
             });
 
-            if (completion.choices?.[0]?.message?.content) {
-                return completion.choices[0].message.content.trim();
+            if (completion.choices && completion.choices.length > 0 && completion.choices[0].message) {
+                return completion.choices[0].message.content?.trim() ?? "";
+            } else {
+                throw new Error("Unexpected response format from the LLM");
             }
-            throw new Error("Unexpected response format from the chatbot");
-        } finally {
-            delete process.env.OPENAI_API_KEY;
+        } catch (error: any) {
+            if (error.response && error.response.status === 401) {
+                vscode.window.showErrorMessage(
+                    "Authentication failed. Please add a valid API key for the copilot if you are using a remote LLM."
+                );
+                return "";
+            }
+            throw error;
         }
     }
 
