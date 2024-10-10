@@ -252,16 +252,8 @@ const CodexCellEditor: React.FC = () => {
     };
 
     return (
-        <div className="codex-cell-editor" style={{ direction: textDirection }}>
-            <h1>{translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0]}</h1>
-            <div className="editor-container">
-                {shouldShowVideoPlayer && videoUrl && (
-                    <VideoPlayer
-                        playerRef={playerRef}
-                        videoUrl={videoUrl}
-                        translationUnitsForSection={translationUnitsWithCurrentEditorContent}
-                    />
-                )}
+        <div className="codex-cell-editor">
+            <div className="static-header">
                 <ChapterNavigation
                     chapterNumber={chapterNumber}
                     setChapterNumber={setChapterNumber}
@@ -285,24 +277,36 @@ const CodexCellEditor: React.FC = () => {
                     onPickFile={handlePickFile}
                     onUpdateVideoUrl={handleUpdateVideoUrl}
                 />
-                {autocompletionProgress !== null && (
-                    <div className="autocompletion-progress">
-                        <VSCodeProgressRing value={autocompletionProgress * 100} />
-                        <span>{Math.round(autocompletionProgress * 100)}% complete</span>
-                    </div>
+                {shouldShowVideoPlayer && videoUrl && (
+                    <VideoPlayer
+                        playerRef={playerRef}
+                        videoUrl={videoUrl}
+                        translationUnitsForSection={translationUnitsWithCurrentEditorContent}
+                    />
                 )}
-                <CellList
-                    translationUnits={translationUnitsForSection}
-                    contentBeingUpdated={contentBeingUpdated}
-                    setContentBeingUpdated={setContentBeingUpdated}
-                    spellCheckResponse={spellCheckResponse}
-                    handleCloseEditor={handleCloseEditor}
-                    handleSaveHtml={handleSaveHtml}
-                    vscode={vscode}
-                    textDirection={textDirection}
-                    cellDisplayMode={cellDisplayMode}
-                    isSourceText={isSourceText}
-                />
+            </div>
+            <div className="scrollable-content">
+                <h1>{translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0]}</h1>
+                <div className="editor-container">
+                    {autocompletionProgress !== null && (
+                        <div className="autocompletion-progress">
+                            <VSCodeProgressRing value={autocompletionProgress * 100} />
+                            <span>{Math.round(autocompletionProgress * 100)}% complete</span>
+                        </div>
+                    )}
+                    <CellList
+                        translationUnits={translationUnitsForSection}
+                        contentBeingUpdated={contentBeingUpdated}
+                        setContentBeingUpdated={setContentBeingUpdated}
+                        spellCheckResponse={spellCheckResponse}
+                        handleCloseEditor={handleCloseEditor}
+                        handleSaveHtml={handleSaveHtml}
+                        vscode={vscode}
+                        textDirection={textDirection}
+                        cellDisplayMode={cellDisplayMode}
+                        isSourceText={isSourceText}
+                    />
+                </div>
             </div>
         </div>
     );

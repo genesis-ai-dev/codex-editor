@@ -6,21 +6,43 @@
 .codex-cell-editor {
     display: flex;
     flex-direction: column;
-    align-items: center;
+    height: 100vh;
+    overflow: hidden;
 }
-.editor-container {
+
+.static-header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background-color: var(--vscode-editor-background);
     display: flex;
     flex-direction: column;
+}
+
+.scrollable-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1rem;
+}
+
+.scrollable-content > h1 {
+    align-self: center;
+    text-align: center;
+}
+
+.editor-container {
     max-width: 40rem;
     width: 100%;
+    margin: 0 auto;
 }
 
 .chapter-navigation {
+    padding: 1rem;
+    background-color: var(--vscode-editor-background);
+    border-bottom: 1px solid var(--vscode-widget-border);
     display: flex;
+    width: 100%;
     justify-content: space-between;
-    align-items: start;
-    margin-block-end: 1rem;
-    direction: ltr;
 }
 
 .chapter-navigation-group {
@@ -334,4 +356,17 @@ li {
 /* Ensure VSCode text fields take full width */
 .form-field vscode-text-field {
     width: 100%;
+}
+
+/* Styles for the VideoPlayer */
+.player-wrapper {
+    width: 100%;
+    max-width: 40rem;
+    margin: 0 auto;
+}
+
+/* Ensure the video doesn't overflow its container */
+.player-wrapper video {
+    max-width: 100%;
+    height: auto;
 }
