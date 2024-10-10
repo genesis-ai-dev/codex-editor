@@ -281,20 +281,22 @@ li {
 
 /* Style for paratext cells in CellContentDisplay */
 .paratext-display {
-    background-color: #f0f8ff; /* Light blue background */
-    border-left: 4px solid #8a2be2; /* Purple border to indicate paratext */
+    background-color: var(
+        --vscode-editor-inactiveSelectionBackground
+    ); /* Background accent from VSCode theme */
+    border-left: 4px solid var(--vscode-editorInfo-foreground); /* Strong accent from VSCode theme */
     padding: 0.5rem;
     border-radius: 4px;
 }
 
 .paratext-indicator {
     font-style: italic;
-    color: #555;
+    color: var(--vscode-descriptionForeground);
     margin-right: 0.5rem;
 }
 
 .paratext-cell {
-    background-color: #f9f9f9;
+    background-color: var(--vscode-editor-inactiveSelectionBackground);
     padding: 0.5rem;
     border-radius: 4px;
     margin-bottom: 0.5rem;
@@ -302,6 +304,7 @@ li {
 
 .paratext-label {
     font-weight: bold;
+    color: var(--vscode-editor-foreground);
     margin-right: 0.5rem;
 }
 
@@ -312,7 +315,7 @@ li {
     left: 0;
     right: 0;
     bottom: 0;
-    background-color: rgba(0, 0, 0, 0.5);
+    background-color: var(--vscode-widget-shadow);
     display: flex;
     justify-content: center;
     align-items: center;
