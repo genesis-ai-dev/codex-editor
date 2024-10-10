@@ -18,6 +18,7 @@ import {
     ReplacementsEntity,
 } from "../../webviews/codex-webviews/src/CodexCellEditor/react-quill-spellcheck/types";
 import { RequestType } from "vscode-languageserver";
+import { debug } from "console";
 
 const DEBUG_MODE = true; // Flag for debug mode
 
@@ -96,7 +97,7 @@ connection.onRequest("spellcheck/check", async (params: { text: string; cellChan
 
     // Get smart edit suggestions only if the cellId has changed
     if (params.cellChanged !== lastCellChanged) {
-        specialPhrases = []
+        specialPhrases = [];
         const smartEditSuggestions = await connection.sendRequest(ExecuteCommandRequest, {
             command: "codex-smart-edits.getEdits",
             args: [params.text, params.cellChanged],
@@ -143,7 +144,6 @@ connection.onRequest("spellcheck/check", async (params: { text: string; cellChan
         method: "words",
         text: params.text,
     });
-
     words.forEach((word, index) => {
         const lowerWord = word.toLowerCase();
 
@@ -200,5 +200,5 @@ connection.listen();
  */
 function tokenizeText(params: { method: string; text: string }): string[] {
     // Simple word tokenizer; can be replaced with a more robust solution
-    return params.text.match(/\b\w+\b/g) || [];
+    return params.text.match(/\b\p{L}+\b/gu) || params.text.split(" "); // FIXME: There is probably a better way.
 }
