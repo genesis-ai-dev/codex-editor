@@ -199,6 +199,30 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
+    const uploadSourceFolderCommand = vscode.commands.registerCommand(
+        "codex-editor-extension.uploadSourceFolder",
+        async (folderName: string) => {
+            const folderUri = await vscode.window.showOpenDialog({
+                canSelectFiles: false,
+                canSelectFolders: true,
+                canSelectMany: false,
+                openLabel: "Select USFM Folder",
+            });
+
+            if (folderUri && folderUri[0]) {
+                await vscode.commands.executeCommand("codex-editor-extension.importSourceText", folderUri[0]);
+            }
+        }
+    );
+
+    const uploadTranslationFolderCommand = vscode.commands.registerCommand(
+        "codex-editor-extension.uploadTranslationFolder",
+        async (folderName: string, sourceFileName: string) => {
+            // Implement translation folder upload logic here
+            vscode.window.showInformationMessage("Translation folder upload not yet implemented");
+        }
+    );
+
     context.subscriptions.push(
         scriptureTreeViewProvider,
         scriptureExplorerRefreshCommand,
@@ -217,7 +241,8 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         getContextDataFromVrefCommand,
         updateProjectNotebooksToUseCellsForVerseContentCommand,
         openSourceUploadCommand,
-        exportCodexContentCommand
+        uploadSourceFolderCommand,
+        uploadTranslationFolderCommand
     );
 
     ensureBibleDownload();

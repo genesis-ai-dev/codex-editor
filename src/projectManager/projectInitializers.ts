@@ -23,7 +23,7 @@ import { CodexCellTypes } from "../../types/enums";
 
 export async function downloadBible(
     languageType: "source" | "target"
-): Promise<string | undefined> {
+): Promise<vscode.Uri | undefined> {
     const projectMetadata = await getProjectMetadata();
     let languageCode = projectMetadata?.languages?.find(
         (language) =>
@@ -91,8 +91,12 @@ export async function downloadBible(
     if (selectedItem && selectedItem.corpus) {
         const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
         if (workspaceRoot) {
-            await handleBibleDownload(selectedItem.corpus, workspaceRoot, languageType);
-            return selectedItem.corpus.file;
+            const downloadedFileUri = await handleBibleDownload(
+                selectedItem.corpus,
+                workspaceRoot,
+                languageType
+            );
+            return downloadedFileUri;
         }
     }
 
@@ -103,7 +107,7 @@ async function handleBibleDownload(
     corpusMetadata: EbibleCorpusMetadata,
     workspaceRoot: string,
     languageType: string
-) {
+): Promise<vscode.Uri> {
     // FIXME: this has not been
     const vrefPath = await ensureVrefList(workspaceRoot);
 
@@ -210,6 +214,8 @@ async function handleBibleDownload(
 
     // Split the source file by book
     await splitSourceFileByBook(bibleFileUri, workspaceRoot, languageType);
+
+    return bibleFileUri;
 }
 
 export async function setTargetFont() {

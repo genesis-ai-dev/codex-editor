@@ -313,26 +313,18 @@ export async function importLocalUsfmSourceBible(
 
     if (!passedUri) {
         const selectedUris = await vscode.window.showOpenDialog({
-            canSelectFiles: false,
+            canSelectFiles: true,
             canSelectFolders: true,
             canSelectMany: false,
-            openLabel: "Select USFM Folder",
+            openLabel: "Select USFM File or Folder",
         });
         folderUri = selectedUris?.[0];
     } else {
-        const stat = await vscode.workspace.fs.stat(passedUri);
-        if (stat.type === vscode.FileType.Directory) {
-            folderUri = passedUri;
-        } else if (stat.type === vscode.FileType.File) {
-            // If it's a file, we'll process just this file
-            const processedNotebookId = await processUsfmFile(passedUri, notebookId);
-            if (processedNotebookId) importedNotebookIds.push(processedNotebookId);
-            return importedNotebookIds;
-        }
+        folderUri = passedUri;
     }
 
     if (!folderUri) {
-        vscode.window.showErrorMessage("No folder selected");
+        vscode.window.showErrorMessage("No file or folder selected");
         return importedNotebookIds;
     }
 
@@ -342,29 +334,32 @@ export async function importLocalUsfmSourceBible(
         return importedNotebookIds;
     }
 
-    const usfmFiles = await vscode.workspace.fs.readDirectory(folderUri);
-    console.log(`Found ${usfmFiles.length} files in the selected folder`);
+    const stat = await vscode.workspace.fs.stat(folderUri);
+    const isDirectory = stat.type === vscode.FileType.Directory;
+
+    const usfmFiles = isDirectory
+        ? await vscode.workspace.fs.readDirectory(folderUri)
+        : [[folderUri.path.split("/").pop() || "", vscode.FileType.File]];
 
     const usfmFileExtensions = [".usfm", ".sfm", ".SFM", ".USFM"];
     for (const [fileName, fileType] of usfmFiles) {
         if (
             fileType === vscode.FileType.File &&
-            usfmFileExtensions.some((ext) => fileName.toLowerCase().endsWith(ext))
+            usfmFileExtensions.some((ext) => fileName.toString().toLowerCase().endsWith(ext))
         ) {
-            const fileUri = vscode.Uri.joinPath(folderUri, fileName);
-            const notebookId = await processUsfmFile(fileUri);
-            if (notebookId) importedNotebookIds.push(notebookId);
+            const fileUri = isDirectory
+                ? vscode.Uri.joinPath(folderUri, fileName as string)
+                : folderUri;
+            const processedNotebookId = await processUsfmFile(fileUri, notebookId);
+            if (processedNotebookId) importedNotebookIds.push(processedNotebookId);
         }
     }
 
-    vscode.window.showInformationMessage(`Bible imported successfully as individual book files.`);
+    vscode.window.showInformationMessage(`USFM file(s) imported successfully.`);
     return importedNotebookIds;
 }
 
-async function processUsfmFile(
-    fileUri: vscode.Uri,
-    notebookId?: string
-): Promise<string | undefined> {
+async function processUsfmFile(fileUri: vscode.Uri, notebookId?: string): Promise<string> {
     console.log(`Processing file: ${fileUri.fsPath}`);
     const fileContent = await vscode.workspace.fs.readFile(fileUri);
     console.log(`File content length: ${fileContent.byteLength} bytes`);
@@ -476,7 +471,7 @@ async function processUsfmFile(
         );
 
         console.log(`Created .source file for ${bookCode}`);
-        return generatedNotebookId;
+        return generatedNotebookId || notebookId || "";
     } catch (error) {
         console.error(`Error processing file ${fileUri.fsPath}:`, error);
         vscode.window.showErrorMessage(
@@ -484,7 +479,7 @@ async function processUsfmFile(
                 error instanceof Error ? error.message : String(error)
             }`
         );
-        return undefined;
+        return notebookId || "";
     }
 }
 
@@ -663,7 +658,8 @@ export async function splitSourceFileByBook(
     sourceFileUri: vscode.Uri,
     workspaceRoot: string,
     languageType: string
-) {
+): Promise<vscode.Uri[]> {
+    const createdBookFiles: vscode.Uri[] = [];
     try {
         const sourceFileContent = await vscode.workspace.fs.readFile(sourceFileUri);
         const sourceData = JSON.parse(sourceFileContent.toString());
@@ -695,25 +691,30 @@ export async function splitSourceFileByBook(
             }
         }
 
-        for (const [book, data] of Object.entries(bookData)) {
+        const writePromises = Object.entries(bookData).map(async ([book, data]) => {
+            const bookFileName = `${book}.source`;
             const bookFilePath = path.join(
                 workspaceRoot,
                 ".project",
                 languageType === "source" ? "sourceTexts" : "targetTexts",
-                `${book}.source`
+                bookFileName
             );
             const bookFileUri = vscode.Uri.file(bookFilePath);
             await vscode.workspace.fs.writeFile(
                 bookFileUri,
                 new TextEncoder().encode(JSON.stringify(data, null, 2))
             );
-        }
+            createdBookFiles.push(bookFileUri);
+        });
 
-        // We won't delete the original file here, as it's renamed in the migrateSourceFiles function
+        await Promise.all(writePromises);
+
         vscode.window.showInformationMessage(`Source file split into individual book files.`);
+        return createdBookFiles;
     } catch (error) {
         console.error(`Error splitting source file: ${error}`);
         vscode.window.showErrorMessage(`Failed to split source file: ${error}`);
+        return [];
     }
 }
 

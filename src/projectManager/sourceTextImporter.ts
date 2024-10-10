@@ -5,11 +5,46 @@ import {
     importLocalUsfmSourceBible,
     createCodexNotebookFromWebVTT,
     NotebookMetadata,
+    splitSourceFileByBook,
 } from "../utils/codexNotebookUtils";
 import { NotebookMetadataManager } from "../utils/notebookMetadataManager";
 import { CodexContentSerializer } from "../serializer";
 
 export async function importSourceText(
+    context: vscode.ExtensionContext,
+    fileUri: vscode.Uri
+): Promise<void> {
+    const stat = await vscode.workspace.fs.stat(fileUri);
+    const isDirectory = stat.type === vscode.FileType.Directory;
+
+    if (isDirectory) {
+        await importSourceFolder(context, fileUri);
+    } else {
+        await importSourceFile(context, fileUri);
+    }
+}
+
+async function importSourceFolder(
+    context: vscode.ExtensionContext,
+    folderUri: vscode.Uri
+): Promise<void> {
+    const files = await vscode.workspace.fs.readDirectory(folderUri);
+    const usfmFileExtensions = [".usfm", ".sfm", ".SFM", ".USFM"];
+
+    for (const [fileName, fileType] of files) {
+        if (
+            fileType === vscode.FileType.File &&
+            usfmFileExtensions.some((ext) => fileName.toLowerCase().endsWith(ext))
+        ) {
+            const fileUri = vscode.Uri.joinPath(folderUri, fileName);
+            await importSourceFile(context, fileUri);
+        }
+    }
+
+    vscode.window.showInformationMessage("Source folder imported successfully.");
+}
+
+async function importSourceFile(
     context: vscode.ExtensionContext,
     fileUri: vscode.Uri
 ): Promise<void> {
@@ -28,51 +63,60 @@ export async function importSourceText(
         const baseName = fileUri.path.split("/").pop()?.split(".")[0] || `new_source`;
         const notebookId = metadataManager.generateNewId(baseName);
 
-        let importedNotebookId: string;
+        let importedNotebookIds: string[];
 
         switch (fileType) {
             case "subtitles":
-                importedNotebookId = await importSubtitles(fileUri, baseName);
+                importedNotebookIds = [await importSubtitles(fileUri, baseName)];
                 break;
             case "plaintext":
-                importedNotebookId = await importPlaintext(fileUri, baseName);
+                importedNotebookIds = [await importPlaintext(fileUri, baseName)];
                 break;
             case "usfm":
-                importedNotebookId = await importUSFM(fileUri, baseName);
+                importedNotebookIds = await importUSFM(fileUri, baseName);
                 break;
             default:
                 throw new Error("Unsupported file type for source text.");
         }
 
-        // Update metadata for both .source and .codex files
-        const sourceUri = vscode.Uri.joinPath(
-            vscode.workspace.workspaceFolders![0].uri,
-            ".project",
-            "sourceTexts",
-            `${baseName}.source`
-        );
-        const codexUri = vscode.Uri.joinPath(
-            vscode.workspace.workspaceFolders![0].uri,
-            "files",
-            "target",
-            `${baseName}.codex`
-        );
+        const workspaceFolder = vscode.workspace.workspaceFolders![0];
 
-        const metadata: NotebookMetadata = {
-            id: importedNotebookId,
-            sourceUri: sourceUri,
-            sourceFile: fileUri.fsPath,
-            codexUri: codexUri,
-            originalName: baseName,
-            data: {},
-            navigation: [],
-        };
+        for (const importedNotebookId of importedNotebookIds) {
+            const sourceUri = vscode.Uri.joinPath(
+                workspaceFolder.uri,
+                ".project",
+                "sourceTexts",
+                `${importedNotebookId}.source`
+            );
+            const codexUri = vscode.Uri.joinPath(
+                workspaceFolder.uri,
+                "files",
+                "target",
+                `${importedNotebookId}.codex`
+            );
 
-        // Add metadata to the original source file, but first wait until the file is created
-        await waitForFile(sourceUri, 5000); // Wait up to 5 seconds
-        await addMetadataToSourceFile(sourceUri, metadata);
+            const metadata: NotebookMetadata = {
+                id: importedNotebookId,
+                sourceUri: sourceUri,
+                sourceFile: fileUri.fsPath,
+                codexUri: codexUri,
+                originalName: importedNotebookId,
+                data: {},
+                navigation: [],
+            };
 
-        metadataManager.addOrUpdateMetadata(metadata);
+            // Add metadata to the original source file
+            await waitForFile(sourceUri, 5000); // Wait up to 5 seconds
+            await addMetadataToSourceFile(sourceUri, metadata);
+
+            metadataManager.addOrUpdateMetadata(metadata);
+
+            // Split the source file if it contains multiple books
+            await splitSourceFileByBook(sourceUri, workspaceFolder.uri.fsPath, "source");
+
+            // Create empty Codex notebooks for each book
+            await createEmptyCodexNotebooks(importedNotebookId);
+        }
 
         vscode.window.showInformationMessage("Source text imported successfully.");
     } catch (error) {
@@ -127,7 +171,94 @@ async function importPlaintext(fileUri: vscode.Uri, notebookId: string): Promise
     throw new Error("Plaintext import not yet implemented");
 }
 
-async function importUSFM(fileUri: vscode.Uri, notebookId: string): Promise<string> {
+async function importUSFM(fileUri: vscode.Uri, notebookId: string): Promise<string[]> {
     const importedNotebookIds = await importLocalUsfmSourceBible(fileUri, notebookId);
-    return importedNotebookIds[0] || notebookId;
+    return importedNotebookIds;
+}
+
+export async function createEmptyCodexNotebooks(sourceFileName: string): Promise<void> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+        throw new Error("No workspace folder found");
+    }
+
+    const sourceFolder = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts");
+    const targetFolder = vscode.Uri.joinPath(workspaceFolder.uri, "files", "target");
+
+    const sourceFiles = await vscode.workspace.findFiles(
+        new vscode.RelativePattern(sourceFolder, `${sourceFileName}*.source`)
+    );
+
+    if (sourceFiles.length === 0) {
+        throw new Error(`No source file found for ${sourceFileName}`);
+    }
+
+    const metadataManager = NotebookMetadataManager.getInstance();
+    await metadataManager.loadMetadata();
+
+    for (const sourceFile of sourceFiles) {
+        const sourceContent = await vscode.workspace.fs.readFile(sourceFile);
+        const sourceData = JSON.parse(new TextDecoder().decode(sourceContent));
+
+        const bookName = sourceFile.path.split("/").pop()?.split(".")[0] || "";
+        const codexUri = vscode.Uri.joinPath(targetFolder, `${bookName}.codex`);
+
+        // Create an empty Codex notebook with the same structure as the source
+        const emptyCodexData = {
+            cells: sourceData.cells.map((cell: any) => ({
+                ...cell,
+                value: "", // Empty content for target cells
+            })),
+            metadata: {
+                ...sourceData.metadata,
+                codexUri: codexUri.toString(),
+            },
+        };
+
+        await vscode.workspace.fs.writeFile(
+            codexUri,
+            new TextEncoder().encode(JSON.stringify(emptyCodexData, null, 2))
+        );
+
+        // Update metadata
+        const metadata = metadataManager.getMetadataById(sourceData.metadata.id);
+        if (metadata) {
+            metadata.codexUri = codexUri;
+            metadataManager.addOrUpdateMetadata(metadata);
+        }
+
+        console.log(`Created empty Codex notebook: ${codexUri.fsPath}`);
+    }
+}
+
+export async function processDownloadedBible(downloadedBibleFile: vscode.Uri): Promise<void> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+        throw new Error("No workspace folder found");
+    }
+
+    // Split the downloaded Bible file into individual book files
+    const createdSourceFiles = await splitSourceFileByBook(
+        downloadedBibleFile,
+        workspaceFolder.uri.fsPath,
+        "source"
+    );
+
+    // Wait for all source files to be created
+    await Promise.all(createdSourceFiles);
+
+    // Create empty Codex notebooks for each newly created book file
+    for (const sourceFile of createdSourceFiles) {
+        const fileName = sourceFile.path.split("/").pop()?.split(".")[0] || "";
+        
+        try {
+            await createEmptyCodexNotebooks(fileName);
+        } catch (error) {
+            console.error(`Error creating Codex notebook for ${fileName}: ${error}`);
+        }
+    }
+
+    vscode.window.showInformationMessage(
+        "Bible processed and empty Codex notebooks created successfully."
+    );
 }

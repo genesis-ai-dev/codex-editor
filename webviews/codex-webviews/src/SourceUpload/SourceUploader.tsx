@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
-import { VSCodeButton, VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react";
+import { VSCodeButton, VSCodeCheckbox, VSCodeDivider } from "@vscode/webview-ui-toolkit/react";
 import { FileType, SupportedFileExtension } from "../../../../types";
 
 const vscode = acquireVsCodeApi();
@@ -26,6 +26,7 @@ const SourceUploader: React.FC = () => {
     const [fileType, setFileType] = useState<FileType | "">("");
     const [isSourceUpload, setIsSourceUpload] = useState<boolean>(false);
     const [selectedSourceFile, setSelectedSourceFile] = useState<string | null>(null);
+    const [isFolder, setIsFolder] = useState<boolean>(false);
 
     useEffect(() => {
         vscode.postMessage({ command: "getCodexFiles" });
@@ -34,6 +35,7 @@ const SourceUploader: React.FC = () => {
     const onDrop = useCallback((acceptedFiles: File[]) => {
         if (acceptedFiles.length > 0) {
             setSelectedFile(acceptedFiles[0]);
+            setIsFolder(acceptedFiles[0].type === ""); // Empty type usually indicates a folder
             const extension = acceptedFiles[0].name.split(".").pop() as SupportedFileExtension;
             setFileType(fileTypeMap[extension] || "plaintext");
         }
@@ -42,20 +44,32 @@ const SourceUploader: React.FC = () => {
     const { getRootProps, getInputProps } = useDropzone({ onDrop });
 
     const handleUpload = async () => {
-        if (selectedFile && fileType) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const content = e.target?.result?.toString() || "";
+        if (selectedFile && (fileType || isFolder)) {
+            if (isFolder) {
                 vscode.postMessage({
-                    command: isSourceUpload ? "uploadSourceText" : "uploadTranslation",
-                    fileContent: content,
-                    fileType: fileType,
-                    fileName: selectedFile.name,
+                    command: isSourceUpload ? "uploadSourceFolder" : "uploadTranslationFolder",
+                    folderName: selectedFile.name,
                     sourceFileName: selectedSourceFile,
                 });
-            };
-            reader.readAsText(selectedFile);
+            } else {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const content = e.target?.result?.toString() || "";
+                    vscode.postMessage({
+                        command: isSourceUpload ? "uploadSourceText" : "uploadTranslation",
+                        fileContent: content,
+                        fileType: fileType,
+                        fileName: selectedFile.name,
+                        sourceFileName: selectedSourceFile,
+                    });
+                };
+                reader.readAsText(selectedFile);
+            }
         }
+    };
+
+    const handleDownloadBible = () => {
+        vscode.postMessage({ command: "downloadBible" });
     };
 
     window.addEventListener("message", (event) => {
@@ -108,11 +122,15 @@ const SourceUploader: React.FC = () => {
             >
                 <input {...getInputProps()} />
                 <p>
-                    Drag 'n' drop a {isSourceUpload ? "source" : "translation"} file here, or click
-                    to select a file
+                    Drag 'n' drop a {isSourceUpload ? "source" : "translation"} file or folder here,
+                    or click to select a file or folder
                 </p>
             </div>
-            {selectedFile && <p>Selected file: {selectedFile.name}</p>}
+            {selectedFile && (
+                <p>
+                    Selected {isFolder ? "folder" : "file"}: {selectedFile.name}
+                </p>
+            )}
 
             {!isSourceUpload && (
                 <div>
@@ -137,6 +155,11 @@ const SourceUploader: React.FC = () => {
             >
                 Upload {isSourceUpload ? "Source Text" : "Translation"}
             </VSCodeButton>
+
+            <VSCodeDivider />
+
+            <h2>Download Bible from eBible Corpus</h2>
+            <VSCodeButton onClick={handleDownloadBible}>Download Bible</VSCodeButton>
         </div>
     );
 };

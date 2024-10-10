@@ -3,6 +3,9 @@ import { importTranslations } from "../../projectManager/translationImporter";
 import { FileType } from "../../../types";
 import { importSourceText } from "../../projectManager/sourceTextImporter";
 import { NotebookMetadataManager } from "../../utils/notebookMetadataManager";
+import { downloadBible } from "../../projectManager/projectInitializers";
+import { createEmptyCodexNotebooks } from "../../projectManager/sourceTextImporter";
+import { processDownloadedBible } from "../../projectManager/sourceTextImporter";
 
 function getNonce(): string {
     let text = "";
@@ -91,6 +94,19 @@ export class SourceUploadProvider
                     } catch (error) {
                         console.error(`Error uploading translation: ${error}`);
                         vscode.window.showErrorMessage(`Error uploading translation: ${error}`);
+                    }
+                    break;
+                case "downloadBible":
+                    try {
+                        const downloadedBibleFile = await downloadBible("source");
+                        if (downloadedBibleFile) {
+                            await processDownloadedBible(downloadedBibleFile);
+                            await this.updateCodexFiles(webviewPanel);
+                            vscode.window.showInformationMessage("Bible downloaded and processed successfully.");
+                        }
+                    } catch (error) {
+                        console.error(`Error downloading Bible: ${error}`);
+                        vscode.window.showErrorMessage(`Error downloading Bible: ${error}`);
                     }
                     break;
                 default:
