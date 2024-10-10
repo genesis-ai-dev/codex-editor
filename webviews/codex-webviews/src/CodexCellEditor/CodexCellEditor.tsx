@@ -40,11 +40,16 @@ const CodexCellEditor: React.FC = () => {
     );
     const [isSourceText, setIsSourceText] = useState<boolean>(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState<boolean>(false);
+    console.log({ isMetadataModalOpen });
     const [metadata, setMetadata] = useState<CustomNotebookMetadata>();
     const [videoUrl, setVideoUrl] = useState<string>("");
     const playerRef = useRef<ReactPlayer>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     const { setSourceCellMap } = useContext(SourceCellContext);
+    // A "temp" video URL that is used to update the video URL in the metadata modal.
+    // We need to use the client-side file picker, so we need to then pass the picked
+    // video URL back to the extension so the user can save or cancel the change.
+    const [tempVideoUrl, setTempVideoUrl] = useState<string>("");
     // const [documentHasVideoAvailable, setDocumentHasVideoAvailable] = useState<boolean>(false);
     useVSCodeMessageHandler({
         setContent: (
@@ -91,6 +96,9 @@ const CodexCellEditor: React.FC = () => {
         },
         updateNotebookMetadata: (newMetadata) => {
             setMetadata(newMetadata);
+        },
+        updateVideoUrl: (url: string) => {
+            setTempVideoUrl(url);
         },
     });
 
@@ -208,9 +216,10 @@ const CodexCellEditor: React.FC = () => {
         });
     }, [contentBeingUpdated, translationUnitsForSection]);
 
-    const handleCloseMetadataModal = () => {
-        setIsMetadataModalOpen(false);
-    };
+    // const handleCloseMetadataModal = () => {
+    //     setTempVideoUrl(""); // Reset temp video URL when closing without saving
+    //     setIsMetadataModalOpen(false);
+    // };
 
     const handleMetadataChange = (key: string, value: string) => {
         setMetadata((prev: CustomNotebookMetadata | undefined) => {
@@ -219,7 +228,6 @@ const CodexCellEditor: React.FC = () => {
             }
             return { ...prev, [key]: value };
         });
-        console.log({ isMetadataModalOpen });
     };
 
     const handlePickFile = () => {
@@ -227,11 +235,16 @@ const CodexCellEditor: React.FC = () => {
     };
 
     const handleSaveMetadata = () => {
+        if (tempVideoUrl) {
+            handleMetadataChange("videoUrl", tempVideoUrl);
+            setVideoUrl(tempVideoUrl);
+            setTempVideoUrl("");
+        }
         vscode.postMessage({
             command: "updateNotebookMetadata",
             content: metadata,
         } as EditorPostMessages);
-        handleCloseMetadataModal();
+        setIsMetadataModalOpen(false);
     };
 
     const handleUpdateVideoUrl = (url: string) => {
@@ -266,6 +279,7 @@ const CodexCellEditor: React.FC = () => {
                     shouldShowVideoPlayer={shouldShowVideoPlayer}
                     documentHasVideoAvailable={true}
                     metadata={metadata}
+                    tempVideoUrl={tempVideoUrl}
                     onMetadataChange={handleMetadataChange}
                     onSaveMetadata={handleSaveMetadata}
                     onPickFile={handlePickFile}

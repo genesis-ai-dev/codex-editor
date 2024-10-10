@@ -15,6 +15,7 @@ interface UseVSCodeMessageHandlerProps {
     autocompleteChapterComplete: () => void;
     updateTextDirection: (direction: "ltr" | "rtl") => void;
     updateNotebookMetadata: (metadata: NotebookMetadata) => void;
+    updateVideoUrl: (url: string) => void;
 }
 
 export const useVSCodeMessageHandler = ({
@@ -25,6 +26,7 @@ export const useVSCodeMessageHandler = ({
     autocompleteChapterComplete,
     updateTextDirection,
     updateNotebookMetadata,
+    updateVideoUrl,
 }: UseVSCodeMessageHandlerProps) => {
     useEffect(() => {
         const handler = (event: MessageEvent) => {
@@ -53,6 +55,9 @@ export const useVSCodeMessageHandler = ({
                 case "updateNotebookMetadata":
                     updateNotebookMetadata(message.content);
                     break;
+                case "updateVideoUrlInWebview":
+                    updateVideoUrl(message.content);
+                    break;
             }
         };
 
@@ -69,5 +74,6 @@ export const useVSCodeMessageHandler = ({
         autocompleteChapterComplete,
         updateTextDirection,
         updateNotebookMetadata,
+        updateVideoUrl,
     ]);
 };

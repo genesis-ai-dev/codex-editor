@@ -637,22 +637,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             const fileUri = result?.[0];
                             if (fileUri) {
                                 const videoUrl = fileUri.toString();
-                                const updatedMetadata = {
-                                    videoUrl: videoUrl,
-                                };
-                                await document.updateNotebookMetadata(updatedMetadata);
-                                await document.save(new vscode.CancellationTokenSource().token);
-                                vscode.window.showInformationMessage(
-                                    "Video URL updated successfully."
-                                );
-
+                                // Instead of updating the metadata here, we'll send it back to the webview
                                 this.postMessageToWebview(webviewPanel, {
-                                    type: "providerUpdatesNotebookMetadataForWebview",
-                                    content: await document.getNotebookMetadata(),
+                                    type: "updateVideoUrlInWebview",
+                                    content: videoUrl,
                                 });
-
-                                // Now we need to refresh the webview to be sure the new url is injected
-                                updateWebview();
                             }
                         } catch (error) {
                             console.error("Error picking video file:", error);
@@ -742,18 +731,20 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const videoPath = notebookData.metadata?.videoUrl;
         let videoUri = null;
 
+        // FIXME: when switching from a remote/youtube video to a local video, you need to close the webview and re-open it
         if (videoPath) {
             if (videoPath.startsWith("http://") || videoPath.startsWith("https://")) {
                 // If it's a web URL, use it directly
                 videoUri = videoPath;
             } else if (videoPath.startsWith("file://")) {
                 // If it's a file URI, convert it to a webview URI
-                videoUri = webview.asWebviewUri(vscode.Uri.parse(videoPath));
+                videoUri = webview.asWebviewUri(vscode.Uri.parse(videoPath)).toString();
             } else {
                 // If it's a relative path, join it with the workspace URI
                 const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
                 if (workspaceUri) {
-                    videoUri = webview.asWebviewUri(vscode.Uri.joinPath(workspaceUri, videoPath));
+                    const fullPath = vscode.Uri.joinPath(workspaceUri, videoPath);
+                    videoUri = webview.asWebviewUri(fullPath).toString();
                 }
             }
         }
@@ -772,7 +763,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     webview.cspSource
                 }; connect-src https://languagetool.org/api/; img-src ${
                     webview.cspSource
-                } https:; font-src ${webview.cspSource}; media-src ${webview.cspSource} blob:;">
+                } https:; font-src ${webview.cspSource}; media-src ${webview.cspSource} https: blob:;">
                 <link href="${styleResetUri}" rel="stylesheet" nonce="${nonce}">
                 <link href="${styleVSCodeUri}" rel="stylesheet" nonce="${nonce}">
                 <link href="${codiconsUri}" rel="stylesheet" nonce="${nonce}" />
@@ -781,7 +772,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 <script nonce="${nonce}">
                     window.initialData = {
                         isSourceText: ${isSourceText},
-                        videoUrl: "${videoUri}",
+                        videoUrl: ${videoUri ? `"${videoUri}"` : "null"},
                         sourceCellMap: ${JSON.stringify(document._sourceCellMap)},
                         metadata: ${JSON.stringify(notebookData.metadata)}
                     };

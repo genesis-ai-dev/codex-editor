@@ -31,6 +31,7 @@ interface ChapterNavigationProps {
     onSaveMetadata: () => void;
     onPickFile: () => void;
     onUpdateVideoUrl: (url: string) => void;
+    tempVideoUrl: string;
 }
 
 const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
@@ -54,6 +55,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     onSaveMetadata,
     onPickFile,
     onUpdateVideoUrl,
+    tempVideoUrl,
 }) => {
     const [showConfirm, setShowConfirm] = useState(false);
     const [numberOfCellsToAutocomplete, setNumberOfCellsToAutocomplete] = useState(5);
@@ -224,6 +226,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                     onMetadataChange={onMetadataChange}
                     onSave={handleSaveMetadata}
                     onPickFile={onPickFile}
+                    tempVideoUrl={tempVideoUrl}
                 />
             )}
             <VSCodeButton
