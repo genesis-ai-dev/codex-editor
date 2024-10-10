@@ -282,3 +282,56 @@ li {
     font-weight: bold;
     margin-right: 0.5rem;
 }
+
+/* Modal styles */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background-color: var(--vscode-editor-background);
+    border-radius: 4px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    width: 90%; /* Make the modal nearly as wide as its container */
+    max-width: 800px; /* Set a maximum width for larger screens */
+    max-height: 90vh; /* Set a maximum height */
+    overflow-y: auto; /* Add scrolling for overflow content */
+    padding: 2rem;
+    margin: 2rem; /* Add proportional margin */
+}
+
+.form-field {
+    margin-bottom: 1rem;
+}
+
+.form-field label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: bold;
+}
+
+.input-with-button {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    margin-top: 2rem;
+}
+
+/* Ensure VSCode text fields take full width */
+.form-field vscode-text-field {
+    width: 100%;
+}

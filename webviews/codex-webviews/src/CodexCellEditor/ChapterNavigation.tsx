@@ -7,6 +7,8 @@ import {
     VSCodeTag,
 } from "@vscode/webview-ui-toolkit/react";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
+import NotebookMetadataModal from "./NotebookMetadataModal";
+import { CustomNotebookMetadata } from "../../../../types";
 
 interface ChapterNavigationProps {
     chapterNumber: number;
@@ -24,6 +26,11 @@ interface ChapterNavigationProps {
     shouldShowVideoPlayer: boolean;
     setShouldShowVideoPlayer: React.Dispatch<React.SetStateAction<boolean>>;
     documentHasVideoAvailable: boolean;
+    metadata: CustomNotebookMetadata | undefined;
+    onMetadataChange: (key: string, value: string) => void;
+    onSaveMetadata: () => void;
+    onPickFile: () => void;
+    onUpdateVideoUrl: (url: string) => void;
 }
 
 const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
@@ -42,10 +49,15 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     shouldShowVideoPlayer,
     setShouldShowVideoPlayer,
     documentHasVideoAvailable,
+    metadata,
+    onMetadataChange,
+    onSaveMetadata,
+    onPickFile,
+    onUpdateVideoUrl,
 }) => {
     const [showConfirm, setShowConfirm] = useState(false);
     const [numberOfCellsToAutocomplete, setNumberOfCellsToAutocomplete] = useState(5);
-    // FIXME: this isn't actually limiting the number of calls to the llm completion; that happens at the provider level
+    const [isMetadataModalOpen, setIsMetadataModalOpen] = useState(false);
 
     const handleAutocompleteClick = () => {
         setShowConfirm(true);
@@ -62,6 +74,22 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
 
     const handleToggleVideoPlayer = () => {
         setShouldShowVideoPlayer(!shouldShowVideoPlayer);
+    };
+
+    const handleOpenMetadataModal = () => {
+        setIsMetadataModalOpen(true);
+    };
+
+    const handleCloseMetadataModal = () => {
+        setIsMetadataModalOpen(false);
+    };
+
+    const handleSaveMetadata = () => {
+        onSaveMetadata();
+        setIsMetadataModalOpen(false);
+        if (metadata?.videoUrl) {
+            onUpdateVideoUrl(metadata.videoUrl);
+        }
     };
 
     return (
@@ -178,7 +206,26 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                         )}
                     </VSCodeButton>
                 )}
+                {metadata && (
+                    <VSCodeButton
+                        appearance="icon"
+                        onClick={handleOpenMetadataModal}
+                        title="Edit Notebook Metadata"
+                    >
+                        <i className="codicon codicon-notebook"></i>
+                    </VSCodeButton>
+                )}
             </div>
+            {metadata && (
+                <NotebookMetadataModal
+                    isOpen={isMetadataModalOpen}
+                    onClose={handleCloseMetadataModal}
+                    metadata={metadata}
+                    onMetadataChange={onMetadataChange}
+                    onSave={handleSaveMetadata}
+                    onPickFile={onPickFile}
+                />
+            )}
             <VSCodeButton
                 appearance="icon"
                 disabled={chapterNumber === totalChapters || unsavedChanges}

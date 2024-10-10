@@ -738,7 +738,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             )
         );
 
-        // Get the video URI from the notebook metadata
         const notebookData = this.getDocumentAsJson(document);
         const videoPath = notebookData.metadata?.videoUrl;
         let videoUri = null;
