@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { Dispatch, SetStateAction } from "react";
 import { QuillCellContent, SpellCheckResponse } from "../../../../../types";
+import { NotebookMetadata } from "../../../../../src/utils/codexNotebookUtils";
 
 interface UseVSCodeMessageHandlerProps {
     setContent: (
@@ -13,6 +14,7 @@ interface UseVSCodeMessageHandlerProps {
     updateCell: (data: { cellId: string; newContent: string; progress: number }) => void;
     autocompleteChapterComplete: () => void;
     updateTextDirection: (direction: "ltr" | "rtl") => void;
+    updateNotebookMetadata: (metadata: NotebookMetadata) => void;
 }
 
 export const useVSCodeMessageHandler = ({
@@ -22,6 +24,7 @@ export const useVSCodeMessageHandler = ({
     updateCell,
     autocompleteChapterComplete,
     updateTextDirection,
+    updateNotebookMetadata,
 }: UseVSCodeMessageHandlerProps) => {
     useEffect(() => {
         const handler = (event: MessageEvent) => {
@@ -47,6 +50,9 @@ export const useVSCodeMessageHandler = ({
                 case "updateTextDirection":
                     updateTextDirection(message.direction);
                     break;
+                case "updateNotebookMetadata":
+                    updateNotebookMetadata(message.content);
+                    break;
             }
         };
 
@@ -62,5 +68,6 @@ export const useVSCodeMessageHandler = ({
         updateCell,
         autocompleteChapterComplete,
         updateTextDirection,
+        updateNotebookMetadata,
     ]);
 };

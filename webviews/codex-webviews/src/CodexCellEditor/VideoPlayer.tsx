@@ -32,6 +32,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         };
     }
     const [playerHeight, setPlayerHeight] = useState<number | undefined>(undefined);
+    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         if (playerRef.current) {
@@ -41,23 +42,36 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
     }, [playerRef]);
 
+    const handleError = (e: any) => {
+        console.error("Video player error:", e);
+        if (e.target.error.code === 4) {
+            setError("To use a local video, the file must be located in the project folder.");
+        }
+    };
+
     return (
         <div
             className="player-wrapper"
             style={{ height: playerHeight || "auto", backgroundColor: "black" }}
         >
-            <ReactPlayer
-                key={subtitleUrl} // Add the key prop with subtitleUrl as the value
-                ref={playerRef}
-                url={videoUrl}
-                playing={true}
-                controls={true}
-                width="100%"
-                // height={playerHeight || "auto"} // Set the height to the fixed value or "auto" if not available
-                config={{
-                    file: file,
-                }}
-            />
+            {error ? (
+                <div className="error-message" style={{ color: "white", padding: "20px" }}>
+                    {error}
+                </div>
+            ) : (
+                <ReactPlayer
+                    key={subtitleUrl}
+                    ref={playerRef}
+                    url={videoUrl}
+                    playing={true}
+                    controls={true}
+                    width="100%"
+                    onError={handleError}
+                    config={{
+                        file: file,
+                    }}
+                />
+            )}
         </div>
     );
 };

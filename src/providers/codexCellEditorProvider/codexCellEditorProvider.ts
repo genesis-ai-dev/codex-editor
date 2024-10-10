@@ -13,6 +13,7 @@ import {
     SpellCheckResponse,
     CustomNotebookCellData,
     Timestamps,
+    CustomNotebookMetadata,
 } from "../../../types";
 
 function getNonce(): string {
@@ -254,23 +255,27 @@ class CodexCellDocument implements vscode.CustomDocument {
     }
 
     // Method to update notebook metadata
-    public updateNotebookMetadata(textDirection: string) {
+    public updateNotebookMetadata(newMetadata: Partial<CustomNotebookMetadata>) {
         if (!this._documentData.metadata) {
             throw new Error("No metadata found on notebook.");
         }
-        this._documentData.metadata.textDirection = textDirection as "ltr" | "rtl";
+        this._documentData.metadata = { ...this._documentData.metadata, ...newMetadata };
 
         // Record the edit
         this._edits.push({
             type: "updateNotebookMetadata",
-            textDirection,
+            newMetadata,
         });
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
         this._onDidChangeDocument.fire({
-            edits: [{ textDirection }],
+            edits: [{ metadata: newMetadata }],
         });
+    }
+
+    public getNotebookMetadata(): CustomNotebookMetadata {
+        return this._documentData.metadata;
     }
 
     public updateCellLabel(cellId: string, newLabel: string) {
@@ -513,7 +518,18 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             direction: e.direction,
                         });
                         try {
-                            document.updateNotebookMetadata(e.direction);
+                            const updatedMetadata = {
+                                textDirection: e.direction,
+                            };
+                            await document.updateNotebookMetadata(updatedMetadata);
+                            await document.save(new vscode.CancellationTokenSource().token);
+                            vscode.window.showInformationMessage(
+                                "Text direction updated successfully."
+                            );
+                            this.postMessageToWebview(webviewPanel, {
+                                type: "providerUpdatesNotebookMetadataForWebview",
+                                content: await document.getNotebookMetadata(),
+                            });
                         } catch (error) {
                             console.error("Error updating notebook metadata:", error);
                             vscode.window.showErrorMessage("Failed to update notebook metadata.");
@@ -585,6 +601,62 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         } catch (error) {
                             console.error("Error updating cell label:", error);
                             vscode.window.showErrorMessage("Failed to update cell label.");
+                        }
+                        return;
+                    }
+                    case "updateNotebookMetadata": {
+                        console.log("updateNotebookMetadata message received", { e });
+                        try {
+                            const newMetadata = e.content;
+                            await document.updateNotebookMetadata(newMetadata);
+                            await document.save(new vscode.CancellationTokenSource().token);
+                            vscode.window.showInformationMessage(
+                                "Notebook metadata updated successfully."
+                            );
+
+                            this.postMessageToWebview(webviewPanel, {
+                                type: "providerUpdatesNotebookMetadataForWebview",
+                                content: await document.getNotebookMetadata(),
+                            });
+                        } catch (error) {
+                            console.error("Error updating notebook metadata:", error);
+                            vscode.window.showErrorMessage("Failed to update notebook metadata.");
+                        }
+                        return;
+                    }
+                    case "pickVideoFile": {
+                        console.log("pickVideoFile message received", { e });
+                        try {
+                            const result = await vscode.window.showOpenDialog({
+                                canSelectMany: false,
+                                openLabel: "Select Video File",
+                                filters: {
+                                    Videos: ["mp4", "mkv", "avi", "mov"],
+                                },
+                            });
+                            const fileUri = result?.[0];
+                            if (fileUri) {
+                                const videoUrl = fileUri.toString();
+                                const updatedMetadata = {
+                                    videoUrl: videoUrl,
+                                };
+                                await document.updateNotebookMetadata(updatedMetadata);
+                                await document.save(new vscode.CancellationTokenSource().token);
+                                vscode.window.showInformationMessage(
+                                    "Video URL updated successfully."
+                                );
+
+                                this.postMessageToWebview(webviewPanel, {
+                                    type: "providerUpdatesNotebookMetadataForWebview",
+                                    content: await document.getNotebookMetadata(),
+                                });
+
+                                // Now we need to refresh the webview to be sure the new url is injected
+                                updateWebview();
+                            }
+                        } catch (error) {
+                            console.error("Error picking video file:", error);
+                            vscode.window.showErrorMessage("Failed to pick video file.");
                         }
                         return;
                     }
@@ -666,13 +738,26 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             )
         );
 
-        // Get the video URI from the notebook metadata or use a default
+        // Get the video URI from the notebook metadata
         const notebookData = this.getDocumentAsJson(document);
-        const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-        const videoPath = notebookData.metadata?.videoPath || "files/videoplaybacktrimmed.mp4";
-        const videoUri = workspaceUri
-            ? webview.asWebviewUri(vscode.Uri.joinPath(workspaceUri, videoPath))
-            : null;
+        const videoPath = notebookData.metadata?.videoUrl;
+        let videoUri = null;
+
+        if (videoPath) {
+            if (videoPath.startsWith("http://") || videoPath.startsWith("https://")) {
+                // If it's a web URL, use it directly
+                videoUri = videoPath;
+            } else if (videoPath.startsWith("file://")) {
+                // If it's a file URI, convert it to a webview URI
+                videoUri = webview.asWebviewUri(vscode.Uri.parse(videoPath));
+            } else {
+                // If it's a relative path, join it with the workspace URI
+                const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+                if (workspaceUri) {
+                    videoUri = webview.asWebviewUri(vscode.Uri.joinPath(workspaceUri, videoPath));
+                }
+            }
+        }
 
         const nonce = getNonce();
 
@@ -684,7 +769,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${
                     webview.cspSource
-                } 'unsafe-inline'; script-src 'nonce-${nonce}'; worker-src ${
+                } 'unsafe-inline'; script-src 'nonce-${nonce}' https://www.youtube.com; frame-src https://www.youtube.com; worker-src ${
                     webview.cspSource
                 }; connect-src https://languagetool.org/api/; img-src ${
                     webview.cspSource
@@ -698,7 +783,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     window.initialData = {
                         isSourceText: ${isSourceText},
                         videoUrl: "${videoUri}",
-                        sourceCellMap: ${JSON.stringify(document._sourceCellMap)}
+                        sourceCellMap: ${JSON.stringify(document._sourceCellMap)},
+                        metadata: ${JSON.stringify(notebookData.metadata)}
                     };
                 </script>
             </head>

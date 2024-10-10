@@ -249,7 +249,10 @@ type EditorCellContent = {
     cellLabel: string;
 };
 
-type EditorPostMessages =
+export type EditorPostMessages =
+    | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string } }
+    | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata }
+    | { command: "pickVideoFile" }
     | { command: "from-quill-spellcheck-getSpellCheckResponse"; content: EditorCellContent }
     | { command: "updateCellTimestamps"; content: { cellId: string; timestamps: Timestamps } }
     | { command: "deleteCell"; content: { cellId: string } }
@@ -273,7 +276,8 @@ type EditorPostMessages =
     | { command: "requestAutocompleteChapter"; content: QuillCellContent[] }
     | { command: "updateTextDirection"; direction: "ltr" | "rtl" }
     | { command: "openSourceText"; content: { chapterNumber: number } }
-    | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string } };
+    | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string } }
+    | { command: "pickVideoFile" };
 
 type EditorReceiveMessages =
     | {
@@ -290,7 +294,8 @@ type EditorReceiveMessages =
     | { type: "providerSendsSpellCheckResponse"; content: SpellCheckResponse }
     | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl" }
     | { type: "providerSendsLLMCompletionResponse"; content: { completion: string } }
-    | { type: "jumpToSection"; content: string };
+    | { type: "jumpToSection"; content: string }
+    | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata };
 
 type EditHistory = {
     cellValue: string;
@@ -334,6 +339,7 @@ type CustomNotebookMetadata = {
     originalName: string;
     sourceUri: vscode.Uri;
     codexUri: vscode.Uri;
+    videoUrl?: string; // Add this line
 };
 
 type CustomNotebookDocument = vscode.NotebookDocument & {
