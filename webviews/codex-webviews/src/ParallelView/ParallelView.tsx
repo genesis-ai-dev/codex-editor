@@ -4,6 +4,8 @@ import {
     VSCodePanelView,
     VSCodePanels,
     VSCodeDivider,
+    VSCodeTextArea,
+    VSCodeButton,
 } from "@vscode/webview-ui-toolkit/react";
 import "./App.css";
 import { OpenFileMessage } from "./types";
@@ -17,6 +19,7 @@ const vscode = acquireVsCodeApi();
 function ParallelView() {
     const [verses, setVerses] = useState<TranslationPair[]>([]);
     const [lastQuery, setLastQuery] = useState<string>("");
+    const [chatInput, setChatInput] = useState<string>("");
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
@@ -68,14 +71,19 @@ function ParallelView() {
         });
     };
 
+    const handleSendMessage = () => {
+        if (chatInput.trim()) {
+            // TODO: Implement send message functionality
+            console.log("Sending message:", chatInput);
+            setChatInput("");
+        }
+    };
+
     return (
         <VSCodePanels>
             <VSCodePanelTab id="tab1">Parallel Passages</VSCodePanelTab>
             <VSCodePanelView id="view1">
                 <div className="container">
-                    {/* <h1 className="view-title">
-                        Parallel Passages
-                    </h1> */}
                     <SearchBar
                         query={lastQuery}
                         onQueryChange={setLastQuery}
@@ -100,6 +108,8 @@ function ParallelView() {
                             No results found. Try a different search query.
                         </p>
                     )}
+                    <VSCodeDivider />
+                    
                 </div>
             </VSCodePanelView>
         </VSCodePanels>
