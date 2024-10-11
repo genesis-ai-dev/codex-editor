@@ -6,6 +6,7 @@ import { ChatRoleLabel } from "../common";
 interface MessageItemProps {
     messageItem: ChatMessageWithContext;
     showSenderRoleLabels?: boolean;
+    onEditComplete?: (updatedMessage: ChatMessageWithContext) => void; // Callback for edit completion.
 }
 
 const ALWAYS_SHOW = false;
@@ -13,9 +14,12 @@ const ALWAYS_SHOW = false;
 export const MessageItem: React.FC<MessageItemProps> = ({
     messageItem,
     showSenderRoleLabels = false,
+    onEditComplete, // Callback function to notify parent of edit completion
 }) => {
     const [isHovered, setIsHovered] = useState(false);
     const [isDropdownVisible, setIsDropdownVisible] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
+    const [editedContent, setEditedContent] = useState(messageItem.content); // Edited content state
 
     const handleMouseEnter = () => setIsHovered(true);
     const handleMouseLeave = () => {
@@ -25,10 +29,21 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     const toggleDropdown = () => setIsDropdownVisible(!isDropdownVisible);
 
     const handleEditClick = () => {
-        alert('Edit option clicked.'); // Or implement the actual edit function in the future
+        setIsEditing(true);
+        setIsDropdownVisible(false); // close dropdown
     };
 
+    const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        setEditedContent(event.target.value); // Update edited content
+    };
 
+    const handleSaveClick = () => {
+        // Notify parent component if exists
+        if (onEditComplete) {
+            onEditComplete({...messageItem, content: editedContent}); // Pass edited message back
+        }
+        setIsEditing(false); // Exit edit mode
+    };
 
     return (
         <div          
@@ -114,7 +129,36 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                         {ChatRoleLabel[messageItem.role as keyof typeof ChatRoleLabel]}
                     </VSCodeTag>
                 )}
-                <div style={{ display: "flex" }}>{messageItem.content}</div>
+                 {/* Message Content */}
+                {isEditing ? (
+                    <div style={{ position: "relative" }}>
+                        <input
+                            type="text"
+                            value={editedContent}
+                            onChange={handleChange}
+                            onBlur={handleSaveClick} // Optional: save on blur
+                            style={{ width: "100%", padding: "0.5em" }}
+                        />
+                        {/* Check-Mark to Save */}
+                        <span
+                            onClick={handleSaveClick}
+                            style={{
+                                position: "absolute",
+                                top: "50%",
+                                right: "-10px", // Adjust position as needed
+                                transform: "translateY(-50%)", // Center vertically
+                                cursor: "pointer",
+                                fontSize: "1.5em", // Size of the check-mark
+                            }}
+                            role="img" // This helps with accessibility
+                            aria-label="save"
+                        >
+                            ✔️
+                        </span>
+                    </div>
+                ) : (
+                    <div style={{ display: "flex" }}>{messageItem.content}</div>
+            )}
             </div>
 
             {(isHovered || ALWAYS_SHOW) && (
