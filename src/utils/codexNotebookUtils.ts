@@ -85,7 +85,17 @@ export interface NotebookMetadata {
     navigation: NavigationCell[];
     perf?: any;
     videoUrl?: string;
-    lastModified?: string;
+    sourceCreatedAt: string;
+    codexLastModified?: string;
+    gitStatus:
+        | "uninitialized"
+        | "modified"
+        | "added"
+        | "deleted"
+        | "renamed"
+        | "conflict"
+        | "untracked"
+        | "committed"; // FIXME: we should probably programmatically do things like track .codex .source and .dictionary files
 }
 
 export interface NavigationCell {
@@ -259,6 +269,9 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
                     corpusMarker: corpusMarker,
                 },
                 navigation: navigationCells,
+                sourceCreatedAt: "migrated from old format Fall 2024",
+                codexLastModified: "",
+                gitStatus: "uninitialized",
             };
 
             if (notebookData?.metadata?.perf) {

@@ -18,6 +18,15 @@ interface AggregatedMetadata {
     codexUri?: string;
     videoUrl?: string;
     lastModified?: string;
+    gitStatus?:
+        | "uninitialized"
+        | "modified"
+        | "added"
+        | "deleted"
+        | "renamed"
+        | "conflict"
+        | "untracked"
+        | "committed";
 }
 
 const SourceUploader: React.FC = () => {
@@ -77,6 +86,49 @@ const SourceUploader: React.FC = () => {
         setIsSourceUpload(false);
     };
 
+    const GetSyncStatus: React.FC<{
+        metadata: AggregatedMetadata;
+        onClick: (status: string) => void;
+    }> = ({ metadata, onClick }) => {
+        const status = metadata.gitStatus || "Unknown";
+        const iconClass = `codicon codicon-${
+            status === "uninitialized"
+                ? "repo" // If the file is uninitialized, the action is to initialize the git repository
+                : status === "modified"
+                ? "git-commit" // If the file is modified, the action is to commit the changes
+                : status === "added"
+                ? "diff-added" // If the file is added, the action is to add the file to the staging area
+                : status === "deleted"
+                ? "diff-removed" // If the file is deleted, the action is to remove the file from the staging area
+                : status === "renamed"
+                ? "diff-renamed" // If the file is renamed, the action is to rename the file
+                : status === "conflict"
+                ? "git-merge" // If the file is in conflict, the action is to resolve the merge conflict
+                : status === "untracked"
+                ? "file-add" // If the file is untracked, the action is to add the file to the staging area
+                : status === "committed"
+                ? "check" // If the file is committed, the action is to check the file
+                : "question" // If the status is unknown, the action is to ask a question
+        }`;
+        return <i className={iconClass} onClick={() => onClick(status)}></i>;
+    };
+
+    const handleSyncStatusClick = (metadata: AggregatedMetadata) => {
+        const fileUri = metadata.sourceUri || metadata.codexUri;
+        if (fileUri) {
+            vscode.postMessage({ command: "syncAction", status: metadata.gitStatus, fileUri });
+        } else {
+            console.error("No file URI available for sync action");
+        }
+    };
+
+    const getAttachments = (metadata: AggregatedMetadata): string => {
+        const attachments = [];
+        if (metadata.videoUrl) attachments.push("Video");
+        // Placeholder: Add logic for audio and images
+        return attachments.length > 0 ? attachments.join(", ") : "None";
+    };
+
     return (
         <div style={{ padding: "16px", maxWidth: "1200px", margin: "0 auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "24px" }}>
@@ -111,10 +163,20 @@ const SourceUploader: React.FC = () => {
                         style={{ display: "flex", justifyContent: "space-between" }}
                     >
                         <VSCodeDataGridCell cell-type="columnheader">Name</VSCodeDataGridCell>
-                        <VSCodeDataGridCell cell-type="columnheader">Type</VSCodeDataGridCell>
-                        <VSCodeDataGridCell cell-type="columnheader">Video URL</VSCodeDataGridCell>
+                        <VSCodeDataGridCell cell-type="columnheader">
+                            Source File
+                        </VSCodeDataGridCell>
+                        <VSCodeDataGridCell cell-type="columnheader">
+                            Target File
+                        </VSCodeDataGridCell>
+                        <VSCodeDataGridCell cell-type="columnheader">
+                            Attachments
+                        </VSCodeDataGridCell>
                         <VSCodeDataGridCell cell-type="columnheader">
                             Last Modified
+                        </VSCodeDataGridCell>
+                        <VSCodeDataGridCell cell-type="columnheader">
+                            Sync Status
                         </VSCodeDataGridCell>
                         <VSCodeDataGridCell cell-type="columnheader">Actions</VSCodeDataGridCell>
                     </VSCodeDataGridRow>
@@ -125,30 +187,35 @@ const SourceUploader: React.FC = () => {
                         >
                             <VSCodeDataGridCell>{metadata.originalName}</VSCodeDataGridCell>
                             <VSCodeDataGridCell>
-                                {metadata.sourceUri && metadata.codexUri
-                                    ? "Source & Translation"
-                                    : metadata.sourceUri
-                                    ? "Source"
-                                    : "Translation"}
+                                {metadata.sourceUri
+                                    ? metadata.sourceUri.split("/").pop()
+                                    : "Missing"}
                             </VSCodeDataGridCell>
                             <VSCodeDataGridCell>
-                                {metadata.videoUrl ? "Yes" : "No"}
+                                {metadata.codexUri ? metadata.codexUri.split("/").pop() : "Missing"}
                             </VSCodeDataGridCell>
+                            <VSCodeDataGridCell>{getAttachments(metadata)}</VSCodeDataGridCell>
                             <VSCodeDataGridCell>
                                 {metadata.lastModified || "N/A"}
+                            </VSCodeDataGridCell>
+                            <VSCodeDataGridCell>
+                                <GetSyncStatus
+                                    metadata={metadata}
+                                    onClick={() => handleSyncStatusClick(metadata)}
+                                />
                             </VSCodeDataGridCell>
                             <VSCodeDataGridCell>
                                 <VSCodeButton
                                     appearance="icon"
                                     onClick={() => console.log("Edit", metadata.id)}
                                 >
-                                    ✏️
+                                    <i className="codicon codicon-pencil"></i>
                                 </VSCodeButton>
                                 <VSCodeButton
                                     appearance="icon"
-                                    onClick={() => console.log("Delete", metadata.id)}
+                                    onClick={() => console.log("Open", metadata.id)}
                                 >
-                                    🗑️
+                                    <i className="codicon codicon-go-to-file"></i>
                                 </VSCodeButton>
                             </VSCodeDataGridCell>
                         </VSCodeDataGridRow>

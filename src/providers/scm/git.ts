@@ -204,7 +204,7 @@ export const hasRemote = async () => {
     return Boolean(repository?.state?.remotes?.length);
 };
 
-export const hasPendingChanges = async () => {
+export const hasPendingChanges = async (fileUris?: vscode.Uri[]): Promise<boolean> => {
     const gitApi: API = vscode.extensions.getExtension("vscode.git")?.exports.getAPI(1);
     if (!gitApi || gitApi.repositories.length === 0) {
         console.error("Git API not found or no repositories available at `hasPendingChanges`.");
@@ -214,6 +214,13 @@ export const hasPendingChanges = async () => {
     if (!repository) {
         return false;
     }
+
+    if (fileUris && fileUris.length > 0) {
+        return repository.state.workingTreeChanges.some((change) =>
+            fileUris.some((uri) => uri.fsPath === change.uri.fsPath)
+        );
+    }
+
     return Boolean(repository?.state?.workingTreeChanges?.length);
 };
 

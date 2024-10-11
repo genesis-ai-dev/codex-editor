@@ -1,11 +1,11 @@
 import * as vscode from "vscode";
 import { importTranslations } from "../../projectManager/translationImporter";
-import { FileType } from "../../../types";
 import { importSourceText } from "../../projectManager/sourceTextImporter";
 import { NotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { downloadBible } from "../../projectManager/projectInitializers";
-import { createEmptyCodexNotebooks } from "../../projectManager/sourceTextImporter";
 import { processDownloadedBible } from "../../projectManager/sourceTextImporter";
+import { initProject } from "../scm/git";
+import { registerScmCommands } from '../scm/scmActionHandler';
 
 function getNonce(): string {
     let text = "";
@@ -23,7 +23,9 @@ export class SourceUploadProvider
     onDidChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
     onDidChange = this.onDidChangeEmitter.event;
 
-    constructor(private readonly context: vscode.ExtensionContext) {}
+    constructor(private readonly context: vscode.ExtensionContext) {
+        registerScmCommands(context);
+    }
 
     public async resolveCustomDocument(
         document: vscode.CustomDocument,
@@ -112,6 +114,20 @@ export class SourceUploadProvider
                         vscode.window.showErrorMessage(`Error downloading Bible: ${error}`);
                     }
                     break;
+                case 'initializeRepo':
+                    try {
+                        await initProject('User Name', 'user@example.com', vscode.Uri.parse(message.folderUri));
+                        vscode.window.showInformationMessage('Repository initialized successfully.');
+                        await this.updateMetadata(webviewPanel);
+                    } catch (error) {
+                        console.error('Error initializing repository:', error);
+                        vscode.window.showErrorMessage('Failed to initialize repository.');
+                    }
+                    break;
+                case 'syncAction':
+                    await vscode.commands.executeCommand('codex.scm.handleSyncAction', vscode.Uri.parse(message.fileUri), message.status);
+                    await this.updateMetadata(webviewPanel);
+                    break;
                 default:
                     console.log("Unknown message command", message.command);
                     break;
@@ -130,11 +146,12 @@ export class SourceUploadProvider
             sourceUri: metadata.sourceUri?.fsPath,
             codexUri: metadata.codexUri?.fsPath,
             videoUrl: metadata.videoUrl,
-            lastModified: metadata.lastModified,
+            lastModified: metadata.codexLastModified,
+            gitStatus: metadata?.gitStatus,
         }));
 
         webviewPanel.webview.postMessage({
-            command: "updateMetadata",
+            command: 'updateMetadata',
             metadata: aggregatedMetadata,
         });
     }

@@ -1,19 +1,25 @@
+import { API, GitExtension } from "./../providers/scm/git.d";
 import * as vscode from "vscode";
 import { CodexContentSerializer } from "../serializer";
 import { generateUniqueId, clearIdCache } from "./idGenerator";
 import { NavigationCell, NotebookMetadata } from "./codexNotebookUtils";
-const DEBUG_MODE = true; // Set to true to enable debug logging
+import { API as GitAPI, Repository, Status } from "../providers/scm/git.d";
 
-// interface NotebookMetadata {
-//     id: string;
-//     sourceUri?: vscode.Uri;
-//     codexUri?: vscode.Uri;
-//     originalName: string;
-// }
+const DEBUG_MODE = true; // Set to true to enable debug logging
 
 function debugLog(...args: any[]): void {
     if (DEBUG_MODE) {
         console.log("[NotebookMetadataManager]", ...args);
+    }
+}
+
+async function getGitAPI(): Promise<GitAPI | undefined> {
+    const gitExtension = vscode.extensions.getExtension<GitExtension>("vscode.git");
+    if (gitExtension && gitExtension.isActive) {
+        return gitExtension.exports.getAPI(1);
+    } else {
+        await gitExtension?.activate();
+        return gitExtension?.exports.getAPI(1);
     }
 }
 
@@ -77,22 +83,95 @@ export class NotebookMetadataManager {
                     sourceFile: "",
                     navigation: [] as NavigationCell[],
                     videoUrl: "",
-                    lastModified: "",
-                    createdAt: "",
+                    sourceCreatedAt: "",
+                    codexLastModified: "",
+                    gitStatus: "uninitialized",
                 } as NotebookMetadata;
                 this.metadataMap.set(id, existingMetadata);
                 debugLog("Created new metadata entry:", id);
             }
 
+            const fileStat = await vscode.workspace.fs.stat(file);
+
             if (file.path.endsWith(".source")) {
                 existingMetadata.sourceUri = file;
+                existingMetadata.sourceCreatedAt = new Date(fileStat.ctime).toISOString();
                 debugLog("Updated sourceUri for:", id);
             } else if (file.path.endsWith(".codex")) {
                 existingMetadata.codexUri = file;
+                existingMetadata.codexLastModified = new Date(fileStat.mtime).toISOString();
                 debugLog("Updated codexUri for:", id);
             }
+
+            existingMetadata.gitStatus = await this.getGitStatusForFile(file);
         }
+
+        // Handle project.dictionary file
+        if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+            const workspaceUri = vscode.workspace.workspaceFolders[0].uri;
+            const dictionaryUri = vscode.Uri.joinPath(workspaceUri, "project.dictionary");
+            const dictionaryMetadata: NotebookMetadata = {
+                id: "projectDictionary",
+                originalName: "Project Dictionary",
+                sourceUri: dictionaryUri,
+                codexUri: dictionaryUri,
+                data: {},
+                sourceFile: "",
+                navigation: [],
+                videoUrl: "",
+                sourceCreatedAt: "",
+                codexLastModified: "",
+                gitStatus: await this.getGitStatusForFile(dictionaryUri),
+            };
+            this.metadataMap.set("projectDictionary", dictionaryMetadata);
+        }
+
         debugLog("Metadata loading complete. Total entries:", this.metadataMap.size);
+    }
+
+    private async getGitStatusForFile(fileUri: vscode.Uri): Promise<NotebookMetadata["gitStatus"]> {
+        const gitApi = await getGitAPI();
+        if (!gitApi || gitApi.repositories.length === 0) {
+            return "uninitialized";
+        }
+        const repository = gitApi.repositories[0];
+
+        if (!repository) {
+            return "uninitialized";
+        }
+
+        if (!repository.state.HEAD) {
+            return "uninitialized";
+        }
+
+        const workingChanges = repository.state.workingTreeChanges;
+        const indexChanges = repository.state.indexChanges;
+        const mergeChanges = repository.state.mergeChanges;
+
+        const inMerge = mergeChanges.some((change) => change.uri.fsPath === fileUri.fsPath);
+        if (inMerge) {
+            return "conflict";
+        }
+
+        const inIndex = indexChanges.some((change) => change.uri.fsPath === fileUri.fsPath);
+        if (inIndex) {
+            return "modified";
+        }
+
+        const inWorking = workingChanges.some((change) => change.uri.fsPath === fileUri.fsPath);
+        if (inWorking) {
+            return "modified";
+        }
+
+        // Check if the file is untracked
+        const isUntracked = workingChanges.some(
+            (change) => change.status === Status.UNTRACKED && change.uri.fsPath === fileUri.fsPath
+        );
+        if (isUntracked) {
+            return "untracked";
+        }
+
+        return "committed";
     }
 
     public getMetadataById(id: string): NotebookMetadata | undefined {
@@ -144,6 +223,8 @@ export class NotebookMetadataManager {
 
         // Update metadata in the .codex file if it exists
         if (metadata.codexUri) {
+            const fileStat = await vscode.workspace.fs.stat(metadata.codexUri);
+            metadata.codexLastModified = new Date(fileStat.mtime).toISOString();
             await this.updateMetadataInFile(metadata.codexUri, metadata);
         }
     }

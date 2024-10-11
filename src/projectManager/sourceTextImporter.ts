@@ -103,6 +103,8 @@ async function importSourceFile(
                 originalName: importedNotebookId,
                 data: {},
                 navigation: [],
+                sourceCreatedAt: "",
+                codexLastModified: "",
             };
 
             // Add metadata to the original source file
@@ -250,7 +252,7 @@ export async function processDownloadedBible(downloadedBibleFile: vscode.Uri): P
     // Create empty Codex notebooks for each newly created book file
     for (const sourceFile of createdSourceFiles) {
         const fileName = sourceFile.path.split("/").pop()?.split(".")[0] || "";
-        
+
         try {
             await createEmptyCodexNotebooks(fileName);
         } catch (error) {
