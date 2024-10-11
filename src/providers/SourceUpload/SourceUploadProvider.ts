@@ -54,10 +54,13 @@ export class SourceUploadProvider
 
         webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview);
 
+        // Initial load of metadata
+        await this.updateMetadata(webviewPanel);
+
         webviewPanel.webview.onDidReceiveMessage(async (message) => {
             switch (message.command) {
-                case "getCodexFiles":
-                    await this.updateCodexFiles(webviewPanel);
+                case "getMetadata":
+                    await this.updateMetadata(webviewPanel);
                     break;
                 case "uploadSourceText":
                     try {
@@ -67,7 +70,7 @@ export class SourceUploadProvider
                         );
                         await importSourceText(this.context, fileUri);
                         vscode.window.showInformationMessage("Source text uploaded successfully.");
-                        await this.updateCodexFiles(webviewPanel);
+                        await this.updateMetadata(webviewPanel);
                     } catch (error) {
                         console.error(`Error uploading source text: ${error}`);
                         vscode.window.showErrorMessage(`Error uploading source text: ${error}`);
@@ -90,7 +93,7 @@ export class SourceUploadProvider
                         }
                         await importTranslations(this.context, fileUri, sourceMetadata.id);
                         vscode.window.showInformationMessage("Translation uploaded successfully.");
-                        await this.updateCodexFiles(webviewPanel);
+                        await this.updateMetadata(webviewPanel);
                     } catch (error) {
                         console.error(`Error uploading translation: ${error}`);
                         vscode.window.showErrorMessage(`Error uploading translation: ${error}`);
@@ -113,6 +116,26 @@ export class SourceUploadProvider
                     console.log("Unknown message command", message.command);
                     break;
             }
+        });
+    }
+
+    private async updateMetadata(webviewPanel: vscode.WebviewPanel) {
+        const metadataManager = NotebookMetadataManager.getInstance();
+        await metadataManager.loadMetadata();
+        const allMetadata = metadataManager.getAllMetadata();
+
+        const aggregatedMetadata = allMetadata.map((metadata) => ({
+            id: metadata.id,
+            originalName: metadata.originalName,
+            sourceUri: metadata.sourceUri?.fsPath,
+            codexUri: metadata.codexUri?.fsPath,
+            videoUrl: metadata.videoUrl,
+            lastModified: metadata.lastModified,
+        }));
+
+        webviewPanel.webview.postMessage({
+            command: "updateMetadata",
+            metadata: aggregatedMetadata,
         });
     }
 

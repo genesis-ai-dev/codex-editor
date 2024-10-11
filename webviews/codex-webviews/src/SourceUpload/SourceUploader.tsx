@@ -1,70 +1,71 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
-import { VSCodeButton, VSCodeCheckbox, VSCodeDivider } from "@vscode/webview-ui-toolkit/react";
-import { FileType, SupportedFileExtension } from "../../../../types";
+import {
+    VSCodeButton,
+    VSCodeDataGrid,
+    VSCodeDataGridRow,
+    VSCodeDataGridCell,
+    VSCodeDropdown,
+    VSCodeOption,
+} from "@vscode/webview-ui-toolkit/react";
 
 const vscode = acquireVsCodeApi();
 
-interface CodexFile {
-    name: string;
-    uri: string;
+interface AggregatedMetadata {
+    id: string;
+    originalName: string;
+    sourceUri?: string;
+    codexUri?: string;
+    videoUrl?: string;
+    lastModified?: string;
 }
 
-const fileTypeMap: Record<SupportedFileExtension, FileType> = {
-    vtt: "subtitles",
-    txt: "plaintext",
-    usfm: "usfm",
-    sfm: "usfm",
-    SFM: "usfm",
-    USFM: "usfm",
-};
-
 const SourceUploader: React.FC = () => {
-    const [sourceFiles, setSourceFiles] = useState<CodexFile[]>([]);
-    const [targetFiles, setTargetFiles] = useState<CodexFile[]>([]);
+    const [aggregatedMetadata, setAggregatedMetadata] = useState<AggregatedMetadata[]>([]);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
-    const [fileType, setFileType] = useState<FileType | "">("");
-    const [isSourceUpload, setIsSourceUpload] = useState<boolean>(false);
+    const [isSourceUpload, setIsSourceUpload] = useState<boolean>(true);
     const [selectedSourceFile, setSelectedSourceFile] = useState<string | null>(null);
-    const [isFolder, setIsFolder] = useState<boolean>(false);
 
     useEffect(() => {
-        vscode.postMessage({ command: "getCodexFiles" });
+        vscode.postMessage({ command: "getMetadata" });
+
+        const messageHandler = (event: MessageEvent) => {
+            const message = event.data;
+            switch (message.command) {
+                case "updateMetadata":
+                    setAggregatedMetadata(message.metadata);
+                    break;
+            }
+        };
+
+        window.addEventListener("message", messageHandler);
+
+        return () => {
+            window.removeEventListener("message", messageHandler);
+        };
     }, []);
 
     const onDrop = useCallback((acceptedFiles: File[]) => {
         if (acceptedFiles.length > 0) {
             setSelectedFile(acceptedFiles[0]);
-            setIsFolder(acceptedFiles[0].type === ""); // Empty type usually indicates a folder
-            const extension = acceptedFiles[0].name.split(".").pop() as SupportedFileExtension;
-            setFileType(fileTypeMap[extension] || "plaintext");
         }
     }, []);
 
     const { getRootProps, getInputProps } = useDropzone({ onDrop });
 
     const handleUpload = async () => {
-        if (selectedFile && (fileType || isFolder)) {
-            if (isFolder) {
+        if (selectedFile) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const content = e.target?.result?.toString() || "";
                 vscode.postMessage({
-                    command: isSourceUpload ? "uploadSourceFolder" : "uploadTranslationFolder",
-                    folderName: selectedFile.name,
+                    command: isSourceUpload ? "uploadSourceText" : "uploadTranslation",
+                    fileContent: content,
+                    fileName: selectedFile.name,
                     sourceFileName: selectedSourceFile,
                 });
-            } else {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    const content = e.target?.result?.toString() || "";
-                    vscode.postMessage({
-                        command: isSourceUpload ? "uploadSourceText" : "uploadTranslation",
-                        fileContent: content,
-                        fileType: fileType,
-                        fileName: selectedFile.name,
-                        sourceFileName: selectedSourceFile,
-                    });
-                };
-                reader.readAsText(selectedFile);
-            }
+            };
+            reader.readAsText(selectedFile);
         }
     };
 
@@ -72,94 +73,151 @@ const SourceUploader: React.FC = () => {
         vscode.postMessage({ command: "downloadBible" });
     };
 
-    window.addEventListener("message", (event) => {
-        const message = event.data;
-        switch (message.command) {
-            case "updateCodexFiles":
-                setSourceFiles(message.sourceFiles);
-                setTargetFiles(message.targetFiles);
-                break;
-        }
-    });
+    const handleImportTranslation = () => {
+        setIsSourceUpload(false);
+    };
 
     return (
-        <div
-            style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: "10px",
-                height: "80vh",
-                justifyContent: "center",
-            }}
-        >
-            <h1>File Upload</h1>
-
-            <VSCodeCheckbox
-                checked={isSourceUpload}
-                onChange={() => setIsSourceUpload(!isSourceUpload)}
-            >
-                Upload Source Text
-            </VSCodeCheckbox>
-
-            <h2>Existing Source Files (.source)</h2>
-            <ul>
-                {sourceFiles.map((file) => (
-                    <li key={file.uri}>{file.name}</li>
-                ))}
-            </ul>
-
-            <h2>Existing Target Files (.codex)</h2>
-            <ul>
-                {targetFiles.map((file) => (
-                    <li key={file.uri}>{file.name}</li>
-                ))}
-            </ul>
+        <div style={{ padding: "16px", maxWidth: "1200px", margin: "0 auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "24px" }}>
+                <h1 style={{ fontSize: "24px", fontWeight: "bold" }}>Source Manager</h1>
+                <div>
+                    <VSCodeButton onClick={() => setIsSourceUpload(true)}>
+                        Add New Source
+                    </VSCodeButton>
+                    <VSCodeButton onClick={handleImportTranslation} style={{ marginLeft: "8px" }}>
+                        Import Translation
+                    </VSCodeButton>
+                    <VSCodeButton onClick={handleDownloadBible} style={{ marginLeft: "8px" }}>
+                        Download Bible
+                    </VSCodeButton>
+                </div>
+            </div>
 
             <div
-                {...getRootProps()}
-                style={{ border: "2px dashed #ccc", padding: "20px", marginTop: "20px" }}
+                style={{
+                    height: "400px",
+                    overflow: "auto",
+                    marginBottom: "32px",
+                    border: "1px solid var(--vscode-widget-border)",
+                }}
             >
-                <input {...getInputProps()} />
-                <p>
-                    Drag 'n' drop a {isSourceUpload ? "source" : "translation"} file or folder here,
-                    or click to select a file or folder
-                </p>
-            </div>
-            {selectedFile && (
-                <p>
-                    Selected {isFolder ? "folder" : "file"}: {selectedFile.name}
-                </p>
-            )}
-
-            {!isSourceUpload && (
-                <div>
-                    <h3>Select corresponding source file:</h3>
-                    <select
-                        value={selectedSourceFile || ""}
-                        onChange={(e) => setSelectedSourceFile(e.target.value)}
+                <VSCodeDataGrid
+                    aria-label="Source and Target Files"
+                    style={{ display: "flex", flexDirection: "column" }}
+                >
+                    <VSCodeDataGridRow
+                        row-type="header"
+                        style={{ display: "flex", justifyContent: "space-between" }}
                     >
-                        <option value="">Select a source file</option>
-                        {sourceFiles.map((file) => (
-                            <option key={file.uri} value={file.name}>
-                                {file.name}
-                            </option>
-                        ))}
-                    </select>
+                        <VSCodeDataGridCell cell-type="columnheader">Name</VSCodeDataGridCell>
+                        <VSCodeDataGridCell cell-type="columnheader">Type</VSCodeDataGridCell>
+                        <VSCodeDataGridCell cell-type="columnheader">Video URL</VSCodeDataGridCell>
+                        <VSCodeDataGridCell cell-type="columnheader">
+                            Last Modified
+                        </VSCodeDataGridCell>
+                        <VSCodeDataGridCell cell-type="columnheader">Actions</VSCodeDataGridCell>
+                    </VSCodeDataGridRow>
+                    {aggregatedMetadata.map((metadata) => (
+                        <VSCodeDataGridRow
+                            key={metadata.id}
+                            style={{ display: "flex", justifyContent: "space-between" }}
+                        >
+                            <VSCodeDataGridCell>{metadata.originalName}</VSCodeDataGridCell>
+                            <VSCodeDataGridCell>
+                                {metadata.sourceUri && metadata.codexUri
+                                    ? "Source & Translation"
+                                    : metadata.sourceUri
+                                    ? "Source"
+                                    : "Translation"}
+                            </VSCodeDataGridCell>
+                            <VSCodeDataGridCell>
+                                {metadata.videoUrl ? "Yes" : "No"}
+                            </VSCodeDataGridCell>
+                            <VSCodeDataGridCell>
+                                {metadata.lastModified || "N/A"}
+                            </VSCodeDataGridCell>
+                            <VSCodeDataGridCell>
+                                <VSCodeButton
+                                    appearance="icon"
+                                    onClick={() => console.log("Edit", metadata.id)}
+                                >
+                                    ✏️
+                                </VSCodeButton>
+                                <VSCodeButton
+                                    appearance="icon"
+                                    onClick={() => console.log("Delete", metadata.id)}
+                                >
+                                    🗑️
+                                </VSCodeButton>
+                            </VSCodeDataGridCell>
+                        </VSCodeDataGridRow>
+                    ))}
+                </VSCodeDataGrid>
+            </div>
+
+            <div>
+                <h2 style={{ fontSize: "18px", fontWeight: "600", marginBottom: "8px" }}>
+                    {isSourceUpload ? "Upload New Source" : "Import Translation"}
+                </h2>
+                <div
+                    {...getRootProps()}
+                    style={{
+                        border: "2px dashed var(--vscode-widget-border)",
+                        borderRadius: "4px",
+                        padding: "32px",
+                        textAlign: "center",
+                        cursor: "pointer",
+                    }}
+                >
+                    <input {...getInputProps()} />
+                    <p style={{ color: "var(--vscode-foreground)" }}>
+                        Drag 'n' drop a {isSourceUpload ? "source" : "translation"} file here, or
+                        click to select
+                    </p>
                 </div>
-            )}
 
-            <VSCodeButton
-                onClick={handleUpload}
-                disabled={!selectedFile || (!isSourceUpload && !selectedSourceFile)}
-            >
-                Upload {isSourceUpload ? "Source Text" : "Translation"}
-            </VSCodeButton>
+                {selectedFile && (
+                    <p style={{ marginTop: "8px", fontSize: "14px" }}>
+                        Selected file: {selectedFile.name}
+                    </p>
+                )}
 
-            <VSCodeDivider />
+                {!isSourceUpload && (
+                    <div style={{ marginTop: "16px" }}>
+                        <label
+                            htmlFor="sourceFile"
+                            style={{ display: "block", marginBottom: "4px", fontSize: "14px" }}
+                        >
+                            Select corresponding source file:
+                        </label>
+                        <VSCodeDropdown
+                            id="sourceFile"
+                            value={selectedSourceFile || ""}
+                            onChange={(e) =>
+                                setSelectedSourceFile((e.target as HTMLSelectElement).value)
+                            }
+                        >
+                            <VSCodeOption value="">Select a source file</VSCodeOption>
+                            {aggregatedMetadata
+                                .filter((metadata) => metadata.sourceUri)
+                                .map((metadata) => (
+                                    <VSCodeOption key={metadata.id} value={metadata.originalName}>
+                                        {metadata.originalName}
+                                    </VSCodeOption>
+                                ))}
+                        </VSCodeDropdown>
+                    </div>
+                )}
 
-            <h2>Download Bible from eBible Corpus</h2>
-            <VSCodeButton onClick={handleDownloadBible}>Download Bible</VSCodeButton>
+                <VSCodeButton
+                    style={{ marginTop: "16px" }}
+                    onClick={handleUpload}
+                    disabled={!selectedFile || (!isSourceUpload && !selectedSourceFile)}
+                >
+                    Upload {isSourceUpload ? "Source" : "Translation"}
+                </VSCodeButton>
+            </div>
         </div>
     );
 };

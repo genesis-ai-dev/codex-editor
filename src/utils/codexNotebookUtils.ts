@@ -84,6 +84,8 @@ export interface NotebookMetadata {
     sourceFile: string;
     navigation: NavigationCell[];
     perf?: any;
+    videoUrl?: string;
+    lastModified?: string;
 }
 
 export interface NavigationCell {

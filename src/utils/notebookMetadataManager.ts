@@ -1,15 +1,15 @@
 import * as vscode from "vscode";
 import { CodexContentSerializer } from "../serializer";
 import { generateUniqueId, clearIdCache } from "./idGenerator";
-
+import { NavigationCell, NotebookMetadata } from "./codexNotebookUtils";
 const DEBUG_MODE = true; // Set to true to enable debug logging
 
-interface NotebookMetadata {
-    id: string;
-    sourceUri?: vscode.Uri;
-    codexUri?: vscode.Uri;
-    originalName: string;
-}
+// interface NotebookMetadata {
+//     id: string;
+//     sourceUri?: vscode.Uri;
+//     codexUri?: vscode.Uri;
+//     originalName: string;
+// }
 
 function debugLog(...args: any[]): void {
     if (DEBUG_MODE) {
@@ -28,6 +28,10 @@ export class NotebookMetadataManager {
             NotebookMetadataManager.instance = new NotebookMetadataManager();
         }
         return NotebookMetadataManager.instance;
+    }
+
+    public getAllMetadata(): NotebookMetadata[] {
+        return Array.from(this.metadataMap.values());
     }
 
     public async loadMetadata(): Promise<void> {
@@ -67,8 +71,14 @@ export class NotebookMetadataManager {
                 existingMetadata = {
                     id,
                     originalName,
-                    sourceUri: undefined,
-                    codexUri: undefined,
+                    sourceUri: undefined as unknown as vscode.Uri,
+                    codexUri: undefined as unknown as vscode.Uri,
+                    data: {},
+                    sourceFile: "",
+                    navigation: [] as NavigationCell[],
+                    videoUrl: "",
+                    lastModified: "",
+                    createdAt: "",
                 } as NotebookMetadata;
                 this.metadataMap.set(id, existingMetadata);
                 debugLog("Created new metadata entry:", id);
