@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { ChatMessageWithContext } from "../../../../types";
 import { VSCodeTag } from "@vscode/webview-ui-toolkit/react";
 import { ChatRoleLabel } from "../common";
@@ -12,8 +12,23 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     messageItem,
     showSenderRoleLabels = false,
 }) => {
+    const [isHovered, setIsHovered] = useState(false);
+    const [isDropdownVisible, setIsDropdownVisible] = useState(false);
+
+    const handleMouseEnter = () => setIsHovered(true);
+    const handleMouseLeave = () => setIsHovered(false);
+    const toggleDropdown = () => setIsDropdownVisible(!isDropdownVisible);
+
+    const handleEditClick = () => {
+        alert('Edit option clicked.'); // Or implement the actual edit function in the future
+    };
+
+
+
     return (
-        <div
+        <div          
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
             style={{
                 display: messageItem.role === "system" ? "none" : "flex",
                 flexDirection: "column",
@@ -95,6 +110,29 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                 )}
                 <div style={{ display: "flex" }}>{messageItem.content}</div>
             </div>
+
+            {isHovered && (
+                <div onClick={toggleDropdown} style={{ position: "absolute", top: "0", right: "0" }}>
+                    {/* Replace with your dropdown icon */}
+                    <span>▼</span> {/* Placeholder icon */}
+                </div>
+            )}
+
+            {/* Dropdown Menu */}
+            {isDropdownVisible && (
+                <div style={{
+                    position: "absolute",
+                    top: "20px",  // Adjust based on your layout
+                    right: "0",
+                    backgroundColor: "white", // Customize styles
+                    boxShadow: "0 2px 6px rgba(0, 0, 0, 0.1)",
+                    zIndex: 1000
+                }}>
+                    <div onClick={handleEditClick} style={{ padding: "8px", cursor: "pointer" }}>
+                        Edit
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
