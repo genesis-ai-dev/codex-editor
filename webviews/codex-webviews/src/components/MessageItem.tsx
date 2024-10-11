@@ -31,6 +31,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     const handleEditClick = () => {
         setIsEditing(true);
         setIsDropdownVisible(false); // close dropdown
+        setEditedContent(messageItem.content); // Reset edited content
     };
 
     const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -144,7 +145,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                             onClick={handleSaveClick}
                             style={{
                                 position: "absolute",
-                                top: "50%",
+                                top: "150%",
                                 right: "-10px", // Adjust position as needed
                                 transform: "translateY(-50%)", // Center vertically
                                 cursor: "pointer",

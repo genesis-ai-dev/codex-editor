@@ -368,6 +368,18 @@ function App() {
             </>
         );
     };
+
+    const onEditComplete = (updatedMessage: ChatMessageWithContext) => {
+        setMessageLog(
+            messageLog.map((message) =>
+                message.createdAt === updatedMessage.createdAt
+                    ? { ...message, content: updatedMessage.content }
+                    : message
+            )
+        );
+        console.log("joshEdit: onEditComplete", updatedMessage);
+    };
+
     //   const currentMessageThreadTitle = availableMessageThreads?.find(
     //     (messageThread) => messageThread.id === currentMessageThreadId
     //   )?.threadTitle;
@@ -431,6 +443,7 @@ function App() {
                         key={index}
                         messageItem={messageLogItem}
                         showSenderRoleLabels={SHOW_SENDER_ROLE_LABELS}
+                        onEditComplete={onEditComplete}
                     />
                 ))}
                 {pendingMessage?.role === "assistant" && pendingMessage?.content.length > 0 ? (
