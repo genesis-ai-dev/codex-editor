@@ -10,13 +10,11 @@ export class DownloadedResourcesProvider implements vscode.WebviewViewProvider {
 
     private resourcesProvider: ResourcesProvider;
 
-    public static register(
-        context: vscode.ExtensionContext,
-    ): vscode.Disposable {
+    public static register(context: vscode.ExtensionContext): vscode.Disposable {
         const provider = new DownloadedResourcesProvider(context);
         const providerRegistration = vscode.window.registerWebviewViewProvider(
             DownloadedResourcesProvider.viewType,
-            provider,
+            provider
         );
         return providerRegistration;
     }
@@ -31,14 +29,14 @@ export class DownloadedResourcesProvider implements vscode.WebviewViewProvider {
     public async resolveWebviewView(
         webviewPanel: vscode.WebviewView,
         ctx: vscode.WebviewViewResolveContext,
-        _token: vscode.CancellationToken,
+        _token: vscode.CancellationToken
     ): Promise<void> {
         webviewPanel.webview.options = {
             enableScripts: true,
         };
         webviewPanel.webview.html = this._getWebviewContent(
             webviewPanel.webview,
-            this.context.extensionUri,
+            this.context.extensionUri
         );
 
         // Receive message from the webview.
@@ -47,24 +45,20 @@ export class DownloadedResourcesProvider implements vscode.WebviewViewProvider {
                 switch (e.type) {
                     case MessageType.OPEN_RESOURCE:
                         console.log("Opening resource: ", e.payload);
-                        this.resourcesProvider._openResource(
-                            (e.payload as any)?.resource as any,
-                        );
+                        this.resourcesProvider._openResource((e.payload as any)?.resource as any);
                         break;
 
                     case MessageType.SYNC_DOWNLOADED_RESOURCES:
                         await this.resourcesProvider
                             .syncDownloadedResources(this._webviewView)
                             .then(() => {
-                                console.log(
-                                    "Downloaded resources synced! From the action!",
-                                );
+                                console.log("Downloaded resources synced! From the action!");
                             });
                         break;
                     default:
                         break;
                 }
-            },
+            }
         );
 
         this._webviewView = webviewPanel;
@@ -74,10 +68,7 @@ export class DownloadedResourcesProvider implements vscode.WebviewViewProvider {
         this._webviewView = panel;
     }
 
-    private _getWebviewContent(
-        webview: vscode.Webview,
-        extensionUri: vscode.Uri,
-    ) {
+    private _getWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri) {
         // The CSS file from the React build output
 
         const stylesUri = getUri(webview, extensionUri, [

@@ -1,229 +1,158 @@
-"use strict";
 import * as vscode from "vscode";
 import { registerTextSelectionHandler } from "./handlers/textSelectionHandler";
 import { registerReferencesCodeLens } from "./referencesCodeLensProvider";
 import { registerSourceCodeLens } from "./sourceCodeLensProvider";
 import { indexVerseRefsInSourceText } from "./commands/indexVrefsCommand";
-
-import { ResourcesProvider } from "./providers/obs/resources/resourcesProvider";
-import { StoryOutlineProvider } from "./providers/obs/storyOutline/storyOutlineProvider";
-import { ObsEditorProvider } from "./providers/obs/editor/ObsEditorProvider";
+import { registerProviders } from "./providers/registerProviders";
 import { registerCommands } from "./activationHelpers/contextAware/commands";
-import { promptForLocalSync } from "./providers/scm/git";
-import { TranslationNotesProvider } from "./providers/translationNotes/TranslationNotesProvider";
-import { registerScmStatusBar } from "./providers/scm/statusBar";
-import { DownloadedResourcesProvider } from "./providers/downloadedResource/provider";
-import {
-    handleConfig,
-    onBoard,
-    initializeProject,
-} from "./activationHelpers/contextUnaware/projectInitializers";
-import { createIndexWithContext } from "./activationHelpers/contextAware/miniIndex/indexes/index";
 import { initializeWebviews } from "./activationHelpers/contextAware/webviewInitializers";
-import { syncUtils } from "./activationHelpers/contextAware/syncUtils";
-import { initializeStateStore } from "./stateStore";
-import { projectFileExists } from "./utils/fileUtils";
 import { registerCompletionsCodeLensProviders } from "./activationHelpers/contextAware/completionsCodeLensProviders";
-import { CodexChunkEditorProvider } from "./providers/codexChunkEditorProvider/codexChunkEditorProvider";
-import * as path from "path";
-import {
-    LanguageClient,
-    LanguageClientOptions,
-    ServerOptions,
-    TransportKind,
-} from "vscode-languageclient/node";
-
 import { initializeBibleData } from "./activationHelpers/contextAware/sourceData";
+import { registerLanguageServer } from "./tsServer/registerLanguageServer";
+import { registerClientCommands } from "./tsServer/registerClientCommands";
+import registerClientOnRequests from "./tsServer/registerClientOnRequests";
+import { registerSmartEditCommands } from "./smartEdits/registerSmartEditCommands";
+import { LanguageClient } from "vscode-languageclient/node";
+import { registerProjectManager } from "./projectManager";
+import {
+    temporaryMigrationScript_checkMatthewNotebook,
+    migration_changeDraftFolderToFilesFolder,
+} from "./projectManager/utils/migrationUtils";
+import { createIndexWithContext } from "./activationHelpers/contextAware/miniIndex/indexes";
+import { registerSourceUploadCommands } from "./providers/SourceUpload/registerCommands";
+import { migrateSourceFiles } from "./utils/codexNotebookUtils";
+import { VideoEditorProvider } from "./providers/VideoEditor/VideoEditorProvider";
+import { registerVideoPlayerCommands } from "./providers/VideoPlayer/registerCommands";
+import { SourceUploadProvider } from "./providers/SourceUpload/SourceUploadProvider";
 
-let scmInterval: any; // Webpack & typescript for vscode are having issues
-
-// initial autoCommit config
-const configuration = vscode.workspace.getConfiguration(
-    "codex-editor-extension.scm",
-);
-let autoCommitEnabled = configuration.get<boolean>("autoCommit", true);
-
-let client: LanguageClient;
+let client: LanguageClient | undefined;
+let clientCommandsDisposable: vscode.Disposable;
 
 export async function activate(context: vscode.ExtensionContext) {
-    await indexVerseRefsInSourceText();
-    await handleConfig();
+    vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
+
+    const fs = vscode.workspace.fs;
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+
+    // Always register the project manager
+    registerProjectManager(context);
+
+    if (workspaceFolders && workspaceFolders.length > 0) {
+        const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
+
+        let metadataExists = false;
+        try {
+            await fs.stat(metadataUri);
+            metadataExists = true;
+        } catch {
+            metadataExists = false;
+        }
+
+        if (!metadataExists) {
+            console.log("metadata.json not found. Waiting for initialization.");
+            await watchForInitialization(context, metadataUri);
+        } else {
+            await initializeExtension(context, metadataExists);
+        }
+    } else {
+        console.log("No workspace folder found");
+        vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
+    }
+
+    // Register these commands regardless of metadata existence
+    registerVideoPlayerCommands(context);
+    registerSmartEditCommands(context); // For the language server onRequest stuff
+    await registerSourceUploadCommands(context);
+    registerProviders(context);
+    await registerCommands(context);
+    await initializeWebviews(context);
+
+    await executeCommandsAfter();
+    await temporaryMigrationScript_checkMatthewNotebook();
+    await migration_changeDraftFolderToFilesFolder();
+    await migrateSourceFiles();
+}
+
+async function initializeExtension(context: vscode.ExtensionContext, metadataExists: boolean) {
+    console.log("Initializing extension");
+
+    if (metadataExists) {
+        console.log("metadata.json exists");
+        vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
+
+        const codexNotebooksUris = await vscode.workspace.findFiles("files/target/*.codex");
+        if (codexNotebooksUris.length === 0) {
+            vscode.commands.executeCommand("codex-project-manager.openSourceUpload");
+        }
+
+        registerCodeLensProviders(context);
+        registerTextSelectionHandler(context, () => undefined);
+        await initializeBibleData(context);
+
+        client = await registerLanguageServer(context);
+
+        if (client) {
+            clientCommandsDisposable = registerClientCommands(context, client);
+            await registerClientOnRequests(client); // So that the language server thread can interface with the main extension commands
+            context.subscriptions.push(clientCommandsDisposable);
+        }
+
+        await indexVerseRefsInSourceText();
+        await createIndexWithContext(context);
+    } else {
+        console.log("metadata.json not found. Showing project overview.");
+        vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
+    }
+}
+
+let watcher: vscode.FileSystemWatcher | undefined;
+
+async function watchForInitialization(context: vscode.ExtensionContext, metadataUri: vscode.Uri) {
+    const fs = vscode.workspace.fs;
+    watcher = vscode.workspace.createFileSystemWatcher("**/*");
+
+    const checkInitialization = async () => {
+        let metadataExists = false;
+        try {
+            await fs.stat(metadataUri);
+            metadataExists = true;
+        } catch {
+            metadataExists = false;
+        }
+
+        if (metadataExists) {
+            watcher?.dispose();
+            await initializeExtension(context, metadataExists);
+        }
+    };
+
+    watcher.onDidCreate(checkInitialization);
+    watcher.onDidChange(checkInitialization);
+    watcher.onDidDelete(checkInitialization);
+
+    context.subscriptions.push(watcher);
+
+    // Show project overview immediately, don't wait for metadata
+    vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
+}
+
+function registerCodeLensProviders(context: vscode.ExtensionContext) {
     registerReferencesCodeLens(context);
     registerSourceCodeLens(context);
     registerCompletionsCodeLensProviders(context);
-    registerTextSelectionHandler(context, () => undefined);
-
-    const [, syncStatus] = registerScmStatusBar(context);
-    syncUtils.registerSyncCommands(context, syncStatus);
-
-    DownloadedResourcesProvider.register(context);
-    const { providerRegistration, commandRegistration } =
-        TranslationNotesProvider.register(context);
-
-    context.subscriptions.push(ResourcesProvider.register(context));
-    context.subscriptions.push(StoryOutlineProvider.register(context));
-    context.subscriptions.push(ObsEditorProvider.register(context));
-    context.subscriptions.push(providerRegistration);
-    context.subscriptions.push(commandRegistration);
-    console.log("CodexChunkEditorProvider registered");
-    context.subscriptions.push(CodexChunkEditorProvider.register(context));
-
-    // Set up the language client
-    const serverModule = context.asAbsolutePath(path.join("out", "server.js"));
-    const debugOptions = { execArgv: ["--nolazy", "--inspect=6009"] };
-
-    const serverOptions: ServerOptions = {
-        run: { module: serverModule, transport: TransportKind.ipc },
-        debug: {
-            module: serverModule,
-            transport: TransportKind.ipc,
-            options: debugOptions,
-        },
-    };
-
-    const clientOptions: LanguageClientOptions = {
-        documentSelector: [
-            { scheme: "file", language: "*" },
-            { scheme: "vscode-notebook-cell", language: "*" },
-            { notebook: "*", language: "*" },
-        ],
-        synchronize: {
-            fileEvents:
-                vscode.workspace.createFileSystemWatcher("**/.clientrc"),
-        },
-    };
-
-    client = new LanguageClient(
-        "scriptureLanguageServer",
-        "Scripture Language Server",
-        serverOptions,
-        clientOptions,
-    );
-    // Start the client. This will also launch the server
-    client
-        .start()
-        .then(() => {
-            context.subscriptions.push(client);
-            // Register the server.getSimilarWords command
-            context.subscriptions.push(
-                vscode.commands.registerCommand(
-                    "server.getSimilarWords",
-                    async (word: string) => {
-                        if (client) {
-                            return client.sendRequest(
-                                "server.getSimilarWords",
-                                [word],
-                            );
-                        }
-                    },
-                ),
-            );
-        })
-        .catch((error) => {
-            console.error("Failed to start the client:", error);
-        });
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "spellcheck.checkText",
-            async (text: string) => {
-                if (client) {
-                    return client.sendRequest("spellcheck/check", { text });
-                }
-            },
-        ),
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "spellcheck.addWord",
-            async (word: string) => {
-                console.log("spellcheck.addWord", { word });
-                if (client) {
-                    console.log("sending request inside addWord");
-                    return client.sendRequest("spellcheck/addWord", { word });
-                }
-            },
-        ),
-    );
-
-    await executeCommandsAfter();
-    await startSyncLoop(context);
-    await registerCommands(context);
-    await createIndexWithContext(context);
-    await initializeBibleData(context);
-    await initializeWebviews(context);
-}
-
-export function deactivate(): Thenable<void> | undefined {
-    if (!client) {
-        return undefined;
-    }
-    return client.stop();
 }
 
 async function executeCommandsAfter() {
-    // wasn't sure if these had to be executed seperately but it's here to be on the safeside, otherwise later it should go in commands.ts
-
     vscode.commands.executeCommand("workbench.action.focusAuxiliaryBar");
-    vscode.commands.executeCommand(
-        "codex-editor-extension.setEditorFontToTargetLanguage",
-    );
+    vscode.commands.executeCommand("translation-navigation.refreshNavigationTreeView");
+    vscode.commands.executeCommand("codex-editor-extension.setEditorFontToTargetLanguage");
 }
 
-async function startSyncLoop(context: vscode.ExtensionContext) {
-    console.log("sync loop timer refreshed");
-    const syncIntervalTime = 1000 * 60 * 15; // 15 minutes
-
-    function startInterval() {
-        scmInterval = setInterval(promptForLocalSync, syncIntervalTime);
+export function deactivate() {
+    if (clientCommandsDisposable) {
+        clientCommandsDisposable.dispose();
     }
-
-    function stopInterval() {
-        if (scmInterval) {
-            clearInterval(scmInterval);
-            scmInterval = null;
-        }
+    if (client) {
+        return client.stop();
     }
-
-    if (autoCommitEnabled) {
-        startInterval();
-    }
-
-    const configChangeSubscription = vscode.workspace.onDidChangeConfiguration(
-        (e) => {
-            if (
-                e.affectsConfiguration("codex-editor-extension.scm.remoteUrl")
-            ) {
-                syncUtils.checkConfigRemoteAndUpdateIt();
-            }
-            if (
-                e.affectsConfiguration("codex-editor-extension.scm.autoCommit")
-            ) {
-                const updatedConfiguration = vscode.workspace.getConfiguration(
-                    "codex-editor-extension.scm",
-                );
-                autoCommitEnabled = updatedConfiguration.get<boolean>(
-                    "autoCommit",
-                    true,
-                );
-                vscode.window.showInformationMessage(
-                    `Auto-commit is now ${
-                        autoCommitEnabled ? "enabled" : "disabled"
-                    }.`,
-                );
-
-                if (autoCommitEnabled) {
-                    startInterval();
-                } else {
-                    stopInterval();
-                }
-            }
-        },
-    );
-
-    context.subscriptions.push(configChangeSubscription);
-    setTimeout(() => {
-        syncUtils.checkConfigRemoteAndUpdateIt();
-    }, 3000);
 }

@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import {
     triggerInlineCompletion,
-    provideInlineCompletionItems
+    provideInlineCompletionItems,
 } from "../../providers/translationSuggestions/inlineCompletionsProvider";
 import VerseCompletionCodeLensProvider from "../../providers/translationSuggestions/verseCompletionCodeLensProvider";
 
@@ -9,7 +9,6 @@ let statusBarItem: vscode.StatusBarItem;
 
 export async function registerCompletionsCodeLensProviders(context: vscode.ExtensionContext) {
     try {
-
         statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
         context.subscriptions.push(statusBarItem);
 
@@ -33,14 +32,15 @@ export async function registerCompletionsCodeLensProviders(context: vscode.Exten
         // Register the CodeLensProvider
         context.subscriptions.push(
             vscode.languages.registerCodeLensProvider(
-                { language: 'scripture' },
+                { language: "scripture" },
                 new VerseCompletionCodeLensProvider()
             )
         );
-
     } catch (error) {
         console.error("Error activating extension", error);
-        vscode.window.showErrorMessage("Failed to activate Translators Copilot. Please check the logs for details.");
+        vscode.window.showErrorMessage(
+            "Failed to activate Translators Copilot. Please check the logs for details."
+        );
     }
 }
 

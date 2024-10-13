@@ -1,13 +1,22 @@
 import * as vscode from "vscode";
-import { addRemote, checkConfigRemoteAndUpdateIt, stageAndCommit, sync } from "../../providers/scm/git";
+import {
+    addRemote,
+    checkConfigRemoteAndUpdateIt,
+    stageAndCommit,
+    sync,
+} from "../../providers/scm/git";
 
 export const syncUtils = {
-    registerSyncCommands(context: vscode.ExtensionContext, syncStatus: any) { // FIXME: what type is sync status??
+    registerSyncCommands(context: vscode.ExtensionContext, syncStatus: any) {
+        // FIXME: what type is sync status??
         context.subscriptions.push(
-            vscode.commands.registerCommand("codex-editor-extension.scm.stageAndCommitAll", async () => {
-                await stageAndCommit();
-                await syncStatus();
-            }),
+            vscode.commands.registerCommand(
+                "codex-editor-extension.scm.stageAndCommitAll",
+                async () => {
+                    await stageAndCommit();
+                    await syncStatus();
+                }
+            )
         );
 
         context.subscriptions.push(
@@ -22,23 +31,25 @@ export const syncUtils = {
                 }
 
                 await syncStatus();
-            }),
+            })
         );
 
         context.subscriptions.push(
             vscode.commands.registerCommand("codex-editor-extension.scm.sync", async () => {
                 await sync();
                 await syncStatus();
-            }),
+            })
         );
 
         context.subscriptions.push(
-            vscode.commands.registerCommand("codex-editor-extension.scm.syncedNotification", async () => {
-                vscode.window.showInformationMessage("Project is synced");
-            }),
+            vscode.commands.registerCommand(
+                "codex-editor-extension.scm.syncedNotification",
+                async () => {
+                    vscode.window.showInformationMessage("Project is synced");
+                }
+            )
         );
     },
 
     checkConfigRemoteAndUpdateIt,
 };
-

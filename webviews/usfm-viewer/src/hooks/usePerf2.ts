@@ -31,7 +31,7 @@ export default function usePerf({
                 htmlMap,
                 options: { historySize: 100 },
             }),
-        [],
+        []
     );
 
     useDeepCompareEffect(() => {
@@ -101,10 +101,8 @@ export default function usePerf({
         setHtmlPerf(newPerfHtml);
     };
 
-    const canUndo =
-        (epiteleteHtml?.canUndo && epiteleteHtml?.canUndo(bookId)) || false;
-    const canRedo =
-        (epiteleteHtml?.canRedo && epiteleteHtml?.canRedo(bookId)) || false;
+    const canUndo = (epiteleteHtml?.canUndo && epiteleteHtml?.canUndo(bookId)) || false;
+    const canRedo = (epiteleteHtml?.canRedo && epiteleteHtml?.canRedo(bookId)) || false;
 
     const state = {
         bookId,

@@ -1,11 +1,7 @@
 import { useEffect, useState } from "react";
 import { renderToPage } from "../utilities/main-vscode";
 import { vscode } from "../utilities/vscode";
-import {
-    VSCodePanelTab,
-    VSCodePanelView,
-    VSCodePanels,
-} from "@vscode/webview-ui-toolkit/react";
+import { VSCodePanelTab, VSCodePanelView, VSCodePanels } from "@vscode/webview-ui-toolkit/react";
 import TranslationNoteScroller from "../components/TranslationNoteScroller";
 
 const ObsTranslationNotes = () => {
@@ -23,9 +19,7 @@ const ObsTranslationNotes = () => {
     const decrementNoteIndex = () => {
         setNoteIndex((prevIndex) => {
             if (prevIndex === 0) {
-                return translationNotes?.length
-                    ? translationNotes.length - 1
-                    : 0;
+                return translationNotes?.length ? translationNotes.length - 1 : 0;
             }
             return prevIndex - 1;
         });
@@ -57,21 +51,14 @@ const ObsTranslationNotes = () => {
 renderToPage(<ObsTranslationNotes />);
 
 const useTranslationNotes = () => {
-    const [translationNotes, setTranslationQuestions] = useState<
-        Record<string, string>[]
-    >([]);
+    const [translationNotes, setTranslationQuestions] = useState<Record<string, string>[]>([]);
 
     useEffect(() => {
         vscode.setMessageListeners((event) => {
             switch (event.data.type) {
                 case "update-tn":
-                    setTranslationQuestions(
-                        event.data.payload.translationNotes ?? [],
-                    );
-                    console.log(
-                        "event.data.payload.translationNotes: ",
-                        event.data.payload,
-                    );
+                    setTranslationQuestions(event.data.payload.translationNotes ?? []);
+                    console.log("event.data.payload.translationNotes: ", event.data.payload);
                     break;
             }
         });

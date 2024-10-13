@@ -4,20 +4,23 @@ import {
     VSCodePanelView,
     VSCodePanels,
     VSCodeDivider,
+    VSCodeTextArea,
+    VSCodeButton,
 } from "@vscode/webview-ui-toolkit/react";
 import "./App.css";
-import { OpenFileMessage, SearchResults } from "./types";
+import { OpenFileMessage } from "./types";
 import { TranslationPair } from "../../../../types";
 
 import SearchBar from "./SearchBar";
-import VerseItem from "./VerseItem";
+import VerseItem from "./CellItem";
 
 const vscode = acquireVsCodeApi();
 
 function ParallelView() {
     const [verses, setVerses] = useState<TranslationPair[]>([]);
     const [lastQuery, setLastQuery] = useState<string>("");
-    
+    const [chatInput, setChatInput] = useState<string>("");
+
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             const message = event.data;
@@ -50,12 +53,7 @@ function ParallelView() {
         });
     };
 
-    const handleSaveClick = (
-        index: number,
-        before: string,
-        after: string,
-        uri: string,
-    ) => {
+    const handleSaveClick = (index: number, before: string, after: string, uri: string) => {
         vscode.postMessage({
             command: "applyEdit",
             uri: uri,
@@ -65,18 +63,27 @@ function ParallelView() {
 
         setVerses((prevVerses) => {
             const newVerses = [...prevVerses];
-            newVerses[index] = { ...newVerses[index], targetVerse: { ...newVerses[index].targetVerse, content: after } };
+            newVerses[index] = {
+                ...newVerses[index],
+                targetCell: { ...newVerses[index].targetCell, content: after },
+            };
             return newVerses;
         });
     };
-   
+
+    const handleSendMessage = () => {
+        if (chatInput.trim()) {
+            // TODO: Implement send message functionality
+            console.log("Sending message:", chatInput);
+            setChatInput("");
+        }
+    };
+
     return (
         <VSCodePanels>
             <VSCodePanelTab id="tab1">Parallel Passages</VSCodePanelTab>
             <VSCodePanelView id="view1">
                 <div className="container">
-                    <h1 className="view-title">Parallel Passages</h1>
-                    <VSCodeDivider />
                     <SearchBar
                         query={lastQuery}
                         onQueryChange={setLastQuery}
@@ -88,20 +95,20 @@ function ParallelView() {
                     {verses.length > 0 ? (
                         <div className="verses-container">
                             {verses.map((item, index) => (
-                                <React.Fragment key={index}>
-                                    <VerseItem
-                                        item={item}
-                                        index={index}
-                                        onUriClick={handleUriClick}
-                                        onSaveClick={handleSaveClick}
-                                    />
-                                    {index < verses.length - 1 && <VSCodeDivider />}
-                                </React.Fragment>
+                                <VerseItem
+                                    key={index}
+                                    item={item}
+                                    onUriClick={handleUriClick}
+                                    onSaveClick={handleSaveClick}
+                                />
                             ))}
                         </div>
                     ) : (
-                        <p className="no-results">No results found. Try a different search query.</p>
+                        <p className="no-results">
+                            No results found. Try a different search query.
+                        </p>
                     )}
+                    <VSCodeDivider />
                 </div>
             </VSCodePanelView>
         </VSCodePanels>

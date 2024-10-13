@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import "@vscode/codicons/dist/codicon.css"; // Import codicons
+import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 
 const CloseButtonWithConfirmation: React.FC<{
     handleDeleteButtonClick: () => void;
@@ -22,33 +23,33 @@ const CloseButtonWithConfirmation: React.FC<{
     return (
         <div style={{ display: "flex", gap: "10px" }}>
             {!showConfirmation ? (
-                <button
+                <VSCodeButton
                     aria-label="Delete"
                     title="Delete"
                     onClick={handleDelete}
-                    className="vscode-button"
+                    appearance="icon"
                 >
                     <i className="codicon codicon-close"></i>
-                </button>
+                </VSCodeButton>
             ) : (
                 <div style={{ display: "flex", flexDirection: "row" }}>
-                    <button
+                    <VSCodeButton
                         aria-label="Confirm Delete"
                         title="Confirm Delete"
                         onClick={confirmDelete}
-                        className="vscode-button"
+                        appearance="secondary"
                     >
                         <i className="codicon codicon-check"></i>
                         <i className="codicon codicon-trash"></i>
-                    </button>
-                    <button
+                    </VSCodeButton>
+                    <VSCodeButton
                         aria-label="Cancel Delete"
                         title="Cancel Delete"
                         onClick={cancelDelete}
-                        className="vscode-button"
+                        appearance="icon"
                     >
                         <i className="codicon codicon-close"></i>
-                    </button>
+                    </VSCodeButton>
                 </div>
             )}
         </div>

@@ -9,17 +9,13 @@ export class ObsEditorProvider implements vscode.CustomTextEditorProvider {
     private _webview: vscode.Webview | undefined;
     private _context: vscode.ExtensionContext | undefined;
 
-    private globalState:
-        | Awaited<ReturnType<typeof initializeStateStore>>
-        | undefined;
+    private globalState: Awaited<ReturnType<typeof initializeStateStore>> | undefined;
 
-    public static register(
-        context: vscode.ExtensionContext,
-    ): vscode.Disposable {
+    public static register(context: vscode.ExtensionContext): vscode.Disposable {
         const provider = new ObsEditorProvider(context);
         const providerRegistration = vscode.window.registerCustomEditorProvider(
             ObsEditorProvider.viewType,
-            provider,
+            provider
         );
         return providerRegistration;
     }
@@ -37,14 +33,14 @@ export class ObsEditorProvider implements vscode.CustomTextEditorProvider {
     public async resolveCustomTextEditor(
         document: vscode.TextDocument,
         webviewPanel: vscode.WebviewPanel,
-        _token: vscode.CancellationToken,
+        _token: vscode.CancellationToken
     ): Promise<void> {
         webviewPanel.webview.options = {
             enableScripts: true,
         };
         webviewPanel.webview.html = this._getWebviewContent(
             webviewPanel.webview,
-            this.context.extensionUri,
+            this.context.extensionUri
         );
 
         const context = this._context;
@@ -67,12 +63,11 @@ export class ObsEditorProvider implements vscode.CustomTextEditorProvider {
             }
         });
 
-        const changeDocumentSubscription =
-            vscode.workspace.onDidChangeTextDocument((e) => {
-                if (e.document.uri.toString() === document.uri.toString()) {
-                    updateWebview();
-                }
-            });
+        const changeDocumentSubscription = vscode.workspace.onDidChangeTextDocument((e) => {
+            if (e.document.uri.toString() === document.uri.toString()) {
+                updateWebview();
+            }
+        });
 
         webviewPanel.onDidDispose(() => {
             changeDocumentSubscription.dispose();
@@ -83,16 +78,14 @@ export class ObsEditorProvider implements vscode.CustomTextEditorProvider {
             async (e: { type: MessageType; payload: unknown }) => {
                 switch (e.type) {
                     case MessageType.showDialog:
-                        vscode.window.showInformationMessage(
-                            e.payload as string,
-                        );
+                        vscode.window.showInformationMessage(e.payload as string);
                         return;
                     case MessageType.save: {
                         const edit = new vscode.WorkspaceEdit();
                         edit.replace(
                             document.uri,
                             new vscode.Range(0, 0, document.lineCount, 0),
-                            e.payload as string,
+                            e.payload as string
                         );
                         vscode.workspace.applyEdit(edit);
                         return;
@@ -105,15 +98,10 @@ export class ObsEditorProvider implements vscode.CustomTextEditorProvider {
                             });
                         }
 
-                        const storyId = document.fileName
-                            .split("/")
-                            .pop()
-                            ?.split(".")[0];
+                        const storyId = document.fileName.split("/").pop()?.split(".")[0];
 
                         if (!storyId) {
-                            throw new Error(
-                                "Unable to get the story id from the document path",
-                            );
+                            throw new Error("Unable to get the story id from the document path");
                         }
                         this.globalState?.updateStoreState({
                             key: "obsRef",
@@ -129,7 +117,7 @@ export class ObsEditorProvider implements vscode.CustomTextEditorProvider {
                         return;
                     }
                 }
-            },
+            }
         );
 
         this._webview = webviewPanel.webview;
@@ -137,10 +125,7 @@ export class ObsEditorProvider implements vscode.CustomTextEditorProvider {
         updateWebview();
     }
 
-    private _getWebviewContent(
-        webview: vscode.Webview,
-        extensionUri: vscode.Uri,
-    ) {
+    private _getWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri) {
         // The CSS file from the React build output
         const stylesUri = getUri(webview, extensionUri, [
             "webviews",

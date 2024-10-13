@@ -5,7 +5,7 @@ import { getNonce } from "../obs/utilities";
 
 export async function translationAcademy(
     context: vscode.ExtensionContext,
-    resource: DownloadedResource,
+    resource: DownloadedResource
 ) {
     let panel: vscode.WebviewPanel | undefined = undefined;
     // vscode.window.showInformationMessage("Opening Translation Academy");
@@ -19,26 +19,20 @@ export async function translationAcademy(
         },
         {
             enableScripts: true,
-        },
+        }
     );
     panel.reveal(vscode.ViewColumn.Beside, true);
     const workspaceRootUri = vscode.workspace.workspaceFolders?.[0].uri;
 
     if (!workspaceRootUri) {
-        console.error(
-            "No workspace folder found. Please open a folder to store your project in.",
-        );
+        console.error("No workspace folder found. Please open a folder to store your project in.");
         return;
     }
-    const resourceRootUri = vscode.Uri.joinPath(
-        workspaceRootUri,
-        resource.localPath,
-    );
+    const resourceRootUri = vscode.Uri.joinPath(workspaceRootUri, resource.localPath);
 
-    const resourceFolders =
-        await vscode.workspace.fs.readDirectory(resourceRootUri);
+    const resourceFolders = await vscode.workspace.fs.readDirectory(resourceRootUri);
     const folderEntries = resourceFolders.filter(
-        ([_name, type]) => type === vscode.FileType.Directory,
+        ([_name, type]) => type === vscode.FileType.Directory
     );
 
     // receive message from webview
@@ -48,21 +42,14 @@ export async function translationAcademy(
                 case MessageType.GET_TA_FOLDER_CONTENT: {
                     const directory = message.payload as string;
 
-                    const folderUri = vscode.Uri.joinPath(
-                        resourceRootUri,
-                        directory,
-                    );
+                    const folderUri = vscode.Uri.joinPath(resourceRootUri, directory);
 
-                    const folderContents =
-                        await vscode.workspace.fs.readDirectory(folderUri);
+                    const folderContents = await vscode.workspace.fs.readDirectory(folderUri);
 
                     panel?.webview.postMessage({
                         type: MessageType.SYNC_TA_FOLDER_CONTENT,
                         payload: folderContents
-                            .filter(
-                                ([, type]) =>
-                                    type === vscode.FileType.Directory,
-                            )
+                            .filter(([, type]) => type === vscode.FileType.Directory)
                             .map(([name]) => name),
                     });
                     break;
@@ -71,26 +58,17 @@ export async function translationAcademy(
                     const subDirectory = message.payload.subDirectory as string;
                     const directory = message.payload.directory as string;
                     if (subDirectory === "" || subDirectory === undefined) {
-                        vscode.window.showErrorMessage(
-                            "Please select a subdirectory",
-                        );
+                        vscode.window.showErrorMessage("Please select a subdirectory");
                         return;
                     } else if (directory === "" || directory === undefined) {
-                        vscode.window.showErrorMessage(
-                            "Please select a directory",
-                        );
+                        vscode.window.showErrorMessage("Please select a directory");
                         return;
                     }
-                    const folderUri = vscode.Uri.joinPath(
-                        resourceRootUri,
-                        directory,
-                        subDirectory,
-                    );
+                    const folderUri = vscode.Uri.joinPath(resourceRootUri, directory, subDirectory);
 
                     const mdFile = vscode.Uri.joinPath(folderUri, "01.md");
 
-                    const fileContents =
-                        await vscode.workspace.fs.readFile(mdFile);
+                    const fileContents = await vscode.workspace.fs.readFile(mdFile);
 
                     const md = fileContents.toString();
 
@@ -103,18 +81,11 @@ export async function translationAcademy(
             }
         },
         undefined,
-        context.subscriptions,
+        context.subscriptions
     );
 
     const styleUri = panel.webview.asWebviewUri(
-        vscode.Uri.joinPath(
-            context.extensionUri,
-            "webviews",
-            "obs",
-            "build",
-            "assets",
-            "index.css",
-        ),
+        vscode.Uri.joinPath(context.extensionUri, "webviews", "obs", "build", "assets", "index.css")
     );
 
     const scriptUri = panel.webview.asWebviewUri(
@@ -125,8 +96,8 @@ export async function translationAcademy(
             "build",
             "assets",
             "views",
-            "MarkdownViewer.js",
-        ),
+            "MarkdownViewer.js"
+        )
     );
 
     const nonce = getNonce();
@@ -160,13 +131,13 @@ export async function translationAcademy(
             }
         },
         undefined,
-        context.subscriptions,
+        context.subscriptions
     );
     panel.onDidDispose(
         () => {
             panel = undefined;
         },
         undefined,
-        context.subscriptions,
+        context.subscriptions
     );
 }

@@ -30,11 +30,7 @@ const DownloadedResources = () => {
     );
 };
 
-const DownloadedResourceTableRow = ({
-    resource,
-}: {
-    resource: DownloadedResource;
-}) => {
+const DownloadedResourceTableRow = ({ resource }: { resource: DownloadedResource }) => {
     const handleOpenResource = (resource: DownloadedResource) => {
         vscode.postMessage({
             type: MessageType.OPEN_RESOURCE,
@@ -47,10 +43,7 @@ const DownloadedResourceTableRow = ({
         });
     };
 
-    const [extendedResource, setExtendedResource] = useState<Record<
-        string,
-        any
-    > | null>(null);
+    const [extendedResource, setExtendedResource] = useState<Record<string, any> | null>(null);
 
     useEffect(() => {
         fetch(resource.remoteUrl).then(async (res) => {
@@ -62,12 +55,7 @@ const DownloadedResourceTableRow = ({
         <tr>
             <td>{resource.name}</td>
 
-            <td>
-                {
-                    RESOURCE_TYPES.find((type) => type.key === resource.type)
-                        ?.label
-                }
-            </td>
+            <td>{RESOURCE_TYPES.find((type) => type.key === resource.type)?.label}</td>
             <td>
                 {handleOrgImage(extendedResource?.owner) !== "" ? (
                     <img

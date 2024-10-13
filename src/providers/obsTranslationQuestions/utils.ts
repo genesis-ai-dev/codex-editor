@@ -2,14 +2,8 @@ import { DownloadedResource } from "../obs/resources/types";
 
 import * as vscode from "vscode";
 import { OBSRef } from "../../../types";
-import {
-    directoryExists,
-    fileExists,
-} from "../obs/CreateProject/utilities/obs";
-import {
-    parseObsTsv,
-    tsvToStoryParagraphRef,
-} from "../obsTranslationNotes/tsv";
+import { directoryExists, fileExists } from "../obs/CreateProject/utilities/obs";
+import { parseObsTsv, tsvToStoryParagraphRef } from "../obsTranslationNotes/tsv";
 
 type ObsTranslationQuestion = {
     Question: string;
@@ -22,7 +16,7 @@ type ObsTranslationQuestion = {
 
 export const getObsStoryParagraphTranslationQuestions = async (
     resource: DownloadedResource,
-    ref: OBSRef,
+    ref: OBSRef
 ) => {
     if (!vscode.workspace.workspaceFolders?.[0]) {
         console.error("No workspace is open. Please open a workspace.");
@@ -30,7 +24,7 @@ export const getObsStoryParagraphTranslationQuestions = async (
     }
     const resourceDirUri = vscode.Uri.joinPath(
         vscode.workspace.workspaceFolders?.[0].uri as vscode.Uri,
-        resource.localPath,
+        resource.localPath
     );
 
     const tqTsvUri = vscode.Uri.joinPath(resourceDirUri, `tq_OBS.tsv`);
@@ -44,8 +38,7 @@ export const getObsStoryParagraphTranslationQuestions = async (
 
         const storyParagraph = tsvToStoryParagraphRef(tsvData);
 
-        const questions =
-            storyParagraph[Number(ref.storyId).toString()]?.[ref.paragraph];
+        const questions = storyParagraph[Number(ref.storyId).toString()]?.[ref.paragraph];
 
         return questions ?? [];
     }
@@ -56,14 +49,13 @@ export const getObsStoryParagraphTranslationQuestions = async (
         const storyNoteUri = vscode.Uri.joinPath(
             contentDirUri,
             Number(ref.storyId).toString().padStart(2, "0"),
-            `${Number(ref.paragraph).toString().padStart(2, "0")}.md`,
+            `${Number(ref.paragraph).toString().padStart(2, "0")}.md`
         );
 
         const storyParagraphQuestionsExists = await fileExists(storyNoteUri);
 
         if (storyParagraphQuestionsExists) {
-            const questionContent =
-                await vscode.workspace.fs.readFile(storyNoteUri);
+            const questionContent = await vscode.workspace.fs.readFile(storyNoteUri);
 
             const questionsMd = parseMarkdown(questionContent.toString());
             return questionsMd.map((qa) => ({
@@ -77,9 +69,7 @@ export const getObsStoryParagraphTranslationQuestions = async (
         }
     }
 
-    vscode.window.showErrorMessage(
-        `No translation Questions found on Resource`,
-    );
+    vscode.window.showErrorMessage(`No translation Questions found on Resource`);
 
     return [];
 };
@@ -100,8 +90,7 @@ function parseMarkdown(markdownContent: string): QA[] {
         if (questionIndex === -1) return "";
         const responseStart = content.indexOf("\n", questionIndex) + 1;
         const nextQuestionIndex = content.indexOf("#", responseStart);
-        const responseEnd =
-            nextQuestionIndex === -1 ? content.length : nextQuestionIndex;
+        const responseEnd = nextQuestionIndex === -1 ? content.length : nextQuestionIndex;
         return content.slice(responseStart, responseEnd).trim();
     };
 

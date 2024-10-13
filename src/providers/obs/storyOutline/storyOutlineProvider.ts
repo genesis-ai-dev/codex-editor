@@ -7,17 +7,13 @@ import { initializeStateStore } from "../../../stateStore";
 export class StoryOutlineProvider implements vscode.WebviewViewProvider {
     private _webviewView: vscode.WebviewView | undefined;
     private _context: vscode.ExtensionContext | undefined;
-    private stateStore:
-        | Awaited<ReturnType<typeof initializeStateStore>>
-        | undefined;
+    private stateStore: Awaited<ReturnType<typeof initializeStateStore>> | undefined;
 
-    public static register(
-        context: vscode.ExtensionContext,
-    ): vscode.Disposable {
+    public static register(context: vscode.ExtensionContext): vscode.Disposable {
         const provider = new StoryOutlineProvider(context);
         const providerRegistration = vscode.window.registerWebviewViewProvider(
             StoryOutlineProvider.viewType,
-            provider,
+            provider
         );
         return providerRegistration;
     }
@@ -35,14 +31,14 @@ export class StoryOutlineProvider implements vscode.WebviewViewProvider {
     public async resolveWebviewView(
         webviewPanel: vscode.WebviewView,
         ctx: vscode.WebviewViewResolveContext,
-        _token: vscode.CancellationToken,
+        _token: vscode.CancellationToken
     ): Promise<void> {
         webviewPanel.webview.options = {
             enableScripts: true,
         };
         webviewPanel.webview.html = this._getWebviewContent(
             webviewPanel.webview,
-            this.context.extensionUri,
+            this.context.extensionUri
         );
 
         // Receive message from the webview.
@@ -62,9 +58,7 @@ export class StoryOutlineProvider implements vscode.WebviewViewProvider {
                         const storyURI = vscode.Uri.joinPath(
                             vscode.workspace?.workspaceFolders?.[0].uri,
                             "ingredients",
-                            `${
-                                (e.payload as Record<string, any>)?.storyNumber
-                            }.md`,
+                            `${(e.payload as Record<string, any>)?.storyNumber}.md`
                         );
                         await vscode.commands.executeCommand(
                             "vscode.openWith",
@@ -74,11 +68,11 @@ export class StoryOutlineProvider implements vscode.WebviewViewProvider {
                                 preserveFocus: true,
                                 preview: false,
                                 viewColumn: vscode.ViewColumn.One,
-                            },
+                            }
                         );
                         await this._context?.workspaceState?.update(
                             "currentStoryId",
-                            (e.payload as Record<string, any>)?.storyNumber,
+                            (e.payload as Record<string, any>)?.storyNumber
                         );
 
                         if (!this.stateStore) {
@@ -88,8 +82,7 @@ export class StoryOutlineProvider implements vscode.WebviewViewProvider {
                         this.stateStore?.updateStoreState({
                             key: "obsRef",
                             value: {
-                                storyId: (e.payload as Record<string, any>)
-                                    ?.storyNumber,
+                                storyId: (e.payload as Record<string, any>)?.storyNumber,
                                 paragraph: "1",
                             },
                         });
@@ -98,7 +91,7 @@ export class StoryOutlineProvider implements vscode.WebviewViewProvider {
                     default:
                         break;
                 }
-            },
+            }
         );
 
         this._webviewView = webviewPanel;
@@ -120,19 +113,13 @@ export class StoryOutlineProvider implements vscode.WebviewViewProvider {
         commands.forEach((command) => {
             if (!registeredCommands.includes(command.command)) {
                 this._context?.subscriptions.push(
-                    vscode.commands.registerCommand(
-                        command.command,
-                        command.handler,
-                    ),
+                    vscode.commands.registerCommand(command.command, command.handler)
                 );
             }
         });
     }
 
-    private _getWebviewContent(
-        webview: vscode.Webview,
-        extensionUri: vscode.Uri,
-    ) {
+    private _getWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri) {
         // The CSS file from the React build output
         const stylesUri = getUri(webview, extensionUri, [
             "webviews",

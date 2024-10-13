@@ -23,17 +23,10 @@ const TranslationWordRenderer = ({
     if (loading) {
         return <div>Loading...</div>;
     }
-    return (
-        <div
-            dangerouslySetInnerHTML={{ __html: content ?? "" }}
-            className="prose-lg"
-        />
-    );
+    return <div dangerouslySetInnerHTML={{ __html: content ?? "" }} className="prose-lg" />;
 };
 
-const useTranslationWordContent = (
-    translationWord: { path: string } | null,
-) => {
+const useTranslationWordContent = (translationWord: { path: string } | null) => {
     const [content, setContent] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
 
@@ -44,7 +37,7 @@ const useTranslationWordContent = (
                     setContent(
                         event.data.payload.content !== null
                             ? markdownToHTML(event.data.payload.content)
-                            : null,
+                            : null
                     );
                     setLoading(false);
                     break;

@@ -6,8 +6,7 @@ import TranslationWordsDropdown from "../components/TranslationWordsDropdown";
 import TranslationWordRenderer from "../components/TranslationWordRenderer";
 
 const TranslationWords = () => {
-    const [translationWord, setTranslationWord] =
-        useState<TranslationWord | null>(null);
+    const [translationWord, setTranslationWord] = useState<TranslationWord | null>(null);
     useEffect(() => {
         vscode.setMessageListeners();
     }, []);

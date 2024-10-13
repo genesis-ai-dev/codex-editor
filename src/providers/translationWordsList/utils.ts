@@ -7,7 +7,7 @@ import { fileExists } from "../obs/CreateProject/utilities/obs";
 
 export const getVerseTranslationWordsList = async (
     resource: DownloadedResource,
-    verseRef: string,
+    verseRef: string
 ) => {
     const { bookID, chapter, verse } = extractBookChapterVerse(verseRef);
     if (!vscode.workspace.workspaceFolders?.[0]) {
@@ -16,7 +16,7 @@ export const getVerseTranslationWordsList = async (
     }
     const resourceDirUri = vscode.Uri.joinPath(
         vscode.workspace.workspaceFolders?.[0].uri as vscode.Uri,
-        resource.localPath,
+        resource.localPath
     );
 
     const bookUri = vscode.Uri.joinPath(resourceDirUri, `twl_${bookID}.tsv`);
@@ -29,10 +29,8 @@ export const getVerseTranslationWordsList = async (
     const tsvDataWithTwUriPromises = await Promise.allSettled(
         tsvData.map(async (row) => ({
             ...row,
-            twUriPath: (
-                await convertTwlRCUriToScribeResourceUri(resource, row.TWLink)
-            ).path,
-        })),
+            twUriPath: (await convertTwlRCUriToScribeResourceUri(resource, row.TWLink)).path,
+        }))
     );
 
     const TsvDataWithTwUri = tsvDataWithTwUriPromises
@@ -40,7 +38,7 @@ export const getVerseTranslationWordsList = async (
         .filter(Boolean);
 
     const chapterVerseRef = tsvToChapterVerseRef(
-        TsvDataWithTwUri as NonNullable<(typeof TsvDataWithTwUri)[number]>[],
+        TsvDataWithTwUri as NonNullable<(typeof TsvDataWithTwUri)[number]>[]
     );
 
     // Removing the ones which don't have files on the disk
@@ -48,9 +46,9 @@ export const getVerseTranslationWordsList = async (
         chapterVerseRef[chapter]?.[verse]?.map(async (word) => ({
             ...word,
             existsOnDisk: await fileExists(
-                vscode.Uri.from({ path: word.twUriPath, scheme: "file" }),
+                vscode.Uri.from({ path: word.twUriPath, scheme: "file" })
             ),
-        })),
+        }))
     );
 
     return wordsWithExistsOnDisk ?? [];
@@ -58,32 +56,23 @@ export const getVerseTranslationWordsList = async (
 
 export const convertTwlRCUriToScribeResourceUri = async (
     resource: DownloadedResource,
-    uri: string = "",
+    uri: string = ""
 ): Promise<vscode.Uri> => {
-    const workspaceRootUri = vscode.workspace.workspaceFolders?.[0]
-        .uri as vscode.Uri;
+    const workspaceRootUri = vscode.workspace.workspaceFolders?.[0].uri as vscode.Uri;
 
-    const resourcesUri = vscode.Uri.joinPath(
-        workspaceRootUri,
-        ".project/resources",
-    );
+    const resourcesUri = vscode.Uri.joinPath(workspaceRootUri, ".project/resources");
 
     const twlResourceMetaUri = vscode.Uri.joinPath(
         workspaceRootUri,
         resource.localPath,
-        "metadata.json",
+        "metadata.json"
     );
 
-    const twlResourceMetaFile =
-        await vscode.workspace.fs.readFile(twlResourceMetaUri);
+    const twlResourceMetaFile = await vscode.workspace.fs.readFile(twlResourceMetaUri);
 
-    const twlResourceLanguage = JSON.parse(twlResourceMetaFile.toString())?.meta
-        ?.language;
+    const twlResourceLanguage = JSON.parse(twlResourceMetaFile.toString())?.meta?.language;
 
-    const twResourcesUri = vscode.Uri.joinPath(
-        resourcesUri,
-        `${twlResourceLanguage}_tw`,
-    );
+    const twResourcesUri = vscode.Uri.joinPath(resourcesUri, `${twlResourceLanguage}_tw`);
 
     const twPath = uri.replace("rc://*/tw/dict", twResourcesUri.path);
 

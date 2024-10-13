@@ -1,23 +1,21 @@
 import * as vscode from "vscode";
-import {
-    VerseRefGlobalState,
-    SelectedTextDataWithContext,
-    OBSRef,
-} from "../types";
+import { CellIdGlobalState, SelectedTextDataWithContext, OBSRef } from "../types";
 type StateStoreUpdate =
-    | { key: "verseRef"; value: VerseRefGlobalState }
+    | { key: "cellId"; value: CellIdGlobalState }
     | { key: "uri"; value: string | null }
     | { key: "currentLineSelection"; value: SelectedTextDataWithContext }
-    | { key: "plainTextNotes"; value: string}
+    | { key: "plainTextNotes"; value: string }
     | { key: "obsRef"; value: OBSRef }
-    | { key: "apiKey"; value: string };
-
+    | { key: "apiKey"; value: string }
+    | { key: "verseRef"; value: { verseRef: string; uri: string } }
+    | { key: "cellId"; value: CellIdGlobalState }
+    | {
+          key: "sourceCellMap";
+          value: { [k: string]: { content: string; versions: string[] } };
+      };
 
 type StateStoreKey = StateStoreUpdate["key"];
-type StateStoreValue<K extends StateStoreKey> = Extract<
-    StateStoreUpdate,
-    { key: K }
->["value"];
+type StateStoreValue<K extends StateStoreKey> = Extract<StateStoreUpdate, { key: K }>["value"];
 
 const extensionId = "project-accelerate.shared-state-store";
 
@@ -25,14 +23,13 @@ type DisposeFunction = () => void;
 export async function initializeStateStore() {
     let storeListener: <K extends StateStoreKey>(
         keyForListener: K,
-        callBack: (value: StateStoreValue<K> | undefined) => void,
+        callBack: (value: StateStoreValue<K> | undefined) => void
     ) => DisposeFunction = () => () => undefined;
 
     let updateStoreState: (update: StateStoreUpdate) => void = () => undefined;
     let getStoreState: <K extends StateStoreKey>(
-        key: K,
-    ) => Promise<StateStoreValue<K> | undefined> = () =>
-        Promise.resolve(undefined);
+        key: K
+    ) => Promise<StateStoreValue<K> | undefined> = () => Promise.resolve(undefined);
 
     const extension = vscode.extensions.getExtension(extensionId);
     if (extension) {

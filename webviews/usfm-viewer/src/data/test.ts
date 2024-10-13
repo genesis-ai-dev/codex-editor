@@ -1,5 +1,5 @@
 export const usfm: { usfm: string } = {
-  usfm: `\\id MAT \\id GEN Unlocked Dynamic Bible
+    usfm: `\\id MAT \\id GEN Unlocked Dynamic Bible
  \\ide UTF-8
  \\h GENESIS
  \\toc1 The Book of Genesis
@@ -32,5 +32,5 @@ export const usfm: { usfm: string } = {
  \\s5
  \\v 11 Then God said, "I command the earth to produce many kinds of plants that reproduce themselves—plants that will produce seeds and trees that will produce fruit with their seed in it." And that is what happened.
  \\v 12 Then plants grew on the earth. Each kind of plant began to produce its own kind of seed, and each kind of tree produced fruit with its seed in it. God was pleased with the plants and trees.
- \\v 13 This was an evening and morning, the third day.`
-}
+ \\v 13 This was an evening and morning, the third day.`,
+};

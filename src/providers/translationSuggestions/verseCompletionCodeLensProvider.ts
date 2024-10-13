@@ -10,7 +10,10 @@ class VerseCompletionCodeLensProvider implements vscode.CodeLensProvider {
         });
     }
 
-    async provideCodeLenses(document: vscode.TextDocument, token: vscode.CancellationToken): Promise<vscode.CodeLens[]> {
+    async provideCodeLenses(
+        document: vscode.TextDocument,
+        token: vscode.CancellationToken
+    ): Promise<vscode.CodeLens[]> {
         const codeLenses: vscode.CodeLens[] = [];
 
         const editor = vscode.window.activeTextEditor;
@@ -27,7 +30,7 @@ class VerseCompletionCodeLensProvider implements vscode.CodeLensProvider {
             const codeLens = new vscode.CodeLens(range, {
                 title: "📝Autocomplete",
                 command: "codex-editor-extension.triggerInlineCompletion",
-                arguments: []
+                arguments: [],
             });
             codeLenses.push(codeLens);
         }

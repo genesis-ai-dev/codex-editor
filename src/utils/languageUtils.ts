@@ -63733,25 +63733,21 @@ const typeMap = {
     S: "special",
 };
 
-export const LanguageCodes: LanguageMetadata[] = isoLanguageData.map(
-    (line: any) => {
-        return {
-            tag: line.Id,
-            name: {
-                [line.Part1]: line.Ref_Name,
-            },
-            iso2b: line.Part2b,
-            iso2t: line.Part2t,
-            iso1: line.Part1,
-            scope: scopeMap[line.Scope as keyof typeof scopeMap] || line.Scope,
-            type:
-                typeMap[line.Language_Type as keyof typeof typeMap] ||
-                line.Language_Type,
-            refName: line.Ref_Name,
-            comment: line.Comment,
-            scriptDirection: line.ScriptDirection,
-        };
-    },
-);
+export const LanguageCodes: LanguageMetadata[] = isoLanguageData.map((line: any) => {
+    return {
+        tag: line.Id,
+        name: {
+            [line.Part1]: line.Ref_Name,
+        },
+        iso2b: line.Part2b,
+        iso2t: line.Part2t,
+        iso1: line.Part1,
+        scope: scopeMap[line.Scope as keyof typeof scopeMap] || line.Scope,
+        type: typeMap[line.Language_Type as keyof typeof typeMap] || line.Language_Type,
+        refName: line.Ref_Name,
+        comment: line.Comment,
+        scriptDirection: line.ScriptDirection,
+    };
+});
 
-export { LanguageMetadata };
+export type { LanguageMetadata };

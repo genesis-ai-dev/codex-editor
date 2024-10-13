@@ -2,14 +2,7 @@ import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 
-import {
-    Form,
-    FormControl,
-    FormField,
-    FormItem,
-    FormLabel,
-    FormMessage,
-} from "@/components/Form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/Form";
 import { categoryOptions, projectTypes } from "@/utilities/projectUtils";
 
 import { vscode } from "../utilities/vscode";
@@ -124,14 +117,11 @@ const obsSchema = z.object({
         {
             required_error: "License is required",
             invalid_type_error: "License is required",
-        },
+        }
     ),
 });
 
-const formSchema = z.discriminatedUnion("type", [
-    textTranslationSchema,
-    obsSchema,
-]);
+const formSchema = z.discriminatedUnion("type", [textTranslationSchema, obsSchema]);
 
 const CreateProject = () => {
     const [targetLanguageQuery, setTargetLanguageQuery] = useState("");
@@ -156,18 +146,14 @@ const CreateProject = () => {
     const filteredSourceLanguages =
         sourceLanguageQuery !== ""
             ? LanguageCodes.filter((lang) =>
-                  lang?.refName
-                      ?.toLowerCase()
-                      .includes(sourceLanguageQuery.toLowerCase()),
+                  lang?.refName?.toLowerCase().includes(sourceLanguageQuery.toLowerCase())
               )
             : LanguageCodes;
 
     const filteredTargetLanguages =
         targetLanguageQuery !== ""
             ? LanguageCodes.filter((lang) =>
-                  lang?.refName
-                      ?.toLowerCase()
-                      .includes(targetLanguageQuery.toLowerCase()),
+                  lang?.refName?.toLowerCase().includes(targetLanguageQuery.toLowerCase())
               )
             : LanguageCodes;
 
@@ -223,8 +209,7 @@ const CreateProject = () => {
                         Project Type :{" "}
                         {
                             projectTypes.find(
-                                (projectType) =>
-                                    projectType.value === projectTypeFormValue,
+                                (projectType) => projectType.value === projectTypeFormValue
                             )?.label
                         }
                     </span>
@@ -246,11 +231,7 @@ const CreateProject = () => {
                                             <VSCodeOption
                                                 value={projectType.value}
                                                 key={projectType.value}
-                                                onClick={() =>
-                                                    field.onChange(
-                                                        projectType.value,
-                                                    )
-                                                }
+                                                onClick={() => field.onChange(projectType.value)}
                                             >
                                                 {projectType.label}
                                             </VSCodeOption>
@@ -342,21 +323,12 @@ const CreateProject = () => {
                                 <FormItem>
                                     <FormLabel>Category</FormLabel>
                                     <FormControl>
-                                        <VSCodeDropdown
-                                            {...field}
-                                            className={"rounded text-sm"}
-                                        >
-                                            <VSCodeOption
-                                                value={undefined}
-                                                disabled
-                                            >
+                                        <VSCodeDropdown {...field} className={"rounded text-sm"}>
+                                            <VSCodeOption value={undefined} disabled>
                                                 Select the project category
                                             </VSCodeOption>
                                             {categoryOptions.map((category) => (
-                                                <VSCodeOption
-                                                    value={category}
-                                                    key={category}
-                                                >
+                                                <VSCodeOption value={category} key={category}>
                                                     {category}
                                                 </VSCodeOption>
                                             ))}
@@ -402,8 +374,7 @@ const CreateProject = () => {
                                             setQuery={setSourceLanguageQuery}
                                             setLanguage={field.onChange}
                                             selectedLanguage={
-                                                (field.value as LanguageMetadata) ??
-                                                null
+                                                (field.value as LanguageMetadata) ?? null
                                             }
                                         />
                                     </FormControl>
@@ -425,10 +396,7 @@ const CreateProject = () => {
                                         languages={filteredTargetLanguages}
                                         setQuery={setTargetLanguageQuery}
                                         setLanguage={field.onChange}
-                                        selectedLanguage={
-                                            (field.value as LanguageMetadata) ??
-                                            null
-                                        }
+                                        selectedLanguage={(field.value as LanguageMetadata) ?? null}
                                     />
                                 </FormControl>
                                 <FormMessage />
@@ -447,19 +415,15 @@ const CreateProject = () => {
                                             position="below"
                                             className=""
                                             value={
-                                                field.value
-                                                    ? field.value.title
-                                                    : "Select License"
+                                                field.value ? field.value.title : "Select License"
                                             }
                                             onInput={(e) => {
                                                 field.onChange(
                                                     licenseList.find(
                                                         (license) =>
                                                             license.title ===
-                                                            (
-                                                                e.target as HTMLInputElement
-                                                            ).value,
-                                                    ),
+                                                            (e.target as HTMLInputElement).value
+                                                    )
                                                 );
                                             }}
                                             id="license"

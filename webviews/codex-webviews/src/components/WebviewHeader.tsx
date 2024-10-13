@@ -20,8 +20,7 @@ export const WebviewHeader: React.FC<WebviewHeaderProps> = ({
             width: "100%",
             alignItems: "center",
             padding: "0.25em 1em",
-            borderBottom:
-                "2px solid var(--vscode-editorGroupHeader-tabsBorder)",
+            borderBottom: "2px solid var(--vscode-editorGroupHeader-tabsBorder)",
             backgroundColor: "var(--vscode-sideBar-background)",
             color: "var(--vscode-sideBar-foreground)",
         }}

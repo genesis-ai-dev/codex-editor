@@ -24,9 +24,7 @@ const EditAndDeleteOptions: React.FC<{
             >
                 <i className="codicon codicon-edit"></i>
             </VSCodeButton>
-            <DeleteButtonWithConfirmation
-                handleDeleteButtonClick={() => handleCommentDeletion()}
-            />
+            <DeleteButtonWithConfirmation handleDeleteButtonClick={() => handleCommentDeletion()} />
         </div>
     );
 };

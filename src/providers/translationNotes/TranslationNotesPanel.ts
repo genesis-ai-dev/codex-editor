@@ -27,7 +27,7 @@ export class TranslationNotesPanel {
     public constructor(
         panel: WebviewPanel,
         extensionUri: Uri,
-        messageEventHandlers: (message: any) => void,
+        messageEventHandlers: (message: any) => void
     ) {
         this._panel = panel;
         this._extensionUri = extensionUri;
@@ -37,10 +37,7 @@ export class TranslationNotesPanel {
         this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
 
         // Set an event listener to listen for messages passed from the webview context
-        this._setWebviewMessageListener(
-            this._panel.webview,
-            messageEventHandlers,
-        );
+        this._setWebviewMessageListener(this._panel.webview, messageEventHandlers);
     }
 
     /**
@@ -135,12 +132,8 @@ export class TranslationNotesPanel {
      */
     private _setWebviewMessageListener(
         webview: Webview,
-        messageEventHandlers: (message: any) => void,
+        messageEventHandlers: (message: any) => void
     ) {
-        webview.onDidReceiveMessage(
-            messageEventHandlers,
-            undefined,
-            this._disposables,
-        );
+        webview.onDidReceiveMessage(messageEventHandlers, undefined, this._disposables);
     }
 }

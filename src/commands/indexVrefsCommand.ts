@@ -23,15 +23,14 @@ export async function indexVerseRefsInSourceText() {
     try {
         const files = await vscode.workspace.findFiles(
             // "resources/**",
-            "**/*.bible",
+            "**/*.source"
         ); // Adjust the glob pattern to match your files
         // Use Promise.all to process files in parallel
         await Promise.all(
             files.map(async (file) => {
                 try {
                     const linesToIndex: VrefIndex[] = [];
-                    const document =
-                        await vscode.workspace.openTextDocument(file);
+                    const document = await vscode.workspace.openTextDocument(file);
                     const text = document.getText();
                     const lines = text.split(/\r?\n/);
                     lines.forEach((line, lineIndex) => {
@@ -43,7 +42,7 @@ export async function indexVerseRefsInSourceText() {
                                 linesToIndex.push({
                                     id: `${file.fsPath.replace(
                                         /[^a-zA-Z0-9-_]/g,
-                                        "_",
+                                        "_"
                                     )}_${lineIndex}_${line.indexOf(vref)}`,
                                     vref: vref,
                                     uri: file.fsPath,
@@ -58,10 +57,10 @@ export async function indexVerseRefsInSourceText() {
                     await miniSearch.addAllAsync(linesToIndex);
                 } catch (error) {
                     console.error(
-                        `Error processing file ${file.fsPath}: ${error}`,
+                        `Error processing file in indexVrefsCommand ${file.fsPath}: ${error}`
                     );
                 }
-            }),
+            })
         );
     } catch (error) {
         console.error(`Error indexing documents: ${error}`);
@@ -79,11 +78,8 @@ export function searchVerseRefPositionIndex(searchString: string) {
     // Normalize the search string to match the format used in indexing
     const normalizedSearchString = searchString;
     // Perform the search with a filter for exact matches on the 'vref' field
-    const results: VrefSearchResult[] = miniSearch.search(
-        normalizedSearchString,
-        {
-            filter: (result) => result.vref === normalizedSearchString,
-        },
-    ) as any;
+    const results: VrefSearchResult[] = miniSearch.search(normalizedSearchString, {
+        filter: (result) => result.vref === normalizedSearchString,
+    }) as any;
     return results;
 }

@@ -17,10 +17,7 @@ export class TranslationWordsProvider {
     context: vscode.ExtensionContext;
     allTranslationWords: TranslationWord[] = [];
 
-    constructor(
-        context: vscode.ExtensionContext,
-        resource: DownloadedResource,
-    ) {
+    constructor(context: vscode.ExtensionContext, resource: DownloadedResource) {
         this.resource = resource;
         this.context = context;
         getAllTranslationWordsOfResource(resource.name)
@@ -29,106 +26,88 @@ export class TranslationWordsProvider {
             })
             .catch((e) => {
                 vscode.window.showErrorMessage(
-                    "Failed to get translation words of Resource. Please try again.",
+                    "Failed to get translation words of Resource. Please try again."
                 );
             });
     }
 
-    async startWebview(
-        viewColumn: vscode.ViewColumn = vscode.ViewColumn.Beside,
-    ) {
+    async startWebview(viewColumn: vscode.ViewColumn = vscode.ViewColumn.Beside) {
         const panel = vscode.window.createWebviewPanel(
             "codex.translationWordsViewer",
             "Translation Words - " + this.resource.name,
             viewColumn,
             {
                 enableScripts: true,
-            },
+            }
         );
         this.webview = panel;
 
-        const twWordsResult = await getAllTranslationWordsOfResource(
-            this.resource.name,
-        );
+        const twWordsResult = await getAllTranslationWordsOfResource(this.resource.name);
 
         this.allTranslationWords = twWordsResult ?? [];
 
-        panel.webview.html = this._getWebviewContent(
-            panel.webview,
-            this.context.extensionUri,
-        );
+        panel.webview.html = this._getWebviewContent(panel.webview, this.context.extensionUri);
 
-        panel.webview.onDidReceiveMessage(
-            async (e: { type: MessageType; payload: unknown }) => {
-                switch (e.type) {
-                    case MessageType.SEARCH_TW: {
-                        const query = (e.payload as TwSearchPayload)
-                            ?.query as string;
+        panel.webview.onDidReceiveMessage(async (e: { type: MessageType; payload: unknown }) => {
+            switch (e.type) {
+                case MessageType.SEARCH_TW: {
+                    const query = (e.payload as TwSearchPayload)?.query as string;
 
-                        const category = (e.payload as TwSearchPayload)
-                            ?.category;
+                    const category = (e.payload as TwSearchPayload)?.category;
 
-                        if (!query || query.length === 0) {
-                            panel.webview.postMessage({
-                                type: "update-tw",
-                                payload: {
-                                    translationWords:
-                                        this.allTranslationWords.filter(
-                                            (word) =>
-                                                category === "all" ||
-                                                word.ref === category,
-                                        ),
-                                },
-                            });
-                            return;
-                        }
-
-                        const words = this.allTranslationWords.filter(
-                            (word) =>
-                                word.name
-                                    .toLowerCase()
-                                    .includes(query.toLowerCase()) &&
-                                (category === "all" || word.ref === category),
-                        );
-
-                        console.log(words.length);
-
+                    if (!query || query.length === 0) {
                         panel.webview.postMessage({
                             type: "update-tw",
-                            payload: { translationWords: words },
-                        });
-
-                        return;
-                    }
-                    case MessageType.GET_TW_CONTENT: {
-                        const translationWord: {
-                            path: string;
-                        } = (e.payload as Record<string, any>)?.translationWord;
-
-                        if (!translationWord) {
-                            return;
-                        }
-
-                        const path = translationWord.path;
-
-                        if (!path) {
-                            return;
-                        }
-
-                        const content = await vscode.workspace.fs.readFile(
-                            vscode.Uri.file(path),
-                        );
-
-                        panel.webview.postMessage({
-                            type: "update-tw-content",
                             payload: {
-                                content: content.toString(),
+                                translationWords: this.allTranslationWords.filter(
+                                    (word) => category === "all" || word.ref === category
+                                ),
                             },
                         });
+                        return;
                     }
+
+                    const words = this.allTranslationWords.filter(
+                        (word) =>
+                            word.name.toLowerCase().includes(query.toLowerCase()) &&
+                            (category === "all" || word.ref === category)
+                    );
+
+                    console.log(words.length);
+
+                    panel.webview.postMessage({
+                        type: "update-tw",
+                        payload: { translationWords: words },
+                    });
+
+                    return;
                 }
-            },
-        );
+                case MessageType.GET_TW_CONTENT: {
+                    const translationWord: {
+                        path: string;
+                    } = (e.payload as Record<string, any>)?.translationWord;
+
+                    if (!translationWord) {
+                        return;
+                    }
+
+                    const path = translationWord.path;
+
+                    if (!path) {
+                        return;
+                    }
+
+                    const content = await vscode.workspace.fs.readFile(vscode.Uri.file(path));
+
+                    panel.webview.postMessage({
+                        type: "update-tw-content",
+                        payload: {
+                            content: content.toString(),
+                        },
+                    });
+                }
+            }
+        });
 
         panel.webview.postMessage({
             type: "update-tw",
@@ -144,7 +123,7 @@ export class TranslationWordsProvider {
                 const initialTranslationWord = this.allTranslationWords[0];
 
                 const content = await vscode.workspace.fs.readFile(
-                    vscode.Uri.file(initialTranslationWord.path),
+                    vscode.Uri.file(initialTranslationWord.path)
                 );
                 panel.webview.postMessage({
                     type: "update-tw-content",
@@ -160,10 +139,7 @@ export class TranslationWordsProvider {
         };
     }
 
-    private _getWebviewContent(
-        webview: vscode.Webview,
-        extensionUri: vscode.Uri,
-    ) {
+    private _getWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri) {
         // The CSS file from the React build output
         const stylesUri = getUri(webview, extensionUri, [
             "webviews",

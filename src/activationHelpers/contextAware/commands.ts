@@ -4,49 +4,48 @@ import { CodexContentSerializer } from "../../serializer";
 import {
     NOTEBOOK_TYPE,
     createCodexNotebook,
+    updateProjectNotebooksToUseCellsForVerseContent,
 } from "../../utils/codexNotebookUtils";
-import {
-    jumpToCellInNotebook,
-} from "../../utils";
+import { jumpToCellInNotebook } from "../../utils";
 import {
     searchVerseRefPositionIndex,
     indexVerseRefsInSourceText,
 } from "../../commands/indexVrefsCommand";
 import { DownloadedResource } from "../../providers/obs/resources/types";
 import { translationAcademy } from "../../providers/translationAcademy/provider";
-import { downloadBible, initializeProject, setTargetFont } from "../contextUnaware/projectInitializers";
+import { downloadBible, setTargetFont } from "../../projectManager/projectInitializers";
 
-import { CodexNotebookProvider } from "../../providers/treeViews/scriptureTreeViewProvider";
+import { CodexNotebookTreeViewProvider } from "../../providers/treeViews/navigationTreeViewProvider";
+import { getWorkSpaceFolder } from "../../utils";
 import {
-    getWorkSpaceFolder,
-} from "../../utils";
-import { generateVerseContext, getBibleDataRecordById as getBibleDataRecordById, TheographicBibleDataRecord, Verse } from "./sourceData";
+    generateVerseContext,
+    getBibleDataRecordById as getBibleDataRecordById,
+    TheographicBibleDataRecord,
+    Verse,
+} from "./sourceData";
 import { exportCodexContent } from "../../commands/exportHandler";
 
 const ROOT_PATH = getWorkSpaceFolder();
 
 export async function registerCommands(context: vscode.ExtensionContext) {
-
-    const scriptureTreeViewProvider = new CodexNotebookProvider(ROOT_PATH);
-    const scriptureExplorerTreeDataProvider = vscode.window.registerTreeDataProvider(
-        "scripture-explorer-activity-bar",
-        scriptureTreeViewProvider
-    );
+    const scriptureTreeViewProvider = new CodexNotebookTreeViewProvider(ROOT_PATH);
+    vscode.window.registerTreeDataProvider("translation-navigation", scriptureTreeViewProvider);
 
     const scriptureExplorerRefreshCommand = vscode.commands.registerCommand(
-        "scripture-explorer-activity-bar.refreshEntry",
+        "translation-navigation.refreshNavigationTreeView",
         () => scriptureTreeViewProvider.refresh()
     );
 
     const scriptureExplorerOpenChapterCommand = vscode.commands.registerCommand(
-        "scripture-explorer-activity-bar.openChapter",
-        async (notebookPath: string, chapterIndex: number) => {
+        "translation-navigation.openSection",
+        async (notebookPath: string, cellIdToJumpTo: string) => {
             try {
-                jumpToCellInNotebook(notebookPath, chapterIndex);
+                const uri = vscode.Uri.file(notebookPath);
+                await vscode.commands.executeCommand("vscode.openWith", uri, "codex.cellEditor");
+                // After opening, jump to the specific cell
+                await jumpToCellInNotebook(context, notebookPath, cellIdToJumpTo);
             } catch (error) {
-                vscode.window.showErrorMessage(
-                    `Failed to open chapter: ${error}`
-                );
+                vscode.window.showErrorMessage(`Failed to open section: ${error}`);
             }
         }
     );
@@ -85,12 +84,12 @@ export async function registerCommands(context: vscode.ExtensionContext) {
     const codexKernel = new CodexKernel();
 
     const openChapterCommand = vscode.commands.registerCommand(
-        "codex-editor-extension.openChapter",
-        async (notebookPath: string, chapterIndex: number) => {
+        "codex-editor-extension.openSection",
+        async (notebookPath: string, sectionMarker: string) => {
             try {
-                jumpToCellInNotebook(notebookPath, chapterIndex);
+                jumpToCellInNotebook(context, notebookPath, sectionMarker);
             } catch (error) {
-                console.error(`Failed to open chapter: ${error}`);
+                console.error(`Failed to open section: ${error}`);
             }
         }
     );
@@ -100,10 +99,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         async (resourceUri: vscode.Uri) => {
             try {
                 const document = await vscode.workspace.openTextDocument(resourceUri);
-                await vscode.window.showTextDocument(
-                    document,
-                    vscode.ViewColumn.Beside
-                );
+                await vscode.window.showTextDocument(document, vscode.ViewColumn.Beside);
             } catch (error) {
                 console.error(`Failed to open document: ${error}`);
             }
@@ -118,9 +114,14 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
-    const initializeNewProjectCommand = vscode.commands.registerCommand(
-        "codex-editor-extension.initializeNewProject",
-        await initializeProject
+    // const initializeNewProjectCommand = vscode.commands.registerCommand(
+    //     "codex-editor-extension.initializeNewProject",
+    //     await initializeProject
+    // );
+
+    const updateProjectNotebooksToUseCellsForVerseContentCommand = vscode.commands.registerCommand(
+        "codex-editor-extension.updateProjectNotebooksToUseCellsForVerseContent",
+        updateProjectNotebooksToUseCellsForVerseContent
     );
 
     const setEditorFontCommand = vscode.commands.registerCommand(
@@ -128,12 +129,9 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         await setTargetFont
     );
 
-    const exportCodexContentCommand = vscode.commands.registerCommand('codex-editor-extension.exportCodexContent', exportCodexContent);
-    context.subscriptions.push(exportCodexContentCommand);
-
-    const downloadSourceTextBiblesCommand = vscode.commands.registerCommand(
-        "codex-editor-extension.downloadSourceTextBibles",
-        await downloadBible
+    const exportCodexContentCommand = vscode.commands.registerCommand(
+        "codex-editor-extension.exportCodexContent",
+        exportCodexContent
     );
 
     const getBibleDataRecordByIdCommand = vscode.commands.registerCommand(
@@ -142,10 +140,11 @@ export async function registerCommands(context: vscode.ExtensionContext) {
             let result = null;
             let id = passedId;
             if (!id) {
-                id = await vscode.window.showInputBox({
-                    prompt: "Enter the ID of the Bible data record to get",
-                    placeHolder: "Record ID",
-                }) || "";
+                id =
+                    (await vscode.window.showInputBox({
+                        prompt: "Enter the ID of the Bible data record to get",
+                        placeHolder: "Record ID",
+                    })) || "";
             }
             result = await getBibleDataRecordById(id);
             if (result) {
@@ -165,8 +164,70 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
+    const openSourceUploadCommand = vscode.commands.registerCommand(
+        "translation-navigation.openSourceFile",
+        async (node: Node & { sourceFile?: string }) => {
+            if ("sourceFile" in node && node.sourceFile) {
+                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                if (workspaceFolder) {
+                    const sourceFileUri = vscode.Uri.joinPath(
+                        workspaceFolder.uri,
+                        ".project",
+                        "sourceTexts",
+                        node.sourceFile
+                    );
+
+                    try {
+                        await vscode.commands.executeCommand(
+                            "vscode.openWith",
+                            sourceFileUri,
+                            "codex.cellEditor",
+                            { viewColumn: vscode.ViewColumn.Beside }
+                        );
+                    } catch (error) {
+                        console.error(`Failed to open source file: ${error}`);
+                        vscode.window.showErrorMessage(
+                            `Failed to open source file: ${JSON.stringify(node)}`
+                        );
+                    }
+                } else {
+                    console.error(
+                        "No workspace folder found, aborting translation-navigation.openSourceFile."
+                    );
+                }
+            }
+        }
+    );
+
+    const uploadSourceFolderCommand = vscode.commands.registerCommand(
+        "codex-editor-extension.uploadSourceFolder",
+        async (folderName: string) => {
+            const folderUri = await vscode.window.showOpenDialog({
+                canSelectFiles: false,
+                canSelectFolders: true,
+                canSelectMany: false,
+                openLabel: "Select USFM Folder",
+            });
+
+            if (folderUri && folderUri[0]) {
+                await vscode.commands.executeCommand(
+                    "codex-editor-extension.importSourceText",
+                    folderUri[0]
+                );
+            }
+        }
+    );
+
+    const uploadTranslationFolderCommand = vscode.commands.registerCommand(
+        "codex-editor-extension.uploadTranslationFolder",
+        async (folderName: string, sourceFileName: string) => {
+            // Implement translation folder upload logic here
+            vscode.window.showInformationMessage("Translation folder upload not yet implemented");
+        }
+    );
+
     context.subscriptions.push(
-        scriptureExplorerTreeDataProvider,
+        scriptureTreeViewProvider,
         scriptureExplorerRefreshCommand,
         scriptureExplorerOpenChapterCommand,
         indexVrefsCommand,
@@ -177,12 +238,14 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         openChapterCommand,
         openFileCommand,
         createCodexNotebookCommand,
-        initializeNewProjectCommand,
         setEditorFontCommand,
-        downloadSourceTextBiblesCommand,
         getBibleDataRecordByIdCommand,
         exportCodexContentCommand,
-        getContextDataFromVrefCommand
+        getContextDataFromVrefCommand,
+        updateProjectNotebooksToUseCellsForVerseContentCommand,
+        openSourceUploadCommand,
+        uploadSourceFolderCommand,
+        uploadTranslationFolderCommand
     );
 
     ensureBibleDownload();
@@ -194,14 +257,12 @@ async function ensureBibleDownload() {
     if (workspaceFolders) {
         const workspaceRoot = workspaceFolders[0].uri.fsPath;
         const bibleFiles = await vscode.workspace.findFiles(
-            new vscode.RelativePattern(workspaceRoot, ".project/**/*.bible"),
+            new vscode.RelativePattern(workspaceRoot, ".project/**/*.source"),
             "**/node_modules/**",
-            1,
+            1
         );
         if (bibleFiles.length === 0) {
-            vscode.commands.executeCommand(
-                "codex-editor-extension.downloadSourceTextBibles",
-            );
+            vscode.commands.executeCommand("codex-editor-extension.downloadSourceText");
         }
     }
 }

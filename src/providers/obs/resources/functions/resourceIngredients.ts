@@ -24,47 +24,37 @@ export const generateObsResourceIngredients = async ({
         const path = {};
         const endPart = file.split("/").pop() ?? "";
         const regX = /^\d{2}.md$/;
-        if (
-            regX.test(endPart ?? "") ||
-            ["intro.md", "title.md"].indexOf(endPart ?? "") > -1
-        ) {
+        if (regX.test(endPart ?? "") || ["intro.md", "title.md"].indexOf(endPart ?? "") > -1) {
             const fileUri = vscode.Uri.joinPath(folder, file);
             if (await fileExists(fileUri)) {
                 const fileContent = await vscode.workspace.fs.readFile(fileUri);
                 // find checksum & size by read the file
                 const checksum = md5(fileContent);
                 const stats = await vscode.workspace.fs.stat(fileUri);
-                resourceBurrito.ingredients[
-                    file.replace(`${resource.name}/`, "")
-                ] = {
+                resourceBurrito.ingredients[file.replace(`${resource.name}/`, "")] = {
                     checksum: { md5: checksum },
                     mimeType: resourceMetadata.dublin_core.format,
                     size: stats.size,
                 };
                 if (endPart.toLowerCase() === "front.md") {
-                    resourceBurrito.ingredients[
-                        file.replace(`${resource.name}/`, "")
-                    ].role = "pubdata";
+                    resourceBurrito.ingredients[file.replace(`${resource.name}/`, "")].role =
+                        "pubdata";
                 } else if (regX.test(endPart)) {
-                    resourceBurrito.ingredients[
-                        file.replace(`${resource.name}/`, "")
-                    ].scope = OBSData.filter((story) => {
-                        if (
-                            `${story.storyId.toString().padStart(2, "0")}.md` ===
-                            endPart.toLowerCase()
-                        ) {
-                            return story;
-                        }
-                    })[0].scope;
+                    resourceBurrito.ingredients[file.replace(`${resource.name}/`, "")].scope =
+                        OBSData.filter((story) => {
+                            if (
+                                `${story.storyId.toString().padStart(2, "0")}.md` ===
+                                endPart.toLowerCase()
+                            ) {
+                                return story;
+                            }
+                        })[0].scope;
                 } else {
-                    resourceBurrito.ingredients[
-                        file.replace(`${resource.name}/`, "")
-                    ].role = "title";
+                    resourceBurrito.ingredients[file.replace(`${resource.name}/`, "")].role =
+                        "title";
                 }
             } else {
-                throw new Error(
-                    `File not Exist in project Directory:  ${file}`,
-                );
+                throw new Error(`File not Exist in project Directory:  ${file}`);
             }
         }
     });
@@ -94,9 +84,7 @@ export const generateResourceIngredientsTextTranslation = async ({
                 scope: { [project?.identifier.toUpperCase()]: [] },
             };
         } else {
-            throw new Error(
-                `File not Exist in project Directory:  ${project.path}`,
-            );
+            throw new Error(`File not Exist in project Directory:  ${project.path}`);
         }
     });
     return resourceBurrito;

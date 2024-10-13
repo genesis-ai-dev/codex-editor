@@ -7,7 +7,7 @@ const createObsSB = (
     language: any,
     langCode: string,
     direction: string,
-    id: any,
+    id: any
 ): Record<string, any> => {
     let json: Record<string, any> = {};
     json = burrito;

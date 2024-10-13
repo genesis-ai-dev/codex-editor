@@ -15,4 +15,3 @@ webviews/obs/build
 /webviews/commentsWebview
 .DS_Store
 package-lock.json
-/.vscode/settings.json

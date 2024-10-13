@@ -1,6 +1,7 @@
-import { Dictionary } from "codex-types";
+import { Dictionary, LanguageMetadata } from "codex-types";
 import * as vscode from "vscode";
 import { ScriptureTSV } from "./TsvTypes";
+
 interface ChatMessage {
     role: "system" | "user" | "assistant";
     content: string;
@@ -49,8 +50,44 @@ interface NotebookCommentThread {
     deleted: boolean;
 }
 
-interface VerseRefGlobalState {
-    verseRef: string;
+interface TranslationPair {
+    cellId: string;
+    sourceCell: MinimalCellResult;
+    targetCell: MinimalCellResult;
+    edits?: EditHistory[]; // Make this optional as it might not always be present
+}
+
+interface EditHistoryItem {
+    cellValue: string;
+    timestamp: number;
+    type: import("./enums").EditType;
+}
+
+// Relating to Smart Edits
+interface SmartEditContext {
+    cellId: string;
+    currentCellValue: string;
+    edits: EditHistoryItem[];
+}
+
+interface SmartSuggestion {
+    oldString: string;
+    newString: string;
+}
+
+interface SavedSuggestions {
+    cellId: string;
+    lastCellValue: string;
+    suggestions: SmartSuggestion[];
+}
+
+interface SmartEdit {
+    context: SmartEditContext;
+    suggestions: SmartSuggestion[];
+}
+
+interface CellIdGlobalState {
+    cellId: string;
     uri: string;
 }
 interface ScriptureContent extends vscode.NotebookData {
@@ -102,19 +139,38 @@ type ChatPostMessages =
     | { command: "abort-fetch" }
     | { command: "openSettings" }
     | { command: "openContextItem"; text: string }
-    | { command: "verseGraphData"; data: string[] };
+    | { command: "cellGraphData"; data: string[] }
+    | { command: "cellIdUpdate"; data: CellIdGlobalState & { sourceCellContent: string } }
+    | { command: "getCurrentCellId" };
 
 type DictionaryPostMessages =
     | { command: "sendData"; data: Dictionary }
-    | { command: "updateData"; data: Dictionary }
-    | { command: "confirmRemove"; count: number }
+    | { command: "webviewTellsProviderToUpdateData"; data: Dictionary }
+    | { command: "webviewAsksProviderToConfirmRemove"; count: number; data: Dictionary }
     | { command: "updateEntryCount"; count: number }
-    | { command: "removeConfirmed" }
     | { command: "updateFrequentWords"; words: string[] }
     | {
           command: "updateWordFrequencies";
           wordFrequencies: { [key: string]: number };
-      };
+      }
+    | { command: "updateDictionary"; content: Dictionary };
+
+type DictionaryReceiveMessages =
+    | { command: "providerTellsWebviewRemoveConfirmed" }
+    | { command: "providerTellsWebviewToUpdateData"; data: Dictionary };
+
+type DictionarySummaryPostMessages =
+    | { command: "providerSendsDataToWebview"; data: Dictionary }
+    | {
+          command: "providerSendsUpdatedWordFrequenciesToWebview";
+          wordFrequencies: { [key: string]: number };
+      }
+    | { command: "providerSendsFrequentWordsToWebview"; words: string[] }
+    | { command: "updateData" }
+    | { command: "showDictionaryTable" }
+    | { command: "refreshWordFrequency" }
+    | { command: "addFrequentWordsToDictionary"; words: string[] }
+    | { command: "updateEntryCount"; count: number };
 
 type TranslationNotePostMessages =
     | { command: "update"; data: ScriptureTSV }
@@ -164,105 +220,324 @@ type MiniSearchVerseResult = {
     vref: string;
 };
 
-type MinimalVerseResult = {
-    vref: string;
-    content: string;
-    uri: string;
-    line: number;
+type MinimalCellResult = {
+    cellId?: string;
+    content?: string;
+    uri?: string;
+    line?: number;
+    notebookId?: string;
 };
 
 type TranslationPair = {
-    vref: string;
-    sourceVerse: MinimalVerseResult;
-    targetVerse: MinimalVerseResult;
+    cellId: string;
+    sourceCell: MinimalCellResult;
+    targetCell: MinimalCellResult;
+    edits?: EditHistory[]; // Make this optional as it might not always be present
 };
 
-type SourceVerseVersions = {
-    vref: string;
+type SourceCellVersions = {
+    cellId: string;
     content: string;
     versions: string[];
-};
-type EditorVerseContent = {
-    verseMarkers: string[];
-    content: string;
-    verseIndex: number;
+    notebookId: string;
 };
 
-type EditorPostMessages =
-    | { command: "spellCheck"; content: EditorVerseContent }
-    | { command: "addWord"; text: string }
-    | { command: "saveMarkdown"; content: EditorVerseContent }
+type EditorCellContent = {
+    cellMarkers: string[];
+    cellContent: string;
+    cellChanged: boolean;
+    cellLabel: string;
+};
+
+export type EditorPostMessages =
+    | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string } }
+    | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata }
+    | { command: "pickVideoFile" }
+    | { command: "from-quill-spellcheck-getSpellCheckResponse"; content: EditorCellContent }
+    | { command: "updateCellTimestamps"; content: { cellId: string; timestamps: Timestamps } }
+    | { command: "deleteCell"; content: { cellId: string } }
+    | { command: "addWord"; words: string[] }
     | {
-          command: "updateMetadataWithUnsavedChanges";
-          content: EditorVerseContent;
+          command: "makeChildOfCell";
+          content: {
+              newCellId: string;
+              cellIdOfCellBeforeNewCell: string;
+              cellType: CodexCellTypes;
+              data: CustomNotebookCellData["metadata"]["data"];
+          };
       }
+    | { command: "saveHtml"; content: EditorCellContent }
     | { command: "getContent" }
     | {
           command: "setCurrentIdToGlobalState";
           content: { currentLineId: string };
-      };
+      }
+    | { command: "llmCompletion"; content: { currentLineId: string } }
+    | { command: "requestAutocompleteChapter"; content: QuillCellContent[] }
+    | { command: "updateTextDirection"; direction: "ltr" | "rtl" }
+    | { command: "openSourceText"; content: { chapterNumber: number } }
+    | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string } }
+    | { command: "pickVideoFile" };
 
-type CustomNotebook = vscode.NotebookCellData & {
-    language: string;
+type EditorReceiveMessages =
+    | {
+          type: "providerSendsInitialContent";
+          content: QuillCellContent[];
+          isSourceText: boolean;
+          sourceCellMap: { [k: string]: { content: string; versions: string[] } };
+      }
+    | {
+          type: "providerUpdatesCell";
+          content: { cellId: string; progress: number };
+      }
+    | { type: "providerCompletesChapterAutocompletion" }
+    | { type: "providerSendsSpellCheckResponse"; content: SpellCheckResponse }
+    | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl" }
+    | { type: "providerSendsLLMCompletionResponse"; content: { completion: string } }
+    | { type: "jumpToSection"; content: string }
+    | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata }
+    | { type: "updateVideoUrlInWebview"; content: string };
+
+type EditHistory = {
+    cellValue: string;
+    timestamp: number;
+    type: import("./enums").EditType;
 };
 
-type CustomNotebookData = {
-    metadata: vscode.NotebookData["metadata"];
-    cells: CustomNotebook[];
+type CodexData = Timestamps & {
+    sourceCellId?: string;
+    isParatext?: boolean;
 };
 
-export enum MainChatLanguage {
-    English = "English",
-    Tamil = "தமிழ் (Tamil)",
-    Telugu = "తెలుగు (Telugu)",
-    Kannada = "ಕನ್ನಡ (Kannada)",
-    Hindi = "हिन्दी (Hindi)",
-    Gujarati = "ગુજરાતી (Gujarati)",
-    Spanish = "Español (Spanish)",
-    French = "Français (French)",
-    German = "Deutsch (German)",
-    Italian = "Italiano (Italian)",
-    Dutch = "Nederlands (Dutch)",
-    Portuguese = "Português (Portuguese)",
-    Russian = "Русский (Russian)",
-    Chinese = "中文 (Chinese)",
-    Japanese = "日本語 (Japanese)",
-    Korean = "한국어 (Korean)",
-    Arabic = "العربية (Arabic)",
-    Turkish = "Türkçe (Turkish)",
-    Vietnamese = "Tiếng Việt (Vietnamese)",
-    Thai = "ไทย (Thai)",
-    Indonesian = "Bahasa Indonesia (Indonesian)",
-    Malay = "Bahasa Melayu (Malay)",
-    Filipino = "Filipino (Filipino)",
-    Bengali = "বাংলা (Bengali)",
-    Punjabi = "ਪੰਜਾਬੀ (Punjabi)",
-    Marathi = "मराठी (Marathi)",
-    Odia = "ଓଡ଼ିଆ (Odia)",
-    Kiswahili = "Swahili (Kiswahili)",
-    Urdu = "اردو (Urdu)",
-    Persian = "فارسی (Persian)",
-    Hausa = "Hausa",
-    Amharic = "አማርኛ (Amharic)",
-    Javanese = "ꦧꦱꦗꦮ (Javanese)",
-    Burmese = "မြန်မာဘာသာ (Burmese)",
-    Swedish = "Svenska (Swedish)",
-    Norwegian = "Norsk (Norwegian)",
-    Finnish = "Suomi (Finnish)",
-    Danish = "Dansk (Danish)",
-    Hebrew = "עברית (Hebrew)",
-    Ukrainian = "Українська (Ukrainian)",
-    Polish = "Polski (Polish)",
-    Romanian = "Română (Romanian)",
-    Czech = "Čeština (Czech)",
-    Hungarian = "Magyar (Hungarian)",
-    Greek = "Ελληνικά (Greek)",
-    Serbian = "Српски (Serbian)",
-    Croatian = "Hrvatski (Croatian)",
-    Bulgarian = "Български (Bulgarian)",
-    Slovak = "Slovenčina (Slovak)",
-    Malayalam = "മലയാളം (Malayalam)",
-    Sinhala = "සිංහල (Sinhala)",
-    Khmer = "ភាសាខ្មែរ (Khmer)",
-    Lao = "ພາສາລາວ (Lao)",
+type CustomCellMetaData = {
+    id: string;
+    type: import("./enums").CodexCellTypes;
+    data?: CodexData;
+    edits?: EditHistory[];
+    attachments?: {
+        [key: string]: {
+            url: string;
+            type: string;
+        };
+    };
+};
+
+type CustomNotebookCellData = vscode.NotebookCellData & {
+    metadata: CustomCellMetaData;
+};
+
+type CustomNotebookMetadata = {
+    id: string;
+    data?: { corpusMarker?: string };
+    textDirection?: "ltr" | "rtl";
+    perf?: any;
+    attachments?: {
+        [key: string]: {
+            url: string;
+            type: string;
+        };
+    };
+    originalName: string;
+    sourceUri: vscode.Uri;
+    codexUri: vscode.Uri;
+    videoUrl?: string; // Add this line
+};
+
+type CustomNotebookDocument = vscode.NotebookDocument & {
+    metadata: CustomNotebookMetadata;
+};
+
+type CodexNotebookAsJSONData = {
+    cells: CustomNotebookCellData[];
+    metadata: CustomNotebookMetadata;
+};
+
+interface QuillCellContent {
+    cellMarkers: string[];
+    cellContent: string;
+    cellType: import("./enums").CodexCellTypes;
+    editHistory: Array<EditHistory>;
+    timestamps?: Timestamps;
+    cellLabel?: string;
+}
+
+interface Timestamps {
+    startTime?: number;
+    endTime?: number;
+}
+
+interface SpellCheckResponse {
+    id: string;
+    text: string;
+    replacements: Array<{ value: string }>;
+    offset: number;
+    length: number;
+}
+
+type SpellCheckResult = SpellCheckResponse[];
+
+/* This is the project overview that populates the project manager webview */
+interface ProjectOverview {
+    projectName: string;
+    abbreviation: string;
+    sourceLanguage: LanguageMetadata;
+    targetLanguage: LanguageMetadata;
+    category: string;
+    userName: string;
+    sourceTexts?: vscode.Uri[] | never[];
+    targetTexts?: vscode.Uri[] | never[];
+    targetFont: string;
+    primarySourceText?: vscode.Uri;
+}
+
+/* This is the project metadata that is saved in the metadata.json file */
+type ProjectMetadata = {
+    format: string;
+    meta: {
+        version: string;
+        category: string;
+        generator: {
+            softwareName: string;
+            softwareVersion: string;
+            userName: string;
+        };
+        defaultLocale: string;
+        dateCreated: string;
+        normalization: string;
+        comments?: string[];
+        primarySourceText?: vscode.Uri;
+    };
+    idAuthorities: {
+        [key: string]: {
+            id: string;
+            name: {
+                [lang: string]: string;
+            };
+        };
+    };
+    identification: {
+        primary: {
+            [authority: string]: {
+                [id: string]: {
+                    revision: string;
+                    timestamp: string;
+                };
+            };
+        };
+        name: {
+            [lang: string]: string;
+        };
+        description: {
+            [lang: string]: string;
+        };
+        abbreviation: {
+            [lang: string]: string;
+        };
+    };
+    languages: Array<{
+        tag: string;
+        name: {
+            [lang: string]: string;
+        };
+    }>;
+    type: {
+        flavorType: {
+            name: string;
+            flavor: {
+                name: string;
+                usfmVersion?: string;
+                translationType?: string;
+                audience?: string;
+                projectType?: string;
+            };
+            currentScope: {
+                [book: string]: any[];
+            };
+        };
+    };
+    confidential: boolean;
+    agencies: Array<{
+        id: string;
+        roles: string[];
+        url?: string;
+        name: {
+            [lang: string]: string;
+        };
+        abbr?: {
+            [lang: string]: string;
+        };
+    }>;
+    targetAreas?: Array<{
+        code: string;
+        name: {
+            [lang: string]: string;
+        };
+    }>;
+    ingredients?: {
+        [path: string]: {
+            checksum: {
+                md5: string;
+            };
+            mimeType: string;
+            size: number;
+            scope?: {
+                [book: string]: any[];
+            };
+        };
+    };
+    copyright?: {
+        shortStatements: Array<{
+            statement: string;
+            mimetype: string;
+            lang: string;
+        }>;
+    };
+};
+
+// Update or add these function signatures
+declare function searchTargetCellsByQuery(
+    translationPairsIndex: MiniSearch,
+    query: string,
+    k?: number
+): MinimalCellResult[];
+
+declare function getTranslationPairsFromSourceCellQuery(
+    translationPairsIndex: MiniSearch,
+    query: string,
+    k?: number
+): TranslationPair[];
+
+declare function getSourceCellByCellIdFromAllSourceCells(
+    sourceTextIndex: MiniSearch,
+    cellId: string
+): SourceCellVersions | null;
+
+declare function getTargetCellByCellId(
+    translationPairsIndex: MiniSearch,
+    cellId: string
+): MinimalCellResult | null;
+
+declare function getTranslationPairFromProject(
+    translationPairsIndex: MiniSearch,
+    cellId: string
+): TranslationPair | null;
+
+declare function searchParallelCells(
+    translationPairsIndex: MiniSearch,
+    sourceTextIndex: MiniSearch,
+    query: string,
+    k?: number
+): TranslationPair[];
+
+export type SupportedFileExtension = "vtt" | "txt" | "usfm" | "sfm" | "SFM" | "USFM";
+
+export type FileType = "subtitles" | "plaintext" | "usfm";
+
+export interface FileTypeMap {
+    vtt: "subtitles";
+    txt: "plaintext";
+    usfm: "usfm";
+    sfm: "usfm";
+    SFM: "usfm";
+    USFM: "usfm";
 }

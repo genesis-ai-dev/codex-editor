@@ -1,0 +1,38 @@
+/* @import url('https://fonts.googleapis.com/css?family=Lucida+Sans|Comic+Sans+MS&display=swap'); */
+
+/* .ql-editor .ql-font-georgia {
+    font-family: Georgia, serif;
+  }
+  
+  .ql-editor .ql-font-comic-sans {
+    font-family: 'Comic Sans MS', cursive, sans-serif;
+  }
+  
+  .ql-editor .ql-font-arial {
+    font-family: Arial, sans-serif;
+  }
+  
+  .ql-editor .ql-font-lucida {
+    font-family: 'Lucida Sans', 'Lucida Grande', 'Lucida Sans Unicode', sans-serif;
+  }
+  
+  .ql-editor .ql-font-times-new-roman {
+    font-family: 'Times New Roman', Times, serif;
+  }
+  
+  .ql-editor .ql-font-courier-new {
+    font-family: 'Courier New', Courier, monospace;
+  }
+  
+  .ql-editor .ql-font-verdana {
+    font-family: Verdana, Geneva, sans-serif;
+  } */
+  .ql-editor{
+    /* padding: 100px;
+    font-size: 16px; */
+    white-space: normal !important;
+    /* direction: rtl;
+    text-align: right; */
+  }
+
+ 

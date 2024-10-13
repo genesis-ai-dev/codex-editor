@@ -1,93 +1,108 @@
+:root {
+    --container-padding: 16px;
+    --item-spacing: 8px;
+    --border-radius: 4px;
+}
+
+body {
+    background: var(--vscode-sideBar-background);
+    color: var(--vscode-sideBar-foreground);
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+    line-height: var(--vscode-font-line-height);
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+}
+
 .container {
     display: flex;
     flex-direction: column;
-    gap: 2em;
-    align-items: center;
-    justify-content: center;
-    width: 95%;
-    margin: auto;
+    gap: var(--item-spacing);
+    width: 100%;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: var(--container-padding);
+    box-sizing: border-box;
 }
 
 .search-bar {
     display: flex;
     align-items: center;
-    margin-top: 2em;
+    gap: var(--item-spacing);
     width: 100%;
+    margin-bottom: var(--item-spacing);
 }
 
 .verses-container {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 1em;
+    gap: var(--item-spacing);
+    width: 100%;
+    overflow-y: auto;
+    max-height: calc(100vh - 140px);
 }
 
 .verse-item {
-    margin-bottom: 5px;
     background: var(--vscode-sideBar-dropBackground);
-    border-radius: 5px;
-    align-content: center;
-    display: flex;
-    flex-direction: column;
-    padding: 5px;
+    border-radius: var(--border-radius);
+    padding: var(--item-spacing);
     width: 100%;
+    box-sizing: border-box;
 }
 
-.both-present {
-    border: 2px solid rgba(0, 255, 0, 0.5);
-}
-
-.one-present {
-    border: 2px solid rgba(0, 255, 0, 0.5);
-}
-
-.verse-header {
+.cell-header {
     display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
     justify-content: space-between;
-    align-items: center;
-    margin-bottom: 10px;
+    align-items: flex-start;
+    margin-bottom: var(--item-spacing);
+}
+
+.verse-content {
+    flex-grow: 1;
+    margin-right: var(--item-spacing);
 }
 
 .verse-text {
-    border-radius: 10px;
-    margin: 10px;
-    padding: 5px;
+    font-size: 0.9em;
+    line-height: 1.4;
+    word-break: break-word;
+    margin: 0;
 }
 
-.verse-label {
-    background: rgba(0, 255, 0, 0.2);
-    padding: 2px 5px;
-    border-radius: 5px;
-    margin-bottom: 5px;
-    display: inline-flex;
-    align-items: center;
-}
-
-.verse-label span {
-    margin-right: 5px;
-}
-
-.verse-textarea {
-    width: calc(100% - 5px);  /* Subtract 20px to account for left and right padding */
-    height: 100px;
-    border-radius: 10px;
-    padding: 10px;
-    border: 1px solid var(--vscode-sideBar-border);
-    background-color: var(--vscode-editor-background);
-    color: var(--vscode-editor-foreground);
-    font-family: var(--vscode-font-family);
-    font-size: var(--vscode-font-size);
-    box-sizing: border-box;  /* Include padding and border in the element's total width and height */
+.verse-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex-shrink: 0;
 }
 
 .no-results {
-    margin-bottom: 5px;
-    background: var(--vscode-sideBar-dropBackground);
-    border-radius: 5px;
-    align-content: center;
-    display: flex;
-    flex-direction: column;
-    padding: 5px;
-    width: 100%;
     text-align: center;
+    padding: var(--item-spacing);
+    background: var(--vscode-sideBar-dropBackground);
+    border-radius: var(--border-radius);
+}
+
+vscode-badge {
+    margin-bottom: var(--item-spacing);
+}
+
+@media (max-width: 600px) {
+    :root {
+        --container-padding: 8px;
+        --item-spacing: 6px;
+    }
+
+    .cell-header {
+        flex-direction: column;
+    }
+
+    .verse-actions {
+        margin-top: var(--item-spacing);
+        align-self: flex-end;
+    }
 }

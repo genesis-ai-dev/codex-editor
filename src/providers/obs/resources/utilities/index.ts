@@ -9,24 +9,16 @@ export const getResourceType = (subject: string) => {
     if (subject === "TSV Translation Questions") return "tq";
     if (subject === "Translation Words") return "tw";
     if (subject === "TSV Translation Words Links") return "twl";
-    if (
-        subject === "OBS Translation Notes" ||
-        subject === "TSV OBS Translation Notes"
-    )
+    if (subject === "OBS Translation Notes" || subject === "TSV OBS Translation Notes")
         return "obs-tn";
     if (subject === "OBS Translation Questions") return "obs-tq";
     if (subject === "TSV OBS Translation Questions") return "obs-tq";
-    if (
-        subject === "OBS Translation Words Links" ||
-        subject === "TSV OBS Translation Words Links"
-    )
+    if (subject === "OBS Translation Words Links" || subject === "TSV OBS Translation Words Links")
         return "obs-twl";
     throw new Error("Invalid resource type");
 };
 
-export const getLinkedTwResource = async (
-    resourceMetadata: ResourceMetadata,
-) => {
+export const getLinkedTwResource = async (resourceMetadata: ResourceMetadata) => {
     const lang = resourceMetadata.meta.language;
     const owner = resourceMetadata.meta.owner;
 
@@ -46,9 +38,7 @@ export const getLinkedTwResource = async (
         return resources[0];
     }
 
-    const linkedResource = resources.find(
-        (resource) => resource.owner === owner,
-    );
+    const linkedResource = resources.find((resource) => resource.owner === owner);
 
     return linkedResource ?? resources[0];
 };

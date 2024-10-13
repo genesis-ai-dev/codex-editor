@@ -12,10 +12,7 @@ export class ObsTranslationNotesProvider {
     context: vscode.ExtensionContext;
     stateStore?: Awaited<ReturnType<typeof initializeStateStore>>;
 
-    constructor(
-        context: vscode.ExtensionContext,
-        resource: DownloadedResource,
-    ) {
+    constructor(context: vscode.ExtensionContext, resource: DownloadedResource) {
         this.resource = resource;
         this.context = context;
         initializeStateStore().then((stateStore) => {
@@ -23,9 +20,7 @@ export class ObsTranslationNotesProvider {
         });
     }
 
-    async startWebview(
-        viewColumn: vscode.ViewColumn = vscode.ViewColumn.Beside,
-    ) {
+    async startWebview(viewColumn: vscode.ViewColumn = vscode.ViewColumn.Beside) {
         if (!this.stateStore) {
             this.stateStore = await initializeStateStore();
         }
@@ -37,34 +32,28 @@ export class ObsTranslationNotesProvider {
             {
                 enableScripts: true,
                 localResourceRoots: [this.context.extensionUri],
-            },
+            }
         );
         this.webview = panel;
 
-        panel.webview.html = this._getWebviewContent(
-            panel.webview,
-            this.context.extensionUri,
-        );
+        panel.webview.html = this._getWebviewContent(panel.webview, this.context.extensionUri);
 
-        panel.webview.onDidReceiveMessage(
-            async (e: { type: MessageType; payload: unknown }) => {
-                switch (e.type) {
-                    default:
-                        break;
-                }
-            },
-        );
+        panel.webview.onDidReceiveMessage(async (e: { type: MessageType; payload: unknown }) => {
+            switch (e.type) {
+                default:
+                    break;
+            }
+        });
 
         const onDidChangeViewState = panel.onDidChangeViewState(async (e) => {
             if (e.webviewPanel.visible) {
-                const verseRefStore =
-                    await this.stateStore?.getStoreState("obsRef");
+                const verseRefStore = await this.stateStore?.getStoreState("obsRef");
                 const translationNotes = await getObsRefTranslationNotes(
                     this.resource,
                     verseRefStore ?? {
                         storyId: "01",
                         paragraph: "1",
-                    },
+                    }
                 );
 
                 e.webviewPanel.webview.postMessage({
@@ -85,7 +74,7 @@ export class ObsTranslationNotesProvider {
                         value ?? {
                             storyId: "01",
                             paragraph: "1",
-                        },
+                        }
                     );
 
                     panel.webview.postMessage({
@@ -95,7 +84,7 @@ export class ObsTranslationNotesProvider {
                         },
                     });
                 }
-            },
+            }
         );
         panel.onDidDispose(() => {
             onDidChangeViewState.dispose();
@@ -107,10 +96,7 @@ export class ObsTranslationNotesProvider {
         };
     }
 
-    private _getWebviewContent(
-        webview: vscode.Webview,
-        extensionUri: vscode.Uri,
-    ) {
+    private _getWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri) {
         // The CSS file from the React build output
         const stylesUri = getUri(webview, extensionUri, [
             "webviews",

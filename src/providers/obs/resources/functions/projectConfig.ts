@@ -4,9 +4,7 @@ import { fileExists } from "../../CreateProject/utilities/obs";
 
 const CONFIG_FILE_NAME = "scribe.config.json";
 
-export const addDownloadedResourceToProjectConfig = async (
-    resource: DownloadedResource,
-) => {
+export const addDownloadedResourceToProjectConfig = async (resource: DownloadedResource) => {
     const projectURI = vscode.workspace.workspaceFolders?.[0].uri;
 
     const configFileUri = projectURI?.with({
@@ -30,21 +28,18 @@ export const addDownloadedResourceToProjectConfig = async (
 
     if (configDownloadedResources.some((r: any) => r.id === resource.id)) {
         vscode.window.showInformationMessage(
-            `Resource ${resource.name} already exists in the project!`,
+            `Resource ${resource.name} already exists in the project!`
         );
         return;
     }
 
-    const newConfigDownloadedResources = [
-        ...configDownloadedResources,
-        resource,
-    ];
+    const newConfigDownloadedResources = [...configDownloadedResources, resource];
 
     config.resources = newConfigDownloadedResources;
 
     await vscode.workspace.fs.writeFile(
         configFileUri,
-        Buffer.from(JSON.stringify(config, null, 2)),
+        Buffer.from(JSON.stringify(config, null, 2))
     );
 };
 

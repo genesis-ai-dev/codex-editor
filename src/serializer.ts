@@ -1,69 +1,176 @@
+// FIXME: Any time you programmatically modify the notebook, you should also be updating the notebook's memory/edit history.
+
 import * as vscode from "vscode";
 import { TextDecoder, TextEncoder } from "util";
+import { CodexNotebookAsJSONData, CustomNotebookCellData } from "../types";
 
-/**
- * An ultra-minimal sample provider that lets the user type in JSON, and then
- * outputs JSON cells. The outputs are transient and not saved to notebook file on disk.
- */
-
-interface RawNotebookData {
-    cells: RawNotebookCell[];
+export interface CodexNotebookDocument extends vscode.NotebookDocument {
+    cells: CustomNotebookCellData[];
+    metadata: { [key: string]: any };
+    getCells(): vscode.NotebookCell[];
+    getCellIndex(cell: vscode.NotebookCell): number;
+    cellAt(index: number): vscode.NotebookCell;
+    cellsUpTo(index: number): vscode.NotebookCell[];
 }
 
-interface RawNotebookCell {
-    language: string;
-    value: string;
-    kind: vscode.NotebookCellKind;
-    editable?: boolean;
-    metadata?: any;
+interface RawNotebookData {
+    cells: CustomNotebookCellData[];
+    metadata?: { [key: string]: any };
 }
 
 export class CodexContentSerializer implements vscode.NotebookSerializer {
-    public readonly label: string = "My Sample Content Serializer";
+    public readonly label: string = "Codex Translation Notebook Serializer";
 
-    public async deserializeNotebook(
+    async deserializeNotebook(
         data: Uint8Array,
-        token: vscode.CancellationToken,
-    ): Promise<vscode.NotebookData> {
+        token: vscode.CancellationToken
+    ): Promise<CodexNotebookAsJSONData> {
         const contents = new TextDecoder().decode(data); // convert to String
-
         // Read file contents
         let raw: RawNotebookData;
         try {
             raw = <RawNotebookData>JSON.parse(contents);
         } catch {
-            raw = { cells: [] };
+            raw = { cells: [], metadata: {} };
         }
         // Create array of Notebook cells for the VS Code API from file contents
         const cells = raw.cells.map((item) => {
             const cell = new vscode.NotebookCellData(
                 item.kind,
                 item.value,
-                item.language,
+                item.languageId || "html"
             );
             cell.metadata = item.metadata || {}; // Ensure metadata is included if available
+            if (item.metadata && item.metadata.id) {
+                cell.metadata.id = item.metadata.id;
+            }
             return cell;
         });
 
-        return new vscode.NotebookData(cells);
+        const notebookData = new vscode.NotebookData(cells);
+        notebookData.metadata = raw.metadata || {};
+        return notebookData as CodexNotebookAsJSONData;
     }
 
-    public async serializeNotebook(
+    async serializeNotebook(
         data: vscode.NotebookData,
-        token: vscode.CancellationToken,
+        token: vscode.CancellationToken
     ): Promise<Uint8Array> {
         // Map the Notebook data into the format we want to save the Notebook data as
-        const contents: RawNotebookData = { cells: [] };
-
+        const contents: RawNotebookData = {
+            cells: [],
+            metadata: data.metadata,
+        };
         for (const cell of data.cells) {
             contents.cells.push({
                 kind: cell.kind,
-                language: cell.languageId,
+                languageId: cell.languageId,
                 value: cell.value,
-                metadata: cell.metadata,
+                metadata: {
+                    ...cell.metadata,
+                    id: cell.metadata?.id,
+                    type: cell.metadata?.type || "default", // FIXME: Add a default type if not present, user?
+                },
             });
         }
 
         return new TextEncoder().encode(JSON.stringify(contents, null, 4));
+    }
+}
+
+export class CodexNotebookReader {
+    private notebookDocument: vscode.NotebookDocument | undefined;
+
+    constructor(private readonly uri: vscode.Uri) {}
+
+    private async ensureNotebookDocument(): Promise<void> {
+        if (!this.notebookDocument) {
+            this.notebookDocument = await vscode.workspace.openNotebookDocument(this.uri);
+        }
+    }
+
+    async getCells(): Promise<vscode.NotebookCell[]> {
+        await this.ensureNotebookDocument();
+        return this.notebookDocument!.getCells();
+    }
+
+    async getCellIndex(props: { cell?: vscode.NotebookCell; id?: string }): Promise<number> {
+        const { cell, id } = props;
+        const cells = await this.getCells();
+        return cells.findIndex(
+            (c) => c.metadata?.id === cell?.metadata?.id || c.metadata?.id === id
+        );
+    }
+
+    async cellAt(index: number): Promise<vscode.NotebookCell | undefined> {
+        const cells = await this.getCells();
+        return cells[index];
+    }
+
+    async cellsUpTo(index: number): Promise<vscode.NotebookCell[]> {
+        const cells = await this.getCells();
+        return cells.slice(0, index);
+    }
+
+    // Check if the cell is a range marker
+    isRangeCell(cell: vscode.NotebookCell | undefined): boolean {
+        if (!cell) {
+            return false; // If cell is undefined, it's not a range cell
+        }
+        return cell.document.getText().trim() === "<range>";
+    }
+
+    // Get the full content for a cell, accounting for ranges
+    async getCellIds(cellIndex: number): Promise<string[]> {
+        const cells = await this.getCells();
+        const ids: string[] = [];
+        // If the current cell is a range marker, find the preceding cell
+        if (cellIndex < 0 || cellIndex >= cells.length) {
+            return ids; // Return empty array if index is out of bounds
+        }
+
+        const currentCell = cells[cellIndex];
+        if (currentCell?.metadata?.id) {
+            ids.push(currentCell.metadata.id);
+        }
+
+        // Check for subsequent range cells
+        let nextIndex = cellIndex + 1;
+        while (nextIndex < cells.length && this.isRangeCell(cells[nextIndex])) {
+            if (cells[nextIndex]?.metadata?.id) {
+                ids.push(cells[nextIndex].metadata.id);
+            }
+            nextIndex++;
+        }
+
+        return ids;
+    }
+
+    // Get cell IDs, including subsequent range cells
+    async getEffectiveCellContent(cellIndex: number): Promise<string> {
+        const cells = await this.getCells();
+        let content = "";
+
+        if (cellIndex < 0 || cellIndex >= cells.length) {
+            return content; // Return empty string if index is out of bounds
+        }
+
+        let currentIndex = cellIndex;
+
+        // If the current cell is a range marker, find the preceding cell
+        if (this.isRangeCell(cells[currentIndex])) {
+            currentIndex = Math.max(0, cellIndex - 1);
+        }
+
+        content += cells[currentIndex]?.document.getText() || "";
+
+        // Check for subsequent range markers
+        let nextIndex = currentIndex + 1;
+        while (nextIndex < cells.length && this.isRangeCell(cells[nextIndex])) {
+            content += " " + (cells[nextIndex]?.document.getText() || "");
+            nextIndex++;
+        }
+
+        return content;
     }
 }

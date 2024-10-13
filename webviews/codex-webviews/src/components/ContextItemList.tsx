@@ -35,10 +35,7 @@ export const ContextItemList: React.FC<ContextItemListProps> = ({
                 }}
             >
                 <VSCodeLink onClick={toggleCollapse}>
-                    <i
-                        className="codicon codicon-quote"
-                        title="Selected Text Indicator"
-                    ></i>
+                    <i className="codicon codicon-quote" title="Selected Text Indicator"></i>
                     {isCollapsed ? "Show Context Items" : "Hide Context Items"}
                 </VSCodeLink>
                 {!isCollapsed && (
@@ -50,9 +47,7 @@ export const ContextItemList: React.FC<ContextItemListProps> = ({
                                     title={item}
                                     onClick={() => openContextItem(item)}
                                 >
-                                    {item.length > 50
-                                        ? `${item.substring(0, 47)}...`
-                                        : item}
+                                    {item.length > 50 ? `${item.substring(0, 47)}...` : item}
                                 </VSCodeLink>
                             </div>
                         ))}

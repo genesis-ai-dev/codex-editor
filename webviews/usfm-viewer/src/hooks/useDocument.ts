@@ -38,13 +38,8 @@ export const useDocument = ({
                     console.log("received", { usfm, bookID, chapter, verse });
                     setDocument(event.data.payload.usfm);
                     setChapter(event.data.payload.chapter);
-                    const {
-                        perf,
-                        id,
-                        docSetId,
-                    }: { perf: Perf; id: string; docSetId: string } = usfm2perf(
-                        event.data.payload.usfm,
-                    );
+                    const { perf, id, docSetId }: { perf: Perf; id: string; docSetId: string } =
+                        usfm2perf(event.data.payload.usfm);
                     console.log({ perf, id, docSetId });
                     perf &&
                         perf.metadata.document.bookCode &&
@@ -55,9 +50,7 @@ export const useDocument = ({
                     break;
                 }
                 case "fileOpened":
-                    console.log(
-                        `received message from extension :${event.data.type}`,
-                    );
+                    console.log(`received message from extension :${event.data.type}`);
                     break;
             }
         });

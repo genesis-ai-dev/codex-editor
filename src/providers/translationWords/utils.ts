@@ -27,17 +27,14 @@ export const getAllTranslationWordsOfResource = async (resourceId: string) => {
     }
     const resourcesDirUri = Uri.joinPath(
         workspace?.workspaceFolders?.[0].uri,
-        `.project/resources`,
+        `.project/resources`
     );
 
-    const resourceBibleDirUri = Uri.joinPath(
-        resourcesDirUri,
-        `./${resourceId}/bible`,
-    );
+    const resourceBibleDirUri = Uri.joinPath(resourcesDirUri, `./${resourceId}/bible`);
 
     if (!(await directoryExists(resourceBibleDirUri))) {
         window.showErrorMessage(
-            `The resource ${resourceId} does not exist or it's invalid directory.`,
+            `The resource ${resourceId} does not exist or it's invalid directory.`
         );
         return;
     }

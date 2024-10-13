@@ -34,7 +34,7 @@ export const tsvStringToFlatArray: (tsv: string) => TsvObject[] = (tsv) => {
                 ...obj,
                 [header]: values[index] ?? "",
             }),
-            {},
+            {}
         );
     });
 };
@@ -44,9 +44,7 @@ export const tsvStringToFlatArray: (tsv: string) => TsvObject[] = (tsv) => {
  * @param flatTsvArray The array of TSV rows to convert.
  * @returns A ScriptureTSV object.
  */
-export const tsvFlatArrayToScriptureTSV = (
-    flatTsvArray: TSVRow[],
-): ScriptureTSV => {
+export const tsvFlatArrayToScriptureTSV = (flatTsvArray: TSVRow[]): ScriptureTSV => {
     const tsvItems: TSVRow[] = Array.isArray(flatTsvArray) ? flatTsvArray : [];
     return tsvItems.reduce((scriptureTsv, note) => {
         const referenceList = note.Reference
@@ -69,7 +67,7 @@ export const tsvFlatArrayToScriptureTSV = (
 function mapNoteToChaptersVerses(
     note: TSVRow,
     refChunk: { chapter: number; verse: number; endVerse?: number },
-    scriptureTsv: ScriptureTSV,
+    scriptureTsv: ScriptureTSV
 ): ScriptureTSV {
     const { chapter, verse: startVerse, endVerse = startVerse } = refChunk;
     const verses = range(startVerse, endVerse);

@@ -16,12 +16,7 @@ export const BookView = ({
         state: { selectedBook, showChapterList },
         actions,
     } = useContext(ReferenceContext);
-    const {
-        setSelectedBook,
-        setBookChapters,
-        setSelectedChapter,
-        setShowChapterList,
-    } = actions;
+    const { setSelectedBook, setBookChapters, setSelectedChapter, setShowChapterList } = actions;
 
     const handleSelectChapter = (chapter: string) => {
         console.log({ chapter });
@@ -71,13 +66,9 @@ export const BookView = ({
                             >
                                 {book.book}
                             </div>
-                            {selectedBook &&
-                                selectedBook === book.fileName &&
-                                showChapterList && (
-                                    <ChapterExplorer
-                                        onSelectChapter={handleSelectChapter}
-                                    />
-                                )}
+                            {selectedBook && selectedBook === book.fileName && showChapterList && (
+                                <ChapterExplorer onSelectChapter={handleSelectChapter} />
+                            )}
                         </div>
                     ))}
             </div>

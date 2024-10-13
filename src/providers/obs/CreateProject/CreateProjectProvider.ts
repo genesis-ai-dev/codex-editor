@@ -4,20 +4,18 @@ import { createObsProject } from "./functions/createObsProject";
 import { getUri } from "./utilities/getUri";
 import { getNonce } from "./utilities/getNonce";
 import { initializeNewProject } from "./functions/initializeNewProject";
-import { ProjectDetails } from "../../../utils/projectUtils";
+import { ProjectDetails } from "../../../projectManager/utils/projectUtils";
 import { initProject } from "../../scm/git";
 import { indexVerseRefsInSourceText } from "../../../commands/indexVrefsCommand";
 
 export class CreateProjectProvider implements vscode.WebviewViewProvider {
     private _webviewView: vscode.WebviewView | undefined;
     private _context: vscode.ExtensionContext | undefined;
-    public static register(
-        context: vscode.ExtensionContext,
-    ): vscode.Disposable {
+    public static register(context: vscode.ExtensionContext): vscode.Disposable {
         const provider = new CreateProjectProvider(context);
         const providerRegistration = vscode.window.registerWebviewViewProvider(
             CreateProjectProvider.viewType,
-            provider,
+            provider
         );
         return providerRegistration;
     }
@@ -32,14 +30,14 @@ export class CreateProjectProvider implements vscode.WebviewViewProvider {
     public async resolveWebviewView(
         webviewPanel: vscode.WebviewView,
         ctx: vscode.WebviewViewResolveContext,
-        _token: vscode.CancellationToken,
+        _token: vscode.CancellationToken
     ): Promise<void> {
         webviewPanel.webview.options = {
             enableScripts: true,
         };
         webviewPanel.webview.html = this._getWebviewContent(
             webviewPanel.webview,
-            this.context.extensionUri,
+            this.context.extensionUri
         );
 
         // Receive message from the webview.
@@ -51,19 +49,16 @@ export class CreateProjectProvider implements vscode.WebviewViewProvider {
                         break;
                     case MessageType.createProject:
                         await initializeNewProject(e.payload as ProjectDetails);
-                        await initProject(
-                            (e.payload as any)?.name,
-                            (e.payload as any)?.email,
-                        );
+                        await initProject((e.payload as any)?.name, (e.payload as any)?.email);
                         await vscode.commands.executeCommand(
-                            "codex-editor-extension.downloadSourceTextBibles",
+                            "codex-editor-extension.downloadSourceText"
                         );
                         indexVerseRefsInSourceText();
                         break;
                     default:
                         break;
                 }
-            },
+            }
         );
 
         this._webviewView = webviewPanel;
@@ -85,19 +80,13 @@ export class CreateProjectProvider implements vscode.WebviewViewProvider {
         commands.forEach((command) => {
             if (!registeredCommands.includes(command.command)) {
                 this._context?.subscriptions.push(
-                    vscode.commands.registerCommand(
-                        command.command,
-                        command.handler,
-                    ),
+                    vscode.commands.registerCommand(command.command, command.handler)
                 );
             }
         });
     }
 
-    private _getWebviewContent(
-        webview: vscode.Webview,
-        extensionUri: vscode.Uri,
-    ) {
+    private _getWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri) {
         // The CSS file from the React build output
         const stylesUri = getUri(webview, extensionUri, [
             "webviews",

@@ -1,10 +1,10 @@
-# Codex Scripture Editor Extension
+# Codex Translation Editor Extension
 
-The Codex Scripture Editor Extension is a powerful Visual Studio Code extension designed to enhance the experience of working with scripture translation projects. It provides support for `.codex` notebooks, `.bible` source files, and `.scripture` raw scripture files, integrating seamlessly with Translator's Copilot Language Server for scripture drafting, checking diagnostics, and offering advanced features to streamline the translation process.
+The Codex Translation Editor Extension is a powerful Visual Studio Code extension designed to enhance the experience of working with scripture translation projects. It provides support for `.codex` notebooks, `.bible` source files, and `.scripture` raw scripture files, integrating seamlessly with Translator's Copilot Language Server for scripture drafting, checking diagnostics, and offering advanced features to streamline the translation process.
 
 > Note: this extension is in active development and may have bugs or incomplete features. Please report any issues or suggestions on the [GitHub repository](https://github.com/genesis-ai-dev/codex-editor).
 
-Read more about Codex Scripture Editor Extension in the [documentation](https://codex-editor.gitbook.io/).
+Read more about Codex Translation Editor Extension in the [documentation](https://codex-editor.gitbook.io/).
 
 ## Features
 
@@ -44,7 +44,7 @@ You can also use the "Create Codex Notebook" command to generate a new Codex Not
 
 ### Configuration
 
-Customize the Codex Scripture Editor Extension to fit your needs with configurable settings for the Translator's Copilot, server setup, client configuration, and more. Adjust settings like the language server endpoint, API keys, and document selectors to optimize your translation workflow.
+Customize the Codex Translation Editor Extension to fit your needs with configurable settings for the Translator's Copilot, server setup, client configuration, and more. Adjust settings like the language server endpoint, API keys, and document selectors to optimize your translation workflow.
 
 ### Contributing
 
@@ -82,7 +82,7 @@ pnpm i # if you're using pnpm, or npm install if you're using npm
 ## build the codex-webviews
 codex-editor % cd webviews/codex-webviews
 codex-webviews % pnpm i
-codex-webviews % pnpm run build
+codex-webviews % pnpm run build:all
 
 ## build the dictionary-side-panel
 codex-webviews % cd ../dictionary-side-panel

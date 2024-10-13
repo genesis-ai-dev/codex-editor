@@ -23,10 +23,6 @@
         "typeRoots": ["./node_modules/@types", "./src/types", "./src"]
     },
     "exclude": ["build"],
-    "include": [
-        "src/**/*.ts",
-        "src/**/*.tsx",
-        "src/**/*.d.ts"
-    ],
+    "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.d.ts"],
     "references": [{ "path": "./tsconfig.node.json" }]
 }

@@ -12,9 +12,7 @@ const TranslationQuestions = () => {
         <div className="grid grid-cols-8">
             {/* Left Button */}
             <VSCodeButton
-                onClick={() =>
-                    setCurrentIndex((prev) => (prev === 0 ? prev : prev - 1))
-                }
+                onClick={() => setCurrentIndex((prev) => (prev === 0 ? prev : prev - 1))}
                 appearance="secondary"
                 className="h-fit w-fit col-span-1"
                 aria-label="left"
@@ -22,24 +20,15 @@ const TranslationQuestions = () => {
                 <i className="codicon codicon-chevron-left"></i>
             </VSCodeButton>
             {/* Middle Element */}
-            <div
-                id="note-container prose"
-                className="col-span-6 w-full space-y-4"
-            >
-                <div className="font-semibold text-lg">
-                    {currentTranslationQuestion?.Question}
-                </div>
-                <div className="text-base">
-                    {currentTranslationQuestion?.Response}
-                </div>
+            <div id="note-container prose" className="col-span-6 w-full space-y-4">
+                <div className="font-semibold text-lg">{currentTranslationQuestion?.Question}</div>
+                <div className="text-base">{currentTranslationQuestion?.Response}</div>
             </div>
             {/* Right Button */}
             <VSCodeButton
                 onClick={() =>
                     setCurrentIndex((prev) =>
-                        prev === translationQuestions.length - 1
-                            ? prev
-                            : prev + 1,
+                        prev === translationQuestions.length - 1 ? prev : prev + 1
                     )
                 }
                 appearance="secondary"
@@ -53,21 +42,14 @@ const TranslationQuestions = () => {
 };
 
 const useTranslationQuestions = () => {
-    const [translationQuestions, setTranslationQuestions] = useState<
-        Record<string, string>[]
-    >([]);
+    const [translationQuestions, setTranslationQuestions] = useState<Record<string, string>[]>([]);
 
     useEffect(() => {
         vscode.setMessageListeners((event) => {
             switch (event.data.type) {
                 case "update-tq":
-                    setTranslationQuestions(
-                        event.data.payload.translationQuestions ?? [],
-                    );
-                    console.log(
-                        "event.data.payload.translationQuestions: ",
-                        event.data.payload,
-                    );
+                    setTranslationQuestions(event.data.payload.translationQuestions ?? []);
+                    console.log("event.data.payload.translationQuestions: ", event.data.payload);
                     break;
             }
         });

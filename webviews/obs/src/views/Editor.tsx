@@ -43,10 +43,7 @@ function App() {
         <>
             <div className="card">
                 <div>
-                    <ObsEditorPanel
-                        obsStory={stories}
-                        setStory={handleSetStoryChange}
-                    />
+                    <ObsEditorPanel obsStory={stories} setStory={handleSetStoryChange} />
                 </div>
             </div>
         </>

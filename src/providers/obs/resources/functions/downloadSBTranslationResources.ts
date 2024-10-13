@@ -18,20 +18,14 @@ export const downloadSBTranslationResources = async ({
         const downloadProjectName = `${projectResource?.name}`;
         // const downloadProjectName = `${projectResource?.name}_${projectResource?.owner}_${projectResource?.release?.tag_name}`;
 
-        const downloadResourceFolder = Uri.joinPath(
-            resourcesFolder,
-            downloadProjectName,
-        );
+        const downloadResourceFolder = Uri.joinPath(resourcesFolder, downloadProjectName);
 
         await workspace.fs.createDirectory(downloadResourceFolder);
 
         const res = await fetch(projectResource?.zipball_url);
         const blob = await res.arrayBuffer();
 
-        const zipUri = Uri.joinPath(
-            resourcesFolder,
-            `${projectResource?.name}.zip`,
-        );
+        const zipUri = Uri.joinPath(resourcesFolder, `${projectResource?.name}.zip`);
 
         await workspace.fs.writeFile(zipUri, Buffer.from(blob));
 
@@ -42,19 +36,12 @@ export const downloadSBTranslationResources = async ({
         for (const key of keys) {
             const item = result.files[key];
             if (item.dir) {
-                await workspace.fs.createDirectory(
-                    Uri.joinPath(downloadResourceFolder, item.name),
-                );
+                await workspace.fs.createDirectory(Uri.joinPath(downloadResourceFolder, item.name));
             } else {
-                const bufferContent = Buffer.from(
-                    await item.async("arraybuffer"),
-                );
+                const bufferContent = Buffer.from(await item.async("arraybuffer"));
                 const path = [...item?.name?.split("/")];
                 path.shift();
-                const fileUri = Uri.joinPath(
-                    downloadResourceFolder,
-                    path.join("/"),
-                );
+                const fileUri = Uri.joinPath(downloadResourceFolder, path.join("/"));
                 await workspace.fs.writeFile(fileUri, bufferContent);
             }
         }
@@ -66,7 +53,7 @@ export const downloadSBTranslationResources = async ({
         data.lastUpdatedAg = moment().format();
         await workspace.fs.writeFile(
             Uri.joinPath(downloadResourceFolder, "metadata.json"),
-            Buffer.from(JSON.stringify(data)),
+            Buffer.from(JSON.stringify(data))
         );
         await workspace.fs.delete(zipUri);
         return {

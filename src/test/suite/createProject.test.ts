@@ -1,10 +1,11 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
-import { CellTypes, createProjectNotebooks } from "../../utils/codexNotebookUtils";
+import { createProjectNotebooks } from "../../utils/codexNotebookUtils";
 import { getProjectMetadata } from "../../utils";
 import * as sinon from "sinon";
 import * as path from "path";
 import { LanguageProjectStatus, LanguageMetadata } from "codex-types";
+import { CodexCellTypes } from "../../../types/enums";
 
 suite("createProjectNotebooks Test Suite", () => {
     // The sandbox is effectively a blank workspace where we can populate test files
@@ -17,17 +18,13 @@ suite("createProjectNotebooks Test Suite", () => {
             name: "TestWorkspace",
             index: 0,
         };
-        sandbox
-            .stub(vscode.workspace, "workspaceFolders")
-            .value([workspaceFolder]);
+        sandbox.stub(vscode.workspace, "workspaceFolders").value([workspaceFolder]);
     });
 
     teardown(() => {
         sandbox.restore();
     });
-    vscode.window.showInformationMessage(
-        "Start all tests for createProjectNotebooks.",
-    );
+    vscode.window.showInformationMessage("Start all tests for createProjectNotebooks.");
 
     test("createProjectNotebooks creates notebooks with correct metadata, at the correct target-language tag path", async () => {
         const shouldOverWrite = false;
@@ -43,20 +40,19 @@ suite("createProjectNotebooks Test Suite", () => {
         const projectMetadata = await getProjectMetadata();
 
         const generatedCodexFile = await vscode.workspace.fs.readFile(
-            vscode.Uri.file(`${workspacePath}/files/target/GEN.codex`),
+            vscode.Uri.file(`${workspacePath}/files/target/GEN.codex`)
         );
 
         // Parse the generatedCodexFile as JSON
         const codexContent = JSON.parse(generatedCodexFile.toString());
 
         const firstCellIsChapterHeadingType =
-            codexContent.cells[0].metadata.type === CellTypes.CHAPTER_HEADING;
-        const firstCellIsMetadataIsPresent =
-            codexContent.cells[0].metadata.data.chapter === "1";
+            codexContent.cells[0].metadata.type === CodexCellTypes.PARATEXT;
+        const firstCellIsMetadataIsPresent = codexContent.cells[0].metadata.data.chapter === "1"; // FIXME: check interfaces in codexNotebookUtils
 
         assert.ok(
             firstCellIsChapterHeadingType && firstCellIsMetadataIsPresent,
-            "createProjectNotebooks should create notebooks without overwrite",
+            "createProjectNotebooks should create notebooks without overwrite"
         );
     });
 });

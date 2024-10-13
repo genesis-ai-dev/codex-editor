@@ -5,13 +5,13 @@ import { ReferenceContextProvider } from "./context/ReferenceContext";
 import "./App.css";
 
 export default function App() {
-  return (
-    <div className="App">
-      <ScribexContextProvider>
-        <ReferenceContextProvider>
-          <Scribex />
-        </ReferenceContextProvider>
-      </ScribexContextProvider>
-    </div>
-  );
+    return (
+        <div className="App">
+            <ScribexContextProvider>
+                <ReferenceContextProvider>
+                    <Scribex />
+                </ReferenceContextProvider>
+            </ScribexContextProvider>
+        </div>
+    );
 }

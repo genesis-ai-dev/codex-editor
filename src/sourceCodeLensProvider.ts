@@ -1,17 +1,13 @@
 import * as vscode from "vscode";
 import { NOTEBOOK_TYPE } from "./utils/codexNotebookUtils";
-import {
-    extractVerseRefFromLine,
-    findReferences,
-    findVerseRef,
-} from "./utils/verseRefUtils";
+import { extractVerseRefFromLine, findReferences, findVerseRef } from "./utils/verseRefUtils";
 import { searchVerseRefPositionIndex } from "./commands/indexVrefsCommand";
 const commandName = "showSource";
 class ScriptureReferenceProvider {
     async provideDefinition(
         document: vscode.TextDocument,
         position: vscode.Position,
-        token: vscode.CancellationToken,
+        token: vscode.CancellationToken
     ): Promise<vscode.Definition | null> {
         const line = document.lineAt(position);
         const verseRef = extractVerseRefFromLine(line.text);
@@ -25,11 +21,7 @@ class ScriptureReferenceProvider {
         }
 
         return references.map(
-            (filePath) =>
-                new vscode.Location(
-                    vscode.Uri.file(filePath),
-                    new vscode.Position(0, 0),
-                ),
+            (filePath) => new vscode.Location(vscode.Uri.file(filePath), new vscode.Position(0, 0))
         );
     }
 }
@@ -47,7 +39,7 @@ class SourceCodeLensProvider {
     }
     provideCodeLenses(
         document: vscode.TextDocument,
-        token: vscode.CancellationToken,
+        token: vscode.CancellationToken
     ): vscode.CodeLens[] {
         const lenses: vscode.CodeLens[] = [];
         const activeEditor = vscode.window.activeTextEditor;
@@ -64,14 +56,14 @@ class SourceCodeLensProvider {
                     cursorPosition.line,
                     0,
                     cursorPosition.line,
-                    line.text.length,
+                    line.text.length
                 );
                 lenses.push(
                     new vscode.CodeLens(range, {
                         title: "📖 Source",
                         command: `codex-editor-extension.${commandName}`,
                         arguments: [verseRef],
-                    }),
+                    })
                 );
             }
         }
@@ -84,28 +76,26 @@ const registerReferences = (context: vscode.ExtensionContext) => {
     context.subscriptions.push(
         vscode.languages.registerCodeLensProvider(
             { language: "scripture" },
-            scriptureReferenceProvider,
-        ),
+            scriptureReferenceProvider
+        )
     );
 
     context.subscriptions.push(
-        vscode.window.onDidChangeTextEditorSelection(() =>
-            scriptureReferenceProvider.refresh(),
-        ),
+        vscode.window.onDidChangeTextEditorSelection(() => scriptureReferenceProvider.refresh())
     );
 
     context.subscriptions.push(
         vscode.languages.registerDefinitionProvider(
             // { scheme: "file" }, // all files option
             ["scripture"],
-            new ScriptureReferenceProvider(),
-        ),
+            new ScriptureReferenceProvider()
+        )
     );
     context.subscriptions.push(
         vscode.languages.registerDefinitionProvider(
             { notebookType: NOTEBOOK_TYPE }, // This targets notebook cells within "codex-type" notebooks
-            new ScriptureReferenceProvider(),
-        ),
+            new ScriptureReferenceProvider()
+        )
     );
 
     context.subscriptions.push(
@@ -115,23 +105,15 @@ const registerReferences = (context: vscode.ExtensionContext) => {
                 if (verseRef) {
                     const results = searchVerseRefPositionIndex(verseRef);
                     if (!results || results.length < 1) {
-                        vscode.window.showInformationMessage(
-                            `No references found for ${verseRef}`,
-                        );
+                        vscode.window.showInformationMessage(`No references found for ${verseRef}`);
                         return;
                     }
                     // Create an array of vscode.Location objects for all results
                     const locations = results.map((result) => {
                         const uri = vscode.Uri.file(result.uri);
                         const range = new vscode.Range(
-                            new vscode.Position(
-                                result.position.line,
-                                result.position.character,
-                            ),
-                            new vscode.Position(
-                                result.position.line,
-                                result.position.character,
-                            ),
+                            new vscode.Position(result.position.line, result.position.character),
+                            new vscode.Position(result.position.line, result.position.character)
                         );
                         return new vscode.Location(uri, range);
                     });
@@ -145,21 +127,17 @@ const registerReferences = (context: vscode.ExtensionContext) => {
                                 activeEditor.document.uri,
                                 activeEditor.selection.start,
                                 locations,
-                                "peek",
+                                "peek"
                             );
                         }
                     } else {
-                        vscode.window.showInformationMessage(
-                            `No references found for ${verseRef}`,
-                        );
+                        vscode.window.showInformationMessage(`No references found for ${verseRef}`);
                     }
                 } else {
-                    vscode.window.showInformationMessage(
-                        `No references found for ${verseRef}`,
-                    );
+                    vscode.window.showInformationMessage(`No references found for ${verseRef}`);
                 }
-            },
-        ),
+            }
+        )
     );
 };
 

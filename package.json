@@ -1,7 +1,7 @@
 {
     "name": "codex-editor-extension",
     "displayName": "Codex Translation Editor",
-    "description": "Support for `.codex` notebooks, `.bible` source files, and `.scripture` raw scripture files. Includes Translator's Copilot Language Server for scripture drafting and checking diagnostics and features.",
+    "description": "Support for `.codex` notebooks and translation source files. Includes Translator's Copilot Language Server for translation drafting and checking diagnostics and features.",
     "publisher": "project-accelerate",
     "homepage": "https://codex-editor.gitbook.io/",
     "repository": {
@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.0.51",
+    "version": "0.0.53",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -18,6 +18,7 @@
         "Other"
     ],
     "activationEvents": [
+        "onCustomEditor:sourceUploadProvider-scheme",
         "onNotebook:codex-type",
         "onStartupFinished"
     ],
@@ -32,8 +33,8 @@
         ],
         "viewsWelcome": [
             {
-                "view": "scripture-explorer-activity-bar",
-                "contents": "Welcome to the Codex Scripture Editor! Please setup a new translation project by using the form below."
+                "view": "translation-navigation",
+                "contents": "Welcome to the Codex Translation Editor! When you bookmark cells in your Codex notebook, you will see navigation shortcuts here."
             },
             {
                 "view": "dictionary-summary-panel",
@@ -44,7 +45,7 @@
             {
                 "type": "codex-type",
                 "viewType": "codex-type",
-                "displayName": "Codex Scripture Editor Notebook CodeLens",
+                "displayName": "Codex Translation Editor Notebook CodeLens",
                 "selector": [
                     {
                         "filenamePattern": "*.codex"
@@ -62,22 +63,22 @@
                     "contextualTitle": "Parallel Passages"
                 }
             ],
-            "scripture-explorer-activity-bar": [
+            "translation-navigation": [
                 {
-                    "id": "scripture-explorer-activity-bar",
-                    "name": "Scripture Explorer",
+                    "id": "translation-navigation",
+                    "name": "Project",
                     "visibility": "visible",
                     "initialSize": 1,
-                    "icon": "$(open-editors-view-icon)"
+                    "icon": "$(compass)"
                 }
             ],
             "dictionary-summary": [
                 {
                     "type": "webview",
                     "id": "dictionary-summary-panel",
-                    "name": "Dictionary Table",
+                    "name": "Dictionary Summary",
                     "icon": "$(notebook)",
-                    "contextualTitle": "Dictionary Table"
+                    "contextualTitle": "Dictionary Summary"
                 },
                 {
                     "type": "webview",
@@ -104,14 +105,35 @@
                     "icon": "$(note)",
                     "contextualTitle": "Comments"
                 }
+            ],
+            "project-manager": [
+                {
+                    "type": "webview",
+                    "id": "project-manager-sidebar",
+                    "name": "Project Manager",
+                    "icon": "$(tools)",
+                    "contextualTitle": "Project Manager"
+                }
+            ],
+            "explorer": [
+                {
+                    "id": "codex-project-manager.welcomeView",
+                    "name": "Codex Project Manager",
+                    "when": "workbenchState == empty"
+                }
             ]
         },
         "viewsContainers": {
             "activitybar": [
                 {
-                    "id": "scripture-explorer-activity-bar",
-                    "title": "Scripture Explorer",
-                    "icon": "$(open-editors-view-icon)"
+                    "id": "translation-navigation",
+                    "title": "Navigation",
+                    "icon": "$(compass)"
+                },
+                {
+                    "id": "project-manager",
+                    "title": "Project Manager",
+                    "icon": "$(tools)"
                 },
                 {
                     "id": "parallel-passages-view",
@@ -143,8 +165,8 @@
         "menus": {
             "view/title": [
                 {
-                    "command": "scripture-explorer-activity-bar.refreshEntry",
-                    "when": "view == scripture-explorer-activity-bar",
+                    "command": "translation-navigation.refreshNavigationTreeView",
+                    "when": "view == translation-navigation",
                     "group": "navigation"
                 },
                 {
@@ -158,6 +180,16 @@
                     "command": "dictionaryTable.showDictionaryTable",
                     "when": "view == dictionaryTable",
                     "group": "navigation"
+                },
+                {
+                    "command": "translation-navigation.openSection",
+                    "when": "view == translation-navigation",
+                    "group": "navigation"
+                },
+                {
+                    "command": "translation-navigation.openSourceFile",
+                    "when": "view == translation-navigation && viewItem == document",
+                    "group": "inline"
                 }
             ],
             "editor/title": [
@@ -305,6 +337,144 @@
                         "description": "Try inline completions with the Translator's Copilot by clicking on the chat button in the sidebar, then clicking on the 'Chat' button in the top-right of the chat window."
                     }
                 ]
+            },
+            {
+                "id": "codexWalkthrough",
+                "title": "Start a Codex Project",
+                "description": "A simple walkthrough to help you start a new Codex translation project.",
+                "steps": [
+                    {
+                        "id": "openFolder",
+                        "title": "Open Project Folder",
+                        "description": "First, let's open a folder where your new Codex project will be initialized.\n[Open Project Folder](command:workbench.action.files.openFolder)",
+                        "media": {
+                            "image": "./src/media/folder-active.png",
+                            "altText": "Open Project Folder"
+                        },
+                        "completionEvents": [
+                            "onSettingChanged:workbenchState"
+                        ],
+                        "when": "workbenchState == empty"
+                    },
+                    {
+                        "id": "projectName",
+                        "title": "Name Project",
+                        "description": "Now that we have a folder, let's name your new Codex project.\n[Name Project](command:codex-project-manager.nameProject)",
+                        "media": {
+                            "image": "./src/media/name-project.png",
+                            "altText": "Name Project"
+                        },
+                        "completionEvents": [
+                            "onCommand:codex-project-manager.renameProject"
+                        ],
+                        "when": "workbenchState !== empty"
+                    },
+                    {
+                        "id": "userName",
+                        "title": "Set User Name",
+                        "description": "Now that we have a Project name, let's set the user name for your new Codex project.\n[Set User Name](command:codex-project-manager.userName)",
+                        "media": {
+                            "image": "./src/media/user-name.png",
+                            "altText": "Set User Name"
+                        },
+                        "completionEvents": [
+                            "onCommand:codex-project-manager.changeUserName"
+                        ],
+                        "when": "workbenchState !== empty"
+                    },
+                    {
+                        "id": "selectSourceLanguage",
+                        "title": "Select Source Language",
+                        "description": "Now that we have a folder, let's initialize your new Codex project.\n[Select Source Language](command:codex-project-manager.changeSourceLanguage)\n",
+                        "media": {
+                            "image": "./src/media/source-and-target.png",
+                            "altText": "Select Source Language"
+                        },
+                        "completionEvents": [
+                            "onCommand:codex-project-manager.changeSourceLanguage"
+                        ],
+                        "when": "workbenchState !== empty"
+                    },
+                    {
+                        "id": "selectTargetLanguage",
+                        "title": "Select Target Language",
+                        "description": "Now that we have a folder, let's initialize your new Codex project.\n[Select target Language](command:codex-project-manager.changeTargetLanguage)\n",
+                        "media": {
+                            "image": "./src/media/source-and-target.png",
+                            "altText": "Select Source Language"
+                        },
+                        "completionEvents": [
+                            "onCommand:codex-project-manager.changeTargetLanguage"
+                        ],
+                        "when": "workbenchState !== empty"
+                    },
+                    {
+                        "id": "setAbbreviation",
+                        "title": "Set Project Abbreviation",
+                        "description": "Let's set an abbreviation for your Codex project.\n[Set Abbreviation](command:codex-project-manager.editAbbreviation)",
+                        "media": {
+                            "image": "./src/media/set-abbreviation.png",
+                            "altText": "Set Project Abbreviation"
+                        },
+                        "completionEvents": [
+                            "onCommand:codex-project-manager.editAbbreviation"
+                        ],
+                        "when": "workbenchState !== empty"
+                    },
+                    {
+                        "id": "selectCategory",
+                        "title": "Select Project Category",
+                        "description": "Now, let's choose a category for your Codex project.\n[Select Category](command:codex-project-manager.selectCategory)",
+                        "media": {
+                            "image": "./src/media/select-category.png",
+                            "altText": "Select Project Category"
+                        },
+                        "completionEvents": [
+                            "onCommand:codex-project-manager.selectCategory"
+                        ],
+                        "when": "workbenchState !== empty"
+                    },
+                    {
+                        "id": "addSourceText",
+                        "title": "Add Source Text",
+                        "description": "Now that we have a folder, let's add a source Text to your Codex project.\n[Download Source Text](command:codex-project-manager.downloadSourceText)\n or \n [Import Local USFM Text](command:codex-project-manager.importLocalUsfmSourceText)",
+                        "media": {
+                            "image": "./src/media/add-source-text.png",
+                            "altText": "Add Source Text"
+                        },
+                        "completionEvents": [
+                            "onCommand:codex-project-manager.downloadSourceText",
+                            "onCommand:codex-project-manager.importLocalUsfmSourceBible"
+                        ],
+                        "when": "workbenchState !== empty"
+                    },
+                    {
+                        "id": "initializeProject",
+                        "title": "Create files",
+                        "description": "Now that we have a folder, let's initialize your new Codex project.\n[Create New Project](command:codex-project-manager.initializeNewProject)\n or \n [Import USFM Project](command:codex-project-manager.initializeImportProject)",
+                        "media": {
+                            "image": "./src/media/initialize-project.png",
+                            "altText": "Initialize Project"
+                        },
+                        "completionEvents": [
+                            "onCommand:codex-project-manager.initializeNewProject"
+                        ],
+                        "when": "workbenchState !== empty"
+                    },
+                    {
+                        "id": "startTranslating",
+                        "title": "Start Translating",
+                        "description": "Now that we've initialized all these files, let's start translating your new Codex project.\n[Start Translating](command:codex-project-manager.startTranslating)",
+                        "media": {
+                            "image": "./src/media/edit.png",
+                            "altText": "Start Translating"
+                        },
+                        "completionEvents": [
+                            "onCommand:codex-project-manager.startTranslating"
+                        ],
+                        "when": "workbenchState !== empty"
+                    }
+                ]
             }
         ],
         "submenus": [
@@ -343,7 +513,7 @@
                 "command": "codex-editor-extension.initializeNewProject"
             },
             {
-                "command": "codex-editor-extension.downloadSourceTextBibles",
+                "command": "codex-project-manager.downloadSourceText",
                 "title": "Download Source Text Bible"
             },
             {
@@ -371,16 +541,20 @@
                 "title": "Create Codex Notebook"
             },
             {
+                "command": "codex-editor-extension.updateProjectNotebooksToUseCellsForVerseContent",
+                "title": "Update Project Notebooks to Use Cells for Verse Content"
+            },
+            {
                 "command": "codex-notebook-extension.createCodexProject",
                 "title": "Create Codex Project"
             },
             {
-                "command": "scripture-explorer-activity-bar.refreshEntry",
+                "command": "translation-navigation.refreshNavigationTreeView",
                 "title": "Refresh",
                 "icon": "$(refresh)"
             },
             {
-                "command": "scripture-explorer-activity-bar.openChapter",
+                "command": "translation-navigation.openSection",
                 "title": "Open",
                 "icon": "$(arrow-right)"
             },
@@ -405,67 +579,14 @@
                 "title": "Sync"
             },
             {
-                "command": "translators-copilot.extractVerseRefsFromCurrentEditor",
-                "title": "Extract Verse References from Current Editor"
-            },
-            {
-                "command": "translators-copilot.extractVerseRefFromCurrentLine",
-                "title": "Extract Verse Reference from Current Line"
-            },
-            {
-                "command": "translators-copilot.searchTargetVersesByQuery",
-                "title": "Search Target Verses",
-                "category": "Translators Copilot"
-            },
-            {
-                "command": "translators-copilot.getTranslationPairsFromSourceVerseQuery",
-                "title": "Search Source Verses",
-                "category": "Translators Copilot"
-            },
-            {
-                "command": "translators-copilot.getSourceVerseByVrefFromAllSourceVerses",
-                "title": "Get Source Verse by Vref",
-                "category": "Translators Copilot"
-            },
-            {
                 "command": "translators-copilot.getTranslationPairFromProject",
                 "title": "Get Translation Pair from Project",
-                "category": "Translators Copilot"
-            },
-            {
-                "command": "translators-copilot.getTranslationPairsFromSourceVerseQuery",
-                "title": "Get Translation Pairs from Source Verse Query",
                 "category": "Translators Copilot"
             },
             {
                 "command": "translators-copilot.showIndexOptions",
                 "title": "Show Index Options",
                 "category": "Translators Copilot"
-            },
-            {
-                "command": "translators-copilot.getTargetVerseByVref",
-                "title": "Get Target Verse by Vref",
-                "category": "Translators Copilot"
-            },
-            {
-                "command": "verseIndexer.rebuildFullIndex",
-                "title": "Rebuild Full Index",
-                "category": "Verse Indexer"
-            },
-            {
-                "command": "verseIndexer.closeIndexer",
-                "title": "Close Verse Indexer",
-                "category": "Verse Indexer"
-            },
-            {
-                "command": "easyLanguageServer.testIndexing",
-                "title": "Test Indexing",
-                "category": "Easy Language Server"
-            },
-            {
-                "command": "easyLanguageServer.testSearch",
-                "title": "Test Search",
-                "category": "Easy Language Server"
             },
             {
                 "command": "translators-copilot.getZeroDraftContentOptions",
@@ -496,20 +617,184 @@
                 "command": "codex-editor-extension.exportCodexContent",
                 "title": "Export Codex Translation as Plain Text",
                 "category": "Codex Editor"
+            },
+            {
+                "command": "codex-project-manager.initializeNewProject",
+                "title": "Initialize New Project",
+                "category": "Codex Project Management"
+            },
+            {
+                "command": "codex-project-manager.nameProject",
+                "title": "Name Project",
+                "category": "Codex Project Management"
+            },
+            {
+                "command": "codex-project-manager.openProjectSettings",
+                "title": "Open Project Settings",
+                "category": "Codex Project Management"
+            },
+            {
+                "command": "codex-project-manager.startWalkthrough",
+                "title": "Start Walkthrough",
+                "category": "Codex Project Management"
+            },
+            {
+                "command": "codex-project-manager.startTranslating",
+                "title": "Start Translating",
+                "category": "Codex Project Management"
+            },
+            {
+                "command": "codex-project-manager.downloadTargetBible",
+                "title": "Download Target Bible",
+                "category": "Codex Project Management"
+            },
+            {
+                "command": "codex-project-manager.editAbbreviation",
+                "title": "Edit Abbreviation",
+                "category": "Codex Project Management"
+            },
+            {
+                "command": "codex-project-manager.selectCategory",
+                "title": "Select Category",
+                "category": "Codex Project Management"
+            },
+            {
+                "command": "codex-project-manager.reinstallExtensions",
+                "title": "Reinstall Extensions",
+                "category": "Codex Project Management"
+            },
+            {
+                "command": "codex-project-manager.importLocalUsfmSourceBible",
+                "title": "Import Local USFM Source Bible",
+                "category": "Codex Project Management"
+            },
+            {
+                "command": "codex-project-manager.openSourceUpload",
+                "title": "Open Source Upload"
+            },
+            {
+                "command": "codex-video-player.openVideoPlayer",
+                "title": "Open Video Player"
+            },
+            {
+                "command": "translation-navigation.openSourceFile",
+                "title": "Open Source File",
+                "icon": "$(open-preview)"
+            },
+            {
+                "command": "translators-copilot.getTranslationPairsFromSourceCellQuery",
+                "title": "Search Source Cells"
+            },
+            {
+                "command": "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
+                "title": "Get Source Cell by Cell ID"
+            },
+            {
+                "command": "translators-copilot.getTranslationPairFromProject",
+                "title": "Get Translation Pair from Project"
+            },
+            {
+                "command": "translators-copilot.getTranslationPairsFromSourceCellQuery",
+                "title": "Get Translation Pairs from Source Cell Query"
+            },
+            {
+                "command": "translators-copilot.getTargetCellByCellId",
+                "title": "Get Target Cell by Cell ID"
+            },
+            {
+                "command": "translators-copilot.getZeroDraftContentOptions",
+                "title": "Get Zero Draft Content Options for Cell ID"
             }
         ],
         "notebooks": [
             {
                 "type": "codex-type",
-                "displayName": "Codex Scripture Editor Notebook",
+                "displayName": "Codex Translation Editor Notebook",
                 "selector": [
                     {
                         "filenamePattern": "*.codex"
+                    },
+                    {
+                        "filenamePattern": "*.source"
                     }
                 ]
             }
         ],
         "configuration": [
+            {
+                "title": "Codex Project Manager",
+                "properties": {
+                    "codex-project-manager.projectName": {
+                        "type": "string",
+                        "default": "",
+                        "description": "Name of the project"
+                    },
+                    "codex-project-manager.projectCategory": {
+                        "type": "string",
+                        "default": "",
+                        "description": "Category of the project",
+                        "enum": [
+                            "Translation",
+                            "Scripture Translation",
+                            "Subtitles",
+                            "Other"
+                        ],
+                        "enumDescriptions": [
+                            "Translation projects.",
+                            "Projects focused on scripture texts.",
+                            "Subtitle translation projects.",
+                            "Other projects."
+                        ]
+                    },
+                    "codex-project-manager.userName": {
+                        "type": "string",
+                        "default": "",
+                        "description": "Name of the user"
+                    },
+                    "codex-project-manager.abbreviation": {
+                        "type": "string",
+                        "default": "",
+                        "description": "Project abbreviation"
+                    },
+                    "codex-project-manager.sourceLanguage": {
+                        "type": "object",
+                        "default": {},
+                        "description": "Source language for the project",
+                        "properties": {
+                            "tag": {
+                                "type": "string"
+                            },
+                            "refName": {
+                                "type": "string"
+                            },
+                            "projectStatus": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "codex-project-manager.targetLanguage": {
+                        "type": "object",
+                        "default": {},
+                        "description": "Target language for the project",
+                        "properties": {
+                            "tag": {
+                                "type": "string"
+                            },
+                            "refName": {
+                                "type": "string"
+                            },
+                            "projectStatus": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "codex-project-manager.primarySourceText": {
+                        "type": "string",
+                        "default": "",
+                        "description": "Path to the primary source text for the project"
+                    }
+                }
+            },
             {
                 "title": "Codex Editor: Cloud Sync",
                 "properties": {
@@ -546,10 +831,10 @@
                         "default": true,
                         "description": "Enable or disable the Translators Copilot feature."
                     },
-                    "translators-copilot-server.primarySourceBible": {
+                    "translators-copilot-server.primarySourceText": {
                         "type": "string",
                         "default": "",
-                        "description": "The source Bible to use for the Translators Copilot feature."
+                        "description": "The source text to use for the Translators Copilot feature."
                     }
                 }
             },
@@ -639,7 +924,7 @@
                         "title": "Rules for AI (System Message)",
                         "type": "string",
                         "default": "This is a chat between a helpful Bible translation assistant and a Bible translator. The assistant will provide helpful answers and suggestions to the translator, often relying on the translator's current project and reference resources. The translator will ask questions and provide context to the assistant. The translator's aim is to be consistent and faithful in a fairly literalistic rendering of the source text.",
-                        "description": "The system message controlling the behavior of the chat system (not inline completion). You can customize this message to fit your needs, or ask the copilot to translate it for you into your preferred interface language."
+                        "description": "The system message controlling the behavior of the chat system and inline completion. You can customize this message to fit your needs, or ask the copilot to translate it for you into your preferred interface language."
                     },
                     "translators-copilot.sourceTextSelectionMode": {
                         "type": "string",
@@ -657,8 +942,8 @@
                     },
                     "translators-copilot.contextSize": {
                         "type": "string",
-                        "default": "large",
-                        "description": "The size of the context to be used for completion.",
+                        "default": "medium",
+                        "description": "The size of the context to be used for completion. Small is 5 cells, medium is 10 cells, large is 50 cells.",
                         "enum": [
                             "small",
                             "medium",
@@ -673,22 +958,30 @@
                     "translators-copilot.llmEndpoint": {
                         "type": "string",
                         "default": "https://api.openai.com/v1",
-                        "description": "The endpoint for the completion API. Currently only supports OpenAI API."
+                        "description": "The endpoint for the completion API. Currently only supports OpenAI API, or openai-compatible local endpoints such as LM Studio, etc."
+                    },
+                    "translators-copilot.wsEndpoint": {
+                        "type": "string",
+                        "default": "wss://api.openai.com/v1/chat/completions",
+                        "description": "The endpoint for the realtime chat API. Currently only supports OpenAI API."
                     },
                     "translators-copilot.model": {
                         "title": "LLM Model",
                         "type": "string",
                         "enum": [
-                            "local",
-                            "gpt-3.5-turbo",
-                            "gpt-4",
-                            "gpt-4-turbo",
+                            "custom",
                             "gpt-4o",
                             "gpt-4o-mini",
                             "davinci"
                         ],
                         "default": "gpt-4o-mini",
-                        "description": "Model name selected for inference. Ignorable for local LLM."
+                        "description": "Model name selected for inference. Ignorable for local LLM. If you are using a custom LLM, set to 'custom' and update the customModel setting below."
+                    },
+                    "translators-copilot.customModel": {
+                        "title": "Custom LLM Model",
+                        "type": "string",
+                        "default": "",
+                        "description": "Custom LLM model to use for inference. Ignorable for OpenAI API."
                     },
                     "translators-copilot.sourceBookWhitelist": {
                         "title": "Source Book Whitelist",
@@ -707,19 +1000,43 @@
                         "type": "number",
                         "default": 50,
                         "description": "The minimum frequency of a word to be automatically added to the dictionary. Changing this value will trigger updates to the dictionary."
+                    },
+                    "translators-copilot.textDirection": {
+                        "type": "string",
+                        "enum": [
+                            "ltr",
+                            "rtl"
+                        ],
+                        "default": "ltr",
+                        "description": "Text direction for the editor (left-to-right or right-to-left)"
                     }
                 }
             }
         ],
         "customEditors": [
             {
-                "viewType": "codex.chunkEditor",
-                "displayName": "Codex Chunk",
+                "viewType": "sourceUploadProvider",
+                "displayName": "Source Upload Editor",
                 "selector": [
                     {
-                        "filenamePattern": "*.codex2"
+                        "filenamePattern": "*.sourceUploadProvider",
+                        "scheme": "sourceUploadProvider-scheme"
                     }
-                ]
+                ],
+                "priority": "default"
+            },
+            {
+                "viewType": "codex.cellEditor",
+                "displayName": "Codex Cell Editor",
+                "selector": [
+                    {
+                        "filenamePattern": "*.codex"
+                    },
+                    {
+                        "filenamePattern": "*.source"
+                    }
+                ],
+                "priority": "default"
             },
             {
                 "viewType": "codex.obs.editor",
@@ -739,24 +1056,33 @@
                     }
                 ],
                 "priority": "default"
+            },
+            {
+                "viewType": "codex.dictionaryEditor",
+                "displayName": "Dictionary Editor",
+                "selector": [
+                    {
+                        "filenamePattern": "*.dictionary"
+                    }
+                ],
+                "priority": "default"
             }
         ]
     },
     "scripts": {
         "vscode:prepublish": "npm run build:webviews && npm run compile",
-        "compile": "webpack",
+        "compile": "tsc -p ./ && webpack --config webpack.config.js && webpack --config webpack.config.js --config-name server",
         "watch": "webpack --watch",
         "package": "webpack --mode production --devtool hidden-source-map",
         "lint": "eslint src --ext ts",
         "pretest": "npm run compile && npm run lint",
         "test": "node ./out/test/runTest.js",
-        "format": "prettier --write .",
-        "build:table": "cd webviews/editable-react-table && npm run build",
-        "build:dictionary-side": "cd webviews/dictionary-side-panel && npm run build",
-        "build:webviews": "cd webviews/codex-webviews && pnpm run build:all && cd ../dictionary-side-panel && pnpm run build && cd ../editable-react-table && pnpm run build && cd ../usfm-viewer && pnpm run build && cd ../.."
+        "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
+        "build:webviews": "cd webviews/codex-webviews && pnpm run build:all && cd ../usfm-viewer && pnpm run build && cd ../.."
     },
     "devDependencies": {
         "@babel/plugin-proposal-private-property-in-object": "^7.16.7",
+        "@types/diff": "^5.2.3",
         "@types/glob": "^8.1.0",
         "@types/lodash": "^4.14.191",
         "@types/md5": "^2.3.5",
@@ -767,13 +1093,15 @@
         "@types/sinon": "^17.0.3",
         "@types/sql.js": "^1.4.9",
         "@types/uuid": "^9.0.7",
-        "@types/vscode": "^1.74.0",
+        "@types/vscode": "^1.78.0",
+        "@types/webvtt-parser": "^2.2.0",
         "@typescript-eslint/eslint-plugin": "^6.7.0",
         "@typescript-eslint/parser": "^6.7.0",
         "@vscode/test-electron": "^2.3.8",
         "@vscode/vsce-sign": "^2.0.3",
         "cross-env": "^7.0.3",
         "eslint": "^7.27.0",
+        "glob": "^10.3.10",
         "install": "^0.13.0",
         "lodash": "^4.17.21",
         "mocha": "^10.2.0",
@@ -794,6 +1122,7 @@
         "@vscode/webview-ui-toolkit": "^1.4.0",
         "bible-reference-range": "^1.1.1",
         "codex-types": "^0.0.4",
+        "diff": "^7.0.0",
         "fitty": "^2.4.2",
         "hog-features": "^1.0.0",
         "html-loader": "^4.2.0",
@@ -809,22 +1138,24 @@
         "moment": "^2.30.1",
         "path": "^0.12.7",
         "pnpm": "^8.15.5",
+        "proc-log": "^5.0.0",
         "react-wordcloud": "^1.2.7",
         "semver": "^7.6.0",
         "sinon": "^17.0.1",
         "sql.js": "^1.11.0",
         "token.js": "^0.4.3",
+        "usfm-grammar": "^2.3.1",
         "uuid": "^9.0.1",
         "vscode-languageclient": "^9.0.1",
-        "vscode-uri": "^3.0.8"
+        "vscode-uri": "^3.0.8",
+        "webvtt-parser": "^2.2.0"
     },
     "overrides": {
-        "minimatch": "5.1.2",
-        "glob": "8.1.0"
+        "minimatch": "5.1.2"
     },
     "extensionDependencies": [
         "project-accelerate.shared-state-store",
-        "project-accelerate.scripture-language-support",
+        "sevenx-codex.codex-resources",
         "vscode.git"
     ]
 }

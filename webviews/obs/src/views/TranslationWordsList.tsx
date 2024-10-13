@@ -22,7 +22,7 @@ const TranslationWordsList = () => {
                       path: diskTwl?.[currentIndex]?.twUriPath ?? null,
                   }
                 : null,
-        [currentIndex, diskTwl],
+        [currentIndex, diskTwl]
     );
 
     if (translationWordsList.length === 0) {
@@ -39,8 +39,7 @@ const TranslationWordsList = () => {
         return (
             <div className="prose-base">
                 <h3>
-                    Found translation Words but they do not have corresponding
-                    descriptions on disk.
+                    Found translation Words but they do not have corresponding descriptions on disk.
                 </h3>
             </div>
         );
@@ -50,11 +49,7 @@ const TranslationWordsList = () => {
         <div className="flex flex-col">
             <div className="flex justify-between">
                 <VSCodeButton
-                    onClick={() =>
-                        setCurrentIndex((prev) =>
-                            prev === 0 ? prev : prev - 1,
-                        )
-                    }
+                    onClick={() => setCurrentIndex((prev) => (prev === 0 ? prev : prev - 1))}
                     appearance="secondary"
                     aria-label="left"
                     className=""
@@ -68,9 +63,7 @@ const TranslationWordsList = () => {
                 </span>
                 <VSCodeButton
                     onClick={() =>
-                        setCurrentIndex((prev) =>
-                            prev === diskTwl.length - 1 ? prev : prev + 1,
-                        )
+                        setCurrentIndex((prev) => (prev === diskTwl.length - 1 ? prev : prev + 1))
                     }
                     appearance="secondary"
                     aria-label="right"
@@ -81,9 +74,7 @@ const TranslationWordsList = () => {
                 </VSCodeButton>
             </div>
             <div id="note-container" className="col-span-6">
-                <TranslationWordRenderer
-                    translationWord={currentTranslationWord}
-                />
+                <TranslationWordRenderer translationWord={currentTranslationWord} />
             </div>
             {/* Right Button */}
         </div>
@@ -91,17 +82,12 @@ const TranslationWordsList = () => {
 };
 
 const useTranslationWordsList = () => {
-    const [translationWordsList, setTranslationWordsList] = useState<
-        Record<string, string>[]
-    >([]);
+    const [translationWordsList, setTranslationWordsList] = useState<Record<string, string>[]>([]);
     useEffect(() => {
         vscode.setMessageListeners((event) => {
             switch (event.data.type) {
                 case "update-twl":
-                    console.log(
-                        "update-twl ---> IN WEBVIEW",
-                        event.data.payload.wordsList,
-                    );
+                    console.log("update-twl ---> IN WEBVIEW", event.data.payload.wordsList);
                     setTranslationWordsList(event.data.payload.wordsList ?? []);
                     break;
             }

@@ -18,7 +18,7 @@ export function meshCompletion(currentText: string, completion: string): string 
     }
 
     // Otherwise, find the first non-matching point after any common prefix
-    while (splitIndex > 0 && currentText[splitIndex - 1] !== ' ') {
+    while (splitIndex > 0 && currentText[splitIndex - 1] !== " ") {
         splitIndex--;
     }
 
