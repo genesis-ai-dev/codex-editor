@@ -105,6 +105,7 @@ async function importSourceFile(
                 navigation: [],
                 sourceCreatedAt: "",
                 codexLastModified: "",
+                gitStatus: "uninitialized",
             };
 
             // Add metadata to the original source file

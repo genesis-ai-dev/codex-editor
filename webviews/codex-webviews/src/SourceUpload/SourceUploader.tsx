@@ -82,8 +82,9 @@ const SourceUploader: React.FC = () => {
         vscode.postMessage({ command: "downloadBible" });
     };
 
-    const handleImportTranslation = () => {
+    const handleImportTranslation = (metadata: AggregatedMetadata) => {
         setIsSourceUpload(false);
+        setSelectedSourceFile(metadata.originalName);
     };
 
     const GetSyncStatus: React.FC<{
@@ -93,24 +94,30 @@ const SourceUploader: React.FC = () => {
         const status = metadata.gitStatus || "Unknown";
         const iconClass = `codicon codicon-${
             status === "uninitialized"
-                ? "repo" // If the file is uninitialized, the action is to initialize the git repository
+                ? "repo"
                 : status === "modified"
-                ? "git-commit" // If the file is modified, the action is to commit the changes
-                : status === "added"
-                ? "diff-added" // If the file is added, the action is to add the file to the staging area
-                : status === "deleted"
-                ? "diff-removed" // If the file is deleted, the action is to remove the file from the staging area
-                : status === "renamed"
-                ? "diff-renamed" // If the file is renamed, the action is to rename the file
-                : status === "conflict"
-                ? "git-merge" // If the file is in conflict, the action is to resolve the merge conflict
-                : status === "untracked"
-                ? "file-add" // If the file is untracked, the action is to add the file to the staging area
-                : status === "committed"
-                ? "check" // If the file is committed, the action is to check the file
-                : "question" // If the status is unknown, the action is to ask a question
+                  ? "git-commit"
+                  : status === "added"
+                    ? "diff-added"
+                    : status === "deleted"
+                      ? "diff-removed"
+                      : status === "renamed"
+                        ? "diff-renamed"
+                        : status === "conflict"
+                          ? "git-merge"
+                          : status === "untracked"
+                            ? "file-add"
+                            : status === "committed"
+                              ? "check"
+                              : "question"
         }`;
-        return <i className={iconClass} onClick={() => onClick(status)}></i>;
+        return (
+            <i
+                className={iconClass}
+                onClick={() => onClick(status)}
+                aria-label={`Sync status: ${status}`}
+            ></i>
+        );
     };
 
     const handleSyncStatusClick = (metadata: AggregatedMetadata) => {
@@ -122,11 +129,33 @@ const SourceUploader: React.FC = () => {
         }
     };
 
-    const getAttachments = (metadata: AggregatedMetadata): string => {
+    const getAttachments = (
+        metadata: AggregatedMetadata & { audioUrl?: string; imageUrls?: string[] }
+    ): JSX.Element => {
         const attachments = [];
-        if (metadata.videoUrl) attachments.push("Video");
-        // Placeholder: Add logic for audio and images
-        return attachments.length > 0 ? attachments.join(", ") : "None";
+        if (metadata.videoUrl)
+            attachments.push(
+                <i className="codicon codicon-file-media" title="Video" key="video"></i>
+            );
+        if (metadata.audioUrl)
+            attachments.push(
+                <i className="codicon codicon-file-media" title="Audio" key="audio"></i>
+            );
+        if (metadata.imageUrls && metadata.imageUrls.length > 0)
+            attachments.push(
+                <i className="codicon codicon-file-media" title="Images" key="images"></i>
+            );
+
+        return <span>{attachments.length > 0 ? attachments : "None"}</span>;
+    };
+
+    const handleOpenCodexNotebook = (fileUri: string | undefined) => {
+        if (fileUri) {
+            vscode.postMessage({
+                command: "openCodexNotebook",
+                fileUri,
+            });
+        }
     };
 
     return (
@@ -134,14 +163,18 @@ const SourceUploader: React.FC = () => {
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "24px" }}>
                 <h1 style={{ fontSize: "24px", fontWeight: "bold" }}>Source Manager</h1>
                 <div>
-                    <VSCodeButton onClick={() => setIsSourceUpload(true)}>
-                        Add New Source
+                    <VSCodeButton
+                        onClick={() => setIsSourceUpload(true)}
+                        aria-label="Add new source"
+                    >
+                        <i className="codicon codicon-add"></i>
                     </VSCodeButton>
-                    <VSCodeButton onClick={handleImportTranslation} style={{ marginLeft: "8px" }}>
-                        Import Translation
-                    </VSCodeButton>
-                    <VSCodeButton onClick={handleDownloadBible} style={{ marginLeft: "8px" }}>
-                        Download Bible
+                    <VSCodeButton
+                        onClick={handleDownloadBible}
+                        style={{ marginLeft: "8px" }}
+                        aria-label="Download Bible"
+                    >
+                        <i className="codicon codicon-cloud-download"></i>
                     </VSCodeButton>
                 </div>
             </div>
@@ -192,11 +225,34 @@ const SourceUploader: React.FC = () => {
                                     : "Missing"}
                             </VSCodeDataGridCell>
                             <VSCodeDataGridCell>
-                                {metadata.codexUri ? metadata.codexUri.split("/").pop() : "Missing"}
+                                {metadata.codexUri ? (
+                                    <a
+                                        href="#"
+                                        onClick={() => handleOpenCodexNotebook(metadata.codexUri)}
+                                        style={{
+                                            color: "var(--vscode-textLink-foreground)",
+                                            textDecoration: "underline",
+                                        }}
+                                    >
+                                        {metadata.codexUri.split("/").pop()}
+                                    </a>
+                                ) : (
+                                    "Missing"
+                                )}
                             </VSCodeDataGridCell>
                             <VSCodeDataGridCell>{getAttachments(metadata)}</VSCodeDataGridCell>
                             <VSCodeDataGridCell>
-                                {metadata.lastModified || "N/A"}
+                                {metadata.lastModified
+                                    ? new Date(metadata.lastModified).toLocaleString("en-US", {
+                                          year: "numeric",
+                                          month: "numeric",
+                                          day: "numeric",
+                                          hour: "2-digit",
+                                          minute: "2-digit",
+                                          second: "2-digit",
+                                          hour12: false,
+                                      })
+                                    : "N/A"}
                             </VSCodeDataGridCell>
                             <VSCodeDataGridCell>
                                 <GetSyncStatus
@@ -208,14 +264,23 @@ const SourceUploader: React.FC = () => {
                                 <VSCodeButton
                                     appearance="icon"
                                     onClick={() => console.log("Edit", metadata.id)}
+                                    aria-label="Edit"
                                 >
-                                    <i className="codicon codicon-pencil"></i>
+                                    <i className="codicon codicon-edit"></i>
                                 </VSCodeButton>
                                 <VSCodeButton
                                     appearance="icon"
                                     onClick={() => console.log("Open", metadata.id)}
+                                    aria-label="Open"
                                 >
                                     <i className="codicon codicon-go-to-file"></i>
+                                </VSCodeButton>
+                                <VSCodeButton
+                                    appearance="icon"
+                                    onClick={() => handleImportTranslation(metadata)}
+                                    aria-label="Import translation"
+                                >
+                                    <i className="codicon codicon-import"></i>
                                 </VSCodeButton>
                             </VSCodeDataGridCell>
                         </VSCodeDataGridRow>
@@ -239,6 +304,10 @@ const SourceUploader: React.FC = () => {
                 >
                     <input {...getInputProps()} />
                     <p style={{ color: "var(--vscode-foreground)" }}>
+                        <i
+                            className="codicon codicon-cloud-upload"
+                            style={{ marginRight: "8px" }}
+                        ></i>
                         Drag 'n' drop a {isSourceUpload ? "source" : "translation"} file here, or
                         click to select
                     </p>
@@ -282,6 +351,7 @@ const SourceUploader: React.FC = () => {
                     onClick={handleUpload}
                     disabled={!selectedFile || (!isSourceUpload && !selectedSourceFile)}
                 >
+                    <i className="codicon codicon-cloud-upload" style={{ marginRight: "8px" }}></i>
                     Upload {isSourceUpload ? "Source" : "Translation"}
                 </VSCodeButton>
             </div>

@@ -5,7 +5,7 @@ import { NotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { downloadBible } from "../../projectManager/projectInitializers";
 import { processDownloadedBible } from "../../projectManager/sourceTextImporter";
 import { initProject } from "../scm/git";
-import { registerScmCommands } from '../scm/scmActionHandler';
+import { registerScmCommands } from "../scm/scmActionHandler";
 
 function getNonce(): string {
     let text = "";
@@ -107,31 +107,81 @@ export class SourceUploadProvider
                         if (downloadedBibleFile) {
                             await processDownloadedBible(downloadedBibleFile);
                             await this.updateCodexFiles(webviewPanel);
-                            vscode.window.showInformationMessage("Bible downloaded and processed successfully.");
+                            vscode.window.showInformationMessage(
+                                "Bible downloaded and processed successfully."
+                            );
                         }
                     } catch (error) {
                         console.error(`Error downloading Bible: ${error}`);
                         vscode.window.showErrorMessage(`Error downloading Bible: ${error}`);
                     }
                     break;
-                case 'initializeRepo':
+                case "initializeRepo":
                     try {
-                        await initProject('User Name', 'user@example.com', vscode.Uri.parse(message.folderUri));
-                        vscode.window.showInformationMessage('Repository initialized successfully.');
+                        await initProject(
+                            "User Name",
+                            "user@example.com",
+                            vscode.Uri.parse(message.folderUri)
+                        );
+                        vscode.window.showInformationMessage(
+                            "Repository initialized successfully."
+                        );
                         await this.updateMetadata(webviewPanel);
                     } catch (error) {
-                        console.error('Error initializing repository:', error);
-                        vscode.window.showErrorMessage('Failed to initialize repository.');
+                        console.error("Error initializing repository:", error);
+                        vscode.window.showErrorMessage("Failed to initialize repository.");
                     }
                     break;
-                case 'syncAction':
-                    await vscode.commands.executeCommand('codex.scm.handleSyncAction', vscode.Uri.parse(message.fileUri), message.status);
+                case "syncAction":
+                    await vscode.commands.executeCommand(
+                        "codex.scm.handleSyncAction",
+                        vscode.Uri.parse(message.fileUri),
+                        message.status
+                    );
                     await this.updateMetadata(webviewPanel);
                     break;
                 default:
                     console.log("Unknown message command", message.command);
                     break;
             }
+            await this.updateMetadata(webviewPanel);
+        });
+
+        // Set up polling for metadata updates when the panel is active
+        let pollingInterval: NodeJS.Timeout | undefined;
+
+        const startPolling = () => {
+            if (!pollingInterval) {
+                pollingInterval = setInterval(async () => {
+                    await this.updateMetadata(webviewPanel);
+                }, 10000); // Poll every 10 seconds
+            }
+        };
+
+        const stopPolling = () => {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = undefined;
+            }
+        };
+
+        // Start or stop polling based on the panel's visibility
+        webviewPanel.onDidChangeViewState((e) => {
+            if (webviewPanel.visible) {
+                startPolling();
+            } else {
+                stopPolling();
+            }
+        });
+
+        // Start polling immediately if the panel is already visible
+        if (webviewPanel.visible) {
+            startPolling();
+        }
+
+        // Clean up when the panel is disposed
+        webviewPanel.onDidDispose(() => {
+            stopPolling();
         });
     }
 
@@ -151,7 +201,7 @@ export class SourceUploadProvider
         }));
 
         webviewPanel.webview.postMessage({
-            command: 'updateMetadata',
+            command: "updateMetadata",
             metadata: aggregatedMetadata,
         });
     }

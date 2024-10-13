@@ -210,7 +210,10 @@ export async function registerCommands(context: vscode.ExtensionContext) {
             });
 
             if (folderUri && folderUri[0]) {
-                await vscode.commands.executeCommand("codex-editor-extension.importSourceText", folderUri[0]);
+                await vscode.commands.executeCommand(
+                    "codex-editor-extension.importSourceText",
+                    folderUri[0]
+                );
             }
         }
     );
