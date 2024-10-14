@@ -57,8 +57,8 @@ function messageWithContext({
 function App() {
     const [pendingMessage, setPendingMessage] = useState<ChatMessageWithContext>();
     const [selectedTextContext, setSelectedTextContext] = useState<string>("");
-    const [currentlyActiveVref, setCurrentlyActiveVref] = useState<string>("");
-    const [contextItems, setContextItems] = useState<string[]>([]); // TODO: fetch from RAG server
+    const [currentlyActiveCellId, setCurrentlyActiveCellId] = useState<string>("");
+    const [contextItems, setContextItems] = useState<string[]>([]); // TODO: we should consolidate various shared state stores into this value
     const [messageLog, setMessageLog] = useState<ChatMessageWithContext[]>([
         // systemMessage,
         // dummyUserMessage,
@@ -68,6 +68,10 @@ function App() {
     const [currentMessageThreadId, setCurrentMessageThreadId] = useState<string>(uuidv4());
 
     const [availableMessageThreads, setAvailableMessageThreads] = useState<ChatMessageThread[]>();
+
+    const [sourceCellMap, setSourceCellMap] = useState<{
+        [k: string]: { content: string; versions: string[] };
+    }>({});
 
     const SHOW_SENDER_ROLE_LABELS = false;
 
@@ -87,7 +91,7 @@ function App() {
             createdAt: new Date().toISOString(),
             context: {
                 selectedText: selectedTextContext,
-                currentVref: currentlyActiveVref,
+                currentVref: currentlyActiveCellId,
                 relevantContextItemsFromEmbeddings: contextItemsFromState,
                 // verseNotes: currentVerseNotes,
             },
@@ -113,7 +117,7 @@ function App() {
         try {
             getResponseToUserNewMessage(submittedMessageValue);
             setSelectedTextContext("");
-            setCurrentlyActiveVref("");
+            setCurrentlyActiveCellId("");
         } catch (error) {
             console.error("Failed to fetch context items due to an error:", error);
             vscode.postMessage({
@@ -161,7 +165,7 @@ function App() {
 
     // FIXME: use loading state to show/hide a progress ring while
     window.addEventListener("message", (event: MessageEvent<ChatPostMessages>) => {
-        const message = event.data; // The JSON data our extension sent
+        const message = event.data;
         switch (message?.command) {
             case "select":
                 // FIXME: this is being invoked every time a new token is rendered
@@ -195,7 +199,7 @@ function App() {
                     setContextItems(verseNotesArray);
                     // }
                     setSelectedTextContext(selectedTextContextString);
-                    setCurrentlyActiveVref(vrefAtStartOfLine ?? "");
+                    setCurrentlyActiveCellId(vrefAtStartOfLine ?? "");
                 }
                 break;
             case "response": {
@@ -250,11 +254,16 @@ function App() {
                     }
                 }
                 break;
-            case "verseRefUpdate":
+            case "cellIdUpdate":
                 if (message.data) {
-                    const { verseRef, sourceCellContent } = message.data;
-                    setCurrentlyActiveVref(verseRef);
-                    setSelectedTextContext(JSON.stringify(sourceCellContent));
+                    const { cellId, sourceCellContent } = message.data;
+                    setCurrentlyActiveCellId(cellId);
+                    setSelectedTextContext(sourceCellContent.content);
+                }
+                break;
+            case "updateSourceCellMap":
+                if (message.sourceCellMap) {
+                    setSourceCellMap(message.sourceCellMap);
                 }
                 break;
             default:
@@ -420,6 +429,7 @@ function App() {
                 selectedText={selectedTextContext}
                 handleSubmit={handleSubmit}
                 vscode={vscode}
+                sourceCellMap={sourceCellMap}
             />
         </main>
     );

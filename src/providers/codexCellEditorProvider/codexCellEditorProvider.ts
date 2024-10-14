@@ -523,16 +523,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             };
                             await document.updateNotebookMetadata(updatedMetadata);
                             await document.save(new vscode.CancellationTokenSource().token);
-                            vscode.window.showInformationMessage(
-                                "Text direction updated successfully."
-                            );
+                            console.log("Text direction updated successfully.");
                             this.postMessageToWebview(webviewPanel, {
                                 type: "providerUpdatesNotebookMetadataForWebview",
                                 content: await document.getNotebookMetadata(),
                             });
                         } catch (error) {
                             console.error("Error updating notebook metadata:", error);
-                            vscode.window.showErrorMessage("Failed to update notebook metadata.");
                         }
                         return;
                     }

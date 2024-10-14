@@ -314,6 +314,21 @@ export class CustomWebviewProvider {
             });
         });
 
+        // Add this block to listen to the shared state store
+        initializeStateStore().then(({ storeListener }) => {
+            const disposeFunction = storeListener("sourceCellMap", (value) => {
+                if (value) {
+                    webviewView.webview.postMessage({
+                        command: "updateSourceCellMap",
+                        sourceCellMap: value,
+                    } as ChatPostMessages);
+                }
+            });
+            webviewView.onDidDispose(() => {
+                disposeFunction();
+            });
+        });
+
         loadWebviewHtml(webviewView, this._extensionUri);
         webviewView.webview.postMessage({
             command: "reload",

@@ -791,7 +791,7 @@ export async function migrateSourceFiles() {
         }
     }
 
-    vscode.window.showInformationMessage("Source file migration completed.");
+    console.log("Source file migration completed.");
 }
 
 export async function createCodexNotebookFromWebVTT(

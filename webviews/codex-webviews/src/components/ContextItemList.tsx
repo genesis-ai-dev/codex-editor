@@ -4,11 +4,13 @@ import { VSCodeLink } from "@vscode/webview-ui-toolkit/react";
 type ContextItemListProps = {
     contextItems: string[];
     vscode: any;
+    sourceCellMap: { [k: string]: { content: string; versions: string[] } };
 };
 
 export const ContextItemList: React.FC<ContextItemListProps> = ({
     contextItems,
-    vscode, // Needed to send messages to the extension host
+    vscode,
+    sourceCellMap,
 }) => {
     const [isCollapsed, setIsCollapsed] = useState(true);
 
@@ -23,8 +25,25 @@ export const ContextItemList: React.FC<ContextItemListProps> = ({
         });
     };
 
+    const renderSourceCellContent = (cellId: string, cellContent: string) => {
+        if (cellContent) {
+            return (
+                <div
+                    style={{
+                        marginTop: "0.25em",
+                        fontSize: "0.9em",
+                        color: "var(--vscode-descriptionForeground)",
+                    }}
+                >
+                    {cellId}: {cellContent.slice(0, 100)}...
+                </div>
+            );
+        }
+        return null;
+    };
+
     return (
-        (contextItems.length > 0 && (
+        (contextItems.length > 0 || Object.keys(sourceCellMap).length > 0) && (
             <div
                 style={{
                     display: "flex",
@@ -35,7 +54,7 @@ export const ContextItemList: React.FC<ContextItemListProps> = ({
                 }}
             >
                 <VSCodeLink onClick={toggleCollapse}>
-                    <i className="codicon codicon-quote" title="Selected Text Indicator"></i>
+                    <i className="codicon codicon-quote" title="Context Items"></i>
                     {isCollapsed ? "Show Context Items" : "Hide Context Items"}
                 </VSCodeLink>
                 {!isCollapsed && (
@@ -51,9 +70,17 @@ export const ContextItemList: React.FC<ContextItemListProps> = ({
                                 </VSCodeLink>
                             </div>
                         ))}
+                        {Object.entries(sourceCellMap).map(([cellId, cellData]) => (
+                            <div key={cellId} style={{ marginBottom: "0.5em" }}>
+                                <VSCodeLink href="#" onClick={() => openContextItem(cellId)}>
+                                    Source Cell: {cellId}
+                                </VSCodeLink>
+                                {renderSourceCellContent(cellId, cellData.content)}
+                            </div>
+                        ))}
                     </div>
                 )}
             </div>
-        )) || <div className="No-additional-context-items-found" />
+        )
     );
 };

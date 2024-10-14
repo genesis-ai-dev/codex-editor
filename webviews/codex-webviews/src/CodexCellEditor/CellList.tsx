@@ -102,6 +102,7 @@ const CellList: React.FC<CellListProps> = ({
                         cellLabel={cellLabel}
                         setContentBeingUpdated={setContentBeingUpdated}
                         textDirection={textDirection}
+                        vscode={vscode}
                     />
                 );
                 groupStartIndex = i + 1;

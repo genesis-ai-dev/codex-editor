@@ -140,8 +140,15 @@ type ChatPostMessages =
     | { command: "openSettings" }
     | { command: "openContextItem"; text: string }
     | { command: "cellGraphData"; data: string[] }
-    | { command: "cellIdUpdate"; data: CellIdGlobalState & { sourceCellContent: string } }
-    | { command: "getCurrentCellId" };
+    | {
+          command: "cellIdUpdate";
+          data: CellIdGlobalState & { sourceCellContent: { cellId: string; content: string } };
+      }
+    | { command: "getCurrentCellId" }
+    | {
+          command: "updateSourceCellMap";
+          sourceCellMap: { [k: string]: { content: string; versions: string[] } };
+      };
 
 type DictionaryPostMessages =
     | { command: "sendData"; data: Dictionary }
