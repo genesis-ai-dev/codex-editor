@@ -6,6 +6,7 @@ import { downloadBible } from "../../projectManager/projectInitializers";
 import { processDownloadedBible } from "../../projectManager/sourceTextImporter";
 import { initProject } from "../scm/git";
 import { registerScmCommands } from "../scm/scmActionHandler";
+import { SourceUploadPostMessages } from "../../../types";
 
 function getNonce(): string {
     let text = "";
@@ -59,7 +60,7 @@ export class SourceUploadProvider
         // Initial load of metadata
         await this.updateMetadata(webviewPanel);
 
-        webviewPanel.webview.onDidReceiveMessage(async (message) => {
+        webviewPanel.webview.onDidReceiveMessage(async (message: SourceUploadPostMessages) => {
             switch (message.command) {
                 case "getMetadata":
                     await this.updateMetadata(webviewPanel);
@@ -116,22 +117,6 @@ export class SourceUploadProvider
                         vscode.window.showErrorMessage(`Error downloading Bible: ${error}`);
                     }
                     break;
-                case "initializeRepo":
-                    try {
-                        await initProject(
-                            "User Name",
-                            "user@example.com",
-                            vscode.Uri.parse(message.folderUri)
-                        );
-                        vscode.window.showInformationMessage(
-                            "Repository initialized successfully."
-                        );
-                        await this.updateMetadata(webviewPanel);
-                    } catch (error) {
-                        console.error("Error initializing repository:", error);
-                        vscode.window.showErrorMessage("Failed to initialize repository.");
-                    }
-                    break;
                 case "syncAction":
                     await vscode.commands.executeCommand(
                         "codex.scm.handleSyncAction",
@@ -139,6 +124,35 @@ export class SourceUploadProvider
                         message.status
                     );
                     await this.updateMetadata(webviewPanel);
+                    break;
+                case "openFile":
+                    console.log("openFile message in provider", { message });
+                    if (message.fileUri) {
+                        if (
+                            message.fileUri.endsWith(".source") ||
+                            message.fileUri.endsWith(".codex")
+                        ) {
+                            await vscode.commands.executeCommand(
+                                "vscode.openWith",
+                                vscode.Uri.parse(message.fileUri),
+                                "codex.cellEditor"
+                            );
+                        } else if (message.fileUri.endsWith(".dictionary")) {
+                            console.log("Opening dictionary editor", { message });
+                            await vscode.commands.executeCommand(
+                                "vscode.openWith",
+                                vscode.Uri.parse(message.fileUri),
+                                "codex.dictionaryEditor"
+                            );
+                        } else {
+                            vscode.commands.executeCommand(
+                                "vscode.open",
+                                vscode.Uri.parse(message.fileUri)
+                            );
+                        }
+                    } else {
+                        vscode.window.showErrorMessage("File URI is null");
+                    }
                     break;
                 default:
                     console.log("Unknown message command", message.command);

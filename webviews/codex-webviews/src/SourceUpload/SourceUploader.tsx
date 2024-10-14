@@ -8,7 +8,7 @@ import {
     VSCodeDropdown,
     VSCodeOption,
 } from "@vscode/webview-ui-toolkit/react";
-
+import { SourceUploadPostMessages } from "../../../../types";
 const vscode = acquireVsCodeApi();
 
 interface AggregatedMetadata {
@@ -36,7 +36,7 @@ const SourceUploader: React.FC = () => {
     const [selectedSourceFile, setSelectedSourceFile] = useState<string | null>(null);
 
     useEffect(() => {
-        vscode.postMessage({ command: "getMetadata" });
+        vscode.postMessage({ command: "getMetadata" } as SourceUploadPostMessages);
 
         const messageHandler = (event: MessageEvent) => {
             const message = event.data;
@@ -72,14 +72,14 @@ const SourceUploader: React.FC = () => {
                     fileContent: content,
                     fileName: selectedFile.name,
                     sourceFileName: selectedSourceFile,
-                });
+                } as SourceUploadPostMessages);
             };
             reader.readAsText(selectedFile);
         }
     };
 
     const handleDownloadBible = () => {
-        vscode.postMessage({ command: "downloadBible" });
+        vscode.postMessage({ command: "downloadBible" } as SourceUploadPostMessages);
     };
 
     const handleImportTranslation = (metadata: AggregatedMetadata) => {
@@ -96,20 +96,20 @@ const SourceUploader: React.FC = () => {
             status === "uninitialized"
                 ? "repo"
                 : status === "modified"
-                  ? "git-commit"
-                  : status === "added"
-                    ? "diff-added"
-                    : status === "deleted"
-                      ? "diff-removed"
-                      : status === "renamed"
-                        ? "diff-renamed"
-                        : status === "conflict"
-                          ? "git-merge"
-                          : status === "untracked"
-                            ? "file-add"
-                            : status === "committed"
-                              ? "check"
-                              : "question"
+                ? "git-commit"
+                : status === "added"
+                ? "diff-added"
+                : status === "deleted"
+                ? "diff-removed"
+                : status === "renamed"
+                ? "diff-renamed"
+                : status === "conflict"
+                ? "git-merge"
+                : status === "untracked"
+                ? "file-add"
+                : status === "committed"
+                ? "check"
+                : "question"
         }`;
         return (
             <i
@@ -123,7 +123,11 @@ const SourceUploader: React.FC = () => {
     const handleSyncStatusClick = (metadata: AggregatedMetadata) => {
         const fileUri = metadata.sourceUri || metadata.codexUri;
         if (fileUri) {
-            vscode.postMessage({ command: "syncAction", status: metadata.gitStatus, fileUri });
+            vscode.postMessage({
+                command: "syncAction",
+                status: metadata.gitStatus,
+                fileUri,
+            } as SourceUploadPostMessages);
         } else {
             console.error("No file URI available for sync action");
         }
@@ -149,12 +153,13 @@ const SourceUploader: React.FC = () => {
         return <span>{attachments.length > 0 ? attachments : "None"}</span>;
     };
 
-    const handleOpenCodexNotebook = (fileUri: string | undefined) => {
+    const handleOpenFile = (fileUri: string | undefined) => {
+        console.log("handleOpenFile", { fileUri });
         if (fileUri) {
             vscode.postMessage({
-                command: "openCodexNotebook",
+                command: "openFile",
                 fileUri,
-            });
+            } as SourceUploadPostMessages);
         }
     };
 
@@ -162,18 +167,20 @@ const SourceUploader: React.FC = () => {
         <div style={{ padding: "16px", maxWidth: "1200px", margin: "0 auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "24px" }}>
                 <h1 style={{ fontSize: "24px", fontWeight: "bold" }}>Source Manager</h1>
-                <div>
+                <div style={{ display: "flex", gap: "0.2em" }}>
+                    <VSCodeButton
+                        onClick={() => setIsSourceUpload(false)}
+                        aria-label="Add new translation"
+                    >
+                        <i className="codicon codicon-insert"></i>
+                    </VSCodeButton>
                     <VSCodeButton
                         onClick={() => setIsSourceUpload(true)}
                         aria-label="Add new source"
                     >
                         <i className="codicon codicon-add"></i>
                     </VSCodeButton>
-                    <VSCodeButton
-                        onClick={handleDownloadBible}
-                        style={{ marginLeft: "8px" }}
-                        aria-label="Download Bible"
-                    >
+                    <VSCodeButton onClick={handleDownloadBible} aria-label="Download Bible">
                         <i className="codicon codicon-cloud-download"></i>
                     </VSCodeButton>
                 </div>
@@ -220,22 +227,42 @@ const SourceUploader: React.FC = () => {
                         >
                             <VSCodeDataGridCell>{metadata.originalName}</VSCodeDataGridCell>
                             <VSCodeDataGridCell>
-                                {metadata.sourceUri
-                                    ? metadata.sourceUri.split("/").pop()
-                                    : "Missing"}
+                                {metadata.sourceUri ? (
+                                    <VSCodeButton
+                                        appearance="icon"
+                                        onClick={() => handleOpenFile(metadata.sourceUri)}
+                                    >
+                                        <i
+                                            className="codicon codicon-open-preview"
+                                            title="Open Source"
+                                        ></i>
+                                    </VSCodeButton>
+                                ) : (
+                                    "Missing"
+                                )}
                             </VSCodeDataGridCell>
                             <VSCodeDataGridCell>
                                 {metadata.codexUri ? (
-                                    <a
-                                        href="#"
-                                        onClick={() => handleOpenCodexNotebook(metadata.codexUri)}
-                                        style={{
-                                            color: "var(--vscode-textLink-foreground)",
-                                            textDecoration: "underline",
-                                        }}
-                                    >
-                                        {metadata.codexUri.split("/").pop()}
-                                    </a>
+                                    <div style={{ display: "flex", gap: "0.2em" }}>
+                                        <VSCodeButton
+                                            appearance="icon"
+                                            onClick={() => handleOpenFile(metadata.codexUri)}
+                                        >
+                                            <i
+                                                className="codicon codicon-link-external"
+                                                title="Open Codex Draft Notebook"
+                                            ></i>
+                                        </VSCodeButton>
+                                        <VSCodeButton
+                                            appearance="icon"
+                                            onClick={() => handleImportTranslation(metadata)}
+                                        >
+                                            <i
+                                                className="codicon codicon-insert"
+                                                title="Import Translations"
+                                            ></i>
+                                        </VSCodeButton>
+                                    </div>
                                 ) : (
                                     "Missing"
                                 )}

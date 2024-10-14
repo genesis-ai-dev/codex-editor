@@ -109,7 +109,7 @@ export class NotebookMetadataManager {
         // Handle project.dictionary file
         if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
             const workspaceUri = vscode.workspace.workspaceFolders[0].uri;
-            const dictionaryUri = vscode.Uri.joinPath(workspaceUri, "project.dictionary");
+            const dictionaryUri = vscode.Uri.joinPath(workspaceUri, "files", "project.dictionary");
             const dictionaryMetadata: NotebookMetadata = {
                 id: "projectDictionary",
                 originalName: "Project Dictionary",

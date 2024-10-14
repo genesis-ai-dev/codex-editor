@@ -150,6 +150,19 @@ type ChatPostMessages =
           sourceCellMap: { [k: string]: { content: string; versions: string[] } };
       };
 
+type SourceUploadPostMessages =
+    | { command: "downloadBible" }
+    | { command: "getMetadata" }
+    | { command: "openFile"; fileUri: string }
+    | { command: "syncAction"; status: string; fileUri: string }
+    | { command: "uploadSourceText"; fileContent: string; fileName: string; sourceFileName: string }
+    | {
+          command: "uploadTranslation";
+          fileContent: string;
+          fileName: string;
+          sourceFileName: string;
+      };
+
 type DictionaryPostMessages =
     | { command: "sendData"; data: Dictionary }
     | { command: "webviewTellsProviderToUpdateData"; data: Dictionary }
