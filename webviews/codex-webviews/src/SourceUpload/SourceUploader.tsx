@@ -34,6 +34,7 @@ const SourceUploader: React.FC = () => {
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [isSourceUpload, setIsSourceUpload] = useState<boolean>(true);
     const [selectedSourceFile, setSelectedSourceFile] = useState<string | null>(null);
+    const [shouldShowImporter, setShouldShowImporter] = useState<boolean>(false);
 
     useEffect(() => {
         vscode.postMessage({ command: "getMetadata" } as SourceUploadPostMessages);
@@ -76,6 +77,11 @@ const SourceUploader: React.FC = () => {
             };
             reader.readAsText(selectedFile);
         }
+        setShouldShowImporter(false);
+    };
+
+    const toggleDisplayImporter = () => {
+        setShouldShowImporter(!shouldShowImporter);
     };
 
     const handleDownloadBible = () => {
@@ -167,28 +173,125 @@ const SourceUploader: React.FC = () => {
         <div style={{ padding: "16px", maxWidth: "1200px", margin: "0 auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "24px" }}>
                 <h1 style={{ fontSize: "24px", fontWeight: "bold" }}>Source Manager</h1>
-                <div style={{ display: "flex", gap: "0.2em" }}>
-                    <VSCodeButton
-                        onClick={() => setIsSourceUpload(false)}
-                        aria-label="Add new translation"
+                {shouldShowImporter ? (
+                    <div>
+                        <VSCodeButton onClick={toggleDisplayImporter} aria-label="Close Importer">
+                            <i className="codicon codicon-close"></i>
+                        </VSCodeButton>
+                    </div>
+                ) : (
+                    <div style={{ display: "flex", gap: "0.2em" }}>
+                        <VSCodeButton
+                            onClick={() => {
+                                setIsSourceUpload(false);
+                                toggleDisplayImporter();
+                            }}
+                            aria-label="Add new translation"
+                        >
+                            <i className="codicon codicon-insert"></i>
+                        </VSCodeButton>
+                        <VSCodeButton
+                            onClick={() => {
+                                setIsSourceUpload(true);
+                                toggleDisplayImporter();
+                            }}
+                            aria-label="Add new source"
+                        >
+                            <i className="codicon codicon-add"></i>
+                        </VSCodeButton>
+                        <VSCodeButton onClick={handleDownloadBible} aria-label="Download Bible">
+                            <i className="codicon codicon-cloud-download"></i>
+                        </VSCodeButton>
+                    </div>
+                )}
+            </div>
+
+            {shouldShowImporter && (
+                <div
+                    style={{
+                        marginBottom: "2rem",
+                        boxShadow: "0 0 10px 0 rgba(0, 0, 0, 0.1)",
+                        padding: "1rem",
+                        borderRadius: "0.5rem",
+                    }}
+                >
+                    <h2 style={{ fontSize: "18px", fontWeight: "600", marginBottom: "8px" }}>
+                        {isSourceUpload ? "Upload New Source" : "Import Translation"}
+                    </h2>
+                    <div
+                        {...getRootProps()}
+                        style={{
+                            border: "2px dashed var(--vscode-widget-border)",
+                            borderRadius: "4px",
+                            padding: "32px",
+                            textAlign: "center",
+                            cursor: "pointer",
+                        }}
                     >
-                        <i className="codicon codicon-insert"></i>
-                    </VSCodeButton>
+                        <input {...getInputProps()} />
+                        <p style={{ color: "var(--vscode-foreground)" }}>
+                            <i
+                                className="codicon codicon-cloud-upload"
+                                style={{ marginRight: "8px" }}
+                            ></i>
+                            Drag 'n' drop a {isSourceUpload ? "source" : "translation"} file here,
+                            or click to select
+                        </p>
+                    </div>
+
+                    {selectedFile && (
+                        <p style={{ marginTop: "8px", fontSize: "14px" }}>
+                            Selected file: {selectedFile.name}
+                        </p>
+                    )}
+
+                    {!isSourceUpload && (
+                        <div style={{ marginTop: "16px" }}>
+                            <label
+                                htmlFor="sourceFile"
+                                style={{ display: "block", marginBottom: "4px", fontSize: "14px" }}
+                            >
+                                Select corresponding source file:
+                            </label>
+                            <VSCodeDropdown
+                                id="sourceFile"
+                                value={selectedSourceFile || ""}
+                                onChange={(e) =>
+                                    setSelectedSourceFile((e.target as HTMLSelectElement).value)
+                                }
+                            >
+                                <VSCodeOption value="">Select a source file</VSCodeOption>
+                                {aggregatedMetadata
+                                    .filter((metadata) => metadata.sourceUri)
+                                    .map((metadata) => (
+                                        <VSCodeOption
+                                            key={metadata.id}
+                                            value={metadata.originalName}
+                                        >
+                                            {metadata.originalName}
+                                        </VSCodeOption>
+                                    ))}
+                            </VSCodeDropdown>
+                        </div>
+                    )}
+
                     <VSCodeButton
-                        onClick={() => setIsSourceUpload(true)}
-                        aria-label="Add new source"
+                        style={{ marginTop: "16px" }}
+                        onClick={handleUpload}
+                        disabled={!selectedFile || (!isSourceUpload && !selectedSourceFile)}
                     >
-                        <i className="codicon codicon-add"></i>
-                    </VSCodeButton>
-                    <VSCodeButton onClick={handleDownloadBible} aria-label="Download Bible">
-                        <i className="codicon codicon-cloud-download"></i>
+                        <i
+                            className="codicon codicon-cloud-upload"
+                            style={{ marginRight: "8px" }}
+                        ></i>
+                        Upload {isSourceUpload ? "Source" : "Translation"}
                     </VSCodeButton>
                 </div>
-            </div>
+            )}
 
             <div
                 style={{
-                    height: "400px",
+                    height: "100%",
                     overflow: "auto",
                     marginBottom: "32px",
                     border: "1px solid var(--vscode-widget-border)",
@@ -313,74 +416,6 @@ const SourceUploader: React.FC = () => {
                         </VSCodeDataGridRow>
                     ))}
                 </VSCodeDataGrid>
-            </div>
-
-            <div>
-                <h2 style={{ fontSize: "18px", fontWeight: "600", marginBottom: "8px" }}>
-                    {isSourceUpload ? "Upload New Source" : "Import Translation"}
-                </h2>
-                <div
-                    {...getRootProps()}
-                    style={{
-                        border: "2px dashed var(--vscode-widget-border)",
-                        borderRadius: "4px",
-                        padding: "32px",
-                        textAlign: "center",
-                        cursor: "pointer",
-                    }}
-                >
-                    <input {...getInputProps()} />
-                    <p style={{ color: "var(--vscode-foreground)" }}>
-                        <i
-                            className="codicon codicon-cloud-upload"
-                            style={{ marginRight: "8px" }}
-                        ></i>
-                        Drag 'n' drop a {isSourceUpload ? "source" : "translation"} file here, or
-                        click to select
-                    </p>
-                </div>
-
-                {selectedFile && (
-                    <p style={{ marginTop: "8px", fontSize: "14px" }}>
-                        Selected file: {selectedFile.name}
-                    </p>
-                )}
-
-                {!isSourceUpload && (
-                    <div style={{ marginTop: "16px" }}>
-                        <label
-                            htmlFor="sourceFile"
-                            style={{ display: "block", marginBottom: "4px", fontSize: "14px" }}
-                        >
-                            Select corresponding source file:
-                        </label>
-                        <VSCodeDropdown
-                            id="sourceFile"
-                            value={selectedSourceFile || ""}
-                            onChange={(e) =>
-                                setSelectedSourceFile((e.target as HTMLSelectElement).value)
-                            }
-                        >
-                            <VSCodeOption value="">Select a source file</VSCodeOption>
-                            {aggregatedMetadata
-                                .filter((metadata) => metadata.sourceUri)
-                                .map((metadata) => (
-                                    <VSCodeOption key={metadata.id} value={metadata.originalName}>
-                                        {metadata.originalName}
-                                    </VSCodeOption>
-                                ))}
-                        </VSCodeDropdown>
-                    </div>
-                )}
-
-                <VSCodeButton
-                    style={{ marginTop: "16px" }}
-                    onClick={handleUpload}
-                    disabled={!selectedFile || (!isSourceUpload && !selectedSourceFile)}
-                >
-                    <i className="codicon codicon-cloud-upload" style={{ marginRight: "8px" }}></i>
-                    Upload {isSourceUpload ? "Source" : "Translation"}
-                </VSCodeButton>
             </div>
         </div>
     );
