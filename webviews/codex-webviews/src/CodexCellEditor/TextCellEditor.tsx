@@ -7,6 +7,7 @@ import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import { CodexCellTypes } from "../../../../types/enums";
 import SourceCellContext from "./contextProviders/SourceCellContext";
+import ConfirmationButton from "./ConfirmationButton";
 
 interface CellEditorProps {
     cellMarkers: string[];
@@ -219,10 +220,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     <i className="codicon codicon-type-hierarchy-sub"></i>
                 </VSCodeButton>
                 {!sourceCellContent && (
-                    <VSCodeButton onClick={deleteCell} appearance="icon">
-                        <i className="codicon codicon-trash"></i>
-                    </VSCodeButton>
-                    // TODO: add an way to undo the deletion
+                    <ConfirmationButton
+                        icon="trash"
+                        onClick={deleteCell}
+                        disabled={
+                            getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !==
+                            cellContent.replace(/\s/g, "")
+                        }
+                    />
                 )}
             </div>
         </div>
