@@ -146,6 +146,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
         };
         window.vscodeApi.postMessage(messageContent);
     };
+    const cellHasContent =
+        getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !== "";
 
     return (
         <div ref={cellEditorRef} className="cell-editor" style={{ direction: textDirection }}>
@@ -223,10 +225,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     <ConfirmationButton
                         icon="trash"
                         onClick={deleteCell}
-                        disabled={
-                            getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !==
-                            cellContent.replace(/\s/g, "")
-                        }
+                        disabled={cellHasContent}
                     />
                 )}
             </div>
