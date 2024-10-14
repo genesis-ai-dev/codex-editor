@@ -211,9 +211,11 @@ function showNoResultsWarning() {
     vscode.window.showWarningMessage(warningMessage, "More Info", "Dismiss").then((selection) => {
         if (selection === "More Info") {
             vscode.window
-                .showInformationMessage(detailedWarning, "How to Fix")
+                .showInformationMessage(detailedWarning, "Refresh Index", "How to Fix")
                 .then((selection) => {
-                    if (selection === "How to Fix") {
+                    if (selection === "Refresh Index") {
+                        vscode.commands.executeCommand("translators-copilot.forceReindex");
+                    } else if (selection === "How to Fix") {
                         vscode.window.showInformationMessage(
                             "Try translating more cells in nearby sections or chapters to provide better context for future suggestions."
                         );
