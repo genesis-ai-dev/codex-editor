@@ -9,6 +9,7 @@ import {
 } from "../utils/codexNotebookUtils";
 import { NotebookMetadataManager } from "../utils/notebookMetadataManager";
 import { CodexContentSerializer } from "../serializer";
+import { Dictionary, DictionaryEntry } from "codex-types";
 
 export async function importSourceText(
     context: vscode.ExtensionContext,
@@ -74,6 +75,9 @@ async function importSourceFile(
                 break;
             case "usfm":
                 importedNotebookIds = await importUSFM(fileUri, baseName);
+                break;
+            case "dictionary":
+                importedNotebookIds = [await importDictionary(fileUri, baseName)];
                 break;
             default:
                 throw new Error("Unsupported file type for source text.");
@@ -177,6 +181,115 @@ async function importPlaintext(fileUri: vscode.Uri, notebookId: string): Promise
 async function importUSFM(fileUri: vscode.Uri, notebookId: string): Promise<string[]> {
     const importedNotebookIds = await importLocalUsfmSourceBible(fileUri, notebookId);
     return importedNotebookIds;
+}
+
+async function importDictionary(fileUri: vscode.Uri, notebookId: string): Promise<string> {
+    const fileContent = await vscode.workspace.fs.readFile(fileUri);
+    const fileContentString = new TextDecoder().decode(fileContent);
+    const fileExtension = fileUri.path.split(".").pop()?.toLowerCase();
+
+    let entries: DictionaryEntry[];
+
+    if (fileExtension === "dictionary" || fileExtension === "jsonl") {
+        entries = parseJSONL(fileContentString);
+    } else if (fileExtension === "tsv") {
+        entries = parseTSV(fileContentString);
+    } else {
+        entries = parseWordList(fileContentString) as DictionaryEntry[];
+    }
+
+    const dictionary: Dictionary = {
+        id: notebookId,
+        label: notebookId,
+        entries: entries.map((entry) => ({
+            ...entry,
+            headForm: entry.headForm || entry.headWord || "",
+            variantForms: entry.variantForms || [],
+            definition: entry.definition || "",
+            translationEquivalents: entry.translationEquivalents || [],
+            links: entry.links || [],
+            linkedEntries: entry.linkedEntries || [],
+            notes: entry.notes || [],
+            metadata: entry.metadata || {},
+        })),
+        metadata: {},
+    };
+
+    // Save the dictionary to a file
+    const workspaceFolder = vscode.workspace.workspaceFolders![0];
+    const dictionaryUri = vscode.Uri.joinPath(
+        workspaceFolder.uri,
+        ".project",
+        "dictionaries",
+        `${notebookId}.dictionary`
+    );
+
+    await vscode.workspace.fs.writeFile(
+        dictionaryUri,
+        new TextEncoder().encode(JSON.stringify(dictionary, null, 2))
+    );
+
+    return notebookId;
+}
+
+function parseJSONL(content: string): DictionaryEntry[] {
+    return content
+        .split("\n")
+        .filter((line) => line.trim() !== "")
+        .map((line) => JSON.parse(line) as DictionaryEntry);
+}
+
+function parseTSV(content: string): DictionaryEntry[] {
+    const lines = content.split("\n").filter((line) => line.trim() !== "");
+    const headers = lines[0].split("\t");
+
+    return lines.slice(1).map((line) => {
+        const values = line.split("\t");
+        const entry: Partial<DictionaryEntry> = {};
+
+        headers.forEach((header, index) => {
+            switch (header) {
+                case "id":
+                case "headForm":
+                case "definition":
+                    (entry as any)[header] = values[index];
+                    break;
+                case "variantForms":
+                case "translationEquivalents":
+                    (entry as any)[header] = values[index]
+                        .split(",")
+                        .map((item: string) => item.trim());
+                    break;
+                case "links":
+                case "linkedEntries":
+                case "notes":
+                    (entry as any)[header] = JSON.parse(values[index] || "[]");
+                    break;
+                case "metadata":
+                    (entry as any)[header] = JSON.parse(values[index] || "{}");
+                    break;
+            }
+        });
+
+        return entry as DictionaryEntry;
+    });
+}
+
+function parseWordList(content: string): Array<Partial<DictionaryEntry>> {
+    return content
+        .split("\n")
+        .filter((line) => line.trim() !== "")
+        .map((word) => ({
+            id: word.trim(),
+            headForm: word.trim(),
+            variantForms: [],
+            definition: "",
+            translationEquivalents: [],
+            links: [],
+            linkedEntries: [],
+            metadata: {},
+            notes: [],
+        }));
 }
 
 export async function createEmptyCodexNotebooks(sourceFileName: string): Promise<void> {

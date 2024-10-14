@@ -5,7 +5,7 @@ import { generateUniqueId, clearIdCache } from "./idGenerator";
 import { NavigationCell, NotebookMetadata } from "./codexNotebookUtils";
 import { API as GitAPI, Repository, Status } from "../providers/scm/git.d";
 
-const DEBUG_MODE = true; // Set to true to enable debug logging
+const DEBUG_MODE = false; // Set to true to enable debug logging
 
 function debugLog(...args: any[]): void {
     if (DEBUG_MODE) {
@@ -47,10 +47,11 @@ export class NotebookMetadataManager {
 
         const sourceFiles = await vscode.workspace.findFiles("**/*.source");
         const codexFiles = await vscode.workspace.findFiles("**/*.codex");
+        const dictionaryFiles = await vscode.workspace.findFiles("**/*.dictionary");
 
         const serializer = new CodexContentSerializer();
 
-        for (const file of [...sourceFiles, ...codexFiles]) {
+        for (const file of [...sourceFiles, ...codexFiles, ...dictionaryFiles]) {
             debugLog("Processing file:", file.fsPath);
             const content = await vscode.workspace.fs.readFile(file);
             let notebookData;
@@ -70,7 +71,8 @@ export class NotebookMetadataManager {
             }
 
             const originalName = file.path.split("/").pop()?.split(".")[0] || "";
-            const id = notebookData.metadata?.id || this.generateNewId(originalName);
+            const id =
+                notebookData.metadata?.id || notebookData.id || this.generateNewId(originalName);
 
             let existingMetadata = this.metadataMap.get(id);
             if (!existingMetadata) {
@@ -101,6 +103,12 @@ export class NotebookMetadataManager {
                 existingMetadata.codexUri = file;
                 existingMetadata.codexLastModified = new Date(fileStat.mtime).toISOString();
                 debugLog("Updated codexUri for:", id);
+            } else if (file.path.endsWith(".dictionary")) {
+                existingMetadata.sourceUri = file;
+                existingMetadata.codexUri = file; // For dictionaries, source and codex are the same file
+                existingMetadata.sourceCreatedAt = new Date(fileStat.ctime).toISOString();
+                existingMetadata.codexLastModified = new Date(fileStat.mtime).toISOString();
+                debugLog("Updated dictionary metadata for:", id);
             }
 
             existingMetadata.gitStatus = await this.getGitStatusForFile(file);
@@ -195,11 +203,9 @@ export class NotebookMetadataManager {
     }
 
     public getMetadataBySourceFileName(sourceFileName: string): NotebookMetadata | undefined {
-        const baseName = sourceFileName.endsWith(".source")
-            ? sourceFileName.slice(0, -7)
-            : sourceFileName;
+        const baseName = sourceFileName.split(".")[0]; // Remove any file extension
         for (const metadata of this.metadataMap.values()) {
-            if (metadata.id === baseName) {
+            if (metadata.id === baseName || metadata.originalName === baseName) {
                 return metadata;
             }
         }

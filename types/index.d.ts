@@ -549,9 +549,17 @@ declare function searchParallelCells(
     k?: number
 ): TranslationPair[];
 
-export type SupportedFileExtension = "vtt" | "txt" | "usfm" | "sfm" | "SFM" | "USFM";
+export type SupportedFileExtension =
+    | "vtt"
+    | "txt"
+    | "usfm"
+    | "sfm"
+    | "SFM"
+    | "USFM"
+    | "tsv"
+    | "jsonl";
 
-export type FileType = "subtitles" | "plaintext" | "usfm";
+export type FileType = "subtitles" | "plaintext" | "usfm" | "dictionary";
 
 export interface FileTypeMap {
     vtt: "subtitles";
@@ -560,4 +568,6 @@ export interface FileTypeMap {
     sfm: "usfm";
     SFM: "usfm";
     USFM: "usfm";
+    tsv: "dictionary";
+    jsonl: "dictionary";
 }
