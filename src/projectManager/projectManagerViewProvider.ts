@@ -266,10 +266,10 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                     // Ignore error if directory already exists
                 }
 
-                // Create project.dictionary file with an empty JSON object
+                // Create project.dictionary file with empty content (since it's jsonl)
                 await vscode.workspace.fs.writeFile(
                     projectDictionaryPath,
-                    new Uint8Array(Buffer.from("{}\n"))
+                    new Uint8Array(Buffer.from(""))
                 );
             }
 
