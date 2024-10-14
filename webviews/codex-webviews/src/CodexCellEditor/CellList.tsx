@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useMemo } from "react";
+import { FixedSizeList as List } from "react-window";
 import { EditorCellContent, QuillCellContent, SpellCheckResponse } from "../../../../types";
 import CellEditor from "./TextCellEditor";
 import CellContentDisplay from "./CellContentDisplay";
@@ -18,6 +19,8 @@ interface CellListProps {
     textDirection: "ltr" | "rtl";
     cellDisplayMode: CELL_DISPLAY_MODES;
     isSourceText: boolean;
+    windowHeight: number;
+    headerHeight: number;
 }
 
 const CellList: React.FC<CellListProps> = ({
@@ -31,7 +34,25 @@ const CellList: React.FC<CellListProps> = ({
     textDirection,
     cellDisplayMode,
     isSourceText,
+    windowHeight,
+    headerHeight,
 }) => {
+    // Detect duplicate cell IDs
+    const duplicateCellIds = useMemo(() => {
+        const idCounts = new Map<string, number>();
+        const duplicates = new Set<string>();
+
+        translationUnits.forEach(({ cellMarkers }) => {
+            const id = cellMarkers.join(" ");
+            idCounts.set(id, (idCounts.get(id) || 0) + 1);
+            if (idCounts.get(id)! > 1) {
+                duplicates.add(id);
+            }
+        });
+
+        return duplicates;
+    }, [translationUnits]);
+
     const renderCellGroup = (group: typeof translationUnits, startIndex: number) => (
         <span
             key={`group-${startIndex}`}
@@ -39,6 +60,9 @@ const CellList: React.FC<CellListProps> = ({
             style={{ direction: textDirection }}
         >
             {group.map(({ cellMarkers, cellContent, cellType, cellLabel }, index) => {
+                const cellId = cellMarkers.join(" ");
+                const hasDuplicateId = duplicateCellIds.has(cellId);
+
                 return (
                     <CellContentDisplay
                         key={startIndex + index}
@@ -51,6 +75,7 @@ const CellList: React.FC<CellListProps> = ({
                         vscode={vscode}
                         textDirection={textDirection}
                         isSourceText={isSourceText}
+                        hasDuplicateId={hasDuplicateId}
                     />
                 );
             })}
@@ -118,9 +143,27 @@ const CellList: React.FC<CellListProps> = ({
         return result;
     };
 
+    const cellGroups = useMemo(
+        () => renderCells(),
+        [translationUnits, contentBeingUpdated, spellCheckResponse]
+    );
+
+    const Row = ({ index, style }: { index: number; style: React.CSSProperties }) => (
+        <div style={style}>{cellGroups[index]}</div>
+    );
+
+    const listHeight = windowHeight - headerHeight - 20; // 20px for padding
+
     return (
-        <div className="verse-list ql-editor" style={{ direction: textDirection }}>
-            {renderCells()}
+        <div className="verse-list ql-editor" style={{ direction: textDirection, height: `${listHeight}px` }}>
+            <List
+                height={listHeight}
+                itemCount={cellGroups.length}
+                itemSize={50} // Adjust this value based on your average row height
+                width="100%"
+            >
+                {Row}
+            </List>
         </div>
     );
 };

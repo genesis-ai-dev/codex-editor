@@ -251,32 +251,55 @@ const CodexCellEditor: React.FC = () => {
         setVideoUrl(url);
     };
 
+    const [headerHeight, setHeaderHeight] = useState(0);
+    const [windowHeight, setWindowHeight] = useState(window.innerHeight);
+    const headerRef = useRef<HTMLDivElement>(null);
+    const navigationRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleResize = () => {
+            setWindowHeight(window.innerHeight);
+            if (headerRef.current && navigationRef.current) {
+                const totalHeaderHeight = headerRef.current.offsetHeight + navigationRef.current.offsetHeight;
+                setHeaderHeight(totalHeaderHeight);
+            }
+        };
+
+        window.addEventListener('resize', handleResize);
+        handleResize(); // Initial calculation
+
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
     return (
         <div className="codex-cell-editor">
-            <div className="static-header">
-                <ChapterNavigation
-                    chapterNumber={chapterNumber}
-                    setChapterNumber={setChapterNumber}
-                    totalChapters={totalChapters}
-                    unsavedChanges={!!contentBeingUpdated.cellContent}
-                    onAutocompleteChapter={handleAutocompleteChapter}
-                    onSetTextDirection={setTextDirection}
-                    textDirection={textDirection}
-                    onSetCellDisplayMode={setCellDisplayMode}
-                    cellDisplayMode={cellDisplayMode}
-                    isSourceText={isSourceText}
-                    openSourceText={openSourceText}
-                    totalCellsToAutocomplete={translationUnitsForSection.length}
-                    setShouldShowVideoPlayer={setShouldShowVideoPlayer}
-                    shouldShowVideoPlayer={shouldShowVideoPlayer}
-                    documentHasVideoAvailable={true}
-                    metadata={metadata}
-                    tempVideoUrl={tempVideoUrl}
-                    onMetadataChange={handleMetadataChange}
-                    onSaveMetadata={handleSaveMetadata}
-                    onPickFile={handlePickFile}
-                    onUpdateVideoUrl={handleUpdateVideoUrl}
-                />
+            <div className="static-header" ref={headerRef}>
+                <div ref={navigationRef}>
+                    <ChapterNavigation
+                        chapterNumber={chapterNumber}
+                        setChapterNumber={setChapterNumber}
+                        totalChapters={totalChapters}
+                        unsavedChanges={!!contentBeingUpdated.cellContent}
+                        onAutocompleteChapter={handleAutocompleteChapter}
+                        onSetTextDirection={setTextDirection}
+                        textDirection={textDirection}
+                        onSetCellDisplayMode={setCellDisplayMode}
+                        cellDisplayMode={cellDisplayMode}
+                        isSourceText={isSourceText}
+                        openSourceText={openSourceText}
+                        totalCellsToAutocomplete={translationUnitsForSection.length}
+                        setShouldShowVideoPlayer={setShouldShowVideoPlayer}
+                        shouldShowVideoPlayer={shouldShowVideoPlayer}
+                        documentHasVideoAvailable={true}
+                        metadata={metadata}
+                        tempVideoUrl={tempVideoUrl}
+                        onMetadataChange={handleMetadataChange}
+                        onSaveMetadata={handleSaveMetadata}
+                        onPickFile={handlePickFile}
+                        onUpdateVideoUrl={handleUpdateVideoUrl}
+                        headerHeight={headerHeight}
+                    />
+                </div>
                 {shouldShowVideoPlayer && videoUrl && (
                     <VideoPlayer
                         playerRef={playerRef}
@@ -305,6 +328,8 @@ const CodexCellEditor: React.FC = () => {
                         textDirection={textDirection}
                         cellDisplayMode={cellDisplayMode}
                         isSourceText={isSourceText}
+                        windowHeight={windowHeight}
+                        headerHeight={headerHeight}
                     />
                 </div>
             </div>

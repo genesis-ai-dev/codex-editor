@@ -6,7 +6,7 @@
 .codex-cell-editor {
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    height: 100%;
     overflow: hidden;
 }
 
@@ -90,7 +90,8 @@
     padding: 0.25rem 0;
 }
 
-.verse-display:hover {
+.verse-display:hover,
+.verse-display *:hover {
     background-color: var(--vscode-list-hoverBackground);
 }
 
@@ -249,6 +250,7 @@ li {
 .cell-display-one-line-per-cell {
     display: flex;
     flex-direction: column;
+    gap: 0.25rem;
 }
 
 .quill-toolbar-icon {
@@ -306,6 +308,18 @@ li {
     font-weight: bold;
     color: var(--vscode-editor-foreground);
     margin-right: 0.5rem;
+}
+
+.cell-display-inline .paratext-display,
+.cell-display-inline .paratext-display > * {
+    background-color: var(--vscode-editor-inactiveSelectionBackground);
+    padding: 0.15rem;
+    margin-block: 0.35rem;
+}
+
+.cell-display-inline .paratext-display:hover,
+.cell-display-inline .paratext-display > *:hover {
+    background-color: var(--vscode-list-hoverForeground);
 }
 
 /* Modal styles */
@@ -372,4 +386,17 @@ li {
 .player-wrapper video {
     max-width: 100%;
     height: auto;
+}
+
+.cell-display-one-line-per-cell .duplicate-id {
+    background-color: var(--vscode-editor-background);
+    border: 2px solid var(--vscode-editorError-foreground);
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+}
+
+.cell-display-inline .duplicate-id {
+    color: var(--vscode-editorError-foreground);
+    border: none;
+    border-radius: 0;
 }

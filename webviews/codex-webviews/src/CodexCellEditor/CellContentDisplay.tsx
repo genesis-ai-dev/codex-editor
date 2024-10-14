@@ -3,6 +3,7 @@ import { EditorCellContent, EditorPostMessages } from "../../../../types";
 import { HACKY_removeContiguousSpans } from "./utils";
 import { CodexCellTypes } from "../../../../types/enums";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
+import { WebviewApi } from "vscode-webview";
 
 interface CellContentDisplayProps {
     cellIds: string[];
@@ -11,9 +12,10 @@ interface CellContentDisplayProps {
     cellType: CodexCellTypes;
     cellLabel?: string;
     setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorCellContent>>;
-    vscode: any;
+    vscode: WebviewApi<unknown>;
     textDirection: "ltr" | "rtl";
     isSourceText: boolean;
+    hasDuplicateId: boolean;
 }
 
 const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
@@ -25,6 +27,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     vscode,
     textDirection,
     isSourceText,
+    hasDuplicateId,
 }) => {
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
 
@@ -65,12 +68,20 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     // FIXME: we need to allow for the ref/id to be displayed at the start or end of the cell
     return (
         <span
-            className={`verse-display ${
-                cellType === CodexCellTypes.PARATEXT ? "paratext-display" : ""
-            }`}
+            className={
+                `verse-display ${cellType === CodexCellTypes.PARATEXT ? "paratext-display" : ""}` +
+                ` cell-content ${hasDuplicateId ? "duplicate-id" : ""}`
+            }
             onClick={handleVerseClick}
-            style={{ direction: textDirection }}
+            style={{
+                direction: textDirection,
+            }}
         >
+            {hasDuplicateId && (
+                <span className="duplicate-id-alert">
+                    <i className="codicon codicon-warning"></i>
+                </span>
+            )}
             {cellType === CodexCellTypes.TEXT && <sup>{displayLabel}</sup>}
             {/* Display a visual indicator for paratext cells */}
             {cellType === CodexCellTypes.PARATEXT && (
