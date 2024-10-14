@@ -1,5 +1,4 @@
 import React, { useMemo } from "react";
-import { FixedSizeList as List } from "react-window";
 import { EditorCellContent, QuillCellContent, SpellCheckResponse } from "../../../../types";
 import CellEditor from "./TextCellEditor";
 import CellContentDisplay from "./CellContentDisplay";
@@ -53,119 +52,121 @@ const CellList: React.FC<CellListProps> = ({
         return duplicates;
     }, [translationUnits]);
 
-    const renderCellGroup = (group: typeof translationUnits, startIndex: number) => (
-        <span
-            key={`group-${startIndex}`}
-            className={`verse-group cell-display-${cellDisplayMode}`}
-            style={{ direction: textDirection }}
-        >
-            {group.map(({ cellMarkers, cellContent, cellType, cellLabel }, index) => {
-                const cellId = cellMarkers.join(" ");
-                const hasDuplicateId = duplicateCellIds.has(cellId);
+    const renderCellGroup = useMemo(
+        () => (group: typeof translationUnits, startIndex: number) =>
+            (
+                <span
+                    key={`group-${startIndex}`}
+                    className={`verse-group cell-display-${cellDisplayMode}`}
+                    style={{ direction: textDirection }}
+                >
+                    {group.map(({ cellMarkers, cellContent, cellType, cellLabel }, index) => {
+                        const cellId = cellMarkers.join(" ");
+                        const hasDuplicateId = duplicateCellIds.has(cellId);
 
-                return (
-                    <CellContentDisplay
-                        key={startIndex + index}
-                        cellIds={cellMarkers}
-                        cellContent={cellContent}
-                        cellIndex={startIndex + index}
-                        cellType={cellType}
-                        cellLabel={cellLabel}
-                        setContentBeingUpdated={setContentBeingUpdated}
-                        vscode={vscode}
-                        textDirection={textDirection}
-                        isSourceText={isSourceText}
-                        hasDuplicateId={hasDuplicateId}
-                    />
-                );
-            })}
-        </span>
+                        return (
+                            <CellContentDisplay
+                                key={startIndex + index}
+                                cellIds={cellMarkers}
+                                cellContent={cellContent}
+                                cellIndex={startIndex + index}
+                                cellType={cellType}
+                                cellLabel={cellLabel}
+                                setContentBeingUpdated={setContentBeingUpdated}
+                                vscode={vscode}
+                                textDirection={textDirection}
+                                isSourceText={isSourceText}
+                                hasDuplicateId={hasDuplicateId}
+                            />
+                        );
+                    })}
+                </span>
+            ),
+        [cellDisplayMode, textDirection, setContentBeingUpdated, vscode, isSourceText]
     );
 
-    const renderCells = () => {
-        const result = [];
-        let currentGroup = [];
-        let groupStartIndex = 0;
+    const renderCells = useMemo(
+        () => () => {
+            const result = [];
+            let currentGroup = [];
+            let groupStartIndex = 0;
 
-        for (let i = 0; i < translationUnits.length; i++) {
-            const { cellMarkers, cellContent, cellType, cellLabel } = translationUnits[i];
+            for (let i = 0; i < translationUnits.length; i++) {
+                const { cellMarkers, cellContent, cellType, cellLabel } = translationUnits[i];
 
-            if (
-                !isSourceText &&
-                cellMarkers.join(" ") === contentBeingUpdated.cellMarkers?.join(" ")
-            ) {
-                if (currentGroup.length > 0) {
-                    result.push(renderCellGroup(currentGroup, groupStartIndex));
-                    currentGroup = [];
+                if (
+                    !isSourceText &&
+                    cellMarkers.join(" ") === contentBeingUpdated.cellMarkers?.join(" ")
+                ) {
+                    if (currentGroup.length > 0) {
+                        result.push(renderCellGroup(currentGroup, groupStartIndex));
+                        currentGroup = [];
+                    }
+                    result.push(
+                        <CellEditor
+                            key={cellMarkers.join(" ")}
+                            cellMarkers={cellMarkers}
+                            cellContent={cellContent}
+                            cellIndex={i}
+                            cellType={cellType}
+                            cellLabel={cellLabel}
+                            spellCheckResponse={spellCheckResponse}
+                            contentBeingUpdated={contentBeingUpdated}
+                            setContentBeingUpdated={setContentBeingUpdated}
+                            handleCloseEditor={handleCloseEditor}
+                            handleSaveHtml={handleSaveHtml}
+                            textDirection={textDirection}
+                        />
+                    );
+                    groupStartIndex = i + 1;
+                } else if (cellContent?.trim()?.length === 0) {
+                    if (currentGroup.length > 0) {
+                        result.push(renderCellGroup(currentGroup, groupStartIndex));
+                        currentGroup = [];
+                    }
+                    result.push(
+                        <EmptyCellDisplay
+                            key={cellMarkers.join(" ")}
+                            cellMarkers={cellMarkers}
+                            cellLabel={cellLabel}
+                            setContentBeingUpdated={setContentBeingUpdated}
+                            textDirection={textDirection}
+                            vscode={vscode}
+                        />
+                    );
+                    groupStartIndex = i + 1;
+                } else {
+                    currentGroup.push(translationUnits[i]);
                 }
-                result.push(
-                    <CellEditor
-                        key={i}
-                        cellMarkers={cellMarkers}
-                        cellContent={cellContent}
-                        cellIndex={i}
-                        cellType={cellType}
-                        cellLabel={cellLabel}
-                        spellCheckResponse={spellCheckResponse}
-                        contentBeingUpdated={contentBeingUpdated}
-                        setContentBeingUpdated={setContentBeingUpdated}
-                        handleCloseEditor={handleCloseEditor}
-                        handleSaveHtml={handleSaveHtml}
-                        textDirection={textDirection}
-                    />
-                );
-                groupStartIndex = i + 1;
-            } else if (cellContent?.trim()?.length === 0) {
-                if (currentGroup.length > 0) {
-                    result.push(renderCellGroup(currentGroup, groupStartIndex));
-                    currentGroup = [];
-                }
-                result.push(
-                    <EmptyCellDisplay
-                        key={i}
-                        cellMarkers={cellMarkers}
-                        cellLabel={cellLabel}
-                        setContentBeingUpdated={setContentBeingUpdated}
-                        textDirection={textDirection}
-                        vscode={vscode}
-                    />
-                );
-                groupStartIndex = i + 1;
-            } else {
-                currentGroup.push(translationUnits[i]);
             }
-        }
 
-        if (currentGroup.length > 0) {
-            result.push(renderCellGroup(currentGroup, groupStartIndex));
-        }
+            if (currentGroup.length > 0) {
+                result.push(renderCellGroup(currentGroup, groupStartIndex));
+            }
 
-        return result;
-    };
-
-    const cellGroups = useMemo(
-        () => renderCells(),
-        [translationUnits, contentBeingUpdated, spellCheckResponse]
-    );
-
-    const Row = ({ index, style }: { index: number; style: React.CSSProperties }) => (
-        <div style={style}>{cellGroups[index]}</div>
+            return result;
+        },
+        [
+            translationUnits,
+            contentBeingUpdated,
+            isSourceText,
+            spellCheckResponse,
+            handleCloseEditor,
+            handleSaveHtml,
+            renderCellGroup,
+        ]
     );
 
     const listHeight = windowHeight - headerHeight - 20; // 20px for padding
 
     return (
-        <div className="verse-list ql-editor" style={{ direction: textDirection, height: `${listHeight}px` }}>
-            <List
-                height={listHeight}
-                itemCount={cellGroups.length}
-                itemSize={50} // Adjust this value based on your average row height
-                width="100%"
-            >
-                {Row}
-            </List>
+        <div
+            className="verse-list ql-editor"
+            style={{ direction: textDirection, height: `${listHeight}px`, overflowY: "auto" }}
+        >
+            {renderCells()}
         </div>
     );
 };
 
-export default CellList;
+export default React.memo(CellList);

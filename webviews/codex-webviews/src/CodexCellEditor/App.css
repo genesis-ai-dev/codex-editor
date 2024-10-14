@@ -282,44 +282,37 @@ li {
 }
 
 /* Style for paratext cells in CellContentDisplay */
-.paratext-display {
+.paratext-indicator {
+    display: none; /* Hide paratext indicators unless in one-line-per-cell mode */
+}
+
+.cell-display-one-line-per-cell .paratext-display {
     background-color: var(
         --vscode-editor-inactiveSelectionBackground
     ); /* Background accent from VSCode theme */
-    border-left: 4px solid var(--vscode-editorInfo-foreground); /* Strong accent from VSCode theme */
+    border-inline-start: 4px solid var(--vscode-editorInfo-foreground); /* Strong accent from VSCode theme */
     padding: 0.5rem;
     border-radius: 4px;
 }
 
-.paratext-indicator {
+.cell-display-one-line-per-cell .paratext-indicator {
+    display: inline;
     font-style: italic;
     color: var(--vscode-descriptionForeground);
-    margin-right: 0.5rem;
+    margin-inline-end: 0.5rem;
 }
 
-.paratext-cell {
+.cell-display-one-line-per-cell .paratext-cell {
     background-color: var(--vscode-editor-inactiveSelectionBackground);
     padding: 0.5rem;
     border-radius: 4px;
-    margin-bottom: 0.5rem;
+    margin-block-end: 0.5rem;
 }
 
-.paratext-label {
+.cell-display-one-line-per-cell .paratext-label {
     font-weight: bold;
     color: var(--vscode-editor-foreground);
-    margin-right: 0.5rem;
-}
-
-.cell-display-inline .paratext-display,
-.cell-display-inline .paratext-display > * {
-    background-color: var(--vscode-editor-inactiveSelectionBackground);
-    padding: 0.15rem;
-    margin-block: 0.35rem;
-}
-
-.cell-display-inline .paratext-display:hover,
-.cell-display-inline .paratext-display > *:hover {
-    background-color: var(--vscode-list-hoverForeground);
+    margin-inline-end: 0.5rem;
 }
 
 /* Modal styles */
