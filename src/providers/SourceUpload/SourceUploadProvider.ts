@@ -155,7 +155,7 @@ export class SourceUploadProvider
                     }
                     break;
                 default:
-                    console.log("Unknown message command", message.command);
+                    console.log("Unknown message command", { message });
                     break;
             }
             await this.updateMetadata(webviewPanel);
