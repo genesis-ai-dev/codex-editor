@@ -189,13 +189,16 @@ export class CodexNotebookTreeViewProvider
 
             const newMetadata = {
                 headings: headings,
-                corpusMarker: metadata?.data?.corpusMarker,
+                corpusMarker: metadata?.corpusMarker, // Updated: directly access corpusMarker
                 sourceFile: sourceFile,
             };
 
             // Update the in-memory metadata
             this.notebookMetadata.set(uri.fsPath, newMetadata);
             console.log("Updated in-memory metadata:", uri.fsPath);
+
+            // Trigger a refresh of the tree view
+            this.refresh();
         } catch (error) {
             console.error(`Error processing file in updateNotebookMetadata ${uri.fsPath}:`, error);
         }
