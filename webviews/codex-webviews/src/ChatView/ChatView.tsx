@@ -165,6 +165,10 @@ function App() {
 
     // FIXME: use loading state to show/hide a progress ring while
     window.addEventListener("message", (event: MessageEvent<ChatPostMessages>) => {
+
+
+    useEffect(() => {
+        function handleMessage(event: MessageEvent<ChatPostMessages>) {
         const message = event.data;
         switch (message?.command) {
             case "select":
@@ -269,7 +273,13 @@ function App() {
             default:
                 break;
         }
-    });
+        }
+
+        window.addEventListener("message", handleMessage);
+        return () => {
+            window.removeEventListener("message", handleMessage);
+        }
+    }, [currentMessageThreadId, messageLog, pendingMessage]);
 
     function markChatThreadAsDeleted(messageThreadIdToMarkAsDeleted: string) {
         vscode.postMessage({
