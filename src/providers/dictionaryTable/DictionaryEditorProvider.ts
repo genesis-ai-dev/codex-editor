@@ -8,6 +8,26 @@ interface DictionaryDocument extends vscode.CustomDocument {
     content: Dictionary;
 }
 
+type PartialDictionaryEntry = Partial<DictionaryEntry>;
+
+function ensureCompleteEntry(entry: PartialDictionaryEntry): DictionaryEntry {
+    return {
+        id: entry.id || "",
+        headForm: entry.headForm || "",
+        variantForms: entry.variantForms || [],
+        definition: entry.definition || "",
+        partOfSpeech: entry.partOfSpeech || "",
+        etymology: entry.etymology || "",
+        usage: entry.usage || "",
+        notes: entry.notes || [],
+        examples: entry.examples || [],
+        translationEquivalents: entry.translationEquivalents || [],
+        links: entry.links || [],
+        linkedEntries: entry.linkedEntries || [],
+        metadata: entry.metadata || {},
+    };
+}
+
 export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider {
     public static readonly viewType = "codex.dictionaryEditor";
     private document: DictionaryDocument | undefined;
@@ -61,7 +81,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
             this.fileWatcher = vscode.workspace.createFileSystemWatcher(dictionaryUri.fsPath);
 
             this.fileWatcher.onDidChange(() => {
-                this.refreshEditor();
+                this.refreshEditor(webviewPanel);
                 updateWebview();
             });
         }
@@ -83,7 +103,9 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
             switch (e.command) {
                 case "webviewTellsProviderToUpdateData":
                     console.log("updateData received in DictionaryEditorProvider", e.data);
-                    await this.updateTextDocument(document, e.data);
+                    await this.updateTextDocument(document, e.data, webviewPanel).then(async () => {
+                        await this.refreshEditor(webviewPanel);
+                    });
                     return;
                 case "webviewAsksProviderToConfirmRemove": {
                     console.log("confirmRemove received in DictionaryEditorProvider", e.count);
@@ -94,7 +116,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
                         "No"
                     );
                     if (confirmed === "Yes") {
-                        await this.updateTextDocument(document, e.data);
+                        await this.updateTextDocument(document, e.data, webviewPanel);
                         webviewPanel.webview.postMessage({
                             command: "providerTellsWebviewRemoveConfirmed",
                         } as DictionaryReceiveMessages);
@@ -166,7 +188,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
             const entries = text
                 .split("\n")
                 .filter((line) => line.trim().length > 0)
-                .map((line) => JSON.parse(line) as DictionaryEntry);
+                .map((line) => ensureCompleteEntry(JSON.parse(line) as PartialDictionaryEntry));
 
             return { id: "", label: "", entries, metadata: {} };
         } catch (jsonlError) {
@@ -174,6 +196,9 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
                 // If parsing as JSONL fails, try parsing as a single JSON object
                 const parsed = JSON.parse(text);
                 if (parsed.entries) {
+                    parsed.entries = parsed.entries.map((entry: PartialDictionaryEntry) =>
+                        ensureCompleteEntry(entry)
+                    );
                     return parsed;
                 } else {
                     throw new Error("Invalid JSON format: missing entries.");
@@ -184,7 +209,11 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
         }
     }
 
-    private async updateTextDocument(document: vscode.TextDocument, dictionary: Dictionary) {
+    private async updateTextDocument(
+        document: vscode.TextDocument,
+        dictionary: Dictionary,
+        webviewPanel: vscode.WebviewPanel
+    ) {
         const workspaceFolderUri = getWorkSpaceUri();
         if (!workspaceFolderUri) {
             throw new Error("Workspace folder not found.");
@@ -195,12 +224,17 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
             "project.dictionary"
         );
 
-        const content = dictionary.entries.map((entry) => JSON.stringify(entry)).join("\n");
+        const content = dictionary.entries
+            .map((entry) => JSON.stringify(ensureCompleteEntry(entry)))
+            .join("\n");
 
         await vscode.workspace.fs.writeFile(dictionaryUri, Buffer.from(content, "utf-8"));
+
+        // After updating the file, refresh the editor
+        await this.refreshEditor(webviewPanel);
     }
 
-    private async refreshEditor() {
+    private async refreshEditor(webviewPanel: vscode.WebviewPanel) {
         if (this.document) {
             try {
                 const workspaceFolderUri = getWorkSpaceUri();
@@ -214,24 +248,49 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
                 );
                 const fileContent = await vscode.workspace.fs.readFile(dictionaryUri);
                 const content = new TextDecoder().decode(fileContent);
-                const dictionary = this.parseDictionary(content);
+                
+                // Parse the file content
+                const newEntries = this.parseEntriesFromJsonl(content);
+                
+                // Compare with current entries
+                if (!this.areEntriesEqual(this.document.content.entries, newEntries)) {
+                    // Update only if there are changes
+                    this.document.content.entries = newEntries;
 
-                // Update the custom document
-                this.document.content = dictionary;
+                    // Notify the webview of the updated content
+                    webviewPanel.webview.postMessage({
+                        command: "providerTellsWebviewToUpdateData",
+                        data: this.document.content,
+                    } as DictionaryReceiveMessages);
 
-                this.onDidChangeCustomDocument.fire({
-                    document: this.document,
-                    undo: () => {
-                        // Implement undo logic if needed
-                    },
-                    redo: () => {
-                        // Implement redo logic if needed
-                    },
-                });
+                    this.onDidChangeCustomDocument.fire({
+                        document: this.document,
+                        undo: () => {
+                            // Implement undo logic if needed
+                        },
+                        redo: () => {
+                            // Implement redo logic if needed
+                        },
+                    });
+                }
             } catch (error) {
                 vscode.window.showErrorMessage(`Failed to refresh dictionary: ${error}`);
             }
         }
+    }
+
+    private parseEntriesFromJsonl(content: string): DictionaryEntry[] {
+        return content
+            .split("\n")
+            .filter((line) => line.trim() !== "")
+            .map((line) => ensureCompleteEntry(JSON.parse(line) as PartialDictionaryEntry));
+    }
+
+    private areEntriesEqual(entries1: DictionaryEntry[], entries2: DictionaryEntry[]): boolean {
+        if (entries1.length !== entries2.length) return false;
+        return entries1.every((entry, index) => 
+            JSON.stringify(entry) === JSON.stringify(entries2[index])
+        );
     }
 
     public saveCustomDocument(
@@ -272,15 +331,5 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
     private serializeDictionary(document: Dictionary): string {
         // Convert the dictionary entries to JSON Lines
         return document.entries.map((entry) => JSON.stringify(entry)).join("\n");
-    }
-
-    private parseDictionary(content: string): Dictionary {
-        const entries = content
-            .split("\n")
-            .filter((line) => line.trim() !== "")
-            .map((line) => {
-                return JSON.parse(line) as DictionaryEntry;
-            });
-        return { id: "", label: "", entries, metadata: {} };
     }
 }

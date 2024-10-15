@@ -37,6 +37,7 @@
         "@popperjs/core": "^2.0.0",
         "@uidotdev/usehooks": "^2.4.1",
         "@vscode/webview-ui-toolkit": "^1.4.0",
+        "antd": "^5.21.4",
         "clsx": "1.1.1",
         "codex-types": "^0.0.2",
         "diff": "^5.2.0",
