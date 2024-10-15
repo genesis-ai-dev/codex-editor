@@ -91,7 +91,17 @@
 }
 
 .verse-display:hover,
-.verse-display *:hover {
+/* .verse-display *:hover {
+    background-color: var(--vscode-list-hoverBackground);
+} */
+
+.verse-display.paratext-display:hover,
+.verse-display.paratext-display *:hover {
+    background-color: var(--vscode-editor-selectionHighlightBackground);
+}
+
+.verse-display.canonical-display:hover,
+.verse-display.canonical-display *:hover {
     background-color: var(--vscode-list-hoverBackground);
 }
 

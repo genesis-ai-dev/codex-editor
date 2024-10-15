@@ -69,7 +69,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     return (
         <span
             className={
-                `verse-display ${cellType === CodexCellTypes.PARATEXT ? "paratext-display" : ""}` +
+                `verse-display ${
+                    cellType === CodexCellTypes.TEXT ? "canonical-display" : "paratext-display"
+                } ${cellType === CodexCellTypes.PARATEXT ? "paratext-display" : ""}` +
                 ` cell-content ${hasDuplicateId ? "duplicate-id" : ""}`
             }
             onClick={handleVerseClick}
