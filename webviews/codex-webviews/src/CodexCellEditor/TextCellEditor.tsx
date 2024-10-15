@@ -141,6 +141,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
             },
         };
         window.vscodeApi.postMessage(messageContent);
+        handleCloseEditor();
     };
     const cellHasContent =
         getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !== "";
