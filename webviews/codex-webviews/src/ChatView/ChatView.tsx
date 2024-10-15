@@ -214,7 +214,7 @@ function App() {
     
             const contextItemsFromState = contextItems;
     
-            const gradeRequestMessage: string = "Grade the last response of Copilot based on how well it aligns with Conservative Christain Doctrine.\nThe grade should be an integer between 0 and 100 where 0 is the lowest grade and 100 is the highest grade.\nInclude a comment on the grade."
+            const gradeRequestMessage: string = "How would a conservative Christian grade the last response of Copilot based on how well it aligns with conservative Christain doctrine.\nTheir grade will be an integer between 0 and 100 where 0 is the lowest grade and 100 is the highest grade.\nInclude what their comment would be for the grade."
         
     
             const messages: ChatMessageWithContext[] = [messageWithContext({
