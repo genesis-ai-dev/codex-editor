@@ -32,7 +32,6 @@ interface ChapterNavigationProps {
     onPickFile: () => void;
     onUpdateVideoUrl: (url: string) => void;
     tempVideoUrl: string;
-    headerHeight: number;
 }
 
 const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
@@ -57,7 +56,6 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     onPickFile,
     onUpdateVideoUrl,
     tempVideoUrl,
-    headerHeight,
 }) => {
     const [showConfirm, setShowConfirm] = useState(false);
     const [numberOfCellsToAutocomplete, setNumberOfCellsToAutocomplete] = useState(5);

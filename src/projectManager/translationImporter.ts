@@ -8,7 +8,7 @@ import { ParsedUSFM } from "usfm-grammar";
 import { NotebookMetadataManager } from "../utils/notebookMetadataManager";
 import { Dictionary, DictionaryEntry } from "codex-types";
 
-const DEBUG_MODE = true; // Set this to false to disable debug logging
+const DEBUG_MODE = false; // Set this to false to disable debug logging
 
 function debug(...args: any[]): void {
     if (DEBUG_MODE) {

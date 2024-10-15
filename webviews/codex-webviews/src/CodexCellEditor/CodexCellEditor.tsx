@@ -260,15 +260,16 @@ const CodexCellEditor: React.FC = () => {
         const handleResize = () => {
             setWindowHeight(window.innerHeight);
             if (headerRef.current && navigationRef.current) {
-                const totalHeaderHeight = headerRef.current.offsetHeight + navigationRef.current.offsetHeight;
+                const totalHeaderHeight =
+                    headerRef.current.offsetHeight + navigationRef.current.offsetHeight;
                 setHeaderHeight(totalHeaderHeight);
             }
         };
 
-        window.addEventListener('resize', handleResize);
+        window.addEventListener("resize", handleResize);
         handleResize(); // Initial calculation
 
-        return () => window.removeEventListener('resize', handleResize);
+        return () => window.removeEventListener("resize", handleResize);
     }, []);
 
     return (
@@ -297,7 +298,6 @@ const CodexCellEditor: React.FC = () => {
                         onSaveMetadata={handleSaveMetadata}
                         onPickFile={handlePickFile}
                         onUpdateVideoUrl={handleUpdateVideoUrl}
-                        headerHeight={headerHeight}
                     />
                 </div>
                 {shouldShowVideoPlayer && videoUrl && (
