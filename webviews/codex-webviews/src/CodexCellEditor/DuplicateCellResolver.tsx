@@ -11,10 +11,10 @@ const DuplicateCellResolver: React.FC<{
     const [selectedCell, setSelectedCell] = useState<(QuillCellContent & { index: number }) | null>(
         null
     );
-    const getListOfDuplicateCells = (translationUnitsToCheck: QuillCellContent[]) => {
+    const getListOfDuplicateCells = (translationUnitsToCheck: QuillCellContent[]): string[] => {
         const listOfCellIds = translationUnitsToCheck.map((unit) => unit.cellMarkers[0]);
         const uniqueCellIds = new Set(listOfCellIds);
-        return listOfCellIds.filter((cellId) => {
+        const duplicateCellIds = listOfCellIds.filter((cellId) => {
             if (uniqueCellIds.has(cellId)) {
                 uniqueCellIds.delete(cellId);
                 return false;
@@ -22,8 +22,11 @@ const DuplicateCellResolver: React.FC<{
                 return true;
             }
         });
+
+        const uniqueDuplicateCellIds = new Set(duplicateCellIds);
+        return Array.from(uniqueDuplicateCellIds);
     };
-    // const listOfCellIds = translationUnits.map((unit) => unit.cellMarkers[0]);
+
     const duplicateCellIds = getListOfDuplicateCells(translationUnits);
     const duplicateCells = translationUnits.filter((unit) =>
         duplicateCellIds.includes(unit.cellMarkers[0])
@@ -63,24 +66,8 @@ const DuplicateCellResolver: React.FC<{
                 >
                     <h1 style={{ marginBottom: "2em" }}>
                         <i className="codicon codicon-warning" style={{ fontSize: "1.5em" }}></i>
+                        Duplicate cells found
                     </h1>
-
-                    {selectedCell && (
-                        <div>
-                            <h2>{selectedCell.cellMarkers[0]}</h2>
-                            <CellContentDisplay
-                                cellIds={selectedCell.cellMarkers}
-                                cellContent={selectedCell.cellContent}
-                                cellIndex={0}
-                                cellType={selectedCell.cellType}
-                                cellLabel={selectedCell.cellLabel}
-                                setContentBeingUpdated={() => {}}
-                                vscode={vscode}
-                                textDirection={textDirection}
-                                isSourceText={true}
-                            />
-                        </div>
-                    )}
                     {duplicateCellIds.map((id, index) => {
                         return (
                             <>
@@ -121,6 +108,7 @@ const DuplicateCellResolver: React.FC<{
                                                     }}
                                                 >
                                                     <CellContentDisplay
+                                                        hasDuplicateId={false}
                                                         cellIds={cell.cellMarkers}
                                                         cellContent={cell.cellContent}
                                                         cellIndex={index}
