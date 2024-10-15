@@ -182,7 +182,7 @@ function App() {
     function gradeExists() : boolean {
         if( messageLog && messageLog.length > 0 ){
             const latestMessage = messageLog[messageLog.length - 1];
-            if( latestMessage?.grade ){
+            if (latestMessage?.grade !== undefined && latestMessage?.grade !== null) {
                 return true;
             }
         }
@@ -191,7 +191,7 @@ function App() {
     function getGrade() : number {
         if( messageLog && messageLog.length > 0 ){
             const latestMessage = messageLog[messageLog.length - 1];
-            if( latestMessage?.grade ){
+            if(latestMessage?.grade !== undefined && latestMessage?.grade !== null){
                 return latestMessage.grade;
             }
         }
@@ -264,7 +264,7 @@ function App() {
             }
             
             //if the grade already exists we don't need it.
-            if( latestMessage?.grade ){
+            if( latestMessage?.grade !== undefined && latestMessage?.grade !== null ){
                 return false;
             }
     
