@@ -216,14 +216,35 @@ function App() {
         }
     }, [currentMessageThreadId, availableMessageThreads]);
 
-    useEffect(() => {
-        //Check and see if the latest message has a grade key on it.
-        if (messageLog && messageLog.length > 0) {
+    function gradeExists() : boolean {
+        if( messageLog && messageLog.length > 0 ){
             const latestMessage = messageLog[messageLog.length - 1];
-            //if it doesn't have a grade, trigger a grade request.
-            if (!latestMessage?.grade) {
-                requestGrade();
+            if( latestMessage?.grade ){
+                return true;
             }
+        }
+        return false;
+    }
+    function getGrade() : number {
+        if( messageLog && messageLog.length > 0 ){
+            const latestMessage = messageLog[messageLog.length - 1];
+            if( latestMessage?.grade ){
+                return latestMessage.grade;
+            }
+        }
+        return 100;
+    }
+    function getGradeComment() : string {
+        if( messageLog && messageLog.length > 0 ){
+            const latestMessage = messageLog[messageLog.length - 1];
+            return latestMessage.gradeComment ?? "";
+        }
+        return "";
+    }
+
+    useEffect(() => {
+        if( messageLog && messageLog.length > 0 && !gradeExists()){
+            requestGrade();
         }
     }, [messageLog, messageLog.length]);
 
@@ -543,6 +564,11 @@ function App() {
                     <MessageItem messageItem={pendingMessage} />
                 ) : null}
             </div>
+            {gradeExists() ? (
+                <div style={{ padding: "1em", fontWeight: "bold" }}>
+                    Grade {getGrade()}
+                </div>
+            ) : null}
             <ChatInputTextForm
                 contextItems={contextItems}
                 selectedText={selectedTextContext}
