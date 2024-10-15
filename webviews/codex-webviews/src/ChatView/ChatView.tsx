@@ -169,110 +169,110 @@ function App() {
 
     useEffect(() => {
         function handleMessage(event: MessageEvent<ChatPostMessages>) {
-        const message = event.data;
-        switch (message?.command) {
-            case "select":
-                // FIXME: this is being invoked every time a new token is rendered
-                if (message.textDataWithContext) {
-                    // FIXME: this needs to use the new codex notebook format
-                    const {
-                        completeLineContent,
-                        selectedText,
-                        vrefAtStartOfLine,
-                        verseNotes,
-                        verseGraphData,
-                    } = message.textDataWithContext;
+            const message = event.data;
+            switch (message?.command) {
+                case "select":
+                    // FIXME: this is being invoked every time a new token is rendered
+                    if (message.textDataWithContext) {
+                        // FIXME: this needs to use the new codex notebook format
+                        const {
+                            completeLineContent,
+                            selectedText,
+                            vrefAtStartOfLine,
+                            verseNotes,
+                            verseGraphData,
+                        } = message.textDataWithContext;
 
-                    const strippedCompleteLineContent = vrefAtStartOfLine
-                        ? completeLineContent?.replace(vrefAtStartOfLine, "").trim()
-                        : completeLineContent?.trim();
+                        const strippedCompleteLineContent = vrefAtStartOfLine
+                            ? completeLineContent?.replace(vrefAtStartOfLine, "").trim()
+                            : completeLineContent?.trim();
 
-                    const selectedTextContextString =
-                        selectedText !== ""
-                            ? `${selectedText} (${vrefAtStartOfLine})`
-                            : `${strippedCompleteLineContent} (${vrefAtStartOfLine})`;
-                    // if (verseNotes !== null) {
-                    // setCurrentVerseNotes(verseNotes ?? '');
-                    const verseNotesArray =
-                        verseNotes?.split("\n\n").filter(
-                            // Let's filter out empty notes and notes that are URIs to .json files
-                            (note) => note !== "" && !/^[^\n]*\.json$/.test(note) // FIXME: we should simply avoid passing in the URI to the .json file in the first place
-                        ) ?? [];
+                        const selectedTextContextString =
+                            selectedText !== ""
+                                ? `${selectedText} (${vrefAtStartOfLine})`
+                                : `${strippedCompleteLineContent} (${vrefAtStartOfLine})`;
+                        // if (verseNotes !== null) {
+                        // setCurrentVerseNotes(verseNotes ?? '');
+                        const verseNotesArray =
+                            verseNotes?.split("\n\n").filter(
+                                // Let's filter out empty notes and notes that are URIs to .json files
+                                (note) => note !== "" && !/^[^\n]*\.json$/.test(note) // FIXME: we should simply avoid passing in the URI to the .json file in the first place
+                            ) ?? [];
 
-                    verseNotesArray.push(JSON.stringify(verseGraphData)); // Here we're adding the verse graph data to the verse notes array
-                    setContextItems(verseNotesArray);
-                    // }
-                    setSelectedTextContext(selectedTextContextString);
-                    setCurrentlyActiveCellId(vrefAtStartOfLine ?? "");
-                }
-                break;
-            case "response": {
-                if (!message.finished) {
-                    const messageContent = (pendingMessage?.content || "") + (message.text || "");
-                    setPendingMessage({
-                        role: "assistant",
-                        content: messageContent,
-                        createdAt: new Date().toISOString(),
-                    });
-                } else {
-                    if (pendingMessage) {
-                        setMessageLog([...messageLog, pendingMessage]);
+                        verseNotesArray.push(JSON.stringify(verseGraphData)); // Here we're adding the verse graph data to the verse notes array
+                        setContextItems(verseNotesArray);
+                        // }
+                        setSelectedTextContext(selectedTextContextString);
+                        setCurrentlyActiveCellId(vrefAtStartOfLine ?? "");
                     }
-                    setPendingMessage(undefined);
-                }
-                break;
-            }
-            case "threadsFromWorkspace":
-                if (message.content) {
-                    const messageThreadArray = message.content;
-                    const lastMessageThreadId =
-                        messageThreadArray[messageThreadArray.length - 1]?.id;
-                    const messageThreadsExist = !!lastMessageThreadId;
-                    if (messageThreadsExist) {
-                        setAvailableMessageThreads(
-                            messageThreadArray.filter((thread) => !thread.deleted)
-                        );
-                    }
-
-                    let messageThreadIdToUse: string;
-
-                    if (currentMessageThreadId) {
-                        messageThreadIdToUse = currentMessageThreadId;
-                    } else if (messageThreadsExist) {
-                        messageThreadIdToUse = lastMessageThreadId;
+                    break;
+                case "response": {
+                    if (!message.finished) {
+                        const messageContent = (pendingMessage?.content || "") + (message.text || "");
+                        setPendingMessage({
+                            role: "assistant",
+                            content: messageContent,
+                            createdAt: new Date().toISOString(),
+                        });
                     } else {
-                        messageThreadIdToUse = uuidv4();
+                        if (pendingMessage) {
+                            setMessageLog([...messageLog, pendingMessage]);
+                        }
+                        setPendingMessage(undefined);
                     }
+                    break;
+                }
+                case "threadsFromWorkspace":
+                    if (message.content) {
+                        const messageThreadArray = message.content;
+                        const lastMessageThreadId =
+                            messageThreadArray[messageThreadArray.length - 1]?.id;
+                        const messageThreadsExist = !!lastMessageThreadId;
+                        if (messageThreadsExist) {
+                            setAvailableMessageThreads(
+                                messageThreadArray.filter((thread) => !thread.deleted)
+                            );
+                        }
 
-                    setCurrentMessageThreadId(messageThreadIdToUse);
+                        let messageThreadIdToUse: string;
 
-                    const messageThreadForContext = messageThreadArray.find(
-                        (thread) => thread.id === messageThreadIdToUse
-                    );
+                        if (currentMessageThreadId) {
+                            messageThreadIdToUse = currentMessageThreadId;
+                        } else if (messageThreadsExist) {
+                            messageThreadIdToUse = lastMessageThreadId;
+                        } else {
+                            messageThreadIdToUse = uuidv4();
+                        }
 
-                    if (
-                        messageThreadForContext?.messages?.length &&
-                        messageThreadForContext?.messages?.length > 0
-                    ) {
-                        setMessageLog(messageThreadForContext.messages);
+                        setCurrentMessageThreadId(messageThreadIdToUse);
+
+                        const messageThreadForContext = messageThreadArray.find(
+                            (thread) => thread.id === messageThreadIdToUse
+                        );
+
+                        if (
+                            messageThreadForContext?.messages?.length &&
+                            messageThreadForContext?.messages?.length > 0
+                        ) {
+                            setMessageLog(messageThreadForContext.messages);
+                        }
                     }
-                }
-                break;
-            case "cellIdUpdate":
-                if (message.data) {
-                    const { cellId, sourceCellContent } = message.data;
-                    setCurrentlyActiveCellId(cellId);
-                    setSelectedTextContext(sourceCellContent.content);
-                }
-                break;
-            case "updateSourceCellMap":
-                if (message.sourceCellMap) {
-                    setSourceCellMap(message.sourceCellMap);
-                }
-                break;
-            default:
-                break;
-        }
+                    break;
+                case "cellIdUpdate":
+                    if (message.data) {
+                        const { cellId, sourceCellContent } = message.data;
+                        setCurrentlyActiveCellId(cellId);
+                        setSelectedTextContext(sourceCellContent.content);
+                    }
+                    break;
+                case "updateSourceCellMap":
+                    if (message.sourceCellMap) {
+                        setSourceCellMap(message.sourceCellMap);
+                    }
+                    break;
+                default:
+                    break;
+            }
         }
 
         window.addEventListener("message", handleMessage);
