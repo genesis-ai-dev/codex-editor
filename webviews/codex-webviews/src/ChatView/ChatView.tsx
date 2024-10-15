@@ -148,44 +148,7 @@ function App() {
         } as ChatPostMessages);
     }
 
-    function requestGradeDebounced() {
-        if( messageLog.length === 0 ){
-            return;
-        }
 
-        const contextItemsFromState = contextItems;
-
-        const gradeRequestMessage: string = "Grades the last response of Copilot based on how well it aligns with Conservative Christain Doctrine.\nThe grade should be an integer between 0 and 100 where 0 is the lowest grade and 100 is the highest grade.\nInclude a comment on the grade."
-    
-
-        const messages: ChatMessageWithContext[] = [messageWithContext({
-            messageHistory: formatMessageLogToString(messageLog),
-            instructions: gradeRequestMessage,
-            selectedText: selectedTextContext,
-            contextItems: contextItemsFromState,
-        })];
-
-        console.log( "JoshTest: requestGradeDebounced: messages", messages );
-
-        //send with requestGradeResponse
-        vscode.postMessage({
-            command: "requestGradeResponse",
-            messages: JSON.stringify(messages),
-            lastMessageCreatedAt: messageLog[ messageLog.length - 1 ].createdAt
-        } as ChatPostMessages);        
-    }
-
-    const requestGradeDebounceRef = useRef(0);   
-    function requestGrade() {
-        const GRADE_DEBOUNCE_TIME_MS = 1000;
-        clearTimeout( requestGradeDebounceRef.current );
-          
-        requestGradeDebounceRef.current = (setTimeout( () => {
-            requestGradeDebounced();
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        }, GRADE_DEBOUNCE_TIME_MS) as any);
-    }
-    
 
     useEffect(() => {
         // FIXME: add a progress ring while fetching threads
@@ -242,11 +205,77 @@ function App() {
         return "";
     }
 
-    useEffect(() => {
-        if( messageLog && messageLog.length > 0 && !gradeExists()){
+    const requestGradeDebounceRef = useRef(0);  
+    useEffect(() => { 
+        function requestGradeDebounced() {
+            if( messageLog.length === 0 ){
+                return;
+            }
+    
+            const contextItemsFromState = contextItems;
+    
+            const gradeRequestMessage: string = "Grade the last response of Copilot based on how well it aligns with Conservative Christain Doctrine.\nThe grade should be an integer between 0 and 100 where 0 is the lowest grade and 100 is the highest grade.\nInclude a comment on the grade."
+        
+    
+            const messages: ChatMessageWithContext[] = [messageWithContext({
+                messageHistory: formatMessageLogToString(messageLog),
+                instructions: gradeRequestMessage,
+                selectedText: selectedTextContext,
+                contextItems: contextItemsFromState,
+            })];
+    
+            console.log( "JoshTest: requestGradeDebounced: messages", messages );
+    
+            //send with requestGradeResponse
+            vscode.postMessage({
+                command: "requestGradeResponse",
+                messages: JSON.stringify(messages),
+                lastMessageCreatedAt: messageLog[ messageLog.length - 1 ].createdAt
+            } as ChatPostMessages);        
+        }
+
+        function requestGrade() {
+            const GRADE_DEBOUNCE_TIME_MS = 1000;
+            clearTimeout( requestGradeDebounceRef.current );
+              
+            requestGradeDebounceRef.current = (setTimeout( () => {
+                requestGradeDebounced();
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            }, GRADE_DEBOUNCE_TIME_MS) as any);
+        }
+
+        function needsGrade() : boolean {
+            //if the message queue isn't even set we don't need a grade.
+            if( !messageLog ){
+                return false;
+            }
+    
+            //If there are no messages we don't need a grade.
+            if( messageLog.length === 0 ){
+                return false;
+            }
+    
+            const latestMessage = messageLog[messageLog.length - 1];
+    
+            //if the laser message isn't a copiolot response
+            //we don't need to grade.
+            if( latestMessage?.role != "assistant" ){
+                return false;
+            }
+            
+            //if the grade already exists we don't need it.
+            if( latestMessage?.grade ){
+                return false;
+            }
+    
+            //K, we need a grade.
+            return true;
+        }
+
+        if( needsGrade() ){
             requestGrade();
         }
-    }, [messageLog, messageLog.length]);
+    }, [messageLog, messageLog.length, contextItems, selectedTextContext]);
 
 
     // FIXME: use loading state to show/hide a progress ring while
@@ -484,13 +513,27 @@ function App() {
     };
 
     const onEditComplete = (updatedMessage: ChatMessageWithContext) => {
-        setMessageLog(
-            messageLog.map((message) =>
-                message.createdAt === updatedMessage.createdAt
-                    ? { ...message, content: updatedMessage.content }
-                    : message
-            )
-        );
+
+        //First update the messageLog
+        let messageChanged = false;
+        const updatedMessageLog = messageLog.map((message) => {
+            if (message.createdAt === updatedMessage.createdAt) {
+                if( message.content !== updatedMessage.content ){
+                    messageChanged = true;
+                    return { ...message, content: updatedMessage.content };
+                }
+            }
+            return message;
+        })
+
+        //Now also remove the grade on the last message.
+        //Removing the grade will make it so that it will get regraded.
+        if( updatedMessageLog.length > 0 && messageChanged ){
+            updatedMessageLog[updatedMessageLog.length - 1].grade = undefined;
+            updatedMessageLog[updatedMessageLog.length - 1].gradeComment = undefined;
+        }
+
+        setMessageLog( updatedMessageLog );
         console.log("joshEdit: onEditComplete", updatedMessage);
     };
 
