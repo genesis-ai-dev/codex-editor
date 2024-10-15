@@ -164,9 +164,6 @@ function App() {
     }, [currentMessageThreadId, availableMessageThreads]);
 
     // FIXME: use loading state to show/hide a progress ring while
-    window.addEventListener("message", (event: MessageEvent<ChatPostMessages>) => {
-
-
     useEffect(() => {
         function handleMessage(event: MessageEvent<ChatPostMessages>) {
             const message = event.data;
