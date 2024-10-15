@@ -110,6 +110,7 @@ async function importSourceFile(
                 sourceCreatedAt: "",
                 codexLastModified: "",
                 gitStatus: "uninitialized",
+                corpusMarker: "",
             };
 
             // Add metadata to the original source file

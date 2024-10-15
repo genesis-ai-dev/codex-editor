@@ -10,6 +10,8 @@ interface ChatMessage {
 interface ChatMessageWithContext extends ChatMessage {
     context?: any; // FixMe: discuss what context could be. Cound it be a link to a note?
     createdAt: string;
+    grade?: number;
+    gradeComment?: string;
 }
 
 interface FrontEndMessage {
@@ -134,6 +136,8 @@ type ChatPostMessages =
           threadId: string;
           threadTitle?: string;
       }
+    | { command: "requestGradeResponse"; messages: string; lastMessageCreatedAt: string }
+    | { command: "respondWithGrade"; content: string; lastMessageCreatedAt: string }
     | { command: "deleteThread"; threadId: string }
     | { command: "fetchThread" }
     | { command: "abort-fetch" }
@@ -266,7 +270,7 @@ type EditorCellContent = {
     cellMarkers: string[];
     cellContent: string;
     cellChanged: boolean;
-    cellLabel: string;
+    cellLabel?: string;
 };
 
 export type EditorPostMessages =
@@ -287,6 +291,7 @@ export type EditorPostMessages =
           };
       }
     | { command: "saveHtml"; content: EditorCellContent }
+    | { command: "replaceDuplicateCells"; content: QuillCellContent }
     | { command: "getContent" }
     | {
           command: "setCurrentIdToGlobalState";
@@ -324,10 +329,7 @@ type EditHistory = {
     type: import("./enums").EditType;
 };
 
-type CodexData = Timestamps & {
-    sourceCellId?: string;
-    isParatext?: boolean;
-};
+type CodexData = Timestamps;
 
 type CustomCellMetaData = {
     id: string;

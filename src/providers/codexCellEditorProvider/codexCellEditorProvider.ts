@@ -117,6 +117,38 @@ class CodexCellDocument implements vscode.CustomDocument {
             edits: [{ cellId, newContent, editType }],
         });
     }
+    public replaceDuplicateCells(content: QuillCellContent) {
+        console.log(`Searching for cell with ID: ${content.cellMarkers[0]}`);
+        let indexOfCellToDelete = this._documentData.cells.findIndex((cell) => {
+            console.log(`Checking cell:`, { cell });
+            return cell.metadata?.id === content.cellMarkers[0];
+        });
+        console.log(`Found cell at index: ${indexOfCellToDelete}`);
+        const cellMarkerOfCellBeforeNewCell =
+            indexOfCellToDelete === 0
+                ? null
+                : this._documentData.cells[indexOfCellToDelete - 1].metadata?.id;
+        while (indexOfCellToDelete !== -1) {
+            this._documentData.cells.splice(indexOfCellToDelete, 1);
+            console.log(`Searching for next cell with ID 2: ${content.cellMarkers[0]}`);
+            indexOfCellToDelete = this._documentData.cells.findIndex((cell) => {
+                console.log(`Checking cell 2:`, { cell });
+                return cell.metadata?.id === content.cellMarkers[0];
+            });
+            console.log(`Found next cell at index 2: ${indexOfCellToDelete}`);
+        }
+
+        this.addCell(
+            content.cellMarkers[0],
+            cellMarkerOfCellBeforeNewCell,
+            content.cellType,
+            {
+                endTime: content.timestamps?.endTime,
+                startTime: content.timestamps?.startTime,
+            },
+            content
+        );
+    }
 
     public async save(cancellation: vscode.CancellationToken): Promise<void> {
         const text = JSON.stringify(this._documentData, null, 2);
@@ -213,27 +245,38 @@ class CodexCellDocument implements vscode.CustomDocument {
     // Method to add a new cell
     public addCell(
         newCellId: string,
-        cellIdOfCellBeforeNewCell: string,
+        cellIdOfCellBeforeNewCell: string | null,
         cellType: CodexCellTypes,
-        data: CustomNotebookCellData["metadata"]["data"]
+        data: CustomNotebookCellData["metadata"]["data"],
+        content?: QuillCellContent
     ) {
-        const indexOfParentCell = this._documentData.cells.findIndex(
-            (cell) => cell.metadata?.id === cellIdOfCellBeforeNewCell
-        );
+        let insertIndex: number;
 
-        if (indexOfParentCell === -1) {
-            throw new Error("Could not find cell to update");
+        if (cellIdOfCellBeforeNewCell === null) {
+            // If cellIdOfCellBeforeNewCell is null, insert at the beginning
+            insertIndex = 0;
+        } else {
+            const indexOfParentCell = this._documentData.cells.findIndex(
+                (cell) => cell.metadata?.id === cellIdOfCellBeforeNewCell
+            );
+
+            if (indexOfParentCell === -1) {
+                throw new Error("Could not find cell to insert after");
+            }
+
+            insertIndex = indexOfParentCell + 1;
         }
 
-        // Add new cell after parent cell
-        this._documentData.cells.splice(indexOfParentCell + 1, 0, {
-            value: "",
+        // Add new cell at the determined position
+        this._documentData.cells.splice(insertIndex, 0, {
+            value: content?.cellContent || "",
             languageId: "html",
             kind: vscode.NotebookCellKind.Code,
             metadata: {
                 id: newCellId,
                 type: cellType,
-                edits: [],
+                cellLabel: content?.cellLabel,
+                edits: content?.editHistory || [],
                 data: data,
             },
         });
@@ -643,6 +686,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         } catch (error) {
                             console.error("Error picking video file:", error);
                             vscode.window.showErrorMessage("Failed to pick video file.");
+                        }
+                        return;
+                    }
+                    case "replaceDuplicateCells": {
+                        console.log("replaceDuplicateCells message received", { e });
+                        try {
+                            document.replaceDuplicateCells(e.content);
+                        } catch (error) {
+                            console.error("Error replacing duplicate cells:", error);
+                            vscode.window.showErrorMessage("Failed to replace duplicate cells.");
                         }
                         return;
                     }

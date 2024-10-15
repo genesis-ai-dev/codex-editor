@@ -16,6 +16,7 @@ import VideoPlayer from "./VideoPlayer";
 import registerQuillSpellChecker from "./react-quill-spellcheck";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import SourceCellContext from "./contextProviders/SourceCellContext";
+import DuplicateCellResolver from "./DuplicateCellResolver";
 
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
@@ -271,6 +272,23 @@ const CodexCellEditor: React.FC = () => {
 
         return () => window.removeEventListener("resize", handleResize);
     }, []);
+    const checkForDuplicateCells = (translationUnitsToCheck: QuillCellContent[]) => {
+        const listOfCellIds = translationUnitsToCheck.map((unit) => unit.cellMarkers[0]);
+        const uniqueCellIds = new Set(listOfCellIds);
+        return uniqueCellIds.size !== listOfCellIds.length;
+    };
+
+    const duplicateCellsExist = checkForDuplicateCells(translationUnits);
+
+    if (duplicateCellsExist) {
+        return (
+            <DuplicateCellResolver
+                translationUnits={translationUnits}
+                textDirection={textDirection}
+                vscode={vscode}
+            />
+        );
+    }
 
     return (
         <div className="codex-cell-editor">
