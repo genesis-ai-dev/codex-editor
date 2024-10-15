@@ -1,12 +1,16 @@
-import React from "react";
-import { QuillCellContent } from "../../../../types";
+import React, { useState } from "react";
+import { EditorPostMessages, QuillCellContent } from "../../../../types";
 import CellContentDisplay from "./CellContentDisplay";
+import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 
 const DuplicateCellResolver: React.FC<{
     translationUnits: QuillCellContent[];
     textDirection: "ltr" | "rtl";
     vscode: any;
 }> = ({ translationUnits, textDirection, vscode }) => {
+    const [selectedCell, setSelectedCell] = useState<(QuillCellContent & { index: number }) | null>(
+        null
+    );
     const getListOfDuplicateCells = (translationUnitsToCheck: QuillCellContent[]) => {
         const listOfCellIds = translationUnitsToCheck.map((unit) => unit.cellMarkers[0]);
         const uniqueCellIds = new Set(listOfCellIds);
@@ -37,6 +41,15 @@ const DuplicateCellResolver: React.FC<{
         idOrderedDuplicateCells[id].push(cell);
     });
 
+    const selectedCellWithIndexRemoved = {
+        cellMarkers: selectedCell?.cellMarkers,
+        cellContent: selectedCell?.cellContent,
+        cellType: selectedCell?.cellType,
+        editHistory: selectedCell?.editHistory,
+        timestamps: selectedCell?.timestamps,
+        cellLabel: selectedCell?.cellLabel,
+    } as QuillCellContent;
+
     return (
         <div className="codex-cell-editor">
             <div className="scrollable-content">
@@ -51,6 +64,23 @@ const DuplicateCellResolver: React.FC<{
                     <h1 style={{ marginBottom: "2em" }}>
                         <i className="codicon codicon-warning" style={{ fontSize: "1.5em" }}></i>
                     </h1>
+
+                    {selectedCell && (
+                        <div>
+                            <h2>{selectedCell.cellMarkers[0]}</h2>
+                            <CellContentDisplay
+                                cellIds={selectedCell.cellMarkers}
+                                cellContent={selectedCell.cellContent}
+                                cellIndex={0}
+                                cellType={selectedCell.cellType}
+                                cellLabel={selectedCell.cellLabel}
+                                setContentBeingUpdated={() => {}}
+                                vscode={vscode}
+                                textDirection={textDirection}
+                                isSourceText={true}
+                            />
+                        </div>
+                    )}
                     {duplicateCellIds.map((id, index) => {
                         return (
                             <>
@@ -70,23 +100,72 @@ const DuplicateCellResolver: React.FC<{
                                                     }}
                                                 />
                                             )}
-                                            <span
-                                                onClick={() => {
-                                                    console.log("clicked", cellIndex + 1);
+                                            <div
+                                                style={{
+                                                    backgroundColor:
+                                                        selectedCell?.index === cellIndex &&
+                                                        selectedCell?.cellMarkers[0] ===
+                                                            cell.cellMarkers[0]
+                                                            ? "#e6ffe6"
+                                                            : "transparent",
+                                                    padding: "10px",
+                                                    borderRadius: "5px",
                                                 }}
                                             >
-                                                <CellContentDisplay
-                                                    cellIds={cell.cellMarkers}
-                                                    cellContent={cell.cellContent}
-                                                    cellIndex={index}
-                                                    cellType={cell.cellType}
-                                                    cellLabel={cell.cellLabel}
-                                                    setContentBeingUpdated={() => {}}
-                                                    vscode={vscode}
-                                                    textDirection={textDirection}
-                                                    isSourceText={true}
-                                                />
-                                            </span>
+                                                <span
+                                                    onClick={() => {
+                                                        setSelectedCell({
+                                                            ...cell,
+                                                            index: cellIndex,
+                                                        });
+                                                    }}
+                                                >
+                                                    <CellContentDisplay
+                                                        cellIds={cell.cellMarkers}
+                                                        cellContent={cell.cellContent}
+                                                        cellIndex={index}
+                                                        cellType={cell.cellType}
+                                                        cellLabel={cell.cellLabel}
+                                                        setContentBeingUpdated={() => {}}
+                                                        vscode={vscode}
+                                                        textDirection={textDirection}
+                                                        isSourceText={true}
+                                                    />
+                                                </span>
+                                                {selectedCell?.index === cellIndex &&
+                                                    selectedCell.cellMarkers[0] ===
+                                                        cell.cellMarkers[0] && (
+                                                        <div
+                                                            style={{
+                                                                display: "flex",
+                                                                justifyContent: "center",
+                                                                gap: "1rem",
+                                                                marginTop: "1rem",
+                                                            }}
+                                                        >
+                                                            <VSCodeButton
+                                                                onClick={() => {
+                                                                    vscode.postMessage({
+                                                                        command:
+                                                                            "replaceDuplicateCells",
+                                                                        content: {
+                                                                            ...selectedCellWithIndexRemoved,
+                                                                        },
+                                                                    } as EditorPostMessages);
+                                                                }}
+                                                            >
+                                                                <i className="codicon codicon-check"></i>
+                                                            </VSCodeButton>
+                                                            <VSCodeButton
+                                                                onClick={() => {
+                                                                    setSelectedCell(null);
+                                                                }}
+                                                            >
+                                                                <i className="codicon codicon-x"></i>
+                                                            </VSCodeButton>
+                                                        </div>
+                                                    )}
+                                            </div>
                                         </React.Fragment>
                                     ))}
                                 </div>

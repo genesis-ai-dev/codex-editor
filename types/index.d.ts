@@ -266,7 +266,7 @@ type EditorCellContent = {
     cellMarkers: string[];
     cellContent: string;
     cellChanged: boolean;
-    cellLabel: string;
+    cellLabel?: string;
 };
 
 export type EditorPostMessages =
@@ -287,6 +287,7 @@ export type EditorPostMessages =
           };
       }
     | { command: "saveHtml"; content: EditorCellContent }
+    | { command: "replaceDuplicateCells"; content: QuillCellContent }
     | { command: "getContent" }
     | {
           command: "setCurrentIdToGlobalState";
@@ -324,10 +325,7 @@ type EditHistory = {
     type: import("./enums").EditType;
 };
 
-type CodexData = Timestamps & {
-    sourceCellId?: string;
-    isParatext?: boolean;
-};
+type CodexData = Timestamps;
 
 type CustomCellMetaData = {
     id: string;

@@ -41,11 +41,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const { sourceCellMap } = useContext(SourceCellContext);
     const cellEditorRef = useRef<HTMLDivElement>(null);
     const sourceCellContent = sourceCellMap?.[cellMarkers[0]];
-    console.log("sourceCellMap", {
-        sourceCellMap,
-        sourceCell: cellMarkers[0],
-        sourceCellContent,
-    });
+
     const unsavedChangesState = !!(
         contentBeingUpdated.cellContent &&
         getCleanedHtml(contentBeingUpdated.cellContent) &&
