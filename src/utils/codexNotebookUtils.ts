@@ -96,6 +96,7 @@ export interface NotebookMetadata {
         | "conflict"
         | "untracked"
         | "committed"; // FIXME: we should probably programmatically do things like track .codex .source and .dictionary files
+    corpusMarker: string;
 }
 
 export interface NavigationCell {
@@ -272,6 +273,7 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
                 sourceCreatedAt: "migrated from old format Fall 2024",
                 codexLastModified: "",
                 gitStatus: "uninitialized",
+                corpusMarker: "",
             };
 
             if (notebookData?.metadata?.perf) {
