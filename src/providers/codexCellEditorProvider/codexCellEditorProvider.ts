@@ -819,7 +819,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 notebookReader,
                 currentCellId,
                 completionConfig,
-                new vscode.CancellationTokenSource().token
+                new vscode.CancellationTokenSource().token,
             );
 
             // Update content and metadata atomically
