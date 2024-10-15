@@ -566,7 +566,12 @@ function App() {
             </div>
             {gradeExists() ? (
                 <div style={{ padding: "1em", fontWeight: "bold" }}>
-                    Grade {getGrade()}
+                    <div
+                        title={getGradeComment()}
+                        style={{ cursor: "help" }}
+                    >
+                        Grade {getGrade()}
+                    </div>
                 </div>
             ) : null}
             <ChatInputTextForm
