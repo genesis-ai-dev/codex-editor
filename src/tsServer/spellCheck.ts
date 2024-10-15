@@ -143,11 +143,12 @@ export class SpellChecker {
         const cleanedWord = cleanWord(word);
 
         const isInDictionary = this.dictionary.entries.some((entry) => {
-            if (!entry.headWord) {
-                console.warn("Encountered dictionary entry without headWord:", entry);
+            const formToCheck = entry.headWord || entry.headForm;
+            if (!formToCheck) {
+                console.warn("Encountered dictionary entry without headWord or headForm:", entry);
                 return false;
             }
-            const entryWithoutPunctuation = entry.headWord.replace(/[^\p{L}\p{N}'-]/gu, "");
+            const entryWithoutPunctuation = formToCheck.replace(/[^\p{L}\p{N}'-]/gu, "");
             return entryWithoutPunctuation === cleanedWord;
         });
 

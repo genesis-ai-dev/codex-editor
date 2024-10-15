@@ -1,11 +1,12 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
-import { Table, Input, Button, Popconfirm } from "antd";
+import { Table, Input, Button, Popconfirm, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { vscode } from "./utilities/vscode";
-import "./style.css";
+// import "./style.css";
 import { Dictionary, DictionaryEntry } from "codex-types";
 import { DictionaryPostMessages, DictionaryReceiveMessages } from "../../../../types";
 import debounce from "lodash.debounce";
+import { isEqual } from 'lodash';
 
 interface DataType {
     key: React.Key;
@@ -39,7 +40,7 @@ const EditableCell: React.FC<EditableCellProps> = ({ value, recordKey, dataIndex
     return <Input value={editingValue} onChange={handleChange} onBlur={handleBlur} />;
 };
 
-function App() {
+const App: React.FC = () => {
     const [dataSource, setDataSource] = useState<DataType[]>([]);
     const [columnNames, setColumnNames] = useState<string[]>([]);
     const [dictionary, setDictionary] = useState<Dictionary>({
@@ -52,6 +53,7 @@ function App() {
 
     const dataSourceRef = useRef(dataSource);
     const dictionaryRef = useRef(dictionary);
+    const lastSentDataRef = useRef<Dictionary | null>(null);
 
     useEffect(() => {
         dataSourceRef.current = dataSource;
@@ -67,11 +69,15 @@ function App() {
                 ...dictionaryRef.current,
                 entries: dataSourceRef.current.map(({ key, ...rest }) => rest as DictionaryEntry),
             };
-            setDictionary(updatedDictionary);
-            vscode.postMessage({
-                command: "webviewTellsProviderToUpdateData",
-                data: updatedDictionary,
-            } as DictionaryPostMessages);
+
+            if (!isEqual(updatedDictionary, lastSentDataRef.current)) {
+                setDictionary(updatedDictionary);
+                vscode.postMessage({
+                    command: "webviewTellsProviderToUpdateData",
+                    data: updatedDictionary,
+                } as DictionaryPostMessages);
+                lastSentDataRef.current = updatedDictionary;
+            }
         }, 500)
     ).current;
 
@@ -107,10 +113,38 @@ function App() {
         });
     }, [columnNames]);
 
+    const getColumnIcon = useCallback((columnName: string): JSX.Element => {
+        const iconMap: { [key: string]: string } = {
+            headWord: 'symbol-keyword',
+            headForm: 'symbol-text',
+            variantForms: 'symbol-array',
+            definition: 'book',
+            translationEquivalents: 'symbol-string',
+            links: 'link',
+            linkedEntries: 'references',
+            notes: 'note',
+            metadata: 'json',
+            hash: 'symbol-key'
+        };
+        const iconName = iconMap[columnName] || 'symbol-field';
+        return <span className={`codicon codicon-${iconName}`}></span>;
+    }, []);
+
     const columns: ColumnsType<DataType> = React.useMemo(() => {
-        if (columnNames.length > 0) {
-            const dataColumns = columnNames.map((key) => ({
-                title: key,
+        if (columnNames.length === 0) {
+            return [];
+        }
+
+        const dataColumns = columnNames
+            .filter((key) => key !== 'id') // Hide the 'id' column
+            .map((key) => ({
+                title: (
+                    <Tooltip title={key}>
+                        <span>
+                            {getColumnIcon(key)} {key}
+                        </span>
+                    </Tooltip>
+                ),
                 dataIndex: key,
                 key: key,
                 render: (text: string, record: DataType) => (
@@ -121,22 +155,34 @@ function App() {
                         onChange={handleCellChange}
                     />
                 ),
+                fixed: key === columnNames[0] ? ('left' as const) : undefined,
             }));
 
-            dataColumns.push({
-                title: "Action",
-                key: "action",
-                render: (_, record) => (
-                    <Popconfirm title="Sure to delete?" onConfirm={() => handleDelete(record.key)}>
-                        <a>Delete</a>
-                    </Popconfirm>
-                ),
-            });
+        const actionColumn = {
+            title: (
+                <Tooltip title="Actions">
+                    <span className="codicon codicon-gear"></span>
+                </Tooltip>
+            ),
+            key: "action",
+            fixed: 'right' as const,
+            width: 100,
+            render: (_: any, record: DataType) => (
+                <Popconfirm
+                    title="Sure to delete?"
+                    onConfirm={() => handleDelete(record.key)}
+                    icon={<span className="codicon codicon-trash"></span>}
+                >
+                    <Button
+                        type="text"
+                        icon={<span className="codicon codicon-trash"></span>}
+                    />
+                </Popconfirm>
+            ),
+        };
 
-            return dataColumns;
-        }
-        return [];
-    }, [columnNames, handleCellChange, handleDelete]);
+        return [...dataColumns, actionColumn];
+    }, [columnNames, handleCellChange, handleDelete, getColumnIcon]);
 
     useEffect(() => {
         const handleReceiveMessage = (event: MessageEvent<DictionaryReceiveMessages>) => {
@@ -190,11 +236,12 @@ function App() {
     return (
         <div
             style={{
-                width: "100%",
-                height: "100%",
-                padding: 10,
+                width: "100vw",
+                height: "100vh",
+                padding: "10px",
                 display: "flex",
                 flexDirection: "column",
+                overflow: "hidden",
             }}
         >
             <div
@@ -202,24 +249,26 @@ function App() {
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
-                    marginBottom: 40,
-                    marginTop: 40,
-                    minHeight: "60px",
+                    marginBottom: "20px",
                 }}
             >
                 <h1>Dictionary</h1>
             </div>
 
-            <div style={{ width: "100%", maxWidth: "100%", boxSizing: "border-box" }}>
-                <Input
-                    placeholder="Search..."
-                    value={searchQuery}
-                    onChange={handleSearchChange}
-                    style={{ width: "100%", marginBottom: 16 }}
-                />
-            </div>
+            <Input
+                placeholder="Search..."
+                value={searchQuery}
+                onChange={handleSearchChange}
+                style={{ marginBottom: "16px" }}
+                prefix={<span className="codicon codicon-search"></span>}
+            />
 
-            <Button onClick={handleAdd} type="primary" style={{ marginBottom: 16 }}>
+            <Button
+                onClick={handleAdd}
+                type="primary"
+                style={{ marginBottom: "16px", alignSelf: "flex-start" }}
+                icon={<span className="codicon codicon-add"></span>}
+            >
                 Add a row
             </Button>
 
@@ -229,9 +278,11 @@ function App() {
                 bordered
                 pagination={false}
                 rowKey="key"
+                scroll={{ x: "max-content", y: "calc(100vh - 200px)" }}
+                style={{ flexGrow: 1, overflow: "auto" }}
             />
         </div>
     );
-}
+};
 
 export default App;

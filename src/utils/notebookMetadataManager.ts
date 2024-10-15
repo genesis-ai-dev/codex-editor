@@ -115,6 +115,19 @@ export class NotebookMetadataManager {
                 metadata.sourceCreatedAt = new Date(fileStat.ctime).toISOString();
                 metadata.codexLastModified = new Date(fileStat.mtime).toISOString();
                 debugLog("Updated dictionary metadata for:", id);
+
+                // Handle dictionary entries
+                if (notebookData.entries && Array.isArray(notebookData.entries)) {
+                    notebookData.entries = notebookData.entries.map((entry: any) => {
+                        if (!entry.headWord && entry.headForm) {
+                            entry.headWord = entry.headForm;
+                        }
+                        return entry;
+                    });
+
+                    // Save the updated entries back to the file
+                    await this.saveDictionaryEntries(file, notebookData.entries);
+                }
             }
 
             metadata.gitStatus = await this.getGitStatusForFile(file);
@@ -318,5 +331,15 @@ export class NotebookMetadataManager {
         const newId = generateUniqueId(baseName);
         debugLog("Generated new ID:", newId, "for base name:", baseName);
         return newId;
+    }
+
+    private async saveDictionaryEntries(fileUri: vscode.Uri, entries: any[]): Promise<void> {
+        try {
+            const content = entries.map(entry => JSON.stringify(entry)).join('\n') + '\n';
+            await vscode.workspace.fs.writeFile(fileUri, Buffer.from(content, 'utf-8'));
+            debugLog("Updated dictionary entries in file:", fileUri.fsPath);
+        } catch (error) {
+            console.error("Error saving dictionary entries:", error);
+        }
     }
 }

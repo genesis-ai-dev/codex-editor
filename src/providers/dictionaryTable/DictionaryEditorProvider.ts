@@ -3,6 +3,7 @@ import { Dictionary, DictionaryEntry } from "codex-types";
 import { getNonce } from "./utilities/getNonce";
 import { DictionaryPostMessages, DictionaryReceiveMessages } from "../../../types";
 import { getWorkSpaceUri } from "../../utils";
+import { isEqual } from "lodash";
 
 interface DictionaryDocument extends vscode.CustomDocument {
     content: Dictionary;
@@ -35,6 +36,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
         vscode.CustomDocumentEditEvent<DictionaryDocument>
     >();
     private fileWatcher: vscode.FileSystemWatcher | undefined;
+    private lastSentData: Dictionary | null = null;
 
     constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -103,9 +105,14 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
             switch (e.command) {
                 case "webviewTellsProviderToUpdateData":
                     console.log("updateData received in DictionaryEditorProvider", e.data);
-                    await this.updateTextDocument(document, e.data, webviewPanel).then(async () => {
-                        await this.refreshEditor(webviewPanel);
-                    });
+                    if (this.hasDataChanged(e.data)) {
+                        await this.updateTextDocument(document, e.data, webviewPanel).then(
+                            async () => {
+                                await this.refreshEditor(webviewPanel);
+                            }
+                        );
+                        this.lastSentData = e.data;
+                    }
                     return;
                 case "webviewAsksProviderToConfirmRemove": {
                     console.log("confirmRemove received in DictionaryEditorProvider", e.count);
@@ -224,14 +231,84 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
             "project.dictionary"
         );
 
+        // Ensure only entries are saved and in JSONL format
         const content = dictionary.entries
-            .map((entry) => JSON.stringify(ensureCompleteEntry(entry)))
-            .join("\n");
+            .map((entry) => JSON.stringify(this.ensureCompleteEntry(entry)))
+            .join('\n') + '\n';
 
         await vscode.workspace.fs.writeFile(dictionaryUri, Buffer.from(content, "utf-8"));
 
-        // After updating the file, refresh the editor
+        // After updating the file, repair if needed and refresh the editor
+        await this.repairDictionaryIfNeeded(dictionaryUri);
         await this.refreshEditor(webviewPanel);
+    }
+
+    private async repairDictionaryIfNeeded(dictionaryUri: vscode.Uri) {
+        try {
+            const content = await vscode.workspace.fs.readFile(dictionaryUri);
+            const lines = new TextDecoder()
+                .decode(content)
+                .split("\n")
+                .filter((line) => line.trim() !== "");
+            const repairedEntries: DictionaryEntry[] = [];
+
+            for (const line of lines) {
+                try {
+                    const entry = JSON.parse(line);
+                    if (this.isValidDictionaryEntry(entry)) {
+                        repairedEntries.push(this.ensureCompleteEntry(entry));
+                    }
+                } catch (error) {
+                    console.error("Error parsing dictionary entry:", error);
+                }
+            }
+
+            if (repairedEntries.length !== lines.length) {
+                // Dictionary needed repair
+                const repairedContent = repairedEntries
+                    .map((entry) => JSON.stringify(entry))
+                    .join("\n") + "\n";
+                await vscode.workspace.fs.writeFile(
+                    dictionaryUri,
+                    Buffer.from(repairedContent, "utf-8")
+                );
+                console.log("Dictionary repaired and saved.");
+            }
+        } catch (error) {
+            console.error("Error repairing dictionary:", error);
+        }
+    }
+
+    private isValidDictionaryEntry(entry: any): entry is DictionaryEntry {
+        return typeof entry === "object" && entry !== null && "headWord" in entry;
+    }
+
+    private ensureCompleteEntry(entry: Partial<DictionaryEntry>): DictionaryEntry {
+        return {
+            id: entry.id || "",
+            headWord: entry.headWord || "",
+            headForm: entry.headForm || "",
+            variantForms: entry.variantForms || [],
+            definition: entry.definition || "",
+            partOfSpeech: entry.partOfSpeech || "",
+            etymology: entry.etymology || "",
+            usage: entry.usage || "",
+            notes: entry.notes || [],
+            examples: entry.examples || [],
+            translationEquivalents: entry.translationEquivalents || [],
+            links: entry.links || [],
+            linkedEntries: entry.linkedEntries || [],
+            metadata: entry.metadata || {},
+            hash: entry.hash || this.generateHash(entry.headWord || ""),
+        };
+    }
+
+    private generateHash(word: string): string {
+        // Simple hash function for demonstration
+        return word
+            .split("")
+            .reduce((acc, char) => acc + char.charCodeAt(0), 0)
+            .toString();
     }
 
     private async refreshEditor(webviewPanel: vscode.WebviewPanel) {
@@ -248,10 +325,10 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
                 );
                 const fileContent = await vscode.workspace.fs.readFile(dictionaryUri);
                 const content = new TextDecoder().decode(fileContent);
-                
+
                 // Parse the file content
                 const newEntries = this.parseEntriesFromJsonl(content);
-                
+
                 // Compare with current entries
                 if (!this.areEntriesEqual(this.document.content.entries, newEntries)) {
                     // Update only if there are changes
@@ -288,8 +365,8 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
 
     private areEntriesEqual(entries1: DictionaryEntry[], entries2: DictionaryEntry[]): boolean {
         if (entries1.length !== entries2.length) return false;
-        return entries1.every((entry, index) => 
-            JSON.stringify(entry) === JSON.stringify(entries2[index])
+        return entries1.every(
+            (entry, index) => JSON.stringify(entry) === JSON.stringify(entries2[index])
         );
     }
 
@@ -331,5 +408,12 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
     private serializeDictionary(document: Dictionary): string {
         // Convert the dictionary entries to JSON Lines
         return document.entries.map((entry) => JSON.stringify(entry)).join("\n");
+    }
+
+    private hasDataChanged(newData: Dictionary): boolean {
+        if (!this.lastSentData) {
+            return true;
+        }
+        return !isEqual(this.lastSentData, newData);
     }
 }
