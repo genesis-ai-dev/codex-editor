@@ -59,11 +59,16 @@ function App() {
     const [selectedTextContext, setSelectedTextContext] = useState<string>("");
     const [currentlyActiveCellId, setCurrentlyActiveCellId] = useState<string>("");
     const [contextItems, setContextItems] = useState<string[]>([]); // TODO: we should consolidate various shared state stores into this value
-    const [messageLog, setMessageLog] = useState<ChatMessageWithContext[]>([
+    const [messageLog, setMessageLog_] = useState<ChatMessageWithContext[]>([
         // systemMessage,
         // dummyUserMessage,
         // dummyAssistantMessage,
     ]);
+
+    const setMessageLog = (messageLog: ChatMessageWithContext[]) => {
+        console.log("joshEdit: setMessageLog", messageLog);
+        setMessageLog_(messageLog);
+    }
 
     const [currentMessageThreadId, setCurrentMessageThreadId] = useState<string>(uuidv4());
 
@@ -220,6 +225,7 @@ function App() {
                     break;
                 }
                 case "threadsFromWorkspace":
+                    console.log( "JoshDebug: ChatView: threadsFromWorkspace", message);
                     if (message.content) {
                         const messageThreadArray = message.content;
                         const lastMessageThreadId =

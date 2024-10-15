@@ -8,6 +8,8 @@ interface MessageItemProps {
     showSenderRoleLabels?: boolean;
 }
 
+const ALWAYS_SHOW = false;
+
 export const MessageItem: React.FC<MessageItemProps> = ({
     messageItem,
     showSenderRoleLabels = false,
@@ -16,7 +18,10 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     const [isDropdownVisible, setIsDropdownVisible] = useState(false);
 
     const handleMouseEnter = () => setIsHovered(true);
-    const handleMouseLeave = () => setIsHovered(false);
+    const handleMouseLeave = () => {
+        setIsHovered(false);
+        setIsDropdownVisible(false);
+    }
     const toggleDropdown = () => setIsDropdownVisible(!isDropdownVisible);
 
     const handleEditClick = () => {
@@ -30,6 +35,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}
             style={{
+                position: "relative",
                 display: messageItem.role === "system" ? "none" : "flex",
                 flexDirection: "column",
                 gap: "0.5em",
@@ -111,8 +117,8 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                 <div style={{ display: "flex" }}>{messageItem.content}</div>
             </div>
 
-            {isHovered && (
-                <div onClick={toggleDropdown} style={{ position: "absolute", top: "0", right: "0" }}>
+            {(isHovered || ALWAYS_SHOW) && (
+                <div onClick={toggleDropdown} style={{ position: "absolute", top: "30px", right: "20px" }}>
                     {/* Replace with your dropdown icon */}
                     <span>▼</span> {/* Placeholder icon */}
                 </div>
@@ -122,8 +128,8 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             {isDropdownVisible && (
                 <div style={{
                     position: "absolute",
-                    top: "20px",  // Adjust based on your layout
-                    right: "0",
+                    top: "50px",  // Adjust based on your layout
+                    right: "20px",
                     backgroundColor: "white", // Customize styles
                     boxShadow: "0 2px 6px rgba(0, 0, 0, 0.1)",
                     zIndex: 1000
