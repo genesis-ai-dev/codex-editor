@@ -195,6 +195,69 @@ const processFetchResponse = async (webviewView: vscode.WebviewView, response: R
     sendFinishMessage(webviewView);
 };
 
+
+const processGradeResponse = async (webviewView: vscode.WebviewView, response: Response, lastMessageCreatedAt: string) => {
+    if (!response.body) {
+        throw new Error("Response body is null");
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+        const { done, value } = await reader.read();
+        if( done ) {
+            break;
+        }
+        buffer += decoder.decode(value, { stream: true });
+    }
+
+    if (buffer.trim()) {
+        try {
+            const content = JSON.parse(buffer.trim());
+
+            //now send the content to the webview
+            webviewView.webview.postMessage({
+                command: "respondWithGrade",
+                content: content.choices[0].message.content,
+                lastMessageCreatedAt
+            } as ChatPostMessages);
+        } catch (error) {
+            console.error("Error parsing JSON:", error);
+        }
+    }
+
+
+};
+
+const checkThatChatThreadsFileExists = async () => {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders) {
+        vscode.window.showErrorMessage("No workspace folder found.");
+        return [];
+    }
+
+    const filePath = vscode.Uri.joinPath(workspaceFolders[0].uri, "chat-threads.json");
+
+    try {
+        await vscode.workspace.fs.stat(filePath);
+        const fileContentUint8Array = await vscode.workspace.fs.readFile(filePath);
+        const fileContent = new TextDecoder().decode(fileContentUint8Array);
+        return JSON.parse(fileContent);
+    } catch (error) {
+        if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") {
+            // File doesn't exist, create an empty file
+            await vscode.workspace.fs.writeFile(filePath, new Uint8Array(Buffer.from("[]")));
+            return [];
+        } else {
+            console.error("Error accessing chat-threads.json:", error);
+            vscode.window.showErrorMessage(`Error accessing chat-threads.json: ${error}`);
+            return [];
+        }
+    }
+};
+
 export class CustomWebviewProvider {
     _extensionUri: any;
     selectionChangeListener: any;
@@ -421,6 +484,67 @@ export class CustomWebviewProvider {
                         }
                         break;
 
+                    case "requestGradeResponse": {
+                        const mainChatLanguage = vscode.workspace
+                        .getConfiguration("translators-copilot")
+                        .get("main_chat_language", "English");
+
+                        abortController = new AbortController();
+                        const url = endpoint + "/chat/completions";
+                        const messages = JSON.parse(message.messages) as ChatMessageWithContext[];
+
+                        const systemMessage = messages.find((message) => message.role === "system");
+
+                        if (!systemMessage) {
+                            messages.unshift({
+                                content: vscode.workspace
+                                    .getConfiguration("translators-copilot")
+                                    .get("chatGradingSystemMessage", ""),
+                                role: "system",
+                                createdAt: new Date().toISOString(),
+                            });
+                        }
+
+                        if (messages[0].role === "system") {
+                            const accessibilityNote = `\n\nNote carefully, 'assistant' must always respond to 'user' in ${mainChatLanguage}, even if the user has used some English or another language to communicate. It is *critical for accessibility* to respond only in ${mainChatLanguage} (though you can translate some piece of text into any language 'user' requests)`;
+                            if (!messages[0].content.includes(accessibilityNote)) {
+                                messages[0].content += `${accessibilityNote}`;
+                            }
+                        }
+
+                        const data = {
+                            max_tokens: maxTokens,
+                            temperature: temperature,
+                            stream: false,
+                            messages: messages.map((message) => {
+                                const messageForAi: ChatMessage = {
+                                    content: message.content,
+                                    role: message.role,
+                                };
+                                return messageForAi;
+                            }),
+                            model: undefined as any,
+                            stop: ["\n\n\n", "###", "<|endoftext|>"], // ? Not sure if it matters if we pass this here.
+                        };
+                        if (model) {
+                            data.model = model;
+                        }
+                        const headers = {
+                            "Content-Type": "application/json",
+                        };
+                        if (apiKey) {
+                            // @ts-expect-error needed
+                            headers["Authorization"] = "Bearer " + apiKey;
+                        }
+                        const response = await fetch(url, {
+                            method: "POST",
+                            headers,
+                            body: JSON.stringify(data),
+                            signal: abortController.signal,
+                        });
+                        await processGradeResponse(webviewView, response, message.lastMessageCreatedAt);
+                        break;
+                    }
                     case "deleteThread": {
                         const fileName = "chat-threads.json";
                         const exitingMessages = await getChatMessagesFromFile(fileName);

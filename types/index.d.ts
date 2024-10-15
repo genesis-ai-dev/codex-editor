@@ -10,6 +10,8 @@ interface ChatMessage {
 interface ChatMessageWithContext extends ChatMessage {
     context?: any; // FixMe: discuss what context could be. Cound it be a link to a note?
     createdAt: string;
+    grade?: number;
+    gradeComment?: string;
 }
 
 interface FrontEndMessage {
@@ -134,6 +136,8 @@ type ChatPostMessages =
           threadId: string;
           threadTitle?: string;
       }
+    | { command: "requestGradeResponse"; messages: string; lastMessageCreatedAt: string }
+    | { command: "respondWithGrade"; content: string; lastMessageCreatedAt: string }
     | { command: "deleteThread"; threadId: string }
     | { command: "fetchThread" }
     | { command: "abort-fetch" }
