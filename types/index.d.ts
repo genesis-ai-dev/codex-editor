@@ -271,6 +271,7 @@ type EditorCellContent = {
     cellContent: string;
     cellChanged: boolean;
     cellLabel?: string;
+    timestamps?: Timestamps;
 };
 
 export type EditorPostMessages =

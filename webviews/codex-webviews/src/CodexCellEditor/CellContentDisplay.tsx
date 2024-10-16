@@ -1,5 +1,5 @@
 import React, { useContext } from "react";
-import { EditorCellContent, EditorPostMessages } from "../../../../types";
+import { EditorCellContent, EditorPostMessages, Timestamps } from "../../../../types";
 import { HACKY_removeContiguousSpans } from "./utils";
 import { CodexCellTypes } from "../../../../types/enums";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
@@ -16,6 +16,7 @@ interface CellContentDisplayProps {
     textDirection: "ltr" | "rtl";
     isSourceText: boolean;
     hasDuplicateId: boolean;
+    timestamps: Timestamps | undefined;
 }
 
 const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
@@ -28,6 +29,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     textDirection,
     isSourceText,
     hasDuplicateId,
+    timestamps,
 }) => {
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
 
@@ -42,6 +44,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             cellContent: cellContent,
             cellChanged: unsavedChanges,
             cellLabel: cellLabel,
+            timestamps: timestamps,
         } as EditorCellContent);
         vscode.postMessage({
             command: "setCurrentIdToGlobalState",
