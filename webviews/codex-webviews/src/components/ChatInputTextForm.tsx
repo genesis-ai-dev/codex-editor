@@ -47,7 +47,11 @@ export const ChatInputTextForm: React.FC<CommentTextFormProps> = ({
                     width: "100%",
                 }}
             >
-                <ContextItemList contextItems={contextItems} vscode={vscode} sourceCellMap={sourceCellMap} />
+                <ContextItemList
+                    contextItems={contextItems}
+                    vscode={vscode}
+                    sourceCellMap={sourceCellMap}
+                />
                 {selectedText && (
                     <div
                         style={{

@@ -108,6 +108,7 @@ const App: React.FC = () => {
         debounce(() => {
             const updatedDictionary: Dictionary = {
                 ...dictionaryRef.current,
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 entries: dataSourceRef.current.map(({ key, ...rest }) => rest as DictionaryEntry),
             };
 

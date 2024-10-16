@@ -195,8 +195,11 @@ const processFetchResponse = async (webviewView: vscode.WebviewView, response: R
     sendFinishMessage(webviewView);
 };
 
-
-const processGradeResponse = async (webviewView: vscode.WebviewView, response: Response, lastMessageCreatedAt: string) => {
+const processGradeResponse = async (
+    webviewView: vscode.WebviewView,
+    response: Response,
+    lastMessageCreatedAt: string
+) => {
     if (!response.body) {
         throw new Error("Response body is null");
     }
@@ -207,7 +210,7 @@ const processGradeResponse = async (webviewView: vscode.WebviewView, response: R
     // eslint-disable-next-line no-constant-condition
     while (true) {
         const { done, value } = await reader.read();
-        if( done ) {
+        if (done) {
             break;
         }
         buffer += decoder.decode(value, { stream: true });
@@ -221,14 +224,12 @@ const processGradeResponse = async (webviewView: vscode.WebviewView, response: R
             webviewView.webview.postMessage({
                 command: "respondWithGrade",
                 content: content.choices[0].message.content,
-                lastMessageCreatedAt
+                lastMessageCreatedAt,
             } as ChatPostMessages);
         } catch (error) {
             console.error("Error parsing JSON:", error);
         }
     }
-
-
 };
 
 const checkThatChatThreadsFileExists = async () => {
@@ -486,8 +487,8 @@ export class CustomWebviewProvider {
 
                     case "requestGradeResponse": {
                         const mainChatLanguage = vscode.workspace
-                        .getConfiguration("translators-copilot")
-                        .get("main_chat_language", "English");
+                            .getConfiguration("translators-copilot")
+                            .get("main_chat_language", "English");
 
                         abortController = new AbortController();
                         const url = endpoint + "/chat/completions";
@@ -542,7 +543,11 @@ export class CustomWebviewProvider {
                             body: JSON.stringify(data),
                             signal: abortController.signal,
                         });
-                        await processGradeResponse(webviewView, response, message.lastMessageCreatedAt);
+                        await processGradeResponse(
+                            webviewView,
+                            response,
+                            message.lastMessageCreatedAt
+                        );
                         break;
                     }
                     case "deleteThread": {

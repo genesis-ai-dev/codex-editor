@@ -4,8 +4,13 @@ import { CodexContentSerializer } from "../serializer";
 import { generateUniqueId, clearIdCache } from "./idGenerator";
 import { NavigationCell, NotebookMetadata } from "./codexNotebookUtils";
 import { API as GitAPI, Repository, Status } from "../providers/scm/git.d";
-import { deserializeDictionaryEntries, serializeDictionaryEntries, repairDictionaryContent, ensureCompleteEntry } from './dictionaryUtils';
-import { readDictionaryClient, saveDictionaryClient } from './dictionaryUtils';
+import {
+    deserializeDictionaryEntries,
+    serializeDictionaryEntries,
+    repairDictionaryContent,
+    ensureCompleteEntry,
+} from "./dictionaryUtils/common";
+import { readDictionaryClient, saveDictionaryClient } from "./dictionaryUtils/client";
 
 const DEBUG_MODE = false; // Set to true to enable debug logging
 
@@ -119,12 +124,19 @@ export class NotebookMetadataManager {
                 debugLog("Updated dictionary metadata for:", id);
 
                 if (notebookData.entries && Array.isArray(notebookData.entries)) {
-                    const repairedContent = repairDictionaryContent(new TextDecoder().decode(content));
+                    const repairedContent = repairDictionaryContent(
+                        new TextDecoder().decode(content)
+                    );
                     notebookData.entries = deserializeDictionaryEntries(repairedContent);
                     notebookData.entries = notebookData.entries.map(ensureCompleteEntry);
 
                     // Save the updated entries back to the file
-                    await saveDictionaryClient(file, { id: "project", label: "Project", entries: notebookData.entries, metadata: {} });
+                    await saveDictionaryClient(file, {
+                        id: "project",
+                        label: "Project",
+                        entries: notebookData.entries,
+                        metadata: {},
+                    });
                 }
             }
 

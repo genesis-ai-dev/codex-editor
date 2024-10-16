@@ -53,35 +53,34 @@ const CellList: React.FC<CellListProps> = ({
     }, [translationUnits]);
 
     const renderCellGroup = useMemo(
-        () => (group: typeof translationUnits, startIndex: number) =>
-            (
-                <span
-                    key={`group-${startIndex}`}
-                    className={`verse-group cell-display-${cellDisplayMode}`}
-                    style={{ direction: textDirection }}
-                >
-                    {group.map(({ cellMarkers, cellContent, cellType, cellLabel }, index) => {
-                        const cellId = cellMarkers.join(" ");
-                        const hasDuplicateId = duplicateCellIds.has(cellId);
+        () => (group: typeof translationUnits, startIndex: number) => (
+            <span
+                key={`group-${startIndex}`}
+                className={`verse-group cell-display-${cellDisplayMode}`}
+                style={{ direction: textDirection }}
+            >
+                {group.map(({ cellMarkers, cellContent, cellType, cellLabel }, index) => {
+                    const cellId = cellMarkers.join(" ");
+                    const hasDuplicateId = duplicateCellIds.has(cellId);
 
-                        return (
-                            <CellContentDisplay
-                                key={startIndex + index}
-                                cellIds={cellMarkers}
-                                cellContent={cellContent}
-                                cellIndex={startIndex + index}
-                                cellType={cellType}
-                                cellLabel={cellLabel}
-                                setContentBeingUpdated={setContentBeingUpdated}
-                                vscode={vscode}
-                                textDirection={textDirection}
-                                isSourceText={isSourceText}
-                                hasDuplicateId={hasDuplicateId}
-                            />
-                        );
-                    })}
-                </span>
-            ),
+                    return (
+                        <CellContentDisplay
+                            key={startIndex + index}
+                            cellIds={cellMarkers}
+                            cellContent={cellContent}
+                            cellIndex={startIndex + index}
+                            cellType={cellType}
+                            cellLabel={cellLabel}
+                            setContentBeingUpdated={setContentBeingUpdated}
+                            vscode={vscode}
+                            textDirection={textDirection}
+                            isSourceText={isSourceText}
+                            hasDuplicateId={hasDuplicateId}
+                        />
+                    );
+                })}
+            </span>
+        ),
         [cellDisplayMode, textDirection, setContentBeingUpdated, vscode, isSourceText]
     );
 

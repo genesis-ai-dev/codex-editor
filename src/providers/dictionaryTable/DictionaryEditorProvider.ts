@@ -9,6 +9,7 @@ import {
     repairDictionaryContent,
     deserializeDictionaryEntries,
     serializeDictionaryEntries,
+    ensureCompleteEntry,
 } from "../../utils/dictionaryUtils/common";
 
 interface DictionaryDocument extends vscode.CustomDocument {
@@ -16,24 +17,6 @@ interface DictionaryDocument extends vscode.CustomDocument {
 }
 
 type PartialDictionaryEntry = Partial<DictionaryEntry>;
-
-function ensureCompleteEntry(entry: PartialDictionaryEntry): DictionaryEntry {
-    return {
-        id: entry.id || "",
-        headForm: entry.headForm || "",
-        variantForms: entry.variantForms || [],
-        definition: entry.definition || "",
-        partOfSpeech: entry.partOfSpeech || "",
-        etymology: entry.etymology || "",
-        usage: entry.usage || "",
-        notes: entry.notes || [],
-        examples: entry.examples || [],
-        translationEquivalents: entry.translationEquivalents || [],
-        links: entry.links || [],
-        linkedEntries: entry.linkedEntries || [],
-        metadata: entry.metadata || {},
-    };
-}
 
 export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider {
     public static readonly viewType = "codex.dictionaryEditor";

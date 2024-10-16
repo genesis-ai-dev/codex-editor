@@ -25,7 +25,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     const handleMouseLeave = () => {
         setIsHovered(false);
         setIsDropdownVisible(false);
-    }
+    };
     const toggleDropdown = () => setIsDropdownVisible(!isDropdownVisible);
 
     const handleEditClick = () => {
@@ -41,13 +41,13 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     const handleSaveClick = () => {
         // Notify parent component if exists
         if (onEditComplete) {
-            onEditComplete({...messageItem, content: editedContent}); // Pass edited message back
+            onEditComplete({ ...messageItem, content: editedContent }); // Pass edited message back
         }
         setIsEditing(false); // Exit edit mode
     };
 
     return (
-        <div          
+        <div
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}
             style={{
@@ -130,7 +130,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                         {ChatRoleLabel[messageItem.role as keyof typeof ChatRoleLabel]}
                     </VSCodeTag>
                 )}
-                 {/* Message Content */}
+                {/* Message Content */}
                 {isEditing ? (
                     <div style={{ position: "relative" }}>
                         <input
@@ -159,11 +159,14 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                     </div>
                 ) : (
                     <div style={{ display: "flex" }}>{messageItem.content}</div>
-            )}
+                )}
             </div>
 
             {(isHovered || ALWAYS_SHOW) && (
-                <div onClick={toggleDropdown} style={{ position: "absolute", top: "30px", right: "20px" }}>
+                <div
+                    onClick={toggleDropdown}
+                    style={{ position: "absolute", top: "30px", right: "20px" }}
+                >
                     {/* Replace with your dropdown icon */}
                     <span>▼</span> {/* Placeholder icon */}
                 </div>
@@ -171,14 +174,16 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 
             {/* Dropdown Menu */}
             {isDropdownVisible && (
-                <div style={{
-                    position: "absolute",
-                    top: "50px",  // Adjust based on your layout
-                    right: "20px",
-                    backgroundColor: "white", // Customize styles
-                    boxShadow: "0 2px 6px rgba(0, 0, 0, 0.1)",
-                    zIndex: 1000
-                }}>
+                <div
+                    style={{
+                        position: "absolute",
+                        top: "50px", // Adjust based on your layout
+                        right: "20px",
+                        backgroundColor: "white", // Customize styles
+                        boxShadow: "0 2px 6px rgba(0, 0, 0, 0.1)",
+                        zIndex: 1000,
+                    }}
+                >
                     <div onClick={handleEditClick} style={{ padding: "8px", cursor: "pointer" }}>
                         Edit
                     </div>

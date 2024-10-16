@@ -42,10 +42,8 @@ export class SpellChecker {
             // Fallback to a default path if no workspace folder is provided
             this.dictionaryPath = path.join(process.cwd(), "files", "project.dictionary");
         }
-        console.log("Dictionary path: " + this.dictionaryPath);
         const metadataPath = path.join(folderUri?.fsPath || process.cwd(), "metadata.json");
         if (fs.existsSync(metadataPath)) {
-            console.log("metadata.json found in constructor. Initializing dictionary.");
             this.ensureDictionaryExists();
             this.initializeDictionary();
             this.watchDictionary();
@@ -68,7 +66,6 @@ export class SpellChecker {
     private async ensureDictionaryExists() {
         const metadataPath = path.join(folderUri?.fsPath || process.cwd(), "metadata.json");
         if (fs.existsSync(metadataPath)) {
-            console.log("metadata.json found in ensureDictionaryExists. Checking for dictionary.");
             try {
                 await fs.promises.access(this.dictionaryPath);
             } catch {

@@ -75,7 +75,10 @@ export async function activate(context: vscode.ExtensionContext) {
     await migrateSourceFiles();
 
     // Create the status bar item
-    autoCompleteStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+    autoCompleteStatusBarItem = vscode.window.createStatusBarItem(
+        vscode.StatusBarAlignment.Right,
+        100
+    );
     autoCompleteStatusBarItem.text = "$(sync~spin) Auto-completing...";
     autoCompleteStatusBarItem.hide();
     context.subscriptions.push(autoCompleteStatusBarItem);
