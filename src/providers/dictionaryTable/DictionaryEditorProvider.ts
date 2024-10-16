@@ -4,6 +4,12 @@ import { getNonce } from "./utilities/getNonce";
 import { DictionaryPostMessages, DictionaryReceiveMessages } from "../../../types";
 import { getWorkSpaceUri } from "../../utils";
 import { isEqual } from "lodash";
+import { readDictionaryClient, saveDictionaryClient } from "../../utils/dictionaryUtils/client";
+import {
+    repairDictionaryContent,
+    deserializeDictionaryEntries,
+    serializeDictionaryEntries,
+} from "../../utils/dictionaryUtils/common";
 
 interface DictionaryDocument extends vscode.CustomDocument {
     content: Dictionary;
@@ -191,28 +197,11 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
         }
 
         try {
-            // Try parsing as JSONL (each line is a JSON entry)
-            const entries = text
-                .split("\n")
-                .filter((line) => line.trim().length > 0)
-                .map((line) => ensureCompleteEntry(JSON.parse(line) as PartialDictionaryEntry));
-
+            const repairedContent = repairDictionaryContent(text);
+            const entries = deserializeDictionaryEntries(repairedContent).map(ensureCompleteEntry);
             return { id: "", label: "", entries, metadata: {} };
-        } catch (jsonlError) {
-            try {
-                // If parsing as JSONL fails, try parsing as a single JSON object
-                const parsed = JSON.parse(text);
-                if (parsed.entries) {
-                    parsed.entries = parsed.entries.map((entry: PartialDictionaryEntry) =>
-                        ensureCompleteEntry(entry)
-                    );
-                    return parsed;
-                } else {
-                    throw new Error("Invalid JSON format: missing entries.");
-                }
-            } catch (jsonError) {
-                throw new Error("Could not parse document as JSONL or JSON. Content is not valid.");
-            }
+        } catch (error) {
+            throw new Error("Could not parse document as JSONL. Content is not valid.");
         }
     }
 
@@ -231,12 +220,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
             "project.dictionary"
         );
 
-        // Ensure only entries are saved and in JSONL format
-        const content = dictionary.entries
-            .map((entry) => JSON.stringify(this.ensureCompleteEntry(entry)))
-            .join('\n') + '\n';
-
-        await vscode.workspace.fs.writeFile(dictionaryUri, Buffer.from(content, "utf-8"));
+        await saveDictionaryClient(dictionaryUri, dictionary);
 
         // After updating the file, repair if needed and refresh the editor
         await this.repairDictionaryIfNeeded(dictionaryUri);
@@ -245,35 +229,15 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
 
     private async repairDictionaryIfNeeded(dictionaryUri: vscode.Uri) {
         try {
-            const content = await vscode.workspace.fs.readFile(dictionaryUri);
-            const lines = new TextDecoder()
-                .decode(content)
-                .split("\n")
-                .filter((line) => line.trim() !== "");
-            const repairedEntries: DictionaryEntry[] = [];
-
-            for (const line of lines) {
-                try {
-                    const entry = JSON.parse(line);
-                    if (this.isValidDictionaryEntry(entry)) {
-                        repairedEntries.push(this.ensureCompleteEntry(entry));
-                    }
-                } catch (error) {
-                    console.error("Error parsing dictionary entry:", error);
-                }
-            }
-
-            if (repairedEntries.length !== lines.length) {
-                // Dictionary needed repair
-                const repairedContent = repairedEntries
-                    .map((entry) => JSON.stringify(entry))
-                    .join("\n") + "\n";
-                await vscode.workspace.fs.writeFile(
-                    dictionaryUri,
-                    Buffer.from(repairedContent, "utf-8")
-                );
-                console.log("Dictionary repaired and saved.");
-            }
+            const dictionary = await readDictionaryClient(dictionaryUri);
+            const newContent = serializeDictionaryEntries(
+                dictionary.entries.map(ensureCompleteEntry)
+            );
+            await saveDictionaryClient(dictionaryUri, {
+                ...dictionary,
+                entries: deserializeDictionaryEntries(newContent),
+            });
+            console.log("Dictionary repaired and saved.");
         } catch (error) {
             console.error("Error repairing dictionary:", error);
         }

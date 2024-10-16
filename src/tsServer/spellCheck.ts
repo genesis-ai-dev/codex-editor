@@ -20,6 +20,11 @@ import * as path from "path";
 import { URI } from "vscode-uri";
 import { Connection } from "vscode-languageserver/node";
 import { cleanWord } from "../utils/cleaningUtils";
+import {
+    readDictionaryServer,
+    saveDictionaryServer,
+    addWordsToDictionary,
+} from "../utils/dictionaryUtils/server";
 
 let folderUri: URI | undefined;
 
@@ -52,10 +57,11 @@ export class SpellChecker {
 
     async initializeDictionary() {
         try {
-            await this.loadDictionary();
+            this.dictionary = await readDictionaryServer(this.dictionaryPath);
+            console.log(`Dictionary loaded with ${this.dictionary.entries.length} words.`);
         } catch (error: any) {
             console.error(`Failed to initialize dictionary: ${error.message}`);
-            this.dictionary = { entries: [] } as unknown as Dictionary;
+            this.dictionary = { id: "project", label: "Project", entries: [], metadata: {} };
         }
     }
 
@@ -76,62 +82,42 @@ export class SpellChecker {
         }
     }
 
-    private async loadDictionary() {
-        console.log(this.dictionaryPath);
-        let content: string;
-        try {
-            content = await fs.promises.readFile(this.dictionaryPath, "utf-8");
-        } catch (error) {
-            console.log("Error reading dictionary file:", error);
-            content = "";
-        }
+    async addWords(words: string[]): Promise<void> {
+        console.log("Adding words to dictionary:", words);
+        await addWordsToDictionary(this.dictionaryPath, words);
+        await this.initializeDictionary(); // Reload the dictionary
+    }
 
-        // Try parsing as JSON first (for older dictionaries)
-        try {
-            this.dictionary = JSON.parse(content) as Dictionary;
-        } catch (e: any) {
-            console.log("hit an error in loadDictionary", e);
-            // If JSON parsing fails, assume it's JSONL
-            const entries: DictionaryEntry[] = [];
-            const lines = content.split("\n").filter((line) => line.trim() !== "");
-            for (const line of lines) {
-                try {
-                    const entry = JSON.parse(line.trim()) as DictionaryEntry;
-                    entries.push(entry);
-                } catch (error) {
-                    console.error(`Error parsing dictionary entry: ${line}`, error);
+    private watchDictionary() {
+        this.dictionaryWatcher = fs.watch(this.dictionaryPath, async (eventType, filename) => {
+            if (eventType === "change") {
+                console.log("Dictionary file changed. Reloading...");
+                await this.initializeDictionary();
+                if (this.connection) {
+                    this.connection.sendNotification("custom/dictionaryUpdated");
                 }
             }
-            this.dictionary = {
-                entries,
-                id: "project",
-                label: "Project",
-                metadata: {},
-            };
-        }
+        });
+    }
 
-        if (this.dictionary && Array.isArray(this.dictionary.entries)) {
-            const wordCount = this.dictionary.entries.length;
-            console.log(`Dictionary loaded with ${wordCount} words.`);
-            if (wordCount > 0) {
-                console.log(
-                    `First few words: ${this.dictionary.entries
-                        .slice(0, 5)
-                        .map((e) => e.headWord)
-                        .join(", ")}`
-                );
-            } else {
-                console.log("Dictionary is empty.");
-            }
-        } else {
-            this.dictionary = {
-                entries: [],
-                id: "project",
-                label: "Project",
-                metadata: {},
-            };
-            console.log("Initialized empty dictionary.");
+    // Add a method to stop watching when necessary
+    public stopWatchingDictionary() {
+        if (this.dictionaryWatcher) {
+            this.dictionaryWatcher.close();
+            this.dictionaryWatcher = null;
         }
+    }
+
+    /**
+     * Saves the current dictionary to the dictionary file in JSONL format.
+     */
+    private async saveDictionary(): Promise<void> {
+        if (!this.dictionary) {
+            console.error("Dictionary is not initialized.");
+            return;
+        }
+        await saveDictionaryServer(this.dictionaryPath, this.dictionary);
+        console.log("Dictionary successfully saved.");
     }
 
     spellCheck(word: string): SpellCheckResult {
@@ -217,157 +203,6 @@ export class SpellChecker {
         }
 
         return matrix[b.length][a.length];
-    }
-
-    private async ensureDictionaryWellFormed() {
-        const content = await fs.promises.readFile(this.dictionaryPath, "utf8");
-        const lines = content.split(/\n|\}\{/).map((line: string) => line.trim());
-        const validEntries: DictionaryEntry[] = []; // Store valid entries for writing back to the file
-
-        for (const line of lines) {
-            if (!line) continue;
-            try {
-                let jsonLine = line;
-                if (!line.startsWith("{")) jsonLine = "{" + jsonLine;
-                if (!line.endsWith("}")) jsonLine = jsonLine + "}";
-                const entry = JSON.parse(jsonLine);
-                if (!entry.headWord || !entry.hash) {
-                    throw new Error("Dictionary entry is missing required fields");
-                }
-                validEntries.push(entry); // Collect valid entries
-            } catch (error) {
-                console.error("Error parsing dictionary:", error);
-            }
-        }
-
-        // If there are valid entries, write them back to the file
-        if (validEntries.length > 0) {
-            const serializedEntries =
-                validEntries.map((entry) => JSON.stringify(entry)).join("\n") + "\n";
-            await fs.promises.writeFile(this.dictionaryPath, serializedEntries, "utf8");
-        } else {
-            // If no valid entries, create an empty dictionary
-            await fs.promises.writeFile(this.dictionaryPath, "", "utf8");
-        }
-    }
-
-    /**
-     * Adds new words to the dictionary and persists them to the dictionary file.
-     * @param words Array of words to add.
-     */
-    async addWords(words: string[]): Promise<void> {
-        console.log("Adding words to dictionary: (spellCheck.ts)", words);
-        if (!this.dictionary) {
-            this.dictionary = {
-                id: this.generateUniqueId(),
-                label: "Custom Dictionary",
-                metadata: {},
-                entries: [],
-            };
-        }
-
-        const newEntries: DictionaryEntry[] = [];
-
-        for (const word of words) {
-            const cleanedWord = cleanWord(word);
-            if (!cleanedWord) {
-                console.warn(`Skipping empty word: "${word}"`);
-                continue;
-            }
-            const exists = this.dictionary.entries.some((entry) => {
-                return entry.headWord && entry.headWord.toLowerCase() === cleanedWord.toLowerCase();
-            });
-            if (!exists) {
-                const newEntry: DictionaryEntry = {
-                    id: `${Date.now()}-${Math.random()}`, // Generate a unique ID
-                    headWord: cleanedWord,
-                    headForm: cleanedWord,
-                    variantForms: [],
-                    definition: "",
-                    translationEquivalents: [],
-                    links: [],
-                    linkedEntries: [],
-                    notes: [],
-                    metadata: {},
-                    hash: this.generateHash(cleanedWord),
-                };
-                this.dictionary.entries.push(newEntry);
-                newEntries.push(newEntry);
-            }
-        }
-
-        if (newEntries.length > 0) {
-            try {
-                const serializedEntries =
-                    newEntries.map((entry) => JSON.stringify(entry)).join("\n") + "\n";
-                await fs.promises.appendFile(this.dictionaryPath, serializedEntries, "utf8");
-                console.log("New words successfully added to the dictionary.");
-
-                // Trigger a dictionary reload to reflect changes in diagnostics
-                await this.loadDictionary();
-            } catch (error) {
-                console.error("Error saving new words to the dictionary:", error);
-                throw new Error(`Failed to add words: ${error}`);
-            }
-        } else {
-            console.log("No new words to add. All words already exist in the dictionary.");
-        }
-    }
-
-    private generateUniqueId(): string {
-        return Math.random().toString(36).substr(2, 9);
-    }
-
-    private generateHash(word: string): string {
-        // FIXME: this should be an image hash
-        return word
-            .split("")
-            .reduce((acc, char) => acc + char.charCodeAt(0), 0)
-            .toString();
-    }
-
-    private watchDictionary() {
-        this.dictionaryWatcher = fs.watch(this.dictionaryPath, async (eventType, filename) => {
-            if (eventType === "change") {
-                console.log("Dictionary file changed. Reloading...");
-                await this.loadDictionary();
-                if (this.connection) {
-                    this.connection.sendNotification("custom/dictionaryUpdated");
-                }
-            }
-        });
-    }
-
-    // Add a method to stop watching when necessary
-    public stopWatchingDictionary() {
-        if (this.dictionaryWatcher) {
-            this.dictionaryWatcher.close();
-            this.dictionaryWatcher = null;
-        }
-    }
-
-    /**
-     * Saves the current dictionary to the dictionary file in JSONL format.
-     */
-    private async saveDictionary(): Promise<void> {
-        if (!this.dictionaryPath) {
-            console.error("No dictionary path defined.");
-            return;
-        }
-        if (!this.dictionary) {
-            console.error("Dictionary is not initialized.");
-            return;
-        }
-
-        const lines =
-            this.dictionary.entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n";
-
-        try {
-            await fs.promises.writeFile(this.dictionaryPath, lines, "utf8");
-            console.log("Dictionary successfully saved.");
-        } catch (error) {
-            console.error("Error saving dictionary:", error);
-        }
     }
 }
 

@@ -4,6 +4,8 @@ import { CodexContentSerializer } from "../serializer";
 import { generateUniqueId, clearIdCache } from "./idGenerator";
 import { NavigationCell, NotebookMetadata } from "./codexNotebookUtils";
 import { API as GitAPI, Repository, Status } from "../providers/scm/git.d";
+import { deserializeDictionaryEntries, serializeDictionaryEntries, repairDictionaryContent, ensureCompleteEntry } from './dictionaryUtils';
+import { readDictionaryClient, saveDictionaryClient } from './dictionaryUtils';
 
 const DEBUG_MODE = false; // Set to true to enable debug logging
 
@@ -116,17 +118,13 @@ export class NotebookMetadataManager {
                 metadata.codexLastModified = new Date(fileStat.mtime).toISOString();
                 debugLog("Updated dictionary metadata for:", id);
 
-                // Handle dictionary entries
                 if (notebookData.entries && Array.isArray(notebookData.entries)) {
-                    notebookData.entries = notebookData.entries.map((entry: any) => {
-                        if (!entry.headWord && entry.headForm) {
-                            entry.headWord = entry.headForm;
-                        }
-                        return entry;
-                    });
+                    const repairedContent = repairDictionaryContent(new TextDecoder().decode(content));
+                    notebookData.entries = deserializeDictionaryEntries(repairedContent);
+                    notebookData.entries = notebookData.entries.map(ensureCompleteEntry);
 
                     // Save the updated entries back to the file
-                    await this.saveDictionaryEntries(file, notebookData.entries);
+                    await saveDictionaryClient(file, { id: "project", label: "Project", entries: notebookData.entries, metadata: {} });
                 }
             }
 
@@ -331,15 +329,5 @@ export class NotebookMetadataManager {
         const newId = generateUniqueId(baseName);
         debugLog("Generated new ID:", newId, "for base name:", baseName);
         return newId;
-    }
-
-    private async saveDictionaryEntries(fileUri: vscode.Uri, entries: any[]): Promise<void> {
-        try {
-            const content = entries.map(entry => JSON.stringify(entry)).join('\n') + '\n';
-            await vscode.workspace.fs.writeFile(fileUri, Buffer.from(content, 'utf-8'));
-            debugLog("Updated dictionary entries in file:", fileUri.fsPath);
-        } catch (error) {
-            console.error("Error saving dictionary entries:", error);
-        }
     }
 }
