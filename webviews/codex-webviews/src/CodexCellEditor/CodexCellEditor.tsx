@@ -17,6 +17,7 @@ import registerQuillSpellChecker from "./react-quill-spellcheck";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import SourceCellContext from "./contextProviders/SourceCellContext";
 import DuplicateCellResolver from "./DuplicateCellResolver";
+import Timeline from "./Timeline";
 
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
@@ -297,6 +298,8 @@ const CodexCellEditor: React.FC = () => {
         );
     }
 
+    const data = [{ begin: 25, end: 35, text: "This is subtitle" }];
+
     return (
         <div className="codex-cell-editor">
             <div className="static-header" ref={headerRef}>
@@ -332,10 +335,37 @@ const CodexCellEditor: React.FC = () => {
                             videoUrl={videoUrl}
                             translationUnitsForSection={translationUnitsWithCurrentEditorContent}
                         />
+                        <Timeline
+                            changeAreaShow={(start, end) => {}}
+                            changeZoomLevel={(zoomLevel) => {}}
+                            changeShift={(shift) => {}}
+                            setAligns={(alignments) => {}}
+                            // audioRef={playerRef}
+                            src={"..."}
+                            data={data}
+                            autoScroll
+                            colors={{
+                                background: "transparent",
+                                box: "#a9a9a9",
+                                boxHover: "#80add6",
+                                selectedBox: "#1890ff",
+                                playingBox: "#f0523f",
+                                text: "#212b33",
+                                selectedText: "white",
+                                tooltipBackground: "#474e54",
+                                tooltipText: "white",
+                                scrollBarBackground: "#f1f3f9",
+                                scrollBar: "#c2c9d6",
+                                scrollBarHover: "#8f96a3",
+                            }}
+                        />
                     </div>
                 )}
             </div>
-            <div className="scrollable-content" style={{ height: `calc(100vh - ${headerHeight}px)` }}>
+            <div
+                className="scrollable-content"
+                style={{ height: `calc(100vh - ${headerHeight}px)` }}
+            >
                 <h1>{translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0]}</h1>
                 <div className="editor-container">
                     {autocompletionProgress !== null && (
