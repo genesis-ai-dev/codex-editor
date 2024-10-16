@@ -95,6 +95,14 @@ export default class PopupManager {
         }
 
         popupContent.appendChild(actionsDiv);
+        if (match.color === "purple") {
+            // Add reason/label for smart edits
+            const reasonLabel = document.createElement("div");
+            reasonLabel.className = "quill-spck-match-popup-reason";
+            reasonLabel.textContent = "From edits made on similar texts";
+            popupContent.appendChild(reasonLabel);
+        }
+
         popup.appendChild(popupContent);
 
         document.body.appendChild(popup);

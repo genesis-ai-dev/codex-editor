@@ -129,4 +129,9 @@ quill-spck-match.purple:hover {
     cursor: pointer;
 }
 
+.quill-spck-match-popup-reason {
+    font-size: 12px;
+    padding: 0.5rem;
+    color: #8a2be2;
+}
 /* Add additional color classes if needed */
