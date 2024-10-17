@@ -12,7 +12,7 @@ import {
 } from "./dictionaryUtils/common";
 import { readDictionaryClient, saveDictionaryClient } from "./dictionaryUtils/client";
 
-const DEBUG_MODE = false; // Set to true to enable debug logging
+const DEBUG_MODE = true; // Set to true to enable debug logging
 
 function debugLog(...args: any[]): void {
     if (DEBUG_MODE) {
@@ -71,12 +71,11 @@ export class NotebookMetadataManager {
 
         const sourceFiles = await vscode.workspace.findFiles("**/*.source");
         const codexFiles = await vscode.workspace.findFiles("**/*.codex");
-        const dictionaryFiles = await vscode.workspace.findFiles("**/*.dictionary");
 
-        const allFiles = [...sourceFiles, ...codexFiles, ...dictionaryFiles];
+        const allFiles = [...sourceFiles, ...codexFiles];
         const serializer = new CodexContentSerializer();
 
-        for (const file of allFiles) {
+        for (const file of [...sourceFiles, ...codexFiles]) {
             debugLog("Processing file:", file.fsPath);
             const content = await vscode.workspace.fs.readFile(file);
             let notebookData;
@@ -116,28 +115,6 @@ export class NotebookMetadataManager {
                 metadata.codexUri = file;
                 metadata.codexLastModified = new Date(fileStat.mtime).toISOString();
                 debugLog("Updated codexUri for:", id);
-            } else if (file.path.endsWith(".dictionary")) {
-                metadata.sourceUri = file;
-                metadata.codexUri = file; // For dictionaries, source and codex are the same file
-                metadata.sourceCreatedAt = new Date(fileStat.ctime).toISOString();
-                metadata.codexLastModified = new Date(fileStat.mtime).toISOString();
-                debugLog("Updated dictionary metadata for:", id);
-
-                if (notebookData.entries && Array.isArray(notebookData.entries)) {
-                    const repairedContent = repairDictionaryContent(
-                        new TextDecoder().decode(content)
-                    );
-                    notebookData.entries = deserializeDictionaryEntries(repairedContent);
-                    notebookData.entries = notebookData.entries.map(ensureCompleteEntry);
-
-                    // Save the updated entries back to the file
-                    await saveDictionaryClient(file, {
-                        id: "project",
-                        label: "Project",
-                        entries: notebookData.entries,
-                        metadata: {},
-                    });
-                }
             }
 
             metadata.gitStatus = await this.getGitStatusForFile(file);
@@ -240,9 +217,11 @@ export class NotebookMetadataManager {
     }
 
     public getMetadataBySourceFileName(sourceFileName: string): NotebookMetadata | undefined {
-        const baseName = sourceFileName.split(".")[0]; // Remove any file extension
+        const baseName = sourceFileName.endsWith(".source")
+            ? sourceFileName.slice(0, -7)
+            : sourceFileName;
         for (const metadata of this.metadataMap.values()) {
-            if (metadata.id === baseName || metadata.originalName === baseName) {
+            if (metadata.id === baseName) {
                 return metadata;
             }
         }

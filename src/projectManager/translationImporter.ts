@@ -3,10 +3,11 @@ import { WebVTTParser } from "webvtt-parser";
 import { CodexContentSerializer, CodexNotebookReader } from "../serializer";
 import { SupportedFileExtension, FileType, FileTypeMap, CustomNotebookCellData } from "../../types";
 import { CodexCellTypes } from "../../types/enums";
+import * as fs from "fs/promises"; // Add this import if not already present
+import * as path from "path";
 import * as grammar from "usfm-grammar";
 import { ParsedUSFM } from "usfm-grammar";
 import { NotebookMetadataManager } from "../utils/notebookMetadataManager";
-import { Dictionary, DictionaryEntry } from "codex-types";
 
 const DEBUG_MODE = false; // Set this to false to disable debug logging
 
@@ -28,8 +29,6 @@ export const fileTypeMap: FileTypeMap = {
     sfm: "usfm",
     SFM: "usfm",
     USFM: "usfm",
-    tsv: "dictionary",
-    jsonl: "dictionary",
 };
 
 interface ImportedContent {
@@ -63,7 +62,7 @@ export async function importTranslations(
     debug("File extension", fileExtension);
 
     let importedContent: ImportedContent[] = [];
-    let cellAligner: CellAligner | undefined;
+    let cellAligner: CellAligner;
     let importedVttData: {
         cues: { text: string; startTime: number; endTime: number; id: string }[];
     } = {
@@ -81,14 +80,6 @@ export async function importTranslations(
 
         debug("File type", fileType);
 
-        const parseVtt = (rawFileContent: string) => {
-            debug("Parsing VTT content");
-            debug("VTT content (first 100 characters):", rawFileContent.substring(0, 100));
-            const vttData = new WebVTTParser().parse(rawFileContent);
-            debug("Parsed VTT data", vttData);
-            return vttData;
-        };
-
         switch (fileType) {
             case "subtitles":
                 importedVttData = parseVtt(fileContentString);
@@ -101,9 +92,6 @@ export async function importTranslations(
             case "usfm":
                 importedContent = await parseUSFM(fileUri);
                 cellAligner = alignUSFMCells;
-                break;
-            case "dictionary":
-                await importDictionaryTranslation(fileUri, sourceNotebookId);
                 break;
             default:
                 debug("Unsupported file type", fileType);
@@ -160,9 +148,7 @@ export async function importTranslations(
         const codexFile = sourceMetadata.codexUri;
         debug("Matching .codex file found or created", codexFile.toString());
 
-        if (cellAligner) {
-            await insertZeroDrafts(importedContent, cellAligner, codexFile);
-        }
+        await insertZeroDrafts(importedContent, cellAligner, codexFile);
 
         // Update metadata after insertion
         metadataManager.addOrUpdateMetadata({
@@ -178,6 +164,14 @@ export async function importTranslations(
         return;
     }
 }
+
+const parseVtt = (rawFileContent: string) => {
+    debug("Parsing VTT content");
+    debug("VTT content (first 100 characters):", rawFileContent.substring(0, 100));
+    const vttData = new WebVTTParser().parse(rawFileContent);
+    debug("Parsed VTT data", vttData);
+    return vttData;
+};
 
 async function insertZeroDrafts(
     importedContent: ImportedContent[],
@@ -595,158 +589,4 @@ async function parseUSFM(fileUri: vscode.Uri): Promise<ImportedContent[]> {
     }
 
     return importedContent;
-}
-
-async function importDictionaryTranslation(
-    fileUri: vscode.Uri,
-    sourceNotebookId: string
-): Promise<void> {
-    debug("Importing dictionary translation", { fileUri: fileUri.toString(), sourceNotebookId });
-
-    try {
-        const fileContent = await vscode.workspace.fs.readFile(fileUri);
-        const fileContentString = new TextDecoder().decode(fileContent);
-        const fileExtension = fileUri.path.split(".").pop()?.toLowerCase();
-
-        debug("File content (first 100 characters):", fileContentString.substring(0, 100));
-        debug("File extension:", fileExtension);
-
-        let entries: Partial<DictionaryEntry>[] = [];
-
-        if (fileExtension === "dictionary" || fileExtension === "jsonl") {
-            entries = parseJSONL(fileContentString);
-        } else if (fileExtension === "tsv") {
-            entries = parseTSV(fileContentString, false); // Explicitly set to false for no headers
-        } else {
-            throw new Error("Unsupported file format for dictionary translation");
-        }
-
-        debug("Parsed entries (first 3):", entries.slice(0, 3));
-
-        const metadataManager = NotebookMetadataManager.getInstance();
-        await metadataManager.loadMetadata();
-
-        const sourceMetadata = metadataManager.getMetadataBySourceFileName(sourceNotebookId);
-        if (!sourceMetadata) {
-            throw new Error(`Source dictionary metadata not found for ID: ${sourceNotebookId}`);
-        }
-
-        const sourceDictionaryUri = sourceMetadata.sourceUri;
-        if (!sourceDictionaryUri) {
-            throw new Error(`Source dictionary URI not found for ID: ${sourceNotebookId}`);
-        }
-
-        debug("Source dictionary URI:", sourceDictionaryUri.toString());
-
-        let sourceDictionary: Partial<Dictionary>;
-        try {
-            const sourceContent = await vscode.workspace.fs.readFile(sourceDictionaryUri);
-            const sourceContentString = new TextDecoder().decode(sourceContent);
-
-            debug("Source content (first 100 characters):", sourceContentString.substring(0, 100));
-
-            if (sourceContentString.trim() === "") {
-                // Create a new dictionary if the source file is empty
-                sourceDictionary = {
-                    metadata: {
-                        id: sourceNotebookId,
-                        name: `Dictionary ${sourceNotebookId}`,
-                        language: "und", // Undefined language code
-                        dateCreated: new Date().toISOString(),
-                        dateModified: new Date().toISOString(),
-                    },
-                    entries: [],
-                };
-                debug("Created new dictionary due to empty source file");
-            } else {
-                sourceDictionary = JSON.parse(sourceContentString);
-            }
-        } catch (error) {
-            debug("Error parsing source dictionary:", error);
-            // Create a new dictionary if parsing fails
-            sourceDictionary = {
-                metadata: {
-                    id: sourceNotebookId,
-                    name: `Dictionary ${sourceNotebookId}`,
-                    language: "und", // Undefined language code
-                    dateCreated: new Date().toISOString(),
-                    dateModified: new Date().toISOString(),
-                },
-                entries: [],
-            };
-            debug("Created new dictionary due to parsing error");
-        }
-
-        // Merge translated entries with source dictionary
-        sourceDictionary.entries = [
-            ...(sourceDictionary.entries || []),
-            ...entries
-                .filter(
-                    (entry) => entry.id && !sourceDictionary.entries?.some((e) => e.id === entry.id)
-                )
-                .map(
-                    (entry) =>
-                        ({
-                            ...entry,
-                            id:
-                                entry.id ||
-                                `entry-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                        }) as DictionaryEntry
-                ),
-        ];
-
-        // Update the dateModified
-        sourceDictionary.metadata!.dateModified = new Date().toISOString();
-
-        // Save the updated dictionary
-        await vscode.workspace.fs.writeFile(
-            sourceDictionaryUri,
-            new TextEncoder().encode(JSON.stringify(sourceDictionary, null, 2))
-        );
-
-        debug("Dictionary translation imported successfully");
-    } catch (error: any) {
-        debug("Error in importDictionaryTranslation:", error);
-        throw new Error(`Error importing dictionary translation: ${error.message}`);
-    }
-}
-
-function parseJSONL(content: string): Partial<DictionaryEntry>[] {
-    return content
-        .split("\n")
-        .filter((line) => line.trim() !== "")
-        .map((line) => JSON.parse(line) as Partial<DictionaryEntry>);
-}
-
-function parseTSV(content: string, hasHeaders: boolean = true): Partial<DictionaryEntry>[] {
-    const lines = content.split("\n").filter((line) => line.trim() !== "");
-
-    if (lines.length === 0) {
-        return [];
-    }
-
-    let dataLines: string[];
-
-    if (hasHeaders) {
-        dataLines = lines.slice(1);
-    } else {
-        dataLines = lines;
-    }
-
-    return dataLines.map((line) => {
-        const headForm = line.trim();
-        return {
-            id: `entry-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            headForm: headForm,
-        };
-    });
-}
-
-function tryParseJSON(value: string | undefined, defaultValue: any): any {
-    if (!value) return defaultValue;
-    try {
-        return JSON.parse(value);
-    } catch {
-        return defaultValue;
-    }
 }
