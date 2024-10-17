@@ -51,8 +51,8 @@ export class NotebookMetadataManager {
         return {
             id,
             originalName,
-            sourceUri: undefined as unknown as vscode.Uri,
-            codexUri: undefined as unknown as vscode.Uri,
+            sourceFsPath: undefined,
+            codexFsPath: undefined,
             data: {},
             sourceFile: "",
             navigation: [] as NavigationCell[],
@@ -95,8 +95,8 @@ export class NotebookMetadataManager {
             }
 
             const originalName = file.path.split("/").pop()?.split(".")[0] || "";
-            const id =
-                notebookData.metadata?.id || notebookData.id || this.generateNewId(originalName);
+            const id = originalName;
+            // notebookData.metadata?.id || notebookData.id || this.generateNewId(originalName);
 
             let metadata = this.metadataMap.get(id);
             if (!metadata) {
@@ -108,11 +108,11 @@ export class NotebookMetadataManager {
             const fileStat = await vscode.workspace.fs.stat(file);
 
             if (file.path.endsWith(".source")) {
-                metadata.sourceUri = file;
+                metadata.sourceFsPath = file.fsPath;
                 metadata.sourceCreatedAt = new Date(fileStat.ctime).toISOString();
                 debugLog("Updated sourceUri for:", id);
             } else if (file.path.endsWith(".codex")) {
-                metadata.codexUri = file;
+                metadata.codexFsPath = file.fsPath;
                 metadata.codexLastModified = new Date(fileStat.mtime).toISOString();
                 debugLog("Updated codexUri for:", id);
             }
@@ -190,10 +190,7 @@ export class NotebookMetadataManager {
 
     public getMetadataByUri(uri: vscode.Uri): NotebookMetadata {
         for (const metadata of this.metadataMap.values()) {
-            if (
-                metadata.sourceUri?.fsPath === uri.fsPath ||
-                metadata.codexUri?.fsPath === uri.fsPath
-            ) {
+            if (metadata.sourceFsPath === uri.fsPath || metadata.codexFsPath === uri.fsPath) {
                 debugLog("getMetadataByUri:", uri.fsPath, "found");
                 return metadata;
             }
@@ -206,9 +203,9 @@ export class NotebookMetadataManager {
         const newMetadata = this.getDefaultMetadata(id, baseName);
 
         if (uri.path.endsWith(".source")) {
-            newMetadata.sourceUri = uri;
+            newMetadata.sourceFsPath = uri.fsPath;
         } else if (uri.path.endsWith(".codex")) {
-            newMetadata.codexUri = uri;
+            newMetadata.codexFsPath = uri.fsPath;
         }
 
         this.metadataMap.set(id, newMetadata);
@@ -246,30 +243,31 @@ export class NotebookMetadataManager {
         }
 
         // Update metadata in the .source file if it exists
-        if (metadata.sourceUri) {
-            await this.updateMetadataInFile(metadata.sourceUri, metadata);
+        if (metadata.sourceFsPath) {
+            await this.updateMetadataInFile(metadata.sourceFsPath, metadata);
         }
 
         // Update metadata in the .codex file if it exists
-        if (metadata.codexUri) {
-            const fileStat = await vscode.workspace.fs.stat(metadata.codexUri);
+        if (metadata.codexFsPath) {
+            const codexUri = vscode.Uri.file(metadata.codexFsPath);
+            const fileStat = await vscode.workspace.fs.stat(codexUri);
             metadata.codexLastModified = new Date(fileStat.mtime).toISOString();
-            await this.updateMetadataInFile(metadata.codexUri, metadata);
+            await this.updateMetadataInFile(metadata.codexFsPath, metadata);
         }
     }
 
     private async updateMetadataInFile(
-        fileUri: vscode.Uri,
+        fileFsPath: string,
         metadata: NotebookMetadata
     ): Promise<void> {
         // Skip updating .dictionary files
-        if (fileUri.path.endsWith(".dictionary")) {
-            debugLog("Skipping metadata update for dictionary file:", fileUri.fsPath);
+        if (fileFsPath.endsWith(".dictionary")) {
+            debugLog("Skipping metadata update for dictionary file:", fileFsPath);
             return;
         }
 
         try {
-            const fileContent = await vscode.workspace.fs.readFile(fileUri);
+            const fileContent = await vscode.workspace.fs.readFile(vscode.Uri.file(fileFsPath));
             let fileData;
             try {
                 fileData = JSON.parse(new TextDecoder().decode(fileContent));
@@ -283,7 +281,7 @@ export class NotebookMetadataManager {
             }
 
             // Update only the relevant metadata for each file type
-            if (fileUri.path.endsWith(".source")) {
+            if (fileFsPath.endsWith(".source")) {
                 fileData.metadata = {
                     ...fileData.metadata,
                     id: metadata.id,
@@ -292,7 +290,7 @@ export class NotebookMetadataManager {
                     gitStatus: metadata.gitStatus,
                     corpusMarker: metadata.corpusMarker,
                 };
-            } else if (fileUri.path.endsWith(".codex")) {
+            } else if (fileFsPath.endsWith(".codex")) {
                 fileData.metadata = {
                     ...fileData.metadata,
                     id: metadata.id,
@@ -306,13 +304,13 @@ export class NotebookMetadataManager {
             }
 
             await vscode.workspace.fs.writeFile(
-                fileUri,
+                vscode.Uri.file(fileFsPath),
                 new TextEncoder().encode(JSON.stringify(fileData, null, 2))
             );
 
-            debugLog("Updated metadata in file:", fileUri.fsPath);
+            debugLog("Updated metadata in file:", fileFsPath);
         } catch (error) {
-            console.error("Error updating metadata in file:", fileUri.fsPath, error);
+            console.error("Error updating metadata in file:", fileFsPath, error);
         }
     }
 

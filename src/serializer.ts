@@ -85,7 +85,8 @@ export class CodexNotebookReader {
 
     private async ensureNotebookDocument(): Promise<void> {
         if (!this.notebookDocument) {
-            this.notebookDocument = await vscode.workspace.openNotebookDocument(this.uri);
+            const specificUri = vscode.Uri.parse(this.uri.toString());
+            this.notebookDocument = await vscode.workspace.openNotebookDocument(specificUri);
         }
     }
 

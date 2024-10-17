@@ -14,8 +14,8 @@ const vscode = acquireVsCodeApi();
 interface AggregatedMetadata {
     id: string;
     originalName: string;
-    sourceUri?: string;
-    codexUri?: string;
+    sourceFsPath?: string;
+    codexFsPath?: string;
     videoUrl?: string;
     lastModified?: string;
     gitStatus?:
@@ -102,20 +102,20 @@ const SourceUploader: React.FC = () => {
             status === "uninitialized"
                 ? "repo"
                 : status === "modified"
-                  ? "git-commit"
-                  : status === "added"
-                    ? "diff-added"
-                    : status === "deleted"
-                      ? "diff-removed"
-                      : status === "renamed"
-                        ? "diff-renamed"
-                        : status === "conflict"
-                          ? "git-merge"
-                          : status === "untracked"
-                            ? "file-add"
-                            : status === "committed"
-                              ? "check"
-                              : "question"
+                ? "git-commit"
+                : status === "added"
+                ? "diff-added"
+                : status === "deleted"
+                ? "diff-removed"
+                : status === "renamed"
+                ? "diff-renamed"
+                : status === "conflict"
+                ? "git-merge"
+                : status === "untracked"
+                ? "file-add"
+                : status === "committed"
+                ? "check"
+                : "question"
         }`;
         return (
             <i
@@ -127,7 +127,7 @@ const SourceUploader: React.FC = () => {
     };
 
     const handleSyncStatusClick = (metadata: AggregatedMetadata) => {
-        const fileUri = metadata.sourceUri || metadata.codexUri;
+        const fileUri = metadata.sourceFsPath || metadata.codexFsPath;
         if (fileUri) {
             vscode.postMessage({
                 command: "syncAction",
@@ -262,7 +262,7 @@ const SourceUploader: React.FC = () => {
                             >
                                 <VSCodeOption value="">Select a source file</VSCodeOption>
                                 {aggregatedMetadata
-                                    .filter((metadata) => metadata.sourceUri)
+                                    .filter((metadata) => metadata.sourceFsPath)
                                     .map((metadata) => (
                                         <VSCodeOption
                                             key={metadata.id}
@@ -330,10 +330,10 @@ const SourceUploader: React.FC = () => {
                         >
                             <VSCodeDataGridCell>{metadata.originalName}</VSCodeDataGridCell>
                             <VSCodeDataGridCell>
-                                {metadata.sourceUri ? (
+                                {metadata.sourceFsPath ? (
                                     <VSCodeButton
                                         appearance="icon"
-                                        onClick={() => handleOpenFile(metadata.sourceUri)}
+                                        onClick={() => handleOpenFile(metadata.sourceFsPath)}
                                     >
                                         <i
                                             className="codicon codicon-open-preview"
@@ -345,11 +345,11 @@ const SourceUploader: React.FC = () => {
                                 )}
                             </VSCodeDataGridCell>
                             <VSCodeDataGridCell>
-                                {metadata.codexUri ? (
+                                {metadata.codexFsPath ? (
                                     <div style={{ display: "flex", gap: "0.2em" }}>
                                         <VSCodeButton
                                             appearance="icon"
-                                            onClick={() => handleOpenFile(metadata.codexUri)}
+                                            onClick={() => handleOpenFile(metadata.codexFsPath)}
                                         >
                                             <i
                                                 className="codicon codicon-link-external"

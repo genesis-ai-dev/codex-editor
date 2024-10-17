@@ -78,8 +78,8 @@ export interface NotebookMetadata {
         corpusMarker?: string;
         [key: string]: any | undefined;
     };
-    sourceUri: vscode.Uri;
-    codexUri: vscode.Uri;
+    sourceFsPath: string | undefined;
+    codexFsPath: string | undefined;
     originalName: string;
     sourceFile: string;
     navigation: NavigationCell[];
@@ -253,18 +253,18 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
             const notebookMetadata: NotebookMetadata = {
                 id: book,
                 sourceFile: `${book}.source`,
-                sourceUri: vscode.Uri.joinPath(
+                sourceFsPath: vscode.Uri.joinPath(
                     vscode.workspace.workspaceFolders![0].uri,
                     ".project",
                     "sourceTexts",
                     `${book}.source`
-                ),
-                codexUri: vscode.Uri.joinPath(
+                ).fsPath,
+                codexFsPath: vscode.Uri.joinPath(
                     vscode.workspace.workspaceFolders![0].uri,
                     "files",
                     "target",
                     `${book}.codex`
-                ),
+                ).fsPath,
                 originalName: book,
                 data: {
                     corpusMarker: corpusMarker,

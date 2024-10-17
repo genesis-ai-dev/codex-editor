@@ -207,8 +207,8 @@ export class SourceUploadProvider
         const aggregatedMetadata = allMetadata.map((metadata) => ({
             id: metadata.id,
             originalName: metadata.originalName,
-            sourceUri: metadata.sourceUri?.fsPath,
-            codexUri: metadata.codexUri?.fsPath,
+            sourceFsPath: metadata.sourceFsPath,
+            codexFsPath: metadata.codexFsPath,
             videoUrl: metadata.videoUrl,
             lastModified: metadata.codexLastModified,
             gitStatus: metadata?.gitStatus,

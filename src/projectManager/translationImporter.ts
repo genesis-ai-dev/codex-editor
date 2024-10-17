@@ -9,7 +9,7 @@ import * as grammar from "usfm-grammar";
 import { ParsedUSFM } from "usfm-grammar";
 import { NotebookMetadataManager } from "../utils/notebookMetadataManager";
 
-const DEBUG_MODE = false; // Set this to false to disable debug logging
+const DEBUG_MODE = true; // Set this to false to disable debug logging
 
 function debug(...args: any[]): void {
     if (DEBUG_MODE) {
@@ -80,6 +80,14 @@ export async function importTranslations(
 
         debug("File type", fileType);
 
+        const parseVtt = (rawFileContent: string) => {
+            debug("Parsing VTT content");
+            debug("VTT content (first 100 characters):", rawFileContent.substring(0, 100));
+            const vttData = new WebVTTParser().parse(rawFileContent);
+            debug("Parsed VTT data", vttData);
+            return vttData;
+        };
+
         switch (fileType) {
             case "subtitles":
                 importedVttData = parseVtt(fileContentString);
@@ -128,7 +136,7 @@ export async function importTranslations(
             return;
         }
 
-        if (!sourceMetadata.codexUri) {
+        if (!sourceMetadata.codexFsPath) {
             debug("No .codex file found. Creating a new one.");
             const baseName = sourceMetadata.originalName;
             const codexUri = vscode.Uri.joinPath(
@@ -137,23 +145,30 @@ export async function importTranslations(
                 "target",
                 `${baseName}.codex`
             );
-            sourceMetadata.codexUri = codexUri;
+            sourceMetadata.codexFsPath = codexUri.fsPath;
 
-            // Create an empty .codex file
-            await vscode.workspace.fs.writeFile(codexUri, new Uint8Array());
+            // Create an empty notebook data
+            const serializer = new CodexContentSerializer();
+            const emptyNotebookData = new vscode.NotebookData([]);
+            emptyNotebookData.metadata = {}; // Add any required metadata here
+            const emptyNotebookBytes = await serializer.serializeNotebook(
+                emptyNotebookData,
+                new vscode.CancellationTokenSource().token
+            );
+            await vscode.workspace.fs.writeFile(codexUri, emptyNotebookBytes);
 
-            metadataManager.addOrUpdateMetadata(sourceMetadata);
+            await metadataManager.addOrUpdateMetadata(sourceMetadata);
         }
 
-        const codexFile = sourceMetadata.codexUri;
-        debug("Matching .codex file found or created", codexFile.toString());
+        const codexFile = sourceMetadata.codexFsPath;
+        debug("Matching .codex file found or created", codexFile);
 
         await insertZeroDrafts(importedContent, cellAligner, codexFile);
 
         // Update metadata after insertion
         metadataManager.addOrUpdateMetadata({
             ...sourceMetadata,
-            codexUri: codexFile,
+            codexFsPath: codexFile,
         });
 
         vscode.window.showInformationMessage("Translation imported successfully.");
@@ -165,21 +180,13 @@ export async function importTranslations(
     }
 }
 
-const parseVtt = (rawFileContent: string) => {
-    debug("Parsing VTT content");
-    debug("VTT content (first 100 characters):", rawFileContent.substring(0, 100));
-    const vttData = new WebVTTParser().parse(rawFileContent);
-    debug("Parsed VTT data", vttData);
-    return vttData;
-};
-
 async function insertZeroDrafts(
     importedContent: ImportedContent[],
     cellAligner: CellAligner,
-    codexFile: vscode.Uri
+    codexFile: string
 ): Promise<void> {
     debug("Starting insertZeroDrafts");
-    const codexNotebook = new CodexNotebookReader(codexFile);
+    const codexNotebook = new CodexNotebookReader(vscode.Uri.file(codexFile));
 
     const codexNotebookCells = await codexNotebook
         .getCells()
@@ -196,9 +203,10 @@ async function insertZeroDrafts(
     let currentBook: string = ""; // To track the current book
     let currentChapter: string | number = 0; // To track the current chapter, default to 0 for leading paratext
 
+    const codexFileUri = vscode.Uri.file(codexFile);
     const serializer = new CodexContentSerializer();
     const notebookData = await serializer.deserializeNotebook(
-        await vscode.workspace.fs.readFile(codexFile),
+        await vscode.workspace.fs.readFile(codexFileUri),
         new vscode.CancellationTokenSource().token
     );
 
@@ -208,7 +216,7 @@ async function insertZeroDrafts(
         if (alignedCell.notebookCell && !alignedCell.isParatext) {
             // Update currentBook and currentChapter based on non-paratext cells
             const cellIdParts = alignedCell.notebookCell.metadata.id.split(" ");
-            currentBook = cellIdParts[0] || codexFile.path.split("/").pop()?.split(".")[0] || "";
+            currentBook = cellIdParts[0] || codexFileUri.path.split("/").pop()?.split(".")[0] || "";
             currentChapter = cellIdParts[1]?.split(":")[0] || "1";
         }
 
@@ -275,7 +283,7 @@ async function insertZeroDrafts(
         new vscode.CancellationTokenSource().token
     );
 
-    await vscode.workspace.fs.writeFile(codexFile, updatedNotebookContent);
+    await vscode.workspace.fs.writeFile(codexFileUri, updatedNotebookContent);
 
     debug("Insertion summary", {
         inserted: insertedCount,
