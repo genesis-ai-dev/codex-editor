@@ -248,9 +248,8 @@ export default function TimeLine(
         });
     }
 
-    function handleZoom(e: { deltaY: number, preventDefault: () => void }) {
+    function handleZoom(e: { deltaY: number; preventDefault: () => void }) {
         try {
-
             e.preventDefault();
         } catch (error) {
             console.log(error);
@@ -406,12 +405,12 @@ export default function TimeLine(
     }
     function outPrtcls() {
         const data = prtcls.map((p, i) => {
-            let begin = toFixed2(p.x / zoomLevel);
+            const begin = toFixed2(p.x / zoomLevel);
             let end = toFixed2((p.x + p.edge) / zoomLevel);
-            let text = p.text;
+            const text = p.text;
 
             if (prtcls[i + 1]) {
-                let nextStart = toFixed2(prtcls[i + 1].x / zoomLevel);
+                const nextStart = toFixed2(prtcls[i + 1].x / zoomLevel);
                 if (nextStart < end) end = nextStart;
             }
 
@@ -601,33 +600,33 @@ export default function TimeLine(
     let stopMove = false;
 
     function handleResize(mouse) {
-        let mousePosition = mouse.x - shift;
+        const mousePosition = mouse.x - shift;
         let min = 0;
         let max = 99999999;
         handlePauseInChanging();
-        let leftSub = prtcls[moveIndex - 1];
-        let rightSub = prtcls[moveIndex + 1];
+        const leftSub = prtcls[moveIndex - 1];
+        const rightSub = prtcls[moveIndex + 1];
         if (leftSub) min = leftSub.x + leftSub.edge + shift;
         if (rightSub) max = rightSub.x + shift;
 
         if (currentPrtcl?.selected) {
             if (rightResize) {
-                let distanceToBegin = mouse.x - currentPrtcl.x - shift;
+                const distanceToBegin = mouse.x - currentPrtcl.x - shift;
 
                 if (mouse.x <= max && mouse.x > currentPrtcl.x + MINIMUM_BLOCK_TIME + shift) {
                     currentPrtcl.edge = distanceToBegin;
                 } else if (mouse.x > max) {
-                    let innersubs = prtcls.filter(
+                    const innersubs = prtcls.filter(
                         (p) => p.x > currentPrtcl.x && p.x + p.edge < mousePosition
                     );
                     if (innersubs.length > 1) return;
                     currentPrtcl.edge = distanceToBegin;
                     newTime = currentPrtcl.x + currentPrtcl.edge;
-                    let inners = prtcls.filter((p) => p.x > currentPrtcl.x);
+                    const inners = prtcls.filter((p) => p.x > currentPrtcl.x);
                     inners.forEach((inner) => {
                         if (inner.x < newTime) {
                             if (inner.edge > MINIMUM_BLOCK_TIME * zoomLevel) {
-                                let endPoint = inner.x + inner.edge;
+                                const endPoint = inner.x + inner.edge;
                                 inner.x = newTime;
                                 inner.edge = endPoint - inner.x;
                             } else {
@@ -643,18 +642,18 @@ export default function TimeLine(
                     });
                 }
             } else {
-                let endPoint = currentPrtcl.x + currentPrtcl.edge;
+                const endPoint = currentPrtcl.x + currentPrtcl.edge;
 
                 if (mouse.x > min && mouse.x < currentPrtcl.x + currentPrtcl.edge - 0.3 + shift) {
                     currentPrtcl.x = mouse.x - shift;
                     currentPrtcl.edge = endPoint - mouse.x + shift;
                 } else if (mouse.x < min) {
                     if (stopMove) return;
-                    let innersubs = prtcls.filter(
+                    const innersubs = prtcls.filter(
                         (p) => p.x + p.edge > mousePosition && p.x < currentPrtcl.x
                     );
                     if (innersubs.length > 1) return;
-                    let inners = prtcls.filter((p) => p.x < mouse.x - shift);
+                    const inners = prtcls.filter((p) => p.x < mouse.x - shift);
                     newTime = mouse.x - shift;
 
                     for (let i = inners.length - 1; i >= 0; i--) {
@@ -711,8 +710,8 @@ export default function TimeLine(
             ctx.translate(mouse.x + 10, mouse.y - 10);
             ctx.fillStyle = options.colors.tooltipBackground;
             ctx.font = "12px Arial";
-            let width = ctx.measureText(currentPrtcl.text).width;
-            let height = 20;
+            const width = ctx.measureText(currentPrtcl.text).width;
+            const height = 20;
             ctx.fillRect(5 + width / -2, -22, width + 20, height);
             ctx.fillStyle = options.colors.tooltipText;
             ctx.fillText(currentPrtcl.text, 15 + width / -2, -12);
@@ -730,12 +729,12 @@ export default function TimeLine(
 
     function changeCursorViewPort(time) {
         if (scrolling) return;
-        let transitionLevel = 1;
-        let margin = (endTimeShow - beginingTimeShow) * 0.2;
-        let remainingTime = endTimeShow - time;
+        const transitionLevel = 1;
+        const margin = (endTimeShow - beginingTimeShow) * 0.2;
+        const remainingTime = endTimeShow - time;
 
         if (remainingTime < margin && autoScroll) {
-            let delta = margin - remainingTime;
+            const delta = margin - remainingTime;
 
             if (shift - delta * zoomLevel * transitionLevel < maximumShift) {
                 shift = maximumShift;
@@ -785,7 +784,7 @@ export default function TimeLine(
         drawXaxis(context);
 
         function drawVerticalGrid(ctx) {
-            let initNumber = shift % zoomLevel;
+            const initNumber = shift % zoomLevel;
 
             for (let i = initNumber; i < w; i += zoomLevel / rat) {
                 if (i > 0) {
@@ -803,7 +802,7 @@ export default function TimeLine(
         function drawXaxis(ctx) {
             ctx.beginPath();
             let counter = 0;
-            let initNumber = shift % zoomLevel;
+            const initNumber = shift % zoomLevel;
             for (let i = initNumber; i < w; i += zoomLevel / rat) {
                 if (counter % rat === 0) {
                     ctx.moveTo(i, 0);
@@ -859,7 +858,7 @@ export default function TimeLine(
     }
 
     function drawScroll() {
-        let cursorInScroll = cursorInScrollBar();
+        const cursorInScroll = cursorInScrollBar();
         scrolling = cursorInScroll && isMouseDown && !resizing;
 
         if (cursorInScroll || scrolling) {
@@ -868,19 +867,19 @@ export default function TimeLine(
             canvas.classList.remove("e-resize");
         }
 
-        let context = ctx;
+        const context = ctx;
         context.save();
         context.fillStyle = options.colors.scrollBarBackground;
         context.fillRect(0, TIMELINE_HEIGHT - 10, w, 10);
         context.fillStyle =
             cursorInScroll || scrolling ? options.colors.scrollBarHover : options.colors.scrollBar;
-        let d = endTimeShow - beginingTimeShow;
+        const d = endTimeShow - beginingTimeShow;
         let rat = d / endTime;
         scrollSize = w * rat;
         if (rat > 1) rat = 1;
-        let ratio = beginingTimeShow / endTime;
+        const ratio = beginingTimeShow / endTime;
         scrollPosition = ratio * w;
-        let padding = 1;
+        const padding = 1;
         context.fillRect(
             scrollPosition,
             TIMELINE_HEIGHT - SCROLL_BAR_HEIGHT + padding,
@@ -912,7 +911,7 @@ export default function TimeLine(
     }
 
     function checkShift() {
-        let newShift = w - endTime * zoomLevel;
+        const newShift = w - endTime * zoomLevel;
 
         if (newShift > 0) {
             maximumShift = 0;
@@ -939,8 +938,8 @@ export default function TimeLine(
         if (!moving) currentPrtclsIndex = -1;
         currentHoveredIndex = -1;
         prtcls.filter((e, i) => {
-            let isHoveredPrtcl = cursorInRect(mouse.x, mouse.y, e.x, e.y, e.edge, e.edge);
-            let position = currentTime * zoomLevel + shift; //player on box
+            const isHoveredPrtcl = cursorInRect(mouse.x, mouse.y, e.x, e.y, e.edge, e.edge);
+            const position = currentTime * zoomLevel + shift; //player on box
 
             if (position - shift >= e.x && position - shift <= e.x + e.edge) {
                 currentHoveredIndex = i;
@@ -949,7 +948,7 @@ export default function TimeLine(
             if (isHoveredPrtcl && !resizing && !moving) currentPrtclsIndex = i;
             e.active = !!isHoveredPrtcl; //check prtcls is in viewport
 
-            let condition =
+            const condition =
                 (e.x >= -1 * shift && e.x + e.edge < -1 * shift + w) ||
                 (e.x + e.edge > -1 * shift && e.x < -1 * shift + w);
 
