@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import TimeLine from "./T.js";
+import TimeLine from "./T";
 import "./index.css";
 export default function Timeline(props) {
     let timeLine;
