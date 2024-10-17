@@ -1,13 +1,13 @@
 const toFixed2 = (i: number): number => Math.floor(i * 100) / 100;
 
+export interface Aligns {
+    begin: number;
+    end: number;
+    text: string;
+}
+
 export interface TimelineReturn {
-    setData: (
-        alignments: {
-            begin: number;
-            end: number;
-            text: string;
-        }[]
-    ) => void;
+    setData: (alignments: Aligns[]) => void;
     cancelAnimate: () => void;
     changeZoom: (deltaY: number) => void;
     changeCursorViewPort: (beginingTimeShow: number, endTimeShow: number) => void;
@@ -134,12 +134,21 @@ export default function TimeLine(
         y: number;
         text: string;
         edge: number;
-        startIndex: number;
-        endIndex: number;
+        startIndex?: number;
+        endIndex?: number;
         selected: boolean;
         active: boolean;
         index: number;
         draw: (context: CanvasRenderingContext2D) => void;
+        constructor: new (
+            x: number,
+            y: number,
+            edge: number,
+            index: number,
+            text: string,
+            sIndex: number,
+            eIndex: number
+        ) => Square;
     }
 
     function Square(
@@ -227,8 +236,8 @@ export default function TimeLine(
         mouseY: number,
         rectX: number,
         rectY: number,
-        rectW: number
-        // rectH: number
+        rectW: number,
+        rectH: number
     ) {
         const xLine = mouseX > rectX + shift && mouseX < rectX + shift + rectW;
         const yLine = mouseY > rectY && mouseY < rectY + TRACK_HEIGHT;
@@ -238,7 +247,9 @@ export default function TimeLine(
     function resize() {
         w = canvas.width = canvas2.width = canvas.parentElement?.parentElement?.clientWidth || 0;
         h = canvas.height = canvas2.height = TIMELINE_HEIGHT;
-        drawBG(bgCtx);
+        if (bgCtx) {
+            drawBG(bgCtx);
+        }
     }
 
     function changeZoom(deltaY: number) {
@@ -292,7 +303,9 @@ export default function TimeLine(
         });
         checkShift();
         changeZoomLevel(zoomLevel);
-        drawBG(bgCtx, ratio);
+        if (bgCtx) {
+            drawBG(bgCtx, ratio);
+        }
     }
 
     function drawTimeCursor() {
@@ -346,7 +359,7 @@ export default function TimeLine(
         }
     }
 
-    function handleMouseMove(e) {
+    function handleMouseMove(e: MouseEvent) {
         e.preventDefault();
         handleHoverTimeBar();
         if (!currentPrtcl) visibleTooltip = false;
@@ -366,7 +379,9 @@ export default function TimeLine(
         }
 
         if (moving || scrolling || swaping) checkShift();
-        drawBG(bgCtx);
+        if (bgCtx) {
+            drawBG(bgCtx);
+        }
     }
     function handleScrolling() {
         if (zoomLevel === minimumZoomLevel) return;
@@ -376,7 +391,9 @@ export default function TimeLine(
         const ratio = (mouse.x - distance) / w;
         const value = -1 * ratio * endTime * zoomLevel;
         if (value <= 0) shift = value;
-        drawBG(bgCtx);
+        if (bgCtx) {
+            drawBG(bgCtx);
+        }
     }
     function resetActives() {
         // prtcls.forEach((d) => {
@@ -436,7 +453,9 @@ export default function TimeLine(
                 }
             }
 
-            drawBG(bgCtx);
+            if (bgCtx) {
+                drawBG(bgCtx);
+            }
         }
     }
 
@@ -599,7 +618,7 @@ export default function TimeLine(
 
     let stopMove = false;
 
-    function handleResize(mouse) {
+    function handleResize(mouse: { x: number; y: number }) {
         const mousePosition = mouse.x - shift;
         let min = 0;
         let max = 99999999;
@@ -679,7 +698,7 @@ export default function TimeLine(
         }
     }
 
-    function toTime(s, withMilliSecond) {
+    function toTime(s: number, withMilliSecond: boolean) {
         try {
             if (withMilliSecond) return new Date(s * 1000).toISOString().substr(11, 11);
             return new Date(s * 1000).toISOString().substr(11, 8);
@@ -688,17 +707,19 @@ export default function TimeLine(
         }
     }
 
-    function setData(aligns) {
+    function setData(aligns: Aligns[]) {
+        console.log({ aligns });
         prtcls = aligns.map(
             (p, i) =>
+                // @ts-expect-error: square is some how a class
                 new Square(
                     p.begin * zoomLevel,
                     LINE_HEIGHT,
                     (p.end - p.begin) * zoomLevel,
                     i,
-                    p.text,
-                    p.startIndex,
-                    p.endIndex
+                    p.text
+                    // p.startIndex,
+                    // p.endIndex
                 )
         );
         return prtcls;
@@ -723,11 +744,11 @@ export default function TimeLine(
         cancelAnimationFrame(animationID);
     }
 
-    function handleCursorOutOfViewPort(time) {
+    function handleCursorOutOfViewPort(time: number) {
         if (!player.paused) changeCursorViewPort(time);
     }
 
-    function changeCursorViewPort(time) {
+    function changeCursorViewPort(time: number) {
         if (scrolling) return;
         const transitionLevel = 1;
         const margin = (endTimeShow - beginingTimeShow) * 0.2;
@@ -758,10 +779,12 @@ export default function TimeLine(
         }
 
         checkShift();
-        drawBG(bgCtx);
+        if (bgCtx) {
+            drawBG(bgCtx);
+        }
     }
 
-    function drawBG(context, r = 1) {
+    function drawBG(context: CanvasRenderingContext2D, r = 1) {
         let rat = 5;
         if (zoomLevel > 50) rat = 10;
         if (zoomLevel > 100) rat = 15;
@@ -783,7 +806,7 @@ export default function TimeLine(
 
         drawXaxis(context);
 
-        function drawVerticalGrid(ctx) {
+        function drawVerticalGrid(ctx: CanvasRenderingContext2D) {
             const initNumber = shift % zoomLevel;
 
             for (let i = initNumber; i < w; i += zoomLevel / rat) {
@@ -799,7 +822,7 @@ export default function TimeLine(
             }
         }
 
-        function drawXaxis(ctx) {
+        function drawXaxis(ctx: CanvasRenderingContext2D) {
             ctx.beginPath();
             let counter = 0;
             const initNumber = shift % zoomLevel;
@@ -809,7 +832,12 @@ export default function TimeLine(
                     ctx.lineTo(i, 30);
                     context.fillStyle = "grey";
                     if (zoomLevel > 50) {
-                        ctx.fillText(` ${toTime((i - shift) / zoomLevel)}`, i, 30, zoomLevel - 2);
+                        ctx.fillText(
+                            ` ${toTime((i - shift) / zoomLevel, false)}`,
+                            i,
+                            30,
+                            zoomLevel - 2
+                        );
                     } else {
                         // let viewPortTime = endTimeShow - beginingTimeShow;
                         ctx.fillText(
@@ -833,9 +861,9 @@ export default function TimeLine(
         }
     }
 
-    function handleClick(e) {
+    function handleClick(e: MouseEvent) {
         scrolling =
-            cursorInScrollBar() && isMouseDown && !resizing && !moving && !resizing & !swaping;
+            cursorInScrollBar() && isMouseDown && !resizing && !moving && !resizing && !swaping;
     }
 
     function cursorInScrollBar() {
@@ -853,7 +881,7 @@ export default function TimeLine(
         return false;
     }
 
-    function changeAutoScroll(a) {
+    function changeAutoScroll(a: any) {
         autoScroll = a.detail.status;
     }
 
@@ -925,7 +953,7 @@ export default function TimeLine(
     }
 
     function animate() {
-        var _player;
+        let _player;
 
         if (!player) player = getPlayer();
         currentTime =

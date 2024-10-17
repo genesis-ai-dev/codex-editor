@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import TimeLine, { TimelineReturn } from "./T";
+import TimeLine, { Aligns, TimelineReturn } from "./T";
 import "./index.css";
 
 export interface TimelineProps {
@@ -15,11 +15,7 @@ export interface TimelineProps {
     ) => void;
     audioRef?: React.RefObject<HTMLAudioElement>;
     src: string;
-    data: {
-        begin: number;
-        end: number;
-        text: string;
-    }[];
+    data: Aligns[];
     autoScroll: boolean;
     colors: {
         background: string;
