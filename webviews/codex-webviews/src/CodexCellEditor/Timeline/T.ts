@@ -50,7 +50,7 @@ export default function TimeLine(
             scrollBarHover: string;
         };
     }
-): TimelineReturn {
+): TimelineReturn | undefined {
     // constants
     const LINE_HEIGHT = 40;
     const TRACK_HEIGHT = 40;
@@ -75,14 +75,20 @@ export default function TimeLine(
         return;
     } // element setting
 
-    let animationID;
-    let w = (canvas.width = canvas2.width = canvas.parentElement.parentElement.clientWidth);
+    let animationID: number;
+    let w = (canvas.width = canvas2.width = canvas.parentElement?.parentElement?.clientWidth || 0);
     let h = (canvas.height = canvas2.height = TIMELINE_HEIGHT);
     let scrollPosition = 0;
     let scrollSize = w;
-    let minimumZoomLevel = w / endTime;
-    let ctx = canvas.getContext("2d");
-    let bgCtx = canvas2.getContext("2d");
+    const minimumZoomLevel = w / endTime;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+        return;
+    }
+    const bgCtx = canvas2.getContext("2d");
+    if (!bgCtx) {
+        return;
+    }
     ctx.lineWidth = 2;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
@@ -91,31 +97,31 @@ export default function TimeLine(
     canvas2.style.backgroundColor = options.colors.background;
     let mouse = {};
     let lastXcursor = 0;
-    let mouseTime;
+    let mouseTime: number;
     let swaping = false;
-    let player;
+    let player: any;
     let shift = 0;
-    let movingDirection;
+    let movingDirection: string;
     let zoomLevel = w / endTime || 1;
     let moving = false;
     let resizing = false;
-    let currentPrtcl;
+    let currentPrtcl: any;
     let currentHoveredIndex = -1;
-    let currentPrtclsIndex;
+    let currentPrtclsIndex: number;
     let rightResize = false;
     let leftResize = false;
     let globalRatio = 1;
     let currentTime = 0;
     let beginingTimeShow = 0;
     let endTimeShow = Math.abs(w + shift) / zoomLevel;
-    let moveIndex;
-    let newTime;
-    let prtcls = [];
+    let moveIndex: number;
+    let newTime: number;
+    let prtcls: any[] = [];
     setData(alignments); //tooltip
 
-    var tooltipTimeout;
-    var visibleTooltip = false;
-    let visitedPrtcl; // BEGIN ...
+    let tooltipTimeout: number;
+    let visibleTooltip = false;
+    let visitedPrtcl: number; // BEGIN ...
 
     addListenerHandlers(canvas);
     changeZoomLevel(zoomLevel);

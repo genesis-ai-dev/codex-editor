@@ -39,7 +39,7 @@ export interface TimelineProps {
 }
 
 export default function Timeline(props: TimelineProps) {
-    let timeLine: TimelineReturn;
+    let timeLine: TimelineReturn | undefined;
     let shift: number;
     let zoomLevel: number;
     let data: {
