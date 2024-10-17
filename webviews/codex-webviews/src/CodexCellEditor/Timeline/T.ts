@@ -1,5 +1,18 @@
 const toFixed2 = (i: number): number => Math.floor(i * 100) / 100;
 
+export interface TimelineReturn {
+    setData: (
+        alignments: {
+            begin: number;
+            end: number;
+            text: string;
+        }[]
+    ) => void;
+    cancelAnimate: () => void;
+    changeZoom: (deltaY: number) => void;
+    changeCursorViewPort: (beginingTimeShow: number, endTimeShow: number) => void;
+}
+
 export default function TimeLine(
     canvas: HTMLCanvasElement,
     canvas2: HTMLCanvasElement,
@@ -21,24 +34,23 @@ export default function TimeLine(
     changeShift: (shift: number) => void,
     tellAreaChangesToRectComponent: (beginingTimeShow: number, endTimeShow: number) => void,
     options: {
-        background: string;
-        box: string;
-        boxHover: string;
-        selectedBox: string;
-        playingBox: string;
-    }
-): {
-    setData: (
-        alignments: {
-            begin: number;
-            end: number;
+        autoScroll: boolean;
+        colors: {
+            background: string;
+            box: string;
+            boxHover: string;
+            selectedBox: string;
+            playingBox: string;
             text: string;
-        }[]
-    ) => void;
-    cancelAnimate: () => void;
-    changeZoom: (deltaY: number) => void;
-    changeCursorViewPort: (beginingTimeShow: number, endTimeShow: number) => void;
-} {
+            selectedText: string;
+            tooltipBackground: string;
+            tooltipText: string;
+            scrollBarBackground: string;
+            scrollBar: string;
+            scrollBarHover: string;
+        };
+    }
+): TimelineReturn {
     // constants
     const LINE_HEIGHT = 40;
     const TRACK_HEIGHT = 40;

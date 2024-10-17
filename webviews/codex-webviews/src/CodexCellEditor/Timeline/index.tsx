@@ -1,8 +1,8 @@
 import React, { useEffect, useRef } from "react";
-import TimeLine from "./T";
+import TimeLine, { TimelineReturn } from "./T";
 import "./index.css";
 
-interface TimelineProps {
+export interface TimelineProps {
     changeAreaShow: (beginingTimeShow: number, endTimeShow: number) => void;
     changeZoomLevel: (zoomLevel: number) => void;
     changeShift: (shift: number) => void;
@@ -39,7 +39,7 @@ interface TimelineProps {
 }
 
 export default function Timeline(props: TimelineProps) {
-    let timeLine: typeof TimeLine;
+    let timeLine: TimelineReturn;
     let shift: number;
     let zoomLevel: number;
     let data: {
@@ -49,35 +49,34 @@ export default function Timeline(props: TimelineProps) {
     }[];
     let beginingTimeShow: number;
     let endTimeShow: number;
-
     const canvas1 = useRef(null);
     const canvasAudio = useRef(null);
     const canvas2 = useRef(null);
 
-    const changeAlignment = (z) => {
+    const changeAlignment = (z: typeof data) => {
         data = z;
         props.setAligns(z);
     };
-    const changeZoomLevel = (z) => {
+    const changeZoomLevel = (z: number) => {
         props.changeZoomLevel(z);
         zoomLevel = z;
     };
-    const changeShift = (s) => {
+    const changeShift = (s: number) => {
         props.changeShift(s);
         shift = s;
     };
 
-    const changeAreaShow = (b, e) => {
+    const changeAreaShow = (b: number, e: number) => {
         props.changeAreaShow(b, e);
         beginingTimeShow = b;
         endTimeShow = e;
     };
 
-    let defaultFunction = () => {};
-    const drawTimeLine = (p) => {
+    const defaultFunction = () => {};
+    const drawTimeLine = (p: TimelineProps & { endTime: number }) => {
         timeLine = TimeLine(
-            canvas1.current,
-            canvas2.current,
+            canvas1.current as unknown as HTMLCanvasElement,
+            canvas2.current as unknown as HTMLCanvasElement,
             p.data,
             p.endTime,
             () => (props.audioRef ? props.audioRef.current : canvasAudio.current),
@@ -128,6 +127,7 @@ export default function Timeline(props: TimelineProps) {
         height: "90px",
         paddingLeft: props.paddingLeft,
     };
+
     return (
         <div style={style} className="timeline-editor">
             <div hidden>
