@@ -17,7 +17,7 @@ export const registerScmStatusBar = (ctx: vscode.ExtensionContext) => {
         if (autoSyncInterval === "Do not auto sync") {
             scmStatusBar.text = "$(sync) Manual Sync";
             scmStatusBar.tooltip = "Click to sync manually";
-            scmStatusBar.command = "codex-editor-extension.scm.commitAllWorkspaceChanges";
+            scmStatusBar.command = "codex-editor-extension.scm.stageAndCommitAll";
             scmStatusBar.backgroundColor = undefined;
             return;
         }
@@ -41,7 +41,7 @@ export const registerScmStatusBar = (ctx: vscode.ExtensionContext) => {
         if (await hasPendingChanges()) {
             scmStatusBar.text = "$(warning) Local changes pending";
             scmStatusBar.tooltip = "Click to commit changes";
-            scmStatusBar.command = "codex-editor-extension.scm.commitAllWorkspaceChanges";
+            scmStatusBar.command = "codex-editor-extension.scm.stageAndCommitAll";
             scmStatusBar.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
             return;
         }
@@ -80,7 +80,7 @@ export const registerScmStatusBar = (ctx: vscode.ExtensionContext) => {
         if (intervalMs > 0) {
             syncInterval = setInterval(async () => {
                 await vscode.commands.executeCommand(
-                    "codex-editor-extension.scm.commitAllWorkspaceChanges"
+                    "codex-editor-extension.scm.stageAndCommitAll"
                 );
                 syncStatus();
             }, intervalMs) as unknown as NodeJS.Timeout;
@@ -110,29 +110,3 @@ export const registerScmStatusBar = (ctx: vscode.ExtensionContext) => {
 
     return [scmStatusBar, syncStatus] as const;
 };
-
-// Add these command registrations in your extension's activate function
-export function registerScmCommands(context: vscode.ExtensionContext) {
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-editor-extension.scm.commitCurrentEditorChanges",
-            async () => {
-                // Implement logic to commit changes in the current editor
-                // You may need to use the Git extension API or your own implementation
-                await vscode.window.showInformationMessage(
-                    "Committing changes in the current editor"
-                );
-            }
-        ),
-        vscode.commands.registerCommand(
-            "codex-editor-extension.scm.commitAllWorkspaceChanges",
-            async () => {
-                // Implement logic to commit all changes in the workspace
-                // You may need to use the Git extension API or your own implementation
-                await vscode.window.showInformationMessage(
-                    "Committing all changes in the workspace"
-                );
-            }
-        )
-    );
-}
