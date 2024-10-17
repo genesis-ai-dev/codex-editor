@@ -6,7 +6,7 @@
 .codex-cell-editor {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    height: 100vh;
     overflow: hidden;
 }
 
@@ -383,6 +383,10 @@ li {
     width: 100%;
     max-width: 40rem;
     margin: 0 auto;
+    position: sticky;
+    top: 0;
+    z-index: 99; /* Just below the navigation */
+    background-color: var(--vscode-editor-background);
 }
 
 /* Ensure the video doesn't overflow its container */

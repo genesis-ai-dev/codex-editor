@@ -42,7 +42,9 @@ const CodexCellEditor: React.FC = () => {
     const [isSourceText, setIsSourceText] = useState<boolean>(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState<boolean>(false);
     console.log({ isMetadataModalOpen });
-    const [metadata, setMetadata] = useState<CustomNotebookMetadata>();
+    const [metadata, setMetadata] = useState<CustomNotebookMetadata>({
+        videoUrl: "", // FIXME: use attachments instead of videoUrl
+    } as CustomNotebookMetadata);
     const [videoUrl, setVideoUrl] = useState<string>("");
     const playerRef = useRef<ReactPlayer>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
@@ -223,11 +225,10 @@ const CodexCellEditor: React.FC = () => {
     // };
 
     const handleMetadataChange = (key: string, value: string) => {
-        setMetadata((prev: CustomNotebookMetadata | undefined) => {
-            if (!prev) {
-                return { [key]: value } as unknown as CustomNotebookMetadata;
-            }
-            return { ...prev, [key]: value };
+        setMetadata((prev) => {
+            const updatedMetadata = { ...prev, [key]: value };
+            console.log("Updated metadata:", updatedMetadata);
+            return updatedMetadata;
         });
     };
 
@@ -236,14 +237,16 @@ const CodexCellEditor: React.FC = () => {
     };
 
     const handleSaveMetadata = () => {
+        const updatedMetadata = { ...metadata };
         if (tempVideoUrl) {
-            handleMetadataChange("videoUrl", tempVideoUrl);
+            updatedMetadata.videoUrl = tempVideoUrl;
             setVideoUrl(tempVideoUrl);
             setTempVideoUrl("");
         }
+        console.log("Saving metadata:", updatedMetadata);
         vscode.postMessage({
             command: "updateNotebookMetadata",
-            content: metadata,
+            content: updatedMetadata,
         } as EditorPostMessages);
         setIsMetadataModalOpen(false);
     };
@@ -256,13 +259,16 @@ const CodexCellEditor: React.FC = () => {
     const [windowHeight, setWindowHeight] = useState(window.innerHeight);
     const headerRef = useRef<HTMLDivElement>(null);
     const navigationRef = useRef<HTMLDivElement>(null);
+    const videoPlayerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         const handleResize = () => {
             setWindowHeight(window.innerHeight);
-            if (headerRef.current && navigationRef.current) {
+            if (headerRef.current && navigationRef.current && videoPlayerRef.current) {
                 const totalHeaderHeight =
-                    headerRef.current.offsetHeight + navigationRef.current.offsetHeight;
+                    headerRef.current.offsetHeight +
+                    navigationRef.current.offsetHeight +
+                    (shouldShowVideoPlayer ? videoPlayerRef.current.offsetHeight : 0);
                 setHeaderHeight(totalHeaderHeight);
             }
         };
@@ -271,7 +277,8 @@ const CodexCellEditor: React.FC = () => {
         handleResize(); // Initial calculation
 
         return () => window.removeEventListener("resize", handleResize);
-    }, []);
+    }, [shouldShowVideoPlayer]); // Add shouldShowVideoPlayer as a dependency
+
     const checkForDuplicateCells = (translationUnitsToCheck: QuillCellContent[]) => {
         const listOfCellIds = translationUnitsToCheck.map((unit) => unit.cellMarkers[0]);
         const uniqueCellIds = new Set(listOfCellIds);
@@ -319,14 +326,16 @@ const CodexCellEditor: React.FC = () => {
                     />
                 </div>
                 {shouldShowVideoPlayer && videoUrl && (
-                    <VideoPlayer
-                        playerRef={playerRef}
-                        videoUrl={videoUrl}
-                        translationUnitsForSection={translationUnitsWithCurrentEditorContent}
-                    />
+                    <div ref={videoPlayerRef}>
+                        <VideoPlayer
+                            playerRef={playerRef}
+                            videoUrl={videoUrl}
+                            translationUnitsForSection={translationUnitsWithCurrentEditorContent}
+                        />
+                    </div>
                 )}
             </div>
-            <div className="scrollable-content">
+            <div className="scrollable-content" style={{ height: `calc(100vh - ${headerHeight}px)` }}>
                 <h1>{translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0]}</h1>
                 <div className="editor-container">
                     {autocompletionProgress !== null && (

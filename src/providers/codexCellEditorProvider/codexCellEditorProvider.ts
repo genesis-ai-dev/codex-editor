@@ -671,10 +671,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                 "Notebook metadata updated successfully."
                             );
 
-                            this.postMessageToWebview(webviewPanel, {
-                                type: "providerUpdatesNotebookMetadataForWebview",
-                                content: await document.getNotebookMetadata(),
-                            });
+                            // Refresh the entire webview to ensure all data is up-to-date
+                            this.refreshWebview(webviewPanel, document);
                         } catch (error) {
                             console.error("Error updating notebook metadata:", error);
                             vscode.window.showErrorMessage("Failed to update notebook metadata.");
@@ -694,11 +692,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             const fileUri = result?.[0];
                             if (fileUri) {
                                 const videoUrl = fileUri.toString();
-                                // Instead of updating the metadata here, we'll send it back to the webview
-                                this.postMessageToWebview(webviewPanel, {
-                                    type: "updateVideoUrlInWebview",
-                                    content: videoUrl,
-                                });
+                                await document.updateNotebookMetadata({ videoUrl });
+                                await document.save(new vscode.CancellationTokenSource().token);
+                                this.refreshWebview(webviewPanel, document);
                             }
                         } catch (error) {
                             console.error("Error picking video file:", error);
@@ -1003,5 +999,55 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         message: EditorReceiveMessages
     ) {
         webviewPanel.webview.postMessage(message);
+    }
+
+    private refreshWebview(webviewPanel: vscode.WebviewPanel, document: CodexCellDocument) {
+        const notebookData = this.getDocumentAsJson(document);
+        const processedData = this.processNotebookData(notebookData);
+        const isSourceText = document.uri.fsPath.endsWith(".source");
+        const videoUrl = this.getVideoUrl(notebookData.metadata?.videoUrl, webviewPanel);
+
+        webviewPanel.webview.html = this.getHtmlForWebview(
+            webviewPanel.webview,
+            document,
+            this.getTextDirection(),
+            isSourceText
+        );
+
+        this.postMessageToWebview(webviewPanel, {
+            type: "providerSendsInitialContent",
+            content: processedData,
+            isSourceText: isSourceText,
+            sourceCellMap: document._sourceCellMap,
+        });
+
+        this.postMessageToWebview(webviewPanel, {
+            type: "providerUpdatesNotebookMetadataForWebview",
+            content: notebookData.metadata,
+        });
+
+        if (videoUrl) {
+            this.postMessageToWebview(webviewPanel, {
+                type: "updateVideoUrlInWebview",
+                content: videoUrl,
+            });
+        }
+    }
+
+    private getVideoUrl(videoPath: string | undefined, webviewPanel: vscode.WebviewPanel): string | null {
+        if (!videoPath) return null;
+
+        if (videoPath.startsWith("http://") || videoPath.startsWith("https://")) {
+            return videoPath;
+        } else if (videoPath.startsWith("file://")) {
+            return webviewPanel.webview.asWebviewUri(vscode.Uri.parse(videoPath)).toString();
+        } else {
+            const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+            if (workspaceUri) {
+                const fullPath = vscode.Uri.joinPath(workspaceUri, videoPath);
+                return webviewPanel.webview.asWebviewUri(fullPath).toString();
+            }
+        }
+        return null;
     }
 }

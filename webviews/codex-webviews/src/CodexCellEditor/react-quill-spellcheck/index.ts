@@ -5,7 +5,6 @@ import "./QuillSpellChecker.css";
 import createSuggestionBlotForQuillInstance from "./SuggestionBlot";
 import { SuggestionBoxes } from "./SuggestionBoxes";
 import { MatchesEntity, SpellCheckerApi } from "./types";
-import { EditorPostMessages } from "../../../../../types";
 
 const DEBUG_MODE = false;
 const debug = (...args: any[]) => DEBUG_MODE && console.log(...args);
