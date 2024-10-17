@@ -52,8 +52,7 @@ class CodexCellDocument implements vscode.CustomDocument {
                     .getAllMetadata()
                     ?.find(
                         (m: CustomNotebookMetadata) =>
-                            m.codexFsPath === this.uri.fsPath ||
-                            m.sourceFsPath === this.uri.fsPath
+                            m.codexFsPath === this.uri.fsPath || m.sourceFsPath === this.uri.fsPath
                     );
                 if (matchingMetadata) {
                     this._documentData.metadata = matchingMetadata;
@@ -473,9 +472,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                 e.words
                             );
                             console.log("spellcheck.addWord command result:", result);
-                            vscode.window.showInformationMessage(
-                                "Word added to dictionary successfully."
-                            );
+                            webviewPanel.webview.postMessage({
+                                type: "wordAdded",
+                                content: e.words,
+                            });
                         } catch (error) {
                             console.error("Error adding word:", error);
                             vscode.window.showErrorMessage(`Failed to add word to dictionary:`);
