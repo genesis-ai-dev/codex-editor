@@ -274,8 +274,11 @@ export const checkConfigRemoteAndUpdateIt = async () => {
         return;
     }
 
+    if (!remoteFromConfig) {
+        return;
+    }
     const remoteChangeChoice = await vscode.window.showInformationMessage(
-        "Remote URL has changed. Do you want to update it?",
+        `Remote URL has changed to ${remoteFromConfig}. Do you want to update it?`,
         "Yes",
         "No"
     );

@@ -315,20 +315,7 @@ export class CodexNotebookTreeViewProvider
 
     private async getNotebooksByCorpus(): Promise<Node[]> {
         try {
-            const corpora: Record<string, Node> = {
-                "Old Testament": new Node(
-                    "Old Testament",
-                    "corpus",
-                    vscode.TreeItemCollapsibleState.Expanded
-                ),
-                "New Testament": new Node(
-                    "New Testament",
-                    "corpus",
-                    vscode.TreeItemCollapsibleState.Expanded
-                ),
-            };
-            corpora["Old Testament"].children = [];
-            corpora["New Testament"].children = [];
+            const corpora: Record<string, Node> = {};
             const ungroupedNotebooks: Node[] = [];
 
             for (const [notebookPath, metadata] of this.notebookMetadata) {
@@ -354,11 +341,17 @@ export class CodexNotebookTreeViewProvider
 
                 const bookData = vrefData[fileNameWithoutExtension];
                 if (bookData) {
-                    const testament =
-                        bookData.testament === "OT" ? "Old Testament" : "New Testament";
+                    const testament = bookData.testament === "OT" ? "Old Testament" : "New Testament";
+                    if (!corpora[testament]) {
+                        corpora[testament] = new Node(
+                            testament,
+                            "corpus",
+                            vscode.TreeItemCollapsibleState.Expanded
+                        );
+                        corpora[testament].children = [];
+                    }
                     corpora[testament].children?.push(notebookNode);
                 } else if (metadata.corpusMarker) {
-                    // Add notebook to the corpus if it's not in vrefData but has a corpusMarker
                     if (!corpora[metadata.corpusMarker]) {
                         corpora[metadata.corpusMarker] = new Node(
                             metadata.corpusMarker,
@@ -369,14 +362,13 @@ export class CodexNotebookTreeViewProvider
                     }
                     corpora[metadata.corpusMarker].children?.push(notebookNode);
                 } else {
-                    // Ungrouped notebook
                     ungroupedNotebooks.push(notebookNode);
                 }
             }
 
             // Sort books within each testament
             for (const testament of ["Old Testament", "New Testament"]) {
-                corpora[testament].children?.sort((a, b) => {
+                corpora[testament]?.children?.sort((a, b) => {
                     const aOrd = Number(vrefData[a.label]?.ord) || Infinity;
                     const bOrd = Number(vrefData[b.label]?.ord) || Infinity;
                     return aOrd - bOrd;

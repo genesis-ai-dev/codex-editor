@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { Dispatch, SetStateAction } from "react";
 import { QuillCellContent, SpellCheckResponse } from "../../../../../types";
-import { NotebookMetadata } from "../../../../../src/utils/codexNotebookUtils";
+import { CustomNotebookMetadata } from "../../../../../types";
 
 interface UseVSCodeMessageHandlerProps {
     setContent: (
@@ -14,7 +14,7 @@ interface UseVSCodeMessageHandlerProps {
     updateCell: (data: { cellId: string; newContent: string; progress: number }) => void;
     autocompleteChapterComplete: () => void;
     updateTextDirection: (direction: "ltr" | "rtl") => void;
-    updateNotebookMetadata: (metadata: NotebookMetadata) => void;
+    updateNotebookMetadata: (metadata: CustomNotebookMetadata) => void;
     updateVideoUrl: (url: string) => void;
 }
 
