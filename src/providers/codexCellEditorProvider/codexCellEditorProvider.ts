@@ -15,6 +15,7 @@ import {
     Timestamps,
     CustomNotebookMetadata,
 } from "../../../types";
+import { NotebookMetadataManager } from "../../utils/notebookMetadataManager";
 
 function getNonce(): string {
     let text = "";
@@ -44,6 +45,21 @@ class CodexCellDocument implements vscode.CustomDocument {
     constructor(uri: vscode.Uri, initialContent: string) {
         this.uri = uri;
         this._documentData = initialContent.trim().length === 0 ? {} : JSON.parse(initialContent);
+        if (!this._documentData.metadata) {
+            const metadata = NotebookMetadataManager.getInstance();
+            metadata.loadMetadata().then(() => {
+                const matchingMetadata = metadata
+                    .getAllMetadata()
+                    ?.find(
+                        (m: CustomNotebookMetadata) =>
+                            m.codexFsPath === this.uri.fsPath ||
+                            m.sourceFsPath === this.uri.fsPath
+                    );
+                if (matchingMetadata) {
+                    this._documentData.metadata = matchingMetadata;
+                }
+            });
+        }
         this._edits = [];
         initializeStateStore().then(async ({ getStoreState }) => {
             const sourceCellMap = await getStoreState("sourceCellMap");
@@ -300,7 +316,8 @@ class CodexCellDocument implements vscode.CustomDocument {
     // Method to update notebook metadata
     public updateNotebookMetadata(newMetadata: Partial<CustomNotebookMetadata>) {
         if (!this._documentData.metadata) {
-            throw new Error("No metadata found on notebook.");
+            // Initialize metadata if it doesn't exist
+            this._documentData.metadata = {} as CustomNotebookMetadata;
         }
         this._documentData.metadata = { ...this._documentData.metadata, ...newMetadata };
 

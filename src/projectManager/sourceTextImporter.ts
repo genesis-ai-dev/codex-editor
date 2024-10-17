@@ -1,10 +1,9 @@
 import * as vscode from "vscode";
-import { FileType, SupportedFileExtension } from "../../types";
+import { CustomNotebookMetadata, FileType, SupportedFileExtension } from "../../types";
 import { fileTypeMap } from "./translationImporter";
 import {
     importLocalUsfmSourceBible,
     createCodexNotebookFromWebVTT,
-    NotebookMetadata,
     splitSourceFileByBook,
 } from "../utils/codexNotebookUtils";
 import { NotebookMetadataManager } from "../utils/notebookMetadataManager";
@@ -42,6 +41,12 @@ async function importSourceFolder(
     }
 
     vscode.window.showInformationMessage("Source folder imported successfully.");
+}
+
+function getFileNameFromUri(fileUri: vscode.Uri): string {
+    const fileNameWithExtension = fileUri.path.split("/").pop() || "";
+    const fileName = fileNameWithExtension.split(".")[0] || fileNameWithExtension;
+    return fileName;
 }
 
 async function importSourceFile(
@@ -95,13 +100,11 @@ async function importSourceFile(
                 `${importedNotebookId}.codex`
             );
 
-            const metadata: NotebookMetadata = {
+            const metadata: CustomNotebookMetadata = {
                 id: importedNotebookId,
-                sourceUri: sourceUri,
-                sourceFile: fileUri.fsPath,
-                codexUri: codexUri,
-                originalName: importedNotebookId,
-                data: {},
+                sourceFsPath: sourceUri.fsPath,
+                originalName: getFileNameFromUri(fileUri),
+                codexFsPath: codexUri.fsPath,
                 navigation: [],
                 sourceCreatedAt: "",
                 codexLastModified: "",
@@ -227,7 +230,7 @@ export async function createEmptyCodexNotebooks(sourceFileName: string): Promise
         // Update metadata
         const metadata = metadataManager.getMetadataById(sourceData.metadata.id);
         if (metadata) {
-            metadata.codexUri = codexUri;
+            metadata.codexFsPath = codexUri.toString();
             metadataManager.addOrUpdateMetadata(metadata);
         }
 

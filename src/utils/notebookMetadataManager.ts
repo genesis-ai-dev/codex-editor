@@ -2,7 +2,7 @@ import { API, GitExtension } from "./../providers/scm/git.d";
 import * as vscode from "vscode";
 import { CodexContentSerializer } from "../serializer";
 import { generateUniqueId, clearIdCache } from "./idGenerator";
-import { NavigationCell, NotebookMetadata } from "./codexNotebookUtils";
+import { NavigationCell } from "./codexNotebookUtils";
 import { API as GitAPI, Repository, Status } from "../providers/scm/git.d";
 import {
     deserializeDictionaryEntries,
@@ -11,8 +11,9 @@ import {
     ensureCompleteEntry,
 } from "./dictionaryUtils/common";
 import { readDictionaryClient, saveDictionaryClient } from "./dictionaryUtils/client";
+import { CustomNotebookMetadata } from "../../types";
 
-const DEBUG_MODE = true; // Set to true to enable debug logging
+const DEBUG_MODE = false; // Set to true to enable debug logging
 
 function debugLog(...args: any[]): void {
     if (DEBUG_MODE) {
@@ -32,7 +33,7 @@ async function getGitAPI(): Promise<GitAPI | undefined> {
 
 export class NotebookMetadataManager {
     private static instance: NotebookMetadataManager;
-    private metadataMap: Map<string, NotebookMetadata> = new Map();
+    private metadataMap: Map<string, CustomNotebookMetadata> = new Map();
 
     private constructor() {}
 
@@ -43,18 +44,16 @@ export class NotebookMetadataManager {
         return NotebookMetadataManager.instance;
     }
 
-    public getAllMetadata(): NotebookMetadata[] {
+    public getAllMetadata(): CustomNotebookMetadata[] {
         return Array.from(this.metadataMap.values());
     }
 
-    private getDefaultMetadata(id: string, originalName: string): NotebookMetadata {
+    private getDefaultMetadata(id: string, originalName: string): CustomNotebookMetadata {
         return {
             id,
             originalName,
             sourceFsPath: undefined,
             codexFsPath: undefined,
-            data: {},
-            sourceFile: "",
             navigation: [] as NavigationCell[],
             videoUrl: "",
             sourceCreatedAt: "",
@@ -138,7 +137,7 @@ export class NotebookMetadataManager {
         debugLog("Metadata loading complete. Total entries:", this.metadataMap.size);
     }
 
-    private async getGitStatusForFile(fileUri: vscode.Uri): Promise<NotebookMetadata["gitStatus"]> {
+    private async getGitStatusForFile(fileUri: vscode.Uri): Promise<CustomNotebookMetadata["gitStatus"]> {
         const gitApi = await getGitAPI();
         if (!gitApi || gitApi.repositories.length === 0) {
             return "uninitialized";
@@ -182,13 +181,13 @@ export class NotebookMetadataManager {
         return "committed";
     }
 
-    public getMetadataById(id: string): NotebookMetadata | undefined {
+    public getMetadataById(id: string): CustomNotebookMetadata | undefined {
         const metadata = this.metadataMap.get(id);
         debugLog("getMetadataById:", id, metadata ? "found" : "not found");
         return metadata;
     }
 
-    public getMetadataByUri(uri: vscode.Uri): NotebookMetadata {
+    public getMetadataByUri(uri: vscode.Uri): CustomNotebookMetadata {
         for (const metadata of this.metadataMap.values()) {
             if (metadata.sourceFsPath === uri.fsPath || metadata.codexFsPath === uri.fsPath) {
                 debugLog("getMetadataByUri:", uri.fsPath, "found");
@@ -213,7 +212,7 @@ export class NotebookMetadataManager {
         return newMetadata;
     }
 
-    public getMetadataBySourceFileName(sourceFileName: string): NotebookMetadata | undefined {
+    public getMetadataBySourceFileName(sourceFileName: string): CustomNotebookMetadata | undefined {
         const baseName = sourceFileName.endsWith(".source")
             ? sourceFileName.slice(0, -7)
             : sourceFileName;
@@ -225,7 +224,7 @@ export class NotebookMetadataManager {
         return undefined;
     }
 
-    public async addOrUpdateMetadata(metadata: NotebookMetadata): Promise<void> {
+    public async addOrUpdateMetadata(metadata: CustomNotebookMetadata): Promise<void> {
         const existingMetadata = this.metadataMap.get(metadata.id);
         if (existingMetadata) {
             this.metadataMap.set(metadata.id, {
@@ -258,7 +257,7 @@ export class NotebookMetadataManager {
 
     private async updateMetadataInFile(
         fileFsPath: string,
-        metadata: NotebookMetadata
+        metadata: CustomNotebookMetadata
     ): Promise<void> {
         // Skip updating .dictionary files
         if (fileFsPath.endsWith(".dictionary")) {

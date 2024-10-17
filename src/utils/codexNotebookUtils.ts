@@ -72,33 +72,6 @@ export const createCodexNotebook = async (cells: vscode.NotebookCellData[] = [])
     return doc;
 };
 
-export interface NotebookMetadata {
-    id: string;
-    data: {
-        corpusMarker?: string;
-        [key: string]: any | undefined;
-    };
-    sourceFsPath: string | undefined;
-    codexFsPath: string | undefined;
-    originalName: string;
-    sourceFile: string;
-    navigation: NavigationCell[];
-    perf?: any;
-    videoUrl?: string;
-    sourceCreatedAt: string;
-    codexLastModified?: string;
-    gitStatus:
-        | "uninitialized"
-        | "modified"
-        | "added"
-        | "deleted"
-        | "renamed"
-        | "conflict"
-        | "untracked"
-        | "committed"; // FIXME: we should probably programmatically do things like track .codex .source and .dictionary files
-    corpusMarker: string;
-}
-
 export interface NavigationCell {
     cellId: string;
     children: NavigationCell[];
@@ -250,9 +223,9 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
             console.log({ newCells });
             const updatedNotebookData = new vscode.NotebookData(newCells);
 
-            const notebookMetadata: NotebookMetadata = {
+            const notebookMetadata: CustomNotebookMetadata = {
                 id: book,
-                sourceFile: `${book}.source`,
+                originalName: book,
                 sourceFsPath: vscode.Uri.joinPath(
                     vscode.workspace.workspaceFolders![0].uri,
                     ".project",
@@ -265,15 +238,11 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
                     "target",
                     `${book}.codex`
                 ).fsPath,
-                originalName: book,
-                data: {
-                    corpusMarker: corpusMarker,
-                },
+                corpusMarker: corpusMarker,
                 navigation: navigationCells,
                 sourceCreatedAt: "migrated from old format Fall 2024",
                 codexLastModified: "",
                 gitStatus: "uninitialized",
-                corpusMarker: "",
             };
 
             if (notebookData?.metadata?.perf) {
@@ -861,12 +830,19 @@ export async function createCodexNotebookFromWebVTT(
 
         const targetNotebookData = new vscode.NotebookData(targetCells);
         const targetFilePath = `files/target/${notebookName}.codex`;
+        const metadataManager = NotebookMetadataManager.getInstance();
+        const metadata = metadataManager.getMetadataById(notebookName);
+        
         const targetNotebookMetadata: CustomNotebookMetadata = {
             id: notebookName,
             textDirection: "ltr",
             originalName: notebookName,
-            sourceUri: vscode.Uri.file(sourceFilePath),
-            codexUri: vscode.Uri.file(targetFilePath),
+            sourceFsPath: metadata?.sourceFsPath,
+            codexFsPath: targetFilePath,
+            sourceCreatedAt: metadata?.sourceCreatedAt || new Date().toISOString(),
+            gitStatus: metadata?.gitStatus || "untracked",
+            navigation: metadata?.navigation || [],
+            corpusMarker: metadata?.corpusMarker || "",
         };
         targetNotebookData.metadata = targetNotebookMetadata;
         const targetSerializer = new CodexContentSerializer();

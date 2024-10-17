@@ -351,7 +351,6 @@ type CustomNotebookCellData = vscode.NotebookCellData & {
 
 type CustomNotebookMetadata = {
     id: string;
-    data?: { corpusMarker?: string };
     textDirection?: "ltr" | "rtl";
     perf?: any;
     attachments?: {
@@ -361,9 +360,22 @@ type CustomNotebookMetadata = {
         };
     };
     originalName: string;
-    sourceUri: vscode.Uri;
-    codexUri: vscode.Uri;
-    videoUrl?: string; // Add this line
+    sourceFsPath: string | undefined;
+    codexFsPath: string | undefined;
+    navigation: NavigationCell[];
+    videoUrl?: string;
+    sourceCreatedAt: string;
+    codexLastModified?: string;
+    gitStatus:
+        | "uninitialized"
+        | "modified"
+        | "added"
+        | "deleted"
+        | "renamed"
+        | "conflict"
+        | "untracked"
+        | "committed"; // FIXME: we should probably programmatically do things like track .codex .source and .dictionary files
+    corpusMarker: string;
 };
 
 type CustomNotebookDocument = vscode.NotebookDocument & {

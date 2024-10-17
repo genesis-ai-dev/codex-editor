@@ -1,9 +1,9 @@
 import { getWorkSpaceUri } from "./../../utils/index";
 import * as vscode from "vscode";
-import { NotebookMetadata, NavigationCell } from "../../utils/codexNotebookUtils";
 import { vrefData } from "../../utils/verseRefUtils/verseData";
 import * as path from "path";
 import { debounce, isEqual } from "lodash";
+import { CustomNotebookMetadata } from "../../../types";
 
 // TODO: we should probably use the notebookMetadataManager to get the metadata for the notebooks, though we would need to add some more data to the metadata manager to get navigation info/cell content where cells contain headings
 
@@ -119,11 +119,11 @@ export class CodexNotebookTreeViewProvider
                         console.log("Content causing the error:", notebookContent.toString());
                         continue;
                     }
-                    const metadata = notebookJson?.metadata as NotebookMetadata;
+                    const metadata = notebookJson?.metadata as CustomNotebookMetadata;
 
                     this.notebookMetadata.set(notebookUri.fsPath, {
                         headings: this.extractHeadingsFromNotebook(notebookJson),
-                        corpusMarker: metadata?.data?.corpusMarker,
+                        corpusMarker: metadata?.corpusMarker,
                     });
                 } catch (error) {
                     console.error(
@@ -179,18 +179,18 @@ export class CodexNotebookTreeViewProvider
             const notebookContent = await vscode.workspace.fs.readFile(uri);
             console.log("Reading notebook metadata:", uri.fsPath);
             const notebookJson = JSON.parse(notebookContent.toString());
-            const metadata = notebookJson?.metadata as NotebookMetadata;
+            const metadata = notebookJson?.metadata as CustomNotebookMetadata;
 
             const sourceFile =
-                metadata?.sourceFile || (await this.findCorrespondingSourceFile(uri));
+                metadata?.sourceFsPath || (await this.findCorrespondingSourceFile(uri));
 
             // Extract headings from notebook content
             const headings = this.extractHeadingsFromNotebook(notebookJson);
 
             const newMetadata = {
                 headings: headings,
-                corpusMarker: metadata?.corpusMarker, // Updated: directly access corpusMarker
-                sourceFile: sourceFile,
+                corpusMarker: metadata?.corpusMarker,
+                sourceFsPath: metadata?.sourceFsPath,
             };
 
             // Update the in-memory metadata
