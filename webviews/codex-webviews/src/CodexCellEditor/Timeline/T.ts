@@ -81,7 +81,7 @@ export default function TimeLine(
     let scrollPosition = 0;
     let scrollSize = w;
     const minimumZoomLevel = w / endTime;
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
     if (!ctx) {
         return;
     }
@@ -95,7 +95,7 @@ export default function TimeLine(
     ctx.font = "10px Arial";
     canvas.style.backgroundColor = "transparent";
     canvas2.style.backgroundColor = options.colors.background;
-    let mouse = {};
+    let mouse: { x: number; y: number } = { x: 0, y: 0 };
     let lastXcursor = 0;
     let mouseTime: number;
     let swaping = false;
@@ -129,7 +129,29 @@ export default function TimeLine(
     drawBG(bgCtx);
     animate(); // HELPERS ...
 
-    function Square(x, y, edge, index, text, sIndex, eIndex) {
+    interface Square {
+        x: number;
+        y: number;
+        text: string;
+        edge: number;
+        startIndex: number;
+        endIndex: number;
+        selected: boolean;
+        active: boolean;
+        index: number;
+        draw: (context: CanvasRenderingContext2D) => void;
+    }
+
+    function Square(
+        this: Square,
+        x: number,
+        y: number,
+        edge: number,
+        index: number,
+        text: string,
+        sIndex: number,
+        eIndex: number
+    ) {
         this.x = x;
         this.y = y;
         this.text = text;
@@ -169,9 +191,9 @@ export default function TimeLine(
             ctx.font = "13px Arial";
             context.fillStyle = options.colors.text;
             if (this.selected) context.fillStyle = options.colors.selectedText;
-            let space = this.edge;
-            var rat = ctx.measureText(this.text).width / space;
-            let trimedText =
+            const space = this.edge;
+            const rat = ctx.measureText(this.text).width / space;
+            const trimedText =
                 rat <= 1
                     ? this.text
                     : this.text.substr(0, Math.floor((1 / rat) * this.text.length) - 1);
@@ -181,52 +203,63 @@ export default function TimeLine(
         };
     }
 
-    function getMouseCoords(canvas, event) {
-        let canvasCoords = canvas.getBoundingClientRect();
-        let yy = event.pageY - canvas.offsetTop;
-        let xx = event.pageX - canvas.offsetLeft;
-        let xxxx = event.pageX - canvasCoords.x;
-        let yyyy = event.pageY - canvasCoords.y - window.pageYOffset;
+    function getMouseCoords(canvas: HTMLCanvasElement, event: MouseEvent) {
+        const canvasCoords = canvas.getBoundingClientRect();
+        // let yy = event.pageY - canvas.offsetTop;
+        // let xx = event.pageX - canvas.offsetLeft;
+        const xxxx = event.pageX - canvasCoords.x;
+        const yyyy = event.pageY - canvasCoords.y - window.pageYOffset;
         return {
             x: xxxx,
             y: yyyy,
         };
     }
 
-    function getOffsetCoords(mouse, rect) {
+    function getOffsetCoords(mouse: any, rect: any) {
         return {
             x: mouse.x - rect.x,
             y: mouse.y - rect.y,
         };
     }
 
-    function cursorInRect(mouseX, mouseY, rectX, rectY, rectW, rectH) {
-        let xLine = mouseX > rectX + shift && mouseX < rectX + shift + rectW;
-        let yLine = mouseY > rectY && mouseY < rectY + TRACK_HEIGHT;
+    function cursorInRect(
+        mouseX: number,
+        mouseY: number,
+        rectX: number,
+        rectY: number,
+        rectW: number
+        // rectH: number
+    ) {
+        const xLine = mouseX > rectX + shift && mouseX < rectX + shift + rectW;
+        const yLine = mouseY > rectY && mouseY < rectY + TRACK_HEIGHT;
         return xLine && yLine;
     }
 
     function resize() {
-        w = canvas.width = canvas2.width = canvas.parentElement.parentElement.clientWidth;
+        w = canvas.width = canvas2.width = canvas.parentElement?.parentElement?.clientWidth || 0;
         h = canvas.height = canvas2.height = TIMELINE_HEIGHT;
         drawBG(bgCtx);
     }
 
-    function changeZoom(deltaY) {
+    function changeZoom(deltaY: number) {
         handleZoom({
             deltaY,
+            preventDefault: () => {},
         });
     }
 
-    function handleZoom(e) {
+    function handleZoom(e: { deltaY: number, preventDefault: () => void }) {
         try {
+
             e.preventDefault();
-        } catch (error) {}
+        } catch (error) {
+            console.log(error);
+        }
 
         if (resizing) return;
-        let originalZoomLevel = zoomLevel;
-        let originalMouseTime = mouseTime;
-        let viewPortTime = endTimeShow - beginingTimeShow;
+        const originalZoomLevel = zoomLevel;
+        const originalMouseTime = mouseTime;
+        const viewPortTime = endTimeShow - beginingTimeShow;
 
         if (e.deltaY < 0) {
             if (zoomLevel * ZOOM_SCALE < 500) zoomLevel *= ZOOM_SCALE;
@@ -240,8 +273,8 @@ export default function TimeLine(
             }
         }
 
-        let newMouseTime = (mouse.x - shift) / zoomLevel;
-        let newShift = (originalMouseTime - newMouseTime) * zoomLevel;
+        const newMouseTime = (mouse.x - shift) / zoomLevel;
+        const newShift = (originalMouseTime - newMouseTime) * zoomLevel;
 
         if (shift - newShift > 0) {
             shift = 0;
@@ -251,9 +284,9 @@ export default function TimeLine(
 
         let ratio = 1;
         prtcls.forEach((p) => {
-            let px = p.x;
-            let originalPX = p.x / originalZoomLevel;
-            let originalEdge = p.edge / originalZoomLevel;
+            const px = p.x;
+            const originalPX = p.x / originalZoomLevel;
+            const originalEdge = p.edge / originalZoomLevel;
             p.edge = originalEdge * zoomLevel;
             p.x = originalPX * zoomLevel;
             ratio = p.x / px;
@@ -264,9 +297,9 @@ export default function TimeLine(
     }
 
     function drawTimeCursor() {
-        let position = currentTime * zoomLevel + shift;
-        let context = ctx;
-        let pos = position !== undefined ? position : mouse ? mouse.x : undefined;
+        const position = currentTime * zoomLevel + shift;
+        const context = ctx;
+        const pos = position !== undefined ? position : mouse ? mouse.x : undefined;
         if (pos === undefined) return; //temporary deactive hover cursor
         // currentHoveredIndex = prtcls.findIndex(
         //   (e) => pos - shift >= e.x && pos - shift <= e.x + e.edge
@@ -287,7 +320,7 @@ export default function TimeLine(
         context.restore();
     }
 
-    function mousemoveGeneral(e) {
+    function mousemoveGeneral(e: MouseEvent) {
         e.preventDefault();
         mouse = getMouseCoords(canvas, e);
 
@@ -299,7 +332,7 @@ export default function TimeLine(
 
         lastXcursor = mouse.x;
 
-        if (!moving && !resizing & !swaping && !scrolling) {
+        if (!moving && !resizing && !swaping && !scrolling) {
             // activePrtcl();
             checkResizing();
             hoverElement();
@@ -339,10 +372,10 @@ export default function TimeLine(
     function handleScrolling() {
         if (zoomLevel === minimumZoomLevel) return;
 
-        let mouseDistancetToScroll = Math.abs(mouse.x - scrollPosition);
-        let distance = scrollSize / 2;
-        let ratio = (mouse.x - distance) / w;
-        let value = -1 * ratio * endTime * zoomLevel;
+        const mouseDistancetToScroll = Math.abs(mouse.x - scrollPosition);
+        const distance = scrollSize / 2;
+        const ratio = (mouse.x - distance) / w;
+        const value = -1 * ratio * endTime * zoomLevel;
         if (value <= 0) shift = value;
         drawBG(bgCtx);
     }
@@ -355,12 +388,12 @@ export default function TimeLine(
         if (!currentPrtcl) return;
         let min = 0;
         let max = 99999999;
-        let leftSub = prtcls[currentPrtclsIndex - 1];
-        let rightSub = prtcls[currentPrtclsIndex + 1];
+        const leftSub = prtcls[currentPrtclsIndex - 1];
+        const rightSub = prtcls[currentPrtclsIndex + 1];
         if (leftSub) min = leftSub.x + leftSub.edge;
         if (rightSub) max = rightSub.x;
 
-        let pos = mouse.x - currentPrtcl.offset.x;
+        const pos = mouse.x - currentPrtcl.offset.x;
 
         if (pos + currentPrtcl.edge <= max && pos >= min) {
             currentPrtcl.x = pos;
@@ -372,7 +405,7 @@ export default function TimeLine(
         }
     }
     function outPrtcls() {
-        let data = prtcls.map((p, i) => {
+        const data = prtcls.map((p, i) => {
             let begin = toFixed2(p.x / zoomLevel);
             let end = toFixed2((p.x + p.edge) / zoomLevel);
             let text = p.text;
@@ -857,7 +890,7 @@ export default function TimeLine(
         context.restore();
     }
 
-    function addListenerHandlers(canvas) {
+    function addListenerHandlers(canvas: HTMLCanvasElement) {
         window.removeEventListener("resize", resize);
         window.addEventListener("resize", resize);
         canvas.removeEventListener("wheel", handleZoom);
