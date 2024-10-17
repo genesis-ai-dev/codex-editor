@@ -1,17 +1,44 @@
-const toFixed2 = (i) => parseInt(i * 100) / 100;
+const toFixed2 = (i: number): number => Math.floor(i * 100) / 100;
 
 export default function TimeLine(
-    canvas,
-    canvas2,
-    alignments,
-    endTime,
-    getPlayer,
-    changeAlignment,
-    changeZoomLevel,
-    changeShift,
-    tellAreaChangesToRectComponent,
-    options
-) {
+    canvas: HTMLCanvasElement,
+    canvas2: HTMLCanvasElement,
+    alignments: {
+        begin: number;
+        end: number;
+        text: string;
+    }[],
+    endTime: number,
+    getPlayer: () => void,
+    changeAlignment: (
+        alignments: {
+            begin: number;
+            end: number;
+            text: string;
+        }[]
+    ) => void,
+    changeZoomLevel: (zoomLevel: number) => void,
+    changeShift: (shift: number) => void,
+    tellAreaChangesToRectComponent: (beginingTimeShow: number, endTimeShow: number) => void,
+    options: {
+        background: string;
+        box: string;
+        boxHover: string;
+        selectedBox: string;
+        playingBox: string;
+    }
+): {
+    setData: (
+        alignments: {
+            begin: number;
+            end: number;
+            text: string;
+        }[]
+    ) => void;
+    cancelAnimate: () => void;
+    changeZoom: (deltaY: number) => void;
+    changeCursorViewPort: (beginingTimeShow: number, endTimeShow: number) => void;
+} {
     // constants
     const LINE_HEIGHT = 40;
     const TRACK_HEIGHT = 40;

@@ -1,13 +1,54 @@
 import React, { useEffect, useRef } from "react";
 import TimeLine from "./T";
 import "./index.css";
-export default function Timeline(props) {
-    let timeLine;
-    let shift;
-    let zoomLevel;
-    let data;
-    let beginingTimeShow;
-    let endTimeShow;
+
+interface TimelineProps {
+    changeAreaShow: (beginingTimeShow: number, endTimeShow: number) => void;
+    changeZoomLevel: (zoomLevel: number) => void;
+    changeShift: (shift: number) => void;
+    setAligns: (
+        alignments: {
+            begin: number;
+            end: number;
+            text: string;
+        }[]
+    ) => void;
+    audioRef?: React.RefObject<HTMLAudioElement>;
+    src: string;
+    data: {
+        begin: number;
+        end: number;
+        text: string;
+    }[];
+    autoScroll: boolean;
+    colors: {
+        background: string;
+        box: string;
+        boxHover: string;
+        selectedBox: string;
+        playingBox: string;
+        text: string;
+        selectedText: string;
+        tooltipBackground: string;
+        tooltipText: string;
+        scrollBarBackground: string;
+        scrollBar: string;
+        scrollBarHover: string;
+    };
+    paddingLeft?: number;
+}
+
+export default function Timeline(props: TimelineProps) {
+    let timeLine: typeof TimeLine;
+    let shift: number;
+    let zoomLevel: number;
+    let data: {
+        begin: number;
+        end: number;
+        text: string;
+    }[];
+    let beginingTimeShow: number;
+    let endTimeShow: number;
 
     const canvas1 = useRef(null);
     const canvasAudio = useRef(null);

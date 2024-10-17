@@ -17,7 +17,7 @@ import registerQuillSpellChecker from "./react-quill-spellcheck";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import SourceCellContext from "./contextProviders/SourceCellContext";
 import DuplicateCellResolver from "./DuplicateCellResolver";
-import Timeline from "./Timeline";
+import Timeline from "./Timeline/index";
 
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
@@ -298,7 +298,19 @@ const CodexCellEditor: React.FC = () => {
         );
     }
 
-    const data = [{ begin: 25, end: 35, text: "This is subtitle" }];
+    // const data = [{ begin: 25, end: 35, text: "This is subtitle" }];
+
+    const data: {
+        begin: number;
+        end: number;
+        text: string;
+    }[] = translationUnitsForSection.map((unit) => {
+        return {
+            begin: unit.timestamps?.startTime || 0,
+            end: unit.timestamps?.endTime || 0,
+            text: unit.cellContent,
+        };
+    });
 
     return (
         <div className="codex-cell-editor">
