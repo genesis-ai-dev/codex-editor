@@ -141,7 +141,7 @@ connection.onRequest("spellcheck/check", async (params: { text: string; cellChan
     debugLog("Made it past special phrases");
     // Perform regular spellcheck for other words
     const words = tokenizeText({
-        method: "words_and_punctuation",
+        method: "whitespace_and_punctuation",
         text: params.text,
     });
     words.forEach((word, index) => {

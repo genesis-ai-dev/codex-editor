@@ -13,7 +13,7 @@ interface WordFrequency {
 }
 
 // FIXME: name says it all
-const METHOD_SHOULD_BE_STORED_IN_CONFIG = "words_and_punctuation";
+const METHOD_SHOULD_BE_STORED_IN_CONFIG = "whitespace_and_punctuation";
 
 export async function initializeWordsIndex(
     initialWordIndex: Map<string, number>,
