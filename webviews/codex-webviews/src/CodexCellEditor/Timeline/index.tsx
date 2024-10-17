@@ -11,6 +11,7 @@ export interface TimelineProps {
             begin: number;
             end: number;
             text: string;
+            id: string;
         }[]
     ) => void;
     audioRef?: React.RefObject<HTMLAudioElement>;
@@ -38,18 +39,14 @@ export default function Timeline(props: TimelineProps) {
     let timeLine: TimelineReturn | undefined;
     let shift: number;
     let zoomLevel: number;
-    let data: {
-        begin: number;
-        end: number;
-        text: string;
-    }[];
+    let data: Aligns[];
     let beginingTimeShow: number;
     let endTimeShow: number;
     const canvas1 = useRef(null);
     const canvasAudio = useRef(null);
     const canvas2 = useRef(null);
 
-    const changeAlignment = (z: typeof data) => {
+    const changeAlignment = (z: Aligns[]) => {
         data = z;
         props.setAligns(z);
     };

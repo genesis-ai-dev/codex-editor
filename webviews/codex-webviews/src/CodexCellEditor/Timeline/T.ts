@@ -4,6 +4,7 @@ export interface Aligns {
     begin: number;
     end: number;
     text: string;
+    id: string;
 }
 
 export interface TimelineReturn {
@@ -16,11 +17,7 @@ export interface TimelineReturn {
 export default function TimeLine(
     canvas: HTMLCanvasElement,
     canvas2: HTMLCanvasElement,
-    alignments: {
-        begin: number;
-        end: number;
-        text: string;
-    }[],
+    alignments: Aligns[],
     endTime: number,
     getPlayer: () => void,
     changeAlignment: (
@@ -28,6 +25,7 @@ export default function TimeLine(
             begin: number;
             end: number;
             text: string;
+            id: string;
         }[]
     ) => void,
     changeZoomLevel: (zoomLevel: number) => void,
@@ -134,6 +132,7 @@ export default function TimeLine(
         y: number;
         text: string;
         edge: number;
+        id: string;
         startIndex?: number;
         endIndex?: number;
         selected: boolean;
@@ -145,6 +144,7 @@ export default function TimeLine(
             y: number,
             edge: number,
             index: number,
+            id: string,
             text: string,
             sIndex: number,
             eIndex: number
@@ -158,12 +158,14 @@ export default function TimeLine(
         edge: number,
         index: number,
         text: string,
+        id: string,
         sIndex: number,
         eIndex: number
     ) {
         this.x = x;
         this.y = y;
         this.text = text;
+        this.id = id;
         this.edge = edge;
         this.startIndex = sIndex;
         this.endIndex = eIndex;
@@ -435,6 +437,7 @@ export default function TimeLine(
                 begin,
                 end,
                 text,
+                id: p.id,
             };
         });
         changeAlignment(data);
@@ -717,7 +720,8 @@ export default function TimeLine(
                     LINE_HEIGHT,
                     (p.end - p.begin) * zoomLevel,
                     i,
-                    p.text
+                    p.text,
+                    p.id
                     // p.startIndex,
                     // p.endIndex
                 )

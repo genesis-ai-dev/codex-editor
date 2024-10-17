@@ -299,19 +299,22 @@ const CodexCellEditor: React.FC = () => {
     }
 
     // const data = [{ begin: 25, end: 35, text: "This is subtitle" }];
-
+    const removeHtmlTags = (text: string) => {
+        return text.replace(/<[^>]*>?/g, "").replace(/\n/g, " ");
+    };
     const data: {
         begin: number;
         end: number;
         text: string;
+        id: string;
     }[] = translationUnitsForSection.map((unit) => {
         return {
             begin: unit.timestamps?.startTime || 0,
             end: unit.timestamps?.endTime || 0,
-            text: unit.cellContent,
+            text: removeHtmlTags(unit.cellContent),
+            id: unit.cellMarkers[0],
         };
     });
-
     return (
         <div className="codex-cell-editor">
             <div className="static-header" ref={headerRef}>
@@ -348,10 +351,18 @@ const CodexCellEditor: React.FC = () => {
                             translationUnitsForSection={translationUnitsWithCurrentEditorContent}
                         />
                         <Timeline
-                            changeAreaShow={(start, end) => {}}
-                            changeZoomLevel={(zoomLevel) => {}}
-                            changeShift={(shift) => {}}
-                            setAligns={(alignments) => {}}
+                            changeAreaShow={(start, end) => {
+                                // console.log({ start, end });
+                            }}
+                            changeZoomLevel={(zoomLevel) => {
+                                // console.log({ zoomLevel });
+                            }}
+                            changeShift={(shift) => {
+                                // console.log({ shift });
+                            }}
+                            setAligns={(alignments) => {
+                                console.log({ alignments });
+                            }}
                             // audioRef={playerRef}
                             src={"..."}
                             data={data}
