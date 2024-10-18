@@ -45,6 +45,7 @@
         "faker": "^5.5.3",
         "framer-motion": "^11.0.15",
         "immutability-helper": "^3.1.1",
+        "lodash.debounce": "^4.0.8",
         "marked": "^12.0.0",
         "quill": "^2.0.2",
         "quill-delta": "^5.1.0",

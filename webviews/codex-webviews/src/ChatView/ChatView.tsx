@@ -64,20 +64,16 @@ function messageWithContext({
 }
 
 function App() {
+    const [enableGrading, setEnableGrading] = useState<boolean>(false);
     const [pendingMessage, setPendingMessage] = useState<ChatMessageWithContext>();
     const [selectedTextContext, setSelectedTextContext] = useState<string>("");
     const [currentlyActiveCellId, setCurrentlyActiveCellId] = useState<string>("");
     const [contextItems, setContextItems] = useState<string[]>([]); // TODO: we should consolidate various shared state stores into this value
-    const [messageLog, setMessageLog_] = useState<ChatMessageWithContext[]>([
+    const [messageLog, setMessageLog] = useState<ChatMessageWithContext[]>([
         // systemMessage,
         // dummyUserMessage,
         // dummyAssistantMessage,
     ]);
-
-    const setMessageLog = (messageLog: ChatMessageWithContext[]) => {
-        console.log("joshEdit: setMessageLog", messageLog);
-        setMessageLog_(messageLog);
-    };
 
     const [currentMessageThreadId, setCurrentMessageThreadId] = useState<string>(uuidv4());
 
@@ -178,6 +174,10 @@ function App() {
     }, [currentMessageThreadId, availableMessageThreads]);
 
     function gradeExists(): boolean {
+        //if grading is turned off there isn't a grade.
+        if (!enableGrading) {
+            return false;
+        }
         if (messageLog && messageLog.length > 0) {
             const latestMessage = messageLog[messageLog.length - 1];
             if (latestMessage?.grade !== undefined && latestMessage?.grade !== null) {
@@ -224,8 +224,6 @@ function App() {
                 }),
             ];
 
-            console.log("JoshTest: requestGradeDebounced: messages", messages);
-
             //send with requestGradeResponse
             vscode.postMessage({
                 command: "requestGradeResponse",
@@ -245,6 +243,11 @@ function App() {
         }
 
         function needsGrade(): boolean {
+            //if grading is turned off we don't need a grade.
+            if (!enableGrading) {
+                return false;
+            }
+
             //if the message queue isn't even set we don't need a grade.
             if (!messageLog) {
                 return false;
@@ -335,7 +338,6 @@ function App() {
                     break;
                 }
                 case "respondWithGrade": {
-                    console.log("JoshDebug: ChatView: respondWithGrade", message);
                     try {
                         if (message.content) {
                             //Find the first number on the content and call it the grade.
@@ -368,7 +370,6 @@ function App() {
                     break;
                 }
                 case "threadsFromWorkspace":
-                    console.log("JoshDebug: ChatView: threadsFromWorkspace", message);
                     if (message.content) {
                         const messageThreadArray = message.content;
                         const lastMessageThreadId =
@@ -404,6 +405,12 @@ function App() {
                         }
                     }
                     break;
+                case "updateSetting":{
+                    if( message.setting === "enableDoctrineGrading" ) {
+                        setEnableGrading(message.value.toLowerCase().startsWith("t"));
+                    }
+                    break;
+                }
                 case "cellIdUpdate":
                     if (message.data) {
                         const { cellId, sourceCellContent } = message.data;
@@ -426,6 +433,11 @@ function App() {
             window.removeEventListener("message", handleMessage);
         };
     }, [currentMessageThreadId, messageLog, pendingMessage]);
+
+    //Make a useEffect which sends the message "subscribeSettings"
+    useEffect(() => {
+        vscode.postMessage({ command: "subscribeSettings", settingsToSubscribe: ["enableDoctrineGrading"] } as ChatPostMessages);
+    }, []);
 
     function markChatThreadAsDeleted(messageThreadIdToMarkAsDeleted: string) {
         vscode.postMessage({
@@ -533,7 +545,6 @@ function App() {
         }
 
         setMessageLog(updatedMessageLog);
-        console.log("joshEdit: onEditComplete", updatedMessage);
     };
 
     //   const currentMessageThreadTitle = availableMessageThreads?.find(

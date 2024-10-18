@@ -610,6 +610,49 @@ export class CustomWebviewProvider {
                         );
                         break;
                     }
+                    case "subscribeSettings": {
+                        const settingsToSubscribe = message.settingsToSubscribe;
+                        const config = vscode.workspace.getConfiguration("translators-copilot");
+                        if (settingsToSubscribe) {
+                            for (const setting of settingsToSubscribe) {
+                                const value = config.get(setting);
+                                webviewView.webview.postMessage({
+                                    command: "updateSetting",
+                                    setting,
+                                    value: typeof value === "string" ? value : JSON.stringify(value),
+                                });
+                                //now subscribe for changes
+                                // config.onDidChange(
+                                //     (event: { affectsConfiguration: (arg0: any) => any; }) => {
+                                //         if (event.affectsConfiguration(setting)) {
+                                //             webviewView.webview.postMessage({
+                                //                 command: "updateSetting",
+                                //                 setting,
+                                //                 value: config.get(setting),
+                                //             });
+                                //         }
+                                //     },
+                                //     null
+                                // );
+                                vscode.workspace.onDidChangeConfiguration(
+                                    (event: vscode.ConfigurationChangeEvent) => {
+                                        if (event.affectsConfiguration(`translators-copilot.${setting}`)) {
+                                            const newConfig = vscode.workspace.getConfiguration("translators-copilot");
+                                            webviewView.webview.postMessage({
+                                                command: "updateSetting",
+                                                setting,
+                                                value: typeof newConfig.get(setting) === "string"
+                                                    ? newConfig.get(setting)
+                                                    : JSON.stringify(newConfig.get(setting)),
+                                            });
+                                        }
+                                    }
+                                );
+                                
+                            }
+                        }
+                        break;
+                    }
                     case "openContextItem": {
                         const vrefRegex = /[a-zA-Z]+\s+\d+:\d+/;
                         const vref = message.text.match(vrefRegex)?.[0];

@@ -168,7 +168,7 @@ export class SourceUploadProvider
             if (!pollingInterval) {
                 pollingInterval = setInterval(async () => {
                     await this.updateMetadata(webviewPanel);
-                }, 10000); // Poll every 10 seconds
+                }, 10000) as unknown as NodeJS.Timeout; // Poll every 10 seconds
             }
         };
 
