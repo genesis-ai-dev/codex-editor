@@ -69,16 +69,11 @@ function App() {
     const [selectedTextContext, setSelectedTextContext] = useState<string>("");
     const [currentlyActiveCellId, setCurrentlyActiveCellId] = useState<string>("");
     const [contextItems, setContextItems] = useState<string[]>([]); // TODO: we should consolidate various shared state stores into this value
-    const [messageLog, setMessageLog_] = useState<ChatMessageWithContext[]>([
+    const [messageLog, setMessageLog] = useState<ChatMessageWithContext[]>([
         // systemMessage,
         // dummyUserMessage,
         // dummyAssistantMessage,
     ]);
-
-    const setMessageLog = (messageLog: ChatMessageWithContext[]) => {
-        console.log("joshEdit: setMessageLog", messageLog);
-        setMessageLog_(messageLog);
-    };
 
     const [currentMessageThreadId, setCurrentMessageThreadId] = useState<string>(uuidv4());
 
@@ -229,8 +224,6 @@ function App() {
                 }),
             ];
 
-            console.log("JoshTest: requestGradeDebounced: messages", messages);
-
             //send with requestGradeResponse
             vscode.postMessage({
                 command: "requestGradeResponse",
@@ -345,7 +338,6 @@ function App() {
                     break;
                 }
                 case "respondWithGrade": {
-                    console.log("JoshDebug: ChatView: respondWithGrade", message);
                     try {
                         if (message.content) {
                             //Find the first number on the content and call it the grade.
@@ -378,7 +370,6 @@ function App() {
                     break;
                 }
                 case "threadsFromWorkspace":
-                    console.log("JoshDebug: ChatView: threadsFromWorkspace", message);
                     if (message.content) {
                         const messageThreadArray = message.content;
                         const lastMessageThreadId =
@@ -415,7 +406,6 @@ function App() {
                     }
                     break;
                 case "updateSetting":{
-                    console.log("JoshDebug: ChatView: updateSetting", message);
                     if( message.setting === "enableDoctrineGrading" ) {
                         setEnableGrading(message.value.toLowerCase().startsWith("t"));
                     }
@@ -555,7 +545,6 @@ function App() {
         }
 
         setMessageLog(updatedMessageLog);
-        console.log("joshEdit: onEditComplete", updatedMessage);
     };
 
     //   const currentMessageThreadTitle = availableMessageThreads?.find(
