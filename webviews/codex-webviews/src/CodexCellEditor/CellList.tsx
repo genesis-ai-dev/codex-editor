@@ -133,7 +133,8 @@ const CellList: React.FC<CellListProps> = ({
             let groupStartIndex = 0;
 
             for (let i = 0; i < translationUnits.length; i++) {
-                const { cellMarkers, cellContent, cellType, cellLabel } = translationUnits[i];
+                const { cellMarkers, cellContent, cellType, cellLabel, timestamps } =
+                    translationUnits[i];
 
                 if (
                     !isSourceText &&
@@ -176,6 +177,7 @@ const CellList: React.FC<CellListProps> = ({
                                 cellIndex={i}
                                 cellType={cellType}
                                 cellLabel={cellLabel}
+                                cellTimestamps={timestamps}
                                 spellCheckResponse={spellCheckResponse}
                                 contentBeingUpdated={contentBeingUpdated}
                                 setContentBeingUpdated={setContentBeingUpdated}
