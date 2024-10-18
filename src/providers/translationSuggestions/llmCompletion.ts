@@ -4,6 +4,7 @@ import { callLLM } from "../../utils/llmUtils";
 import { ChatMessage, MinimalCellResult, TranslationPair } from "../../../types";
 import { CodexNotebookReader } from "../../serializer";
 import { CodexCellTypes } from "../../../types/enums";
+import { getAutoCompleteStatusBarItem } from "../../extension";
 
 export async function llmCompletion(
     currentNotebookReader: CodexNotebookReader,
@@ -17,140 +18,154 @@ export async function llmCompletion(
         throw new Error("Current cell has no ID in llmCompletion().");
     }
 
-    // Get the source content for the current cell(s)
-    const currentCellIndex = await currentNotebookReader.getCellIndex({ id: currentCellId });
-    const currentCellIds = await currentNotebookReader.getCellIds(currentCellIndex);
-    const sourceCells = await Promise.all(
-        currentCellIds.map(
-            (id) =>
-                vscode.commands.executeCommand(
-                    "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
-                    id
-                ) as Promise<MinimalCellResult | null>
-        )
-    );
-    const sourceContent = sourceCells
-        .filter(Boolean)
-        .map((cell) => cell!.content)
-        .join(" ");
-
-    // Get similar source cells
-    const similarSourceCells: TranslationPair[] = await vscode.commands.executeCommand(
-        "translators-copilot.getTranslationPairsFromSourceCellQuery",
-        sourceContent,
-        numberOfFewShotExamples
-    );
-
-    if (!similarSourceCells || similarSourceCells.length === 0) {
-        showNoResultsWarning();
-        return "";
-    }
-
-    // Get preceding cells and their IDs, limited by context size
-    const contextLimit = contextSize === "small" ? 5 : contextSize === "medium" ? 10 : 50;
-    const allPrecedingCells = await currentNotebookReader.cellsUpTo(currentCellIndex);
-    const precedingCells = allPrecedingCells.slice(
-        Math.max(0, allPrecedingCells.length - contextLimit)
-    ); // FIXME: by reading from the file, the current editor content is not fresh....
-
-    // Filter preceding cells to only include text cells
-    const textPrecedingCells = precedingCells.filter(
-        (cell) => cell.metadata?.type === CodexCellTypes.TEXT && cell.metadata?.id !== currentCellId
-    );
-
-    // The logic to get preceding translation pairs needs to account for range cells
-    const precedingTranslationPairs = await Promise.all(
-        textPrecedingCells.slice(-5).map(async (cellFromPrecedingContext) => {
-            const cellIndex = await currentNotebookReader.getCellIndex({
-                id: cellFromPrecedingContext.metadata?.id,
-            });
-            const cellIds = await currentNotebookReader.getCellIds(cellIndex);
-
-            const sourceContents = await Promise.all(
-                cellIds.map(
-                    (id) =>
-                        vscode.commands.executeCommand(
-                            "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
-                            id
-                        ) as Promise<MinimalCellResult | null>
-                )
-            );
-
-            if (sourceContents.some((content) => content === null)) {
-                return null;
-            }
-
-            const combinedSourceContent = sourceContents
-                .filter(Boolean)
-                .map((cell) => cell!.content)
-                .join(" ");
-
-            const cellContent = await currentNotebookReader.getEffectiveCellContent(cellIndex);
-            const cellContentWithoutHTMLTags =
-                cellContent.replace(/<[^>]*?>/g, "").trim() ||
-                "[not translated yet; do not try to translate this cell but focus on the final cell below]";
-
-            const result = `${cellIds.join(
-                ", "
-            )}: ${combinedSourceContent} -> ${cellContentWithoutHTMLTags}`;
-            return result;
-        })
-    );
-
-    // Get the target language
-    const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
-    const targetLanguage = projectConfig.get<any>("targetLanguage")?.tag || null;
+    const statusBarItem = getAutoCompleteStatusBarItem();
+    statusBarItem.show();
 
     try {
-        const currentCellId = currentCellIds.join(", ");
-        const currentCellSourceContent = sourceContent;
-
-        // Generate few-shot examples
-        const fewShotExamples = similarSourceCells
-            .slice(0, numberOfFewShotExamples)
-            .map(
-                (pair) => `${pair.cellId}: ${pair.sourceCell.content} -> ${pair.targetCell.content}`
+        // Get the source content for the current cell(s)
+        const currentCellIndex = await currentNotebookReader.getCellIndex({ id: currentCellId });
+        const currentCellIds = await currentNotebookReader.getCellIds(currentCellIndex);
+        const sourceCells = await Promise.all(
+            currentCellIds.map(
+                (id) =>
+                    vscode.commands.executeCommand(
+                        "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
+                        id
+                    ) as Promise<MinimalCellResult | null>
             )
-            .join("\n");
+        );
+        const sourceContent = sourceCells
+            .filter(Boolean)
+            .map((cell) => cell!.content)
+            .join(" ");
 
-        // Create the prompt
-        const userMessageInstructions = [
-            "1. Analyze the provided reference data to understand the translation patterns and style.",
-            "2. Complete the partial or complete translation of the line.",
-            "3. Ensure your translation fits seamlessly with the existing partial translation.",
-            "4. Provide only the completed translation without any additional commentary or metadata.",
-            `5. Translate only into the target language ${targetLanguage}.`,
-            "6. Pay careful attention to the provided reference data.",
-            "7. If in doubt, err on the side of literalness.",
-        ].join("\n");
+        // Get similar source cells
+        const similarSourceCells: TranslationPair[] = await vscode.commands.executeCommand(
+            "translators-copilot.getTranslationPairsFromSourceCellQuery",
+            sourceContent,
+            numberOfFewShotExamples
+        );
 
-        let systemMessage = chatSystemMessage || `You are a helpful assistant`;
-        systemMessage += `\n\nAlways translate from the source language to the target language, ${targetLanguage}, relying strictly on reference data and context provided by the user. The language may be an ultra-low resource language, so it is critical to follow the patterns and style of the provided reference data closely.`;
-        systemMessage += `\n\n${userMessageInstructions}`;
-
-        const userMessage = [
-            "## Instructions",
-            "Follow the translation patterns and style as shown.",
-            "## Translation Memory",
-            fewShotExamples,
-            "## Current Context",
-            precedingTranslationPairs.filter(Boolean).join("\n"),
-            `${currentCellId}: ${currentCellSourceContent} ->`,
-        ].join("\n\n");
-
-        const messages = [
-            { role: "system", content: systemMessage },
-            { role: "user", content: userMessage },
-        ] as ChatMessage[];
-
-        const completion = await callLLM(messages, completionConfig);
-
-        // Debug mode logging
-        if (debugMode) {
-            await logDebugMessages(messages, completion);
+        if (!similarSourceCells || similarSourceCells.length === 0) {
+            showNoResultsWarning();
+            return "";
         }
 
-        return completion;
+        // Get preceding cells and their IDs, limited by context size
+        const contextLimit = contextSize === "small" ? 5 : contextSize === "medium" ? 10 : 50;
+        const allPrecedingCells = await currentNotebookReader.cellsUpTo(currentCellIndex);
+        const precedingCells = allPrecedingCells.slice(
+            Math.max(0, allPrecedingCells.length - contextLimit)
+        ); // FIXME: by reading from the file, the current editor content is not fresh....
+
+        // Filter preceding cells to only include text cells
+        const textPrecedingCells = precedingCells.filter(
+            (cell) =>
+                cell.metadata?.type === CodexCellTypes.TEXT && cell.metadata?.id !== currentCellId
+        );
+
+        // The logic to get preceding translation pairs needs to account for range cells
+        const precedingTranslationPairs = await Promise.all(
+            textPrecedingCells.slice(-5).map(async (cellFromPrecedingContext) => {
+                const cellIndex = await currentNotebookReader.getCellIndex({
+                    id: cellFromPrecedingContext.metadata?.id,
+                });
+                const cellIds = await currentNotebookReader.getCellIds(cellIndex);
+
+                const sourceContents = await Promise.all(
+                    cellIds.map(
+                        (id) =>
+                            vscode.commands.executeCommand(
+                                "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
+                                id
+                            ) as Promise<MinimalCellResult | null>
+                    )
+                );
+
+                if (sourceContents.some((content) => content === null)) {
+                    return null;
+                }
+
+                const combinedSourceContent = sourceContents
+                    .filter(Boolean)
+                    .map((cell) => cell!.content)
+                    .join(" ");
+
+                const cellContent = await currentNotebookReader.getEffectiveCellContent(cellIndex);
+                const cellContentWithoutHTMLTags =
+                    cellContent.replace(/<[^>]*?>/g, "").trim() ||
+                    "[not translated yet; do not try to translate this cell but focus on the final cell below]";
+
+                const result = `${cellIds.join(
+                    ", "
+                )}: ${combinedSourceContent} -> ${cellContentWithoutHTMLTags}`;
+                return result;
+            })
+        );
+
+        // Get the target language
+        const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
+        const targetLanguage = projectConfig.get<any>("targetLanguage")?.tag || null;
+
+        try {
+            const currentCellId = currentCellIds.join(", ");
+            const currentCellSourceContent = sourceContent;
+
+            // Generate few-shot examples
+            const fewShotExamples = similarSourceCells
+                .slice(0, numberOfFewShotExamples)
+                .map(
+                    (pair) =>
+                        `${pair.cellId}: ${pair.sourceCell.content} -> ${pair.targetCell.content}`
+                )
+                .join("\n");
+
+            // Create the prompt
+            const userMessageInstructions = [
+                "1. Analyze the provided reference data to understand the translation patterns and style.",
+                "2. Complete the partial or complete translation of the line.",
+                "3. Ensure your translation fits seamlessly with the existing partial translation.",
+                "4. Provide only the completed translation without any additional commentary or metadata.",
+                `5. Translate only into the target language ${targetLanguage}.`,
+                "6. Pay careful attention to the provided reference data.",
+                "7. If in doubt, err on the side of literalness.",
+            ].join("\n");
+
+            let systemMessage = chatSystemMessage || `You are a helpful assistant`;
+            systemMessage += `\n\nAlways translate from the source language to the target language, ${targetLanguage}, relying strictly on reference data and context provided by the user. The language may be an ultra-low resource language, so it is critical to follow the patterns and style of the provided reference data closely.`;
+            systemMessage += `\n\n${userMessageInstructions}`;
+
+            const userMessage = [
+                "## Instructions",
+                "Follow the translation patterns and style as shown.",
+                "## Translation Memory",
+                fewShotExamples,
+                "## Current Context",
+                precedingTranslationPairs.filter(Boolean).join("\n"),
+                `${currentCellId}: ${currentCellSourceContent} ->`,
+            ].join("\n\n");
+
+            const messages = [
+                { role: "system", content: systemMessage },
+                { role: "user", content: userMessage },
+            ] as ChatMessage[];
+
+            const completion = await callLLM(messages, completionConfig);
+
+            // Debug mode logging
+            if (debugMode) {
+                await logDebugMessages(messages, completion);
+            }
+
+            return completion;
+        } catch (error) {
+            console.error("Error in llmCompletion:", error);
+            throw new Error(
+                `An error occurred while generating the completion. ${JSON.stringify(error)}`
+            );
+        } finally {
+            statusBarItem.hide();
+        }
     } catch (error) {
         console.error("Error in llmCompletion:", error);
         throw new Error(
@@ -211,9 +226,11 @@ function showNoResultsWarning() {
     vscode.window.showWarningMessage(warningMessage, "More Info", "Dismiss").then((selection) => {
         if (selection === "More Info") {
             vscode.window
-                .showInformationMessage(detailedWarning, "How to Fix")
+                .showInformationMessage(detailedWarning, "Refresh Index", "How to Fix")
                 .then((selection) => {
-                    if (selection === "How to Fix") {
+                    if (selection === "Refresh Index") {
+                        vscode.commands.executeCommand("translators-copilot.forceReindex");
+                    } else if (selection === "How to Fix") {
                         vscode.window.showInformationMessage(
                             "Try translating more cells in nearby sections or chapters to provide better context for future suggestions."
                         );

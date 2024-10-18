@@ -7,7 +7,6 @@ import * as vscode from "vscode";
 
 const GIT_IGNORE_CONTENT = `
 # Codex Editor
-.scribe/*
 .project/*
 `;
 
@@ -110,7 +109,7 @@ export const stageAndCommit = async () => {
         }
 
         await repository.add(uris);
-        await repository.commit(`${Date.now()}`);
+        await repository.commit(`${Date.now().toLocaleString("en-US")}`);
     } catch (error) {
         vscode.window.showInformationMessage("No changes to sync locally");
     }
@@ -275,8 +274,11 @@ export const checkConfigRemoteAndUpdateIt = async () => {
         return;
     }
 
+    if (!remoteFromConfig) {
+        return;
+    }
     const remoteChangeChoice = await vscode.window.showInformationMessage(
-        "Remote URL has changed. Do you want to update it?",
+        `Remote URL has changed to ${remoteFromConfig}. Do you want to update it?`,
         "Yes",
         "No"
     );

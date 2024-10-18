@@ -2,10 +2,18 @@ import { API, GitExtension } from "./../providers/scm/git.d";
 import * as vscode from "vscode";
 import { CodexContentSerializer } from "../serializer";
 import { generateUniqueId, clearIdCache } from "./idGenerator";
-import { NavigationCell, NotebookMetadata } from "./codexNotebookUtils";
+import { NavigationCell } from "./codexNotebookUtils";
 import { API as GitAPI, Repository, Status } from "../providers/scm/git.d";
+import {
+    deserializeDictionaryEntries,
+    serializeDictionaryEntries,
+    repairDictionaryContent,
+    ensureCompleteEntry,
+} from "./dictionaryUtils/common";
+import { readDictionaryClient, saveDictionaryClient } from "./dictionaryUtils/client";
+import { CustomNotebookMetadata } from "../../types";
 
-const DEBUG_MODE = true; // Set to true to enable debug logging
+const DEBUG_MODE = false; // Set to true to enable debug logging
 
 function debugLog(...args: any[]): void {
     if (DEBUG_MODE) {
@@ -25,7 +33,7 @@ async function getGitAPI(): Promise<GitAPI | undefined> {
 
 export class NotebookMetadataManager {
     private static instance: NotebookMetadataManager;
-    private metadataMap: Map<string, NotebookMetadata> = new Map();
+    private metadataMap: Map<string, CustomNotebookMetadata> = new Map();
 
     private constructor() {}
 
@@ -36,8 +44,23 @@ export class NotebookMetadataManager {
         return NotebookMetadataManager.instance;
     }
 
-    public getAllMetadata(): NotebookMetadata[] {
+    public getAllMetadata(): CustomNotebookMetadata[] {
         return Array.from(this.metadataMap.values());
+    }
+
+    private getDefaultMetadata(id: string, originalName: string): CustomNotebookMetadata {
+        return {
+            id,
+            originalName,
+            sourceFsPath: undefined,
+            codexFsPath: undefined,
+            navigation: [] as NavigationCell[],
+            videoUrl: "",
+            sourceCreatedAt: "",
+            codexLastModified: "",
+            gitStatus: "uninitialized",
+            corpusMarker: "",
+        };
     }
 
     public async loadMetadata(): Promise<void> {
@@ -48,6 +71,7 @@ export class NotebookMetadataManager {
         const sourceFiles = await vscode.workspace.findFiles("**/*.source");
         const codexFiles = await vscode.workspace.findFiles("**/*.codex");
 
+        const allFiles = [...sourceFiles, ...codexFiles];
         const serializer = new CodexContentSerializer();
 
         for (const file of [...sourceFiles, ...codexFiles]) {
@@ -70,66 +94,50 @@ export class NotebookMetadataManager {
             }
 
             const originalName = file.path.split("/").pop()?.split(".")[0] || "";
-            const id = notebookData.metadata?.id || this.generateNewId(originalName);
+            const id = originalName;
+            // notebookData.metadata?.id || notebookData.id || this.generateNewId(originalName);
 
-            let existingMetadata = this.metadataMap.get(id);
-            if (!existingMetadata) {
-                existingMetadata = {
-                    id,
-                    originalName,
-                    sourceUri: undefined as unknown as vscode.Uri,
-                    codexUri: undefined as unknown as vscode.Uri,
-                    data: {},
-                    sourceFile: "",
-                    navigation: [] as NavigationCell[],
-                    videoUrl: "",
-                    sourceCreatedAt: "",
-                    codexLastModified: "",
-                    gitStatus: "uninitialized",
-                } as NotebookMetadata;
-                this.metadataMap.set(id, existingMetadata);
+            let metadata = this.metadataMap.get(id);
+            if (!metadata) {
+                metadata = this.getDefaultMetadata(id, originalName);
+                this.metadataMap.set(id, metadata);
                 debugLog("Created new metadata entry:", id);
             }
 
             const fileStat = await vscode.workspace.fs.stat(file);
 
             if (file.path.endsWith(".source")) {
-                existingMetadata.sourceUri = file;
-                existingMetadata.sourceCreatedAt = new Date(fileStat.ctime).toISOString();
+                metadata.sourceFsPath = file.fsPath;
+                metadata.sourceCreatedAt = new Date(fileStat.ctime).toISOString();
                 debugLog("Updated sourceUri for:", id);
             } else if (file.path.endsWith(".codex")) {
-                existingMetadata.codexUri = file;
-                existingMetadata.codexLastModified = new Date(fileStat.mtime).toISOString();
+                metadata.codexFsPath = file.fsPath;
+                metadata.codexLastModified = new Date(fileStat.mtime).toISOString();
                 debugLog("Updated codexUri for:", id);
             }
 
-            existingMetadata.gitStatus = await this.getGitStatusForFile(file);
+            metadata.gitStatus = await this.getGitStatusForFile(file);
+
+            // Merge any additional metadata from the file
+            if (notebookData.metadata) {
+                metadata = { ...metadata, ...notebookData.metadata };
+            }
+
+            metadata ? this.metadataMap.set(id, metadata) : null;
         }
 
         // Handle project.dictionary file
         if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
             const workspaceUri = vscode.workspace.workspaceFolders[0].uri;
-            const dictionaryUri = vscode.Uri.joinPath(workspaceUri, "project.dictionary");
-            const dictionaryMetadata: NotebookMetadata = {
-                id: "projectDictionary",
-                originalName: "Project Dictionary",
-                sourceUri: dictionaryUri,
-                codexUri: dictionaryUri,
-                data: {},
-                sourceFile: "",
-                navigation: [],
-                videoUrl: "",
-                sourceCreatedAt: "",
-                codexLastModified: "",
-                gitStatus: await this.getGitStatusForFile(dictionaryUri),
-            };
-            this.metadataMap.set("projectDictionary", dictionaryMetadata);
+            const dictionaryUri = vscode.Uri.joinPath(workspaceUri, "files", "project.dictionary");
+            const dictionaryMetadata = this.getMetadataByUri(dictionaryUri);
+            await this.addOrUpdateMetadata(dictionaryMetadata);
         }
 
         debugLog("Metadata loading complete. Total entries:", this.metadataMap.size);
     }
 
-    private async getGitStatusForFile(fileUri: vscode.Uri): Promise<NotebookMetadata["gitStatus"]> {
+    private async getGitStatusForFile(fileUri: vscode.Uri): Promise<CustomNotebookMetadata["gitStatus"]> {
         const gitApi = await getGitAPI();
         if (!gitApi || gitApi.repositories.length === 0) {
             return "uninitialized";
@@ -163,7 +171,6 @@ export class NotebookMetadataManager {
             return "modified";
         }
 
-        // Check if the file is untracked
         const isUntracked = workingChanges.some(
             (change) => change.status === Status.UNTRACKED && change.uri.fsPath === fileUri.fsPath
         );
@@ -174,27 +181,38 @@ export class NotebookMetadataManager {
         return "committed";
     }
 
-    public getMetadataById(id: string): NotebookMetadata | undefined {
+    public getMetadataById(id: string): CustomNotebookMetadata | undefined {
         const metadata = this.metadataMap.get(id);
         debugLog("getMetadataById:", id, metadata ? "found" : "not found");
         return metadata;
     }
 
-    public getMetadataByUri(uri: vscode.Uri): NotebookMetadata | undefined {
+    public getMetadataByUri(uri: vscode.Uri): CustomNotebookMetadata {
         for (const metadata of this.metadataMap.values()) {
-            if (
-                metadata.sourceUri?.fsPath === uri.fsPath ||
-                metadata.codexUri?.fsPath === uri.fsPath
-            ) {
+            if (metadata.sourceFsPath === uri.fsPath || metadata.codexFsPath === uri.fsPath) {
                 debugLog("getMetadataByUri:", uri.fsPath, "found");
                 return metadata;
             }
         }
-        debugLog("getMetadataByUri:", uri.fsPath, "not found");
-        return undefined;
+
+        // If metadata is not found, create a new one
+        const fileName = uri.path.split("/").pop() || "";
+        const baseName = fileName.split(".")[0];
+        const id = this.generateNewId(baseName);
+        const newMetadata = this.getDefaultMetadata(id, baseName);
+
+        if (uri.path.endsWith(".source")) {
+            newMetadata.sourceFsPath = uri.fsPath;
+        } else if (uri.path.endsWith(".codex")) {
+            newMetadata.codexFsPath = uri.fsPath;
+        }
+
+        this.metadataMap.set(id, newMetadata);
+        debugLog("getMetadataByUri:", uri.fsPath, "created new metadata");
+        return newMetadata;
     }
 
-    public getMetadataBySourceFileName(sourceFileName: string): NotebookMetadata | undefined {
+    public getMetadataBySourceFileName(sourceFileName: string): CustomNotebookMetadata | undefined {
         const baseName = sourceFileName.endsWith(".source")
             ? sourceFileName.slice(0, -7)
             : sourceFileName;
@@ -206,51 +224,92 @@ export class NotebookMetadataManager {
         return undefined;
     }
 
-    public async addOrUpdateMetadata(metadata: NotebookMetadata): Promise<void> {
+    public async addOrUpdateMetadata(metadata: CustomNotebookMetadata): Promise<void> {
         const existingMetadata = this.metadataMap.get(metadata.id);
         if (existingMetadata) {
-            this.metadataMap.set(metadata.id, { ...existingMetadata, ...metadata });
+            this.metadataMap.set(metadata.id, {
+                ...this.getDefaultMetadata(metadata.id, metadata.originalName),
+                ...existingMetadata,
+                ...metadata,
+            });
             debugLog("Updated metadata for:", metadata.id);
         } else {
-            this.metadataMap.set(metadata.id, metadata);
+            this.metadataMap.set(metadata.id, {
+                ...this.getDefaultMetadata(metadata.id, metadata.originalName),
+                ...metadata,
+            });
             debugLog("Added new metadata for:", metadata.id);
         }
 
         // Update metadata in the .source file if it exists
-        if (metadata.sourceUri) {
-            await this.updateMetadataInFile(metadata.sourceUri, metadata);
+        if (metadata.sourceFsPath) {
+            await this.updateMetadataInFile(metadata.sourceFsPath, metadata);
         }
 
         // Update metadata in the .codex file if it exists
-        if (metadata.codexUri) {
-            const fileStat = await vscode.workspace.fs.stat(metadata.codexUri);
+        if (metadata.codexFsPath) {
+            const codexUri = vscode.Uri.file(metadata.codexFsPath);
+            const fileStat = await vscode.workspace.fs.stat(codexUri);
             metadata.codexLastModified = new Date(fileStat.mtime).toISOString();
-            await this.updateMetadataInFile(metadata.codexUri, metadata);
+            await this.updateMetadataInFile(metadata.codexFsPath, metadata);
         }
     }
 
     private async updateMetadataInFile(
-        fileUri: vscode.Uri,
-        metadata: NotebookMetadata
+        fileFsPath: string,
+        metadata: CustomNotebookMetadata
     ): Promise<void> {
+        // Skip updating .dictionary files
+        if (fileFsPath.endsWith(".dictionary")) {
+            debugLog("Skipping metadata update for dictionary file:", fileFsPath);
+            return;
+        }
+
         try {
-            const fileContent = await vscode.workspace.fs.readFile(fileUri);
-            const fileData = JSON.parse(new TextDecoder().decode(fileContent));
+            const fileContent = await vscode.workspace.fs.readFile(vscode.Uri.file(fileFsPath));
+            let fileData;
+            try {
+                fileData = JSON.parse(new TextDecoder().decode(fileContent));
+            } catch (error) {
+                debugLog("Error parsing file content, creating new object:", error);
+                fileData = {};
+            }
 
             if (!fileData.metadata) {
                 fileData.metadata = {};
             }
 
-            fileData.metadata = { ...fileData.metadata, ...metadata };
+            // Update only the relevant metadata for each file type
+            if (fileFsPath.endsWith(".source")) {
+                fileData.metadata = {
+                    ...fileData.metadata,
+                    id: metadata.id,
+                    originalName: metadata.originalName,
+                    sourceCreatedAt: metadata.sourceCreatedAt,
+                    gitStatus: metadata.gitStatus,
+                    corpusMarker: metadata.corpusMarker,
+                };
+            } else if (fileFsPath.endsWith(".codex")) {
+                fileData.metadata = {
+                    ...fileData.metadata,
+                    id: metadata.id,
+                    originalName: metadata.originalName,
+                    codexLastModified: metadata.codexLastModified,
+                    gitStatus: metadata.gitStatus,
+                    corpusMarker: metadata.corpusMarker,
+                    navigation: metadata.navigation,
+                    videoUrl: metadata.videoUrl,
+                };
+            }
 
             await vscode.workspace.fs.writeFile(
-                fileUri,
+                vscode.Uri.file(fileFsPath),
                 new TextEncoder().encode(JSON.stringify(fileData, null, 2))
             );
 
-            debugLog("Updated metadata in file:", fileUri.fsPath);
+            debugLog("Updated metadata in file:", fileFsPath);
         } catch (error) {
-            console.error("Error updating metadata in file:", fileUri.fsPath, error);
+            console.error("Error updating metadata in file:", fileFsPath, error);
         }
     }
 

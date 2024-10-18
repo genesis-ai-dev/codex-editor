@@ -1,5 +1,5 @@
 import React, { useContext } from "react";
-import { EditorCellContent } from "../../../../types";
+import { EditorCellContent, EditorPostMessages } from "../../../../types";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 
 interface EmptyCellDisplayProps {
@@ -7,6 +7,7 @@ interface EmptyCellDisplayProps {
     cellLabel?: string;
     setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorCellContent>>;
     textDirection: "ltr" | "rtl";
+    vscode: any; // Add vscode prop
 }
 
 const EmptyCellDisplay: React.FC<EmptyCellDisplayProps> = ({
@@ -14,6 +15,7 @@ const EmptyCellDisplay: React.FC<EmptyCellDisplayProps> = ({
     cellLabel,
     setContentBeingUpdated,
     textDirection,
+    vscode, // Add vscode to the destructured props
 }) => {
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
     const handleClick = () => {
@@ -27,6 +29,12 @@ const EmptyCellDisplay: React.FC<EmptyCellDisplayProps> = ({
             cellChanged: false,
             cellLabel: cellLabel || "",
         });
+
+        // Add this block to update the global state
+        vscode.postMessage({
+            command: "setCurrentIdToGlobalState",
+            content: { currentLineId: cellMarkers[0] },
+        } as EditorPostMessages);
     };
 
     return (

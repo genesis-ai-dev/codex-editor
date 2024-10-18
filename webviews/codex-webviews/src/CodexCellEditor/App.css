@@ -90,7 +90,18 @@
     padding: 0.25rem 0;
 }
 
-.verse-display:hover {
+.verse-display:hover,
+/* .verse-display *:hover {
+    background-color: var(--vscode-list-hoverBackground);
+} */
+
+.verse-display.paratext-display:hover,
+.verse-display.paratext-display *:hover {
+    background-color: var(--vscode-editor-selectionHighlightBackground);
+}
+
+.verse-display.canonical-display:hover,
+.verse-display.canonical-display *:hover {
     background-color: var(--vscode-list-hoverBackground);
 }
 
@@ -249,6 +260,7 @@ li {
 .cell-display-one-line-per-cell {
     display: flex;
     flex-direction: column;
+    gap: 0.25rem;
 }
 
 .quill-toolbar-icon {
@@ -280,32 +292,37 @@ li {
 }
 
 /* Style for paratext cells in CellContentDisplay */
-.paratext-display {
+.paratext-indicator {
+    display: none; /* Hide paratext indicators unless in one-line-per-cell mode */
+}
+
+.cell-display-one-line-per-cell .paratext-display {
     background-color: var(
         --vscode-editor-inactiveSelectionBackground
     ); /* Background accent from VSCode theme */
-    border-left: 4px solid var(--vscode-editorInfo-foreground); /* Strong accent from VSCode theme */
+    border-inline-start: 4px solid var(--vscode-editorInfo-foreground); /* Strong accent from VSCode theme */
     padding: 0.5rem;
     border-radius: 4px;
 }
 
-.paratext-indicator {
+.cell-display-one-line-per-cell .paratext-indicator {
+    display: inline;
     font-style: italic;
     color: var(--vscode-descriptionForeground);
-    margin-right: 0.5rem;
+    margin-inline-end: 0.5rem;
 }
 
-.paratext-cell {
+.cell-display-one-line-per-cell .paratext-cell {
     background-color: var(--vscode-editor-inactiveSelectionBackground);
     padding: 0.5rem;
     border-radius: 4px;
-    margin-bottom: 0.5rem;
+    margin-block-end: 0.5rem;
 }
 
-.paratext-label {
+.cell-display-one-line-per-cell .paratext-label {
     font-weight: bold;
     color: var(--vscode-editor-foreground);
-    margin-right: 0.5rem;
+    margin-inline-end: 0.5rem;
 }
 
 /* Modal styles */
@@ -366,10 +383,27 @@ li {
     width: 100%;
     max-width: 40rem;
     margin: 0 auto;
+    position: sticky;
+    top: 0;
+    z-index: 99; /* Just below the navigation */
+    background-color: var(--vscode-editor-background);
 }
 
 /* Ensure the video doesn't overflow its container */
 .player-wrapper video {
     max-width: 100%;
     height: auto;
+}
+
+.cell-display-one-line-per-cell .duplicate-id {
+    background-color: var(--vscode-editor-background);
+    border: 2px solid var(--vscode-editorError-foreground);
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+}
+
+.cell-display-inline .duplicate-id {
+    color: var(--vscode-editorError-foreground);
+    border: none;
+    border-radius: 0;
 }

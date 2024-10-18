@@ -19,8 +19,9 @@ import {
 } from "../../webviews/codex-webviews/src/CodexCellEditor/react-quill-spellcheck/types";
 import { RequestType } from "vscode-languageserver";
 import { debug } from "console";
+import { tokenizeText } from "../utils/nlpUtils";
 
-const DEBUG_MODE = true; // Flag for debug mode
+const DEBUG_MODE = false; // Flag for debug mode
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
@@ -140,7 +141,7 @@ connection.onRequest("spellcheck/check", async (params: { text: string; cellChan
     debugLog("Made it past special phrases");
     // Perform regular spellcheck for other words
     const words = tokenizeText({
-        method: "words",
+        method: "whitespace_and_punctuation",
         text: params.text,
     });
     words.forEach((word, index) => {
@@ -208,13 +209,3 @@ connection.onRequest("spellcheck/addWord", async (params: { words: string[] }) =
 
 documents.listen(connection);
 connection.listen();
-
-/**
- * Tokenizes the input text into words.
- * @param params Tokenization parameters.
- * @returns An array of words.
- */
-function tokenizeText(params: { method: string; text: string }): string[] {
-    // Simple word tokenizer; can be replaced with a more robust solution
-    return params.text.match(/\b\p{L}+\b/gu) || params.text.split(" ") || []; // FIXME: There is probably a better way.
-}

@@ -10,6 +10,8 @@ interface ChatMessage {
 interface ChatMessageWithContext extends ChatMessage {
     context?: any; // FixMe: discuss what context could be. Cound it be a link to a note?
     createdAt: string;
+    grade?: number;
+    gradeComment?: string;
 }
 
 interface FrontEndMessage {
@@ -33,7 +35,7 @@ interface ChatMessageThread {
 interface NotebookCommentThread {
     id: string;
     uri?: string;
-    verseRef: string;
+    cellId: CellIdGlobalState;
     comments: {
         id: number;
         body: string;
@@ -109,7 +111,7 @@ type CommentPostMessages =
           command: "deleteComment";
           args: { commentId: number; commentThreadId: string };
       }
-    | { command: "getCurrentVerseRef" }
+    | { command: "getCurrentCellId"; data: CellIdGlobalState }
     | { command: "fetchComments" };
 
 interface SelectedTextDataWithContext {
@@ -119,6 +121,13 @@ interface SelectedTextDataWithContext {
     selectedText: string | null;
     verseNotes: string | null;
     verseGraphData: any;
+}
+
+interface TimeBlock {
+    begin: number;
+    end: number;
+    text: string;
+    id: string;
 }
 
 type ChatPostMessages =
@@ -134,14 +143,36 @@ type ChatPostMessages =
           threadId: string;
           threadTitle?: string;
       }
+    | { command: "requestGradeResponse"; messages: string; lastMessageCreatedAt: string }
+    | { command: "respondWithGrade"; content: string; lastMessageCreatedAt: string }
     | { command: "deleteThread"; threadId: string }
     | { command: "fetchThread" }
     | { command: "abort-fetch" }
     | { command: "openSettings" }
     | { command: "openContextItem"; text: string }
     | { command: "cellGraphData"; data: string[] }
-    | { command: "cellIdUpdate"; data: CellIdGlobalState & { sourceCellContent: string } }
-    | { command: "getCurrentCellId" };
+    | {
+          command: "cellIdUpdate";
+          data: CellIdGlobalState & { sourceCellContent: { cellId: string; content: string } };
+      }
+    | { command: "getCurrentCellId" }
+    | {
+          command: "updateSourceCellMap";
+          sourceCellMap: { [k: string]: { content: string; versions: string[] } };
+      };
+
+type SourceUploadPostMessages =
+    | { command: "downloadBible" }
+    | { command: "getMetadata" }
+    | { command: "openFile"; fileUri: string }
+    | { command: "syncAction"; status: string; fileUri: string }
+    | { command: "uploadSourceText"; fileContent: string; fileName: string; sourceFileName: string }
+    | {
+          command: "uploadTranslation";
+          fileContent: string;
+          fileName: string;
+          sourceFileName: string;
+      };
 
 type DictionaryPostMessages =
     | { command: "sendData"; data: Dictionary }
@@ -246,7 +277,7 @@ type EditorCellContent = {
     cellMarkers: string[];
     cellContent: string;
     cellChanged: boolean;
-    cellLabel: string;
+    cellLabel?: string;
 };
 
 export type EditorPostMessages =
@@ -267,6 +298,8 @@ export type EditorPostMessages =
           };
       }
     | { command: "saveHtml"; content: EditorCellContent }
+    | { command: "saveTimeBlocks"; content: TimeBlock[] }
+    | { command: "replaceDuplicateCells"; content: QuillCellContent }
     | { command: "getContent" }
     | {
           command: "setCurrentIdToGlobalState";
@@ -304,10 +337,7 @@ type EditHistory = {
     type: import("./enums").EditType;
 };
 
-type CodexData = Timestamps & {
-    sourceCellId?: string;
-    isParatext?: boolean;
-};
+type CodexData = Timestamps;
 
 type CustomCellMetaData = {
     id: string;
@@ -328,7 +358,6 @@ type CustomNotebookCellData = vscode.NotebookCellData & {
 
 type CustomNotebookMetadata = {
     id: string;
-    data?: { corpusMarker?: string };
     textDirection?: "ltr" | "rtl";
     perf?: any;
     attachments?: {
@@ -338,9 +367,22 @@ type CustomNotebookMetadata = {
         };
     };
     originalName: string;
-    sourceUri: vscode.Uri;
-    codexUri: vscode.Uri;
-    videoUrl?: string; // Add this line
+    sourceFsPath: string | undefined;
+    codexFsPath: string | undefined;
+    navigation: NavigationCell[];
+    videoUrl?: string;
+    sourceCreatedAt: string;
+    codexLastModified?: string;
+    gitStatus:
+        | "uninitialized"
+        | "modified"
+        | "added"
+        | "deleted"
+        | "renamed"
+        | "conflict"
+        | "untracked"
+        | "committed"; // FIXME: we should probably programmatically do things like track .codex .source and .dictionary files
+    corpusMarker: string;
 };
 
 type CustomNotebookDocument = vscode.NotebookDocument & {

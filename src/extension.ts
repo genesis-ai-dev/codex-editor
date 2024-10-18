@@ -24,9 +24,11 @@ import { migrateSourceFiles } from "./utils/codexNotebookUtils";
 import { VideoEditorProvider } from "./providers/VideoEditor/VideoEditorProvider";
 import { registerVideoPlayerCommands } from "./providers/VideoPlayer/registerCommands";
 import { SourceUploadProvider } from "./providers/SourceUpload/SourceUploadProvider";
+import { StatusBarItem } from "vscode";
 
 let client: LanguageClient | undefined;
 let clientCommandsDisposable: vscode.Disposable;
+let autoCompleteStatusBarItem: StatusBarItem;
 
 export async function activate(context: vscode.ExtensionContext) {
     vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
@@ -71,6 +73,15 @@ export async function activate(context: vscode.ExtensionContext) {
     await temporaryMigrationScript_checkMatthewNotebook();
     await migration_changeDraftFolderToFilesFolder();
     await migrateSourceFiles();
+
+    // Create the status bar item
+    autoCompleteStatusBarItem = vscode.window.createStatusBarItem(
+        vscode.StatusBarAlignment.Right,
+        100
+    );
+    autoCompleteStatusBarItem.text = "$(sync~spin) Auto-completing...";
+    autoCompleteStatusBarItem.hide();
+    context.subscriptions.push(autoCompleteStatusBarItem);
 }
 
 async function initializeExtension(context: vscode.ExtensionContext, metadataExists: boolean) {
@@ -155,4 +166,8 @@ export function deactivate() {
     if (client) {
         return client.stop();
     }
+}
+
+export function getAutoCompleteStatusBarItem(): StatusBarItem {
+    return autoCompleteStatusBarItem;
 }

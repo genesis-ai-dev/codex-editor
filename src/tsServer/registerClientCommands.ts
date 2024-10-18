@@ -40,9 +40,6 @@ export function registerClientCommands(
                         words: wordsArray,
                     });
                     console.log("Add word response from language server:", response);
-                    vscode.window.showInformationMessage(
-                        "Word(s) added to dictionary successfully."
-                    );
                 } catch (error: any) {
                     console.error("Error sending request to language server:", error);
                     vscode.window.showErrorMessage(`Error adding word: ${error.message}`);

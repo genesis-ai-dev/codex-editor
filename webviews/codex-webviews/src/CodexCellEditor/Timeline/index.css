@@ -1,0 +1,69 @@
+.wrap {
+    position: absolute;
+
+    z-index: 2;
+    background-color: "white";
+    cursor: default;
+}
+.timeline-editor {
+    position: relative;
+    padding: 0 !important;
+    height: 130px;
+    transition: 0.3s;
+    cursor: grab;
+}
+.z-index-1 {
+    z-index: 1;
+}
+.z-index-2 {
+    z-index: 2;
+}
+.z-index-3 {
+    z-index: 3;
+}
+
+.e-resize {
+    cursor: e-resize;
+}
+.move {
+    cursor: move;
+}
+.col-resize {
+    cursor: col-resize;
+}
+.grabbing {
+    cursor: -webkit-grabbing;
+    cursor: grabbing;
+}
+.grab {
+    cursor: -webkit-grabbing;
+    cursor: grab;
+}
+.crosshair {
+    cursor: crosshair;
+}
+.timeline-toolbar {
+    position: absolute;
+    top: -34px;
+    left: 0px;
+}
+.toolbar-button {
+    font-size: 20px;
+    color: #859daf;
+}
+.toolbar-next-prev {
+    font-size: 20px;
+    position: absolute;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    top: -25px;
+    width: calc(100% - 80px);
+    height: 0;
+    color: #859daf;
+}
+
+.toolbar-prev-sentence-button {
+    top: -50px;
+    left: 0px;
+}

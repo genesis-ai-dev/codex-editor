@@ -144,11 +144,12 @@ async function handleBibleDownload(
         metadata: {
             id: corpusMetadata.file,
             originalName: corpusMetadata.file,
-            sourceUri: vscode.Uri.file(bibleTextPath),
-            codexUri: vscode.Uri.file(bibleTextPath),
-            data: {
-                corpusMarker: undefined, // We'll set this later
-            },
+            sourceFsPath: vscode.Uri.file(bibleTextPath).fsPath,
+            codexFsPath: vscode.Uri.file(bibleTextPath).fsPath,
+            corpusMarker: "",
+            navigation: [],
+            sourceCreatedAt: "",
+            gitStatus: "uninitialized",
         },
     };
 

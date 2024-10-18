@@ -16,6 +16,8 @@ import VideoPlayer from "./VideoPlayer";
 import registerQuillSpellChecker from "./react-quill-spellcheck";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import SourceCellContext from "./contextProviders/SourceCellContext";
+import DuplicateCellResolver from "./DuplicateCellResolver";
+import TimelineEditor from "./TimelineEditor";
 
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
@@ -41,7 +43,9 @@ const CodexCellEditor: React.FC = () => {
     const [isSourceText, setIsSourceText] = useState<boolean>(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState<boolean>(false);
     console.log({ isMetadataModalOpen });
-    const [metadata, setMetadata] = useState<CustomNotebookMetadata>();
+    const [metadata, setMetadata] = useState<CustomNotebookMetadata>({
+        videoUrl: "", // FIXME: use attachments instead of videoUrl
+    } as CustomNotebookMetadata);
     const [videoUrl, setVideoUrl] = useState<string>("");
     const playerRef = useRef<ReactPlayer>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
@@ -222,11 +226,10 @@ const CodexCellEditor: React.FC = () => {
     // };
 
     const handleMetadataChange = (key: string, value: string) => {
-        setMetadata((prev: CustomNotebookMetadata | undefined) => {
-            if (!prev) {
-                return { [key]: value } as unknown as CustomNotebookMetadata;
-            }
-            return { ...prev, [key]: value };
+        setMetadata((prev) => {
+            const updatedMetadata = { ...prev, [key]: value };
+            console.log("Updated metadata:", updatedMetadata);
+            return updatedMetadata;
         });
     };
 
@@ -235,14 +238,16 @@ const CodexCellEditor: React.FC = () => {
     };
 
     const handleSaveMetadata = () => {
+        const updatedMetadata = { ...metadata };
         if (tempVideoUrl) {
-            handleMetadataChange("videoUrl", tempVideoUrl);
+            updatedMetadata.videoUrl = tempVideoUrl;
             setVideoUrl(tempVideoUrl);
             setTempVideoUrl("");
         }
+        console.log("Saving metadata:", updatedMetadata);
         vscode.postMessage({
             command: "updateNotebookMetadata",
-            content: metadata,
+            content: updatedMetadata,
         } as EditorPostMessages);
         setIsMetadataModalOpen(false);
     };
@@ -251,41 +256,114 @@ const CodexCellEditor: React.FC = () => {
         setVideoUrl(url);
     };
 
+    const [headerHeight, setHeaderHeight] = useState(0);
+    const [windowHeight, setWindowHeight] = useState(window.innerHeight);
+    const headerRef = useRef<HTMLDivElement>(null);
+    const navigationRef = useRef<HTMLDivElement>(null);
+    const videoPlayerRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleResize = () => {
+            setWindowHeight(window.innerHeight);
+            if (headerRef.current && navigationRef.current && videoPlayerRef.current) {
+                const totalHeaderHeight =
+                    headerRef.current.offsetHeight +
+                    navigationRef.current.offsetHeight +
+                    (shouldShowVideoPlayer ? videoPlayerRef.current.offsetHeight : 0);
+                setHeaderHeight(totalHeaderHeight);
+            }
+        };
+
+        window.addEventListener("resize", handleResize);
+        handleResize(); // Initial calculation
+
+        return () => window.removeEventListener("resize", handleResize);
+    }, [shouldShowVideoPlayer]); // Add shouldShowVideoPlayer as a dependency
+
+    const checkForDuplicateCells = (translationUnitsToCheck: QuillCellContent[]) => {
+        const listOfCellIds = translationUnitsToCheck.map((unit) => unit.cellMarkers[0]);
+        const uniqueCellIds = new Set(listOfCellIds);
+        return uniqueCellIds.size !== listOfCellIds.length;
+    };
+
+    const duplicateCellsExist = checkForDuplicateCells(translationUnits);
+
+    if (duplicateCellsExist) {
+        return (
+            <DuplicateCellResolver
+                translationUnits={translationUnits}
+                textDirection={textDirection}
+                vscode={vscode}
+            />
+        );
+    }
+
+    // const data = [{ begin: 25, end: 35, text: "This is subtitle" }];
+    const removeHtmlTags = (text: string) => {
+        return text.replace(/<[^>]*>?/g, "").replace(/\n/g, " ");
+    };
+    const data: {
+        begin: number;
+        end: number;
+        text: string;
+        id: string;
+    }[] = translationUnitsForSection.map((unit) => {
+        return {
+            begin: unit.timestamps?.startTime || 0,
+            end: unit.timestamps?.endTime || 0,
+            text: removeHtmlTags(unit.cellContent),
+            id: unit.cellMarkers[0],
+        };
+    });
     return (
         <div className="codex-cell-editor">
-            <div className="static-header">
-                <ChapterNavigation
-                    chapterNumber={chapterNumber}
-                    setChapterNumber={setChapterNumber}
-                    totalChapters={totalChapters}
-                    unsavedChanges={!!contentBeingUpdated.cellContent}
-                    onAutocompleteChapter={handleAutocompleteChapter}
-                    onSetTextDirection={setTextDirection}
-                    textDirection={textDirection}
-                    onSetCellDisplayMode={setCellDisplayMode}
-                    cellDisplayMode={cellDisplayMode}
-                    isSourceText={isSourceText}
-                    openSourceText={openSourceText}
-                    totalCellsToAutocomplete={translationUnitsForSection.length}
-                    setShouldShowVideoPlayer={setShouldShowVideoPlayer}
-                    shouldShowVideoPlayer={shouldShowVideoPlayer}
-                    documentHasVideoAvailable={true}
-                    metadata={metadata}
-                    tempVideoUrl={tempVideoUrl}
-                    onMetadataChange={handleMetadataChange}
-                    onSaveMetadata={handleSaveMetadata}
-                    onPickFile={handlePickFile}
-                    onUpdateVideoUrl={handleUpdateVideoUrl}
-                />
-                {shouldShowVideoPlayer && videoUrl && (
-                    <VideoPlayer
-                        playerRef={playerRef}
-                        videoUrl={videoUrl}
-                        translationUnitsForSection={translationUnitsWithCurrentEditorContent}
+            <div className="static-header" ref={headerRef}>
+                <div ref={navigationRef}>
+                    <ChapterNavigation
+                        chapterNumber={chapterNumber}
+                        setChapterNumber={setChapterNumber}
+                        totalChapters={totalChapters}
+                        unsavedChanges={!!contentBeingUpdated.cellContent}
+                        onAutocompleteChapter={handleAutocompleteChapter}
+                        onSetTextDirection={setTextDirection}
+                        textDirection={textDirection}
+                        onSetCellDisplayMode={setCellDisplayMode}
+                        cellDisplayMode={cellDisplayMode}
+                        isSourceText={isSourceText}
+                        openSourceText={openSourceText}
+                        totalCellsToAutocomplete={translationUnitsForSection.length}
+                        setShouldShowVideoPlayer={setShouldShowVideoPlayer}
+                        shouldShowVideoPlayer={shouldShowVideoPlayer}
+                        documentHasVideoAvailable={true}
+                        metadata={metadata}
+                        tempVideoUrl={tempVideoUrl}
+                        onMetadataChange={handleMetadataChange}
+                        onSaveMetadata={handleSaveMetadata}
+                        onPickFile={handlePickFile}
+                        onUpdateVideoUrl={handleUpdateVideoUrl}
                     />
+                </div>
+                {shouldShowVideoPlayer && videoUrl && (
+                    <div
+                        style={{
+                            display: "flex",
+                            flexDirection: "column",
+                        }}
+                        ref={videoPlayerRef}
+                    >
+                        <VideoPlayer
+                            playerRef={playerRef}
+                            videoUrl={videoUrl}
+                            translationUnitsForSection={translationUnitsWithCurrentEditorContent}
+                        />
+                        <TimelineEditor data={data} vscode={vscode} />
+                    </div>
                 )}
             </div>
-            <div className="scrollable-content">
+            <div
+                className="scrollable-content"
+                style={{ height: `calc(100vh - ${headerHeight}px)` }}
+            >
                 <h1>{translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0]}</h1>
                 <div className="editor-container">
                     {autocompletionProgress !== null && (
@@ -305,6 +383,8 @@ const CodexCellEditor: React.FC = () => {
                         textDirection={textDirection}
                         cellDisplayMode={cellDisplayMode}
                         isSourceText={isSourceText}
+                        windowHeight={windowHeight}
+                        headerHeight={headerHeight}
                     />
                 </div>
             </div>

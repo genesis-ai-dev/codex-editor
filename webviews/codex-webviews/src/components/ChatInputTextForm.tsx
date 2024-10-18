@@ -7,6 +7,7 @@ type CommentTextFormProps = {
     contextItems: string[];
     selectedText: string;
     vscode: any;
+    sourceCellMap: { [k: string]: { content: string; versions: string[] } };
 };
 
 export const ChatInputTextForm: React.FC<CommentTextFormProps> = ({
@@ -14,6 +15,7 @@ export const ChatInputTextForm: React.FC<CommentTextFormProps> = ({
     contextItems,
     selectedText,
     vscode,
+    sourceCellMap,
 }) => {
     return (
         <form
@@ -45,7 +47,11 @@ export const ChatInputTextForm: React.FC<CommentTextFormProps> = ({
                     width: "100%",
                 }}
             >
-                <ContextItemList contextItems={contextItems} vscode={vscode} />
+                <ContextItemList
+                    contextItems={contextItems}
+                    vscode={vscode}
+                    sourceCellMap={sourceCellMap}
+                />
                 {selectedText && (
                     <div
                         style={{

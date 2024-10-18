@@ -26,7 +26,7 @@ function App() {
     const [error, setError] = useState<string | null>(null);
     const [noProjectFound, setNoProjectFound] = useState(false);
     const [initialLoadAttempted, setInitialLoadAttempted] = useState(false);
-    const [primarySourceText, setprimarySourceText] = useState<string | null>(null);
+    // const [primarySourceText, setprimarySourceText] = useState<string | null>(null);
 
     const handleMessage = useCallback((event: MessageEvent) => {
         console.log("Received message:", event.data);
@@ -36,7 +36,7 @@ function App() {
             case "projectCreated": {
                 console.log("Setting project overview:", message.data);
                 setProjectOverview(message.data);
-                setprimarySourceText(message.data.primarySourceText);
+                // setprimarySourceText(message.data.primarySourceText);
                 setIsLoading(false);
                 setError(null);
                 setNoProjectFound(false);
@@ -117,12 +117,12 @@ function App() {
         // }, 1500);
     }, []);
 
-    const handleSelectprimarySourceText = useCallback(
-        (biblePath: string) => {
-            handleAction("selectprimarySourceText", biblePath);
-        },
-        [handleAction]
-    );
+    // const handleSelectprimarySourceText = useCallback(
+    //     (biblePath: string) => {
+    //         handleAction("selectprimarySourceText", biblePath);
+    //     },
+    //     [handleAction]
+    // );
 
     return (
         <div
@@ -345,7 +345,7 @@ function App() {
                                         : "var(--vscode-errorForeground)",
                             }}
                         >
-                            {projectOverview.sourceTexts &&
+                            {/* {projectOverview.sourceTexts &&
                             projectOverview.sourceTexts.length > 0 ? (
                                 <ul>
                                     {projectOverview.sourceTexts.map((bible) => {
@@ -413,17 +413,17 @@ function App() {
                                         style={{ marginLeft: "8px" }}
                                     ></i>
                                 </>
-                            )}
+                            )} */}
                         </VSCodeDataGridCell>
                         <VSCodeDataGridCell
                             grid-column="3"
                             style={{ display: "flex", flexDirection: "column", gap: "8px" }}
                         >
-                            <VSCodeButton onClick={() => handleAction("downloadSourceText")}>
+                            {/* <VSCodeButton onClick={() => handleAction("downloadSourceText")}>
                                 <i className="codicon codicon-cloud-download"></i>
-                            </VSCodeButton>
+                            </VSCodeButton> */}
                             <VSCodeButton onClick={() => handleAction("openSourceUpload")}>
-                                <i className="codicon codicon-new-folder"></i>
+                                <i className="codicon codicon-preview"></i>
                             </VSCodeButton>
                         </VSCodeDataGridCell>
                     </VSCodeDataGridRow>

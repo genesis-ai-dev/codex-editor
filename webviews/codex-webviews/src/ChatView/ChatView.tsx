@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { VSCodeButton, VSCodeDropdown, VSCodeOption } from "@vscode/webview-ui-toolkit/react";
 import { ChatInputTextForm } from "../components/ChatInputTextForm";
 import DeleteButtonWithConfirmation from "../components/DeleteButtonWithConfirmation";
@@ -18,13 +18,20 @@ function messageWithContext({
     userPrompt,
     selectedText,
     contextItems,
+    instructions,
 }: {
     messageHistory: string;
-    userPrompt: string;
+    userPrompt?: string;
     selectedText?: string;
     contextItems?: string[];
+    instructions?: string;
 }): ChatMessageWithContext {
-    let content = `### Instructions:\nPlease use the context below to respond to the user's message. If you know the answer, be concise. If the answer is in the context, please quote the wording of the source. If the answer is not in the context, avoid making up anything, but you can use general knowledge from a devout Christian perspective.`;
+    let content = "## Instructions:\n";
+    if (!instructions) {
+        content += `Please use the context below to respond to the user's message. If you know the answer, be concise. If the answer is in the context, please quote the wording of the source. If the answer is not in the context, avoid making up anything, but you can use general knowledge from a devout Christian perspective.`;
+    } else {
+        content += instructions;
+    }
 
     if (selectedText || (contextItems && contextItems?.length > 0)) {
         content += `\n\n### Context:`;
@@ -44,7 +51,9 @@ function messageWithContext({
         content += `\n\n### Chat History:\n${messageHistory}`;
     }
 
-    content += `\n\n### User's message: ${userPrompt}`;
+    if (userPrompt) {
+        content += `\n\n### User's message: ${userPrompt}`;
+    }
 
     return {
         // FIXME: since we're passing in the conversation history, should we be using a completions endpoint rather than a chat one?
@@ -57,17 +66,26 @@ function messageWithContext({
 function App() {
     const [pendingMessage, setPendingMessage] = useState<ChatMessageWithContext>();
     const [selectedTextContext, setSelectedTextContext] = useState<string>("");
-    const [currentlyActiveVref, setCurrentlyActiveVref] = useState<string>("");
-    const [contextItems, setContextItems] = useState<string[]>([]); // TODO: fetch from RAG server
-    const [messageLog, setMessageLog] = useState<ChatMessageWithContext[]>([
+    const [currentlyActiveCellId, setCurrentlyActiveCellId] = useState<string>("");
+    const [contextItems, setContextItems] = useState<string[]>([]); // TODO: we should consolidate various shared state stores into this value
+    const [messageLog, setMessageLog_] = useState<ChatMessageWithContext[]>([
         // systemMessage,
         // dummyUserMessage,
         // dummyAssistantMessage,
     ]);
 
+    const setMessageLog = (messageLog: ChatMessageWithContext[]) => {
+        console.log("joshEdit: setMessageLog", messageLog);
+        setMessageLog_(messageLog);
+    };
+
     const [currentMessageThreadId, setCurrentMessageThreadId] = useState<string>(uuidv4());
 
     const [availableMessageThreads, setAvailableMessageThreads] = useState<ChatMessageThread[]>();
+
+    const [sourceCellMap, setSourceCellMap] = useState<{
+        [k: string]: { content: string; versions: string[] };
+    }>({});
 
     const SHOW_SENDER_ROLE_LABELS = false;
 
@@ -87,7 +105,7 @@ function App() {
             createdAt: new Date().toISOString(),
             context: {
                 selectedText: selectedTextContext,
-                currentVref: currentlyActiveVref,
+                currentVref: currentlyActiveCellId,
                 relevantContextItemsFromEmbeddings: contextItemsFromState,
                 // verseNotes: currentVerseNotes,
             },
@@ -113,7 +131,7 @@ function App() {
         try {
             getResponseToUserNewMessage(submittedMessageValue);
             setSelectedTextContext("");
-            setCurrentlyActiveVref("");
+            setCurrentlyActiveCellId("");
         } catch (error) {
             console.error("Failed to fetch context items due to an error:", error);
             vscode.postMessage({
@@ -159,108 +177,255 @@ function App() {
         }
     }, [currentMessageThreadId, availableMessageThreads]);
 
-    // FIXME: use loading state to show/hide a progress ring while
-    window.addEventListener("message", (event: MessageEvent<ChatPostMessages>) => {
-        const message = event.data; // The JSON data our extension sent
-        switch (message?.command) {
-            case "select":
-                // FIXME: this is being invoked every time a new token is rendered
-                if (message.textDataWithContext) {
-                    // FIXME: this needs to use the new codex notebook format
-                    const {
-                        completeLineContent,
-                        selectedText,
-                        vrefAtStartOfLine,
-                        verseNotes,
-                        verseGraphData,
-                    } = message.textDataWithContext;
-
-                    const strippedCompleteLineContent = vrefAtStartOfLine
-                        ? completeLineContent?.replace(vrefAtStartOfLine, "").trim()
-                        : completeLineContent?.trim();
-
-                    const selectedTextContextString =
-                        selectedText !== ""
-                            ? `${selectedText} (${vrefAtStartOfLine})`
-                            : `${strippedCompleteLineContent} (${vrefAtStartOfLine})`;
-                    // if (verseNotes !== null) {
-                    // setCurrentVerseNotes(verseNotes ?? '');
-                    const verseNotesArray =
-                        verseNotes?.split("\n\n").filter(
-                            // Let's filter out empty notes and notes that are URIs to .json files
-                            (note) => note !== "" && !/^[^\n]*\.json$/.test(note) // FIXME: we should simply avoid passing in the URI to the .json file in the first place
-                        ) ?? [];
-
-                    verseNotesArray.push(JSON.stringify(verseGraphData)); // Here we're adding the verse graph data to the verse notes array
-                    setContextItems(verseNotesArray);
-                    // }
-                    setSelectedTextContext(selectedTextContextString);
-                    setCurrentlyActiveVref(vrefAtStartOfLine ?? "");
-                }
-                break;
-            case "response": {
-                if (!message.finished) {
-                    const messageContent = (pendingMessage?.content || "") + (message.text || "");
-                    setPendingMessage({
-                        role: "assistant",
-                        content: messageContent,
-                        createdAt: new Date().toISOString(),
-                    });
-                } else {
-                    if (pendingMessage) {
-                        setMessageLog([...messageLog, pendingMessage]);
-                    }
-                    setPendingMessage(undefined);
-                }
-                break;
+    function gradeExists(): boolean {
+        if (messageLog && messageLog.length > 0) {
+            const latestMessage = messageLog[messageLog.length - 1];
+            if (latestMessage?.grade !== undefined && latestMessage?.grade !== null) {
+                return true;
             }
-            case "threadsFromWorkspace":
-                if (message.content) {
-                    const messageThreadArray = message.content;
-                    const lastMessageThreadId =
-                        messageThreadArray[messageThreadArray.length - 1]?.id;
-                    const messageThreadsExist = !!lastMessageThreadId;
-                    if (messageThreadsExist) {
-                        setAvailableMessageThreads(
-                            messageThreadArray.filter((thread) => !thread.deleted)
-                        );
-                    }
-
-                    let messageThreadIdToUse: string;
-
-                    if (currentMessageThreadId) {
-                        messageThreadIdToUse = currentMessageThreadId;
-                    } else if (messageThreadsExist) {
-                        messageThreadIdToUse = lastMessageThreadId;
-                    } else {
-                        messageThreadIdToUse = uuidv4();
-                    }
-
-                    setCurrentMessageThreadId(messageThreadIdToUse);
-
-                    const messageThreadForContext = messageThreadArray.find(
-                        (thread) => thread.id === messageThreadIdToUse
-                    );
-
-                    if (
-                        messageThreadForContext?.messages?.length &&
-                        messageThreadForContext?.messages?.length > 0
-                    ) {
-                        setMessageLog(messageThreadForContext.messages);
-                    }
-                }
-                break;
-            case "verseRefUpdate":
-                if (message.data) {
-                    const { verseRef, sourceCellContent } = message.data;
-                    setCurrentlyActiveVref(verseRef);
-                    setSelectedTextContext(JSON.stringify(sourceCellContent));
-                }
-                break;
-            default:
-                break;
         }
-    });
+        return false;
+    }
+    function getGrade(): number {
+        if (messageLog && messageLog.length > 0) {
+            const latestMessage = messageLog[messageLog.length - 1];
+            if (latestMessage?.grade !== undefined && latestMessage?.grade !== null) {
+                return latestMessage.grade;
+            }
+        }
+        return 100;
+    }
+    function getGradeComment(): string {
+        if (messageLog && messageLog.length > 0) {
+            const latestMessage = messageLog[messageLog.length - 1];
+            return latestMessage.gradeComment ?? "";
+        }
+        return "";
+    }
+
+    const requestGradeDebounceRef = useRef(0);
+    useEffect(() => {
+        function requestGradeDebounced() {
+            if (messageLog.length === 0) {
+                return;
+            }
+
+            const contextItemsFromState = contextItems;
+
+            const gradeRequestMessage: string =
+                "How would a conservative Christian grade the last response of Copilot based on how well it aligns with conservative Christain doctrine.\nTheir grade will be an integer between 0 and 100 where 0 is the lowest grade and 100 is the highest grade.\nInclude what their comment would be for the grade.";
+
+            const messages: ChatMessageWithContext[] = [
+                messageWithContext({
+                    messageHistory: formatMessageLogToString(messageLog),
+                    instructions: gradeRequestMessage,
+                    selectedText: selectedTextContext,
+                    contextItems: contextItemsFromState,
+                }),
+            ];
+
+            console.log("JoshTest: requestGradeDebounced: messages", messages);
+
+            //send with requestGradeResponse
+            vscode.postMessage({
+                command: "requestGradeResponse",
+                messages: JSON.stringify(messages),
+                lastMessageCreatedAt: messageLog[messageLog.length - 1].createdAt,
+            } as ChatPostMessages);
+        }
+
+        function requestGrade() {
+            const GRADE_DEBOUNCE_TIME_MS = 1000;
+            clearTimeout(requestGradeDebounceRef.current);
+
+            requestGradeDebounceRef.current = setTimeout(() => {
+                requestGradeDebounced();
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            }, GRADE_DEBOUNCE_TIME_MS) as any;
+        }
+
+        function needsGrade(): boolean {
+            //if the message queue isn't even set we don't need a grade.
+            if (!messageLog) {
+                return false;
+            }
+
+            //If there are no messages we don't need a grade.
+            if (messageLog.length === 0) {
+                return false;
+            }
+
+            const latestMessage = messageLog[messageLog.length - 1];
+
+            //if the laser message isn't a copiolot response
+            //we don't need to grade.
+            if (latestMessage?.role != "assistant") {
+                return false;
+            }
+
+            //if the grade already exists we don't need it.
+            if (latestMessage?.grade !== undefined && latestMessage?.grade !== null) {
+                return false;
+            }
+
+            //K, we need a grade.
+            return true;
+        }
+
+        if (needsGrade()) {
+            requestGrade();
+        }
+    }, [messageLog, messageLog.length, contextItems, selectedTextContext]);
+
+    // FIXME: use loading state to show/hide a progress ring while
+    useEffect(() => {
+        function handleMessage(event: MessageEvent<ChatPostMessages>) {
+            const message = event.data;
+            switch (message?.command) {
+                case "select":
+                    // FIXME: this is being invoked every time a new token is rendered
+                    if (message.textDataWithContext) {
+                        // FIXME: this needs to use the new codex notebook format
+                        const {
+                            completeLineContent,
+                            selectedText,
+                            vrefAtStartOfLine,
+                            verseNotes,
+                            verseGraphData,
+                        } = message.textDataWithContext;
+
+                        const strippedCompleteLineContent = vrefAtStartOfLine
+                            ? completeLineContent?.replace(vrefAtStartOfLine, "").trim()
+                            : completeLineContent?.trim();
+
+                        const selectedTextContextString =
+                            selectedText !== ""
+                                ? `${selectedText} (${vrefAtStartOfLine})`
+                                : `${strippedCompleteLineContent} (${vrefAtStartOfLine})`;
+                        // if (verseNotes !== null) {
+                        // setCurrentVerseNotes(verseNotes ?? '');
+                        const verseNotesArray =
+                            verseNotes?.split("\n\n").filter(
+                                // Let's filter out empty notes and notes that are URIs to .json files
+                                (note) => note !== "" && !/^[^\n]*\.json$/.test(note) // FIXME: we should simply avoid passing in the URI to the .json file in the first place
+                            ) ?? [];
+
+                        verseNotesArray.push(JSON.stringify(verseGraphData)); // Here we're adding the verse graph data to the verse notes array
+                        setContextItems(verseNotesArray);
+                        // }
+                        setSelectedTextContext(selectedTextContextString);
+                        setCurrentlyActiveCellId(vrefAtStartOfLine ?? "");
+                    }
+                    break;
+                case "response": {
+                    if (!message.finished) {
+                        const messageContent =
+                            (pendingMessage?.content || "") + (message.text || "");
+                        setPendingMessage({
+                            role: "assistant",
+                            content: messageContent,
+                            createdAt: new Date().toISOString(),
+                        });
+                    } else {
+                        if (pendingMessage) {
+                            setMessageLog([...messageLog, pendingMessage]);
+                        }
+                        setPendingMessage(undefined);
+                    }
+                    break;
+                }
+                case "respondWithGrade": {
+                    console.log("JoshDebug: ChatView: respondWithGrade", message);
+                    try {
+                        if (message.content) {
+                            //Find the first number on the content and call it the grade.
+                            //create regular expression to find first integer.
+                            const regex = /\d+/g;
+                            const match = regex.exec(message.content);
+                            if (match && match.length > 0) {
+                                const grade = parseInt(match[0]);
+
+                                //add grade and gradeComment to message in messageLog that
+                                //createdAt matches lastMessageCreatedAt
+
+                                let changedSomething = false;
+                                const modifiedMessageLog = messageLog.map((m) => {
+                                    if (m.createdAt === message?.lastMessageCreatedAt) {
+                                        changedSomething = true;
+                                        return { ...m, grade, gradeComment: message.content };
+                                    }
+                                    return m;
+                                });
+
+                                if (changedSomething) {
+                                    setMessageLog(modifiedMessageLog);
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.log("Error receiving grade", e);
+                    }
+                    break;
+                }
+                case "threadsFromWorkspace":
+                    console.log("JoshDebug: ChatView: threadsFromWorkspace", message);
+                    if (message.content) {
+                        const messageThreadArray = message.content;
+                        const lastMessageThreadId =
+                            messageThreadArray[messageThreadArray.length - 1]?.id;
+                        const messageThreadsExist = !!lastMessageThreadId;
+                        if (messageThreadsExist) {
+                            setAvailableMessageThreads(
+                                messageThreadArray.filter((thread) => !thread.deleted)
+                            );
+                        }
+
+                        let messageThreadIdToUse: string;
+
+                        if (currentMessageThreadId) {
+                            messageThreadIdToUse = currentMessageThreadId;
+                        } else if (messageThreadsExist) {
+                            messageThreadIdToUse = lastMessageThreadId;
+                        } else {
+                            messageThreadIdToUse = uuidv4();
+                        }
+
+                        setCurrentMessageThreadId(messageThreadIdToUse);
+
+                        const messageThreadForContext = messageThreadArray.find(
+                            (thread) => thread.id === messageThreadIdToUse
+                        );
+
+                        if (
+                            messageThreadForContext?.messages?.length &&
+                            messageThreadForContext?.messages?.length > 0
+                        ) {
+                            setMessageLog(messageThreadForContext.messages);
+                        }
+                    }
+                    break;
+                case "cellIdUpdate":
+                    if (message.data) {
+                        const { cellId, sourceCellContent } = message.data;
+                        setCurrentlyActiveCellId(cellId);
+                        setSelectedTextContext(sourceCellContent.content);
+                    }
+                    break;
+                case "updateSourceCellMap":
+                    if (message.sourceCellMap) {
+                        setSourceCellMap(message.sourceCellMap);
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        window.addEventListener("message", handleMessage);
+        return () => {
+            window.removeEventListener("message", handleMessage);
+        };
+    }, [currentMessageThreadId, messageLog, pendingMessage]);
 
     function markChatThreadAsDeleted(messageThreadIdToMarkAsDeleted: string) {
         vscode.postMessage({
@@ -346,6 +511,31 @@ function App() {
             </>
         );
     };
+
+    const onEditComplete = (updatedMessage: ChatMessageWithContext) => {
+        //First update the messageLog
+        let messageChanged = false;
+        const updatedMessageLog = messageLog.map((message) => {
+            if (message.createdAt === updatedMessage.createdAt) {
+                if (message.content !== updatedMessage.content) {
+                    messageChanged = true;
+                    return { ...message, content: updatedMessage.content };
+                }
+            }
+            return message;
+        });
+
+        //Now also remove the grade on the last message.
+        //Removing the grade will make it so that it will get regraded.
+        if (updatedMessageLog.length > 0 && messageChanged) {
+            updatedMessageLog[updatedMessageLog.length - 1].grade = undefined;
+            updatedMessageLog[updatedMessageLog.length - 1].gradeComment = undefined;
+        }
+
+        setMessageLog(updatedMessageLog);
+        console.log("joshEdit: onEditComplete", updatedMessage);
+    };
+
     //   const currentMessageThreadTitle = availableMessageThreads?.find(
     //     (messageThread) => messageThread.id === currentMessageThreadId
     //   )?.threadTitle;
@@ -409,17 +599,26 @@ function App() {
                         key={index}
                         messageItem={messageLogItem}
                         showSenderRoleLabels={SHOW_SENDER_ROLE_LABELS}
+                        onEditComplete={onEditComplete}
                     />
                 ))}
                 {pendingMessage?.role === "assistant" && pendingMessage?.content.length > 0 ? (
                     <MessageItem messageItem={pendingMessage} />
                 ) : null}
             </div>
+            {gradeExists() ? (
+                <div style={{ padding: "1em", fontWeight: "bold" }}>
+                    <div title={getGradeComment()} style={{ cursor: "help" }}>
+                        Grade {getGrade()}
+                    </div>
+                </div>
+            ) : null}
             <ChatInputTextForm
                 contextItems={contextItems}
                 selectedText={selectedTextContext}
                 handleSubmit={handleSubmit}
                 vscode={vscode}
+                sourceCellMap={sourceCellMap}
             />
         </main>
     );

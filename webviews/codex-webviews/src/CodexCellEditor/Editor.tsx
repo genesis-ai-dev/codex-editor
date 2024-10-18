@@ -129,7 +129,6 @@ export default function Editor(props: EditorProps) {
         }
     }, []);
 
-    // console.log("revertedValue", revertedValue);
 
     useEffect(() => {
         if (quillRef.current && revertedValue !== undefined) {

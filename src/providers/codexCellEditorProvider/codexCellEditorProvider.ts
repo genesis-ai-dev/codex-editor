@@ -15,6 +15,7 @@ import {
     Timestamps,
     CustomNotebookMetadata,
 } from "../../../types";
+import { NotebookMetadataManager } from "../../utils/notebookMetadataManager";
 
 function getNonce(): string {
     let text = "";
@@ -44,6 +45,20 @@ class CodexCellDocument implements vscode.CustomDocument {
     constructor(uri: vscode.Uri, initialContent: string) {
         this.uri = uri;
         this._documentData = initialContent.trim().length === 0 ? {} : JSON.parse(initialContent);
+        if (!this._documentData.metadata) {
+            const metadata = NotebookMetadataManager.getInstance();
+            metadata.loadMetadata().then(() => {
+                const matchingMetadata = metadata
+                    .getAllMetadata()
+                    ?.find(
+                        (m: CustomNotebookMetadata) =>
+                            m.codexFsPath === this.uri.fsPath || m.sourceFsPath === this.uri.fsPath
+                    );
+                if (matchingMetadata) {
+                    this._documentData.metadata = matchingMetadata;
+                }
+            });
+        }
         this._edits = [];
         initializeStateStore().then(async ({ getStoreState }) => {
             const sourceCellMap = await getStoreState("sourceCellMap");
@@ -116,6 +131,38 @@ class CodexCellDocument implements vscode.CustomDocument {
         this._onDidChangeDocument.fire({
             edits: [{ cellId, newContent, editType }],
         });
+    }
+    public replaceDuplicateCells(content: QuillCellContent) {
+        console.log(`Searching for cell with ID: ${content.cellMarkers[0]}`);
+        let indexOfCellToDelete = this._documentData.cells.findIndex((cell) => {
+            console.log(`Checking cell:`, { cell });
+            return cell.metadata?.id === content.cellMarkers[0];
+        });
+        console.log(`Found cell at index: ${indexOfCellToDelete}`);
+        const cellMarkerOfCellBeforeNewCell =
+            indexOfCellToDelete === 0
+                ? null
+                : this._documentData.cells[indexOfCellToDelete - 1].metadata?.id;
+        while (indexOfCellToDelete !== -1) {
+            this._documentData.cells.splice(indexOfCellToDelete, 1);
+            console.log(`Searching for next cell with ID 2: ${content.cellMarkers[0]}`);
+            indexOfCellToDelete = this._documentData.cells.findIndex((cell) => {
+                console.log(`Checking cell 2:`, { cell });
+                return cell.metadata?.id === content.cellMarkers[0];
+            });
+            console.log(`Found next cell at index 2: ${indexOfCellToDelete}`);
+        }
+
+        this.addCell(
+            content.cellMarkers[0],
+            cellMarkerOfCellBeforeNewCell,
+            content.cellType,
+            {
+                endTime: content.timestamps?.endTime,
+                startTime: content.timestamps?.startTime,
+            },
+            content
+        );
     }
 
     public async save(cancellation: vscode.CancellationToken): Promise<void> {
@@ -213,27 +260,38 @@ class CodexCellDocument implements vscode.CustomDocument {
     // Method to add a new cell
     public addCell(
         newCellId: string,
-        cellIdOfCellBeforeNewCell: string,
+        cellIdOfCellBeforeNewCell: string | null,
         cellType: CodexCellTypes,
-        data: CustomNotebookCellData["metadata"]["data"]
+        data: CustomNotebookCellData["metadata"]["data"],
+        content?: QuillCellContent
     ) {
-        const indexOfParentCell = this._documentData.cells.findIndex(
-            (cell) => cell.metadata?.id === cellIdOfCellBeforeNewCell
-        );
+        let insertIndex: number;
 
-        if (indexOfParentCell === -1) {
-            throw new Error("Could not find cell to update");
+        if (cellIdOfCellBeforeNewCell === null) {
+            // If cellIdOfCellBeforeNewCell is null, insert at the beginning
+            insertIndex = 0;
+        } else {
+            const indexOfParentCell = this._documentData.cells.findIndex(
+                (cell) => cell.metadata?.id === cellIdOfCellBeforeNewCell
+            );
+
+            if (indexOfParentCell === -1) {
+                throw new Error("Could not find cell to insert after");
+            }
+
+            insertIndex = indexOfParentCell + 1;
         }
 
-        // Add new cell after parent cell
-        this._documentData.cells.splice(indexOfParentCell + 1, 0, {
-            value: "",
+        // Add new cell at the determined position
+        this._documentData.cells.splice(insertIndex, 0, {
+            value: content?.cellContent || "",
             languageId: "html",
             kind: vscode.NotebookCellKind.Code,
             metadata: {
                 id: newCellId,
                 type: cellType,
-                edits: [],
+                cellLabel: content?.cellLabel,
+                edits: content?.editHistory || [],
                 data: data,
             },
         });
@@ -257,7 +315,8 @@ class CodexCellDocument implements vscode.CustomDocument {
     // Method to update notebook metadata
     public updateNotebookMetadata(newMetadata: Partial<CustomNotebookMetadata>) {
         if (!this._documentData.metadata) {
-            throw new Error("No metadata found on notebook.");
+            // Initialize metadata if it doesn't exist
+            this._documentData.metadata = {} as CustomNotebookMetadata;
         }
         this._documentData.metadata = { ...this._documentData.metadata, ...newMetadata };
 
@@ -413,9 +472,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                 e.words
                             );
                             console.log("spellcheck.addWord command result:", result);
-                            vscode.window.showInformationMessage(
-                                "Word added to dictionary successfully."
-                            );
+                            webviewPanel.webview.postMessage({
+                                type: "wordAdded",
+                                content: e.words,
+                            });
                         } catch (error) {
                             console.error("Error adding word:", error);
                             vscode.window.showErrorMessage(`Failed to add word to dictionary:`);
@@ -523,16 +583,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             };
                             await document.updateNotebookMetadata(updatedMetadata);
                             await document.save(new vscode.CancellationTokenSource().token);
-                            vscode.window.showInformationMessage(
-                                "Text direction updated successfully."
-                            );
+                            console.log("Text direction updated successfully.");
                             this.postMessageToWebview(webviewPanel, {
                                 type: "providerUpdatesNotebookMetadataForWebview",
                                 content: await document.getNotebookMetadata(),
                             });
                         } catch (error) {
                             console.error("Error updating notebook metadata:", error);
-                            vscode.window.showErrorMessage("Failed to update notebook metadata.");
                         }
                         return;
                     }
@@ -614,10 +671,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                 "Notebook metadata updated successfully."
                             );
 
-                            this.postMessageToWebview(webviewPanel, {
-                                type: "providerUpdatesNotebookMetadataForWebview",
-                                content: await document.getNotebookMetadata(),
-                            });
+                            // Refresh the entire webview to ensure all data is up-to-date
+                            this.refreshWebview(webviewPanel, document);
                         } catch (error) {
                             console.error("Error updating notebook metadata:", error);
                             vscode.window.showErrorMessage("Failed to update notebook metadata.");
@@ -637,15 +692,38 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             const fileUri = result?.[0];
                             if (fileUri) {
                                 const videoUrl = fileUri.toString();
-                                // Instead of updating the metadata here, we'll send it back to the webview
-                                this.postMessageToWebview(webviewPanel, {
-                                    type: "updateVideoUrlInWebview",
-                                    content: videoUrl,
-                                });
+                                await document.updateNotebookMetadata({ videoUrl });
+                                await document.save(new vscode.CancellationTokenSource().token);
+                                this.refreshWebview(webviewPanel, document);
                             }
                         } catch (error) {
                             console.error("Error picking video file:", error);
                             vscode.window.showErrorMessage("Failed to pick video file.");
+                        }
+                        return;
+                    }
+                    case "replaceDuplicateCells": {
+                        console.log("replaceDuplicateCells message received", { e });
+                        try {
+                            document.replaceDuplicateCells(e.content);
+                        } catch (error) {
+                            console.error("Error replacing duplicate cells:", error);
+                            vscode.window.showErrorMessage("Failed to replace duplicate cells.");
+                        }
+                        return;
+                    }
+                    case "saveTimeBlocks": {
+                        console.log("saveTimeBlocks message received", { e });
+                        try {
+                            e.content.forEach((cell) => {
+                                document.updateCellTimestamps(cell.id, {
+                                    startTime: cell.begin,
+                                    endTime: cell.end,
+                                });
+                            });
+                        } catch (error) {
+                            console.error("Error updating cell timestamps:", error);
+                            vscode.window.showErrorMessage("Failed to update cell timestamps.");
                         }
                         return;
                     }
@@ -936,5 +1014,58 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         message: EditorReceiveMessages
     ) {
         webviewPanel.webview.postMessage(message);
+    }
+
+    private refreshWebview(webviewPanel: vscode.WebviewPanel, document: CodexCellDocument) {
+        const notebookData = this.getDocumentAsJson(document);
+        const processedData = this.processNotebookData(notebookData);
+        const isSourceText = document.uri.fsPath.endsWith(".source");
+        const videoUrl = this.getVideoUrl(notebookData.metadata?.videoUrl, webviewPanel);
+
+        webviewPanel.webview.html = this.getHtmlForWebview(
+            webviewPanel.webview,
+            document,
+            this.getTextDirection(),
+            isSourceText
+        );
+
+        this.postMessageToWebview(webviewPanel, {
+            type: "providerSendsInitialContent",
+            content: processedData,
+            isSourceText: isSourceText,
+            sourceCellMap: document._sourceCellMap,
+        });
+
+        this.postMessageToWebview(webviewPanel, {
+            type: "providerUpdatesNotebookMetadataForWebview",
+            content: notebookData.metadata,
+        });
+
+        if (videoUrl) {
+            this.postMessageToWebview(webviewPanel, {
+                type: "updateVideoUrlInWebview",
+                content: videoUrl,
+            });
+        }
+    }
+
+    private getVideoUrl(
+        videoPath: string | undefined,
+        webviewPanel: vscode.WebviewPanel
+    ): string | null {
+        if (!videoPath) return null;
+
+        if (videoPath.startsWith("http://") || videoPath.startsWith("https://")) {
+            return videoPath;
+        } else if (videoPath.startsWith("file://")) {
+            return webviewPanel.webview.asWebviewUri(vscode.Uri.parse(videoPath)).toString();
+        } else {
+            const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+            if (workspaceUri) {
+                const fullPath = vscode.Uri.joinPath(workspaceUri, videoPath);
+                return webviewPanel.webview.asWebviewUri(fullPath).toString();
+            }
+        }
+        return null;
     }
 }

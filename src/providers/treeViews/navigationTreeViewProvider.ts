@@ -1,9 +1,9 @@
 import { getWorkSpaceUri } from "./../../utils/index";
 import * as vscode from "vscode";
-import { NotebookMetadata, NavigationCell } from "../../utils/codexNotebookUtils";
 import { vrefData } from "../../utils/verseRefUtils/verseData";
 import * as path from "path";
 import { debounce, isEqual } from "lodash";
+import { CustomNotebookMetadata } from "../../../types";
 
 // TODO: we should probably use the notebookMetadataManager to get the metadata for the notebooks, though we would need to add some more data to the metadata manager to get navigation info/cell content where cells contain headings
 
@@ -119,11 +119,11 @@ export class CodexNotebookTreeViewProvider
                         console.log("Content causing the error:", notebookContent.toString());
                         continue;
                     }
-                    const metadata = notebookJson?.metadata as NotebookMetadata;
+                    const metadata = notebookJson?.metadata as CustomNotebookMetadata;
 
                     this.notebookMetadata.set(notebookUri.fsPath, {
                         headings: this.extractHeadingsFromNotebook(notebookJson),
-                        corpusMarker: metadata?.data?.corpusMarker,
+                        corpusMarker: metadata?.corpusMarker,
                     });
                 } catch (error) {
                     console.error(
@@ -179,23 +179,26 @@ export class CodexNotebookTreeViewProvider
             const notebookContent = await vscode.workspace.fs.readFile(uri);
             console.log("Reading notebook metadata:", uri.fsPath);
             const notebookJson = JSON.parse(notebookContent.toString());
-            const metadata = notebookJson?.metadata as NotebookMetadata;
+            const metadata = notebookJson?.metadata as CustomNotebookMetadata;
 
             const sourceFile =
-                metadata?.sourceFile || (await this.findCorrespondingSourceFile(uri));
+                metadata?.sourceFsPath || (await this.findCorrespondingSourceFile(uri));
 
             // Extract headings from notebook content
             const headings = this.extractHeadingsFromNotebook(notebookJson);
 
             const newMetadata = {
                 headings: headings,
-                corpusMarker: metadata?.data?.corpusMarker,
-                sourceFile: sourceFile,
+                corpusMarker: metadata?.corpusMarker,
+                sourceFsPath: metadata?.sourceFsPath,
             };
 
             // Update the in-memory metadata
             this.notebookMetadata.set(uri.fsPath, newMetadata);
             console.log("Updated in-memory metadata:", uri.fsPath);
+
+            // Trigger a refresh of the tree view
+            this.refresh();
         } catch (error) {
             console.error(`Error processing file in updateNotebookMetadata ${uri.fsPath}:`, error);
         }
@@ -312,20 +315,7 @@ export class CodexNotebookTreeViewProvider
 
     private async getNotebooksByCorpus(): Promise<Node[]> {
         try {
-            const corpora: Record<string, Node> = {
-                "Old Testament": new Node(
-                    "Old Testament",
-                    "corpus",
-                    vscode.TreeItemCollapsibleState.Expanded
-                ),
-                "New Testament": new Node(
-                    "New Testament",
-                    "corpus",
-                    vscode.TreeItemCollapsibleState.Expanded
-                ),
-            };
-            corpora["Old Testament"].children = [];
-            corpora["New Testament"].children = [];
+            const corpora: Record<string, Node> = {};
             const ungroupedNotebooks: Node[] = [];
 
             for (const [notebookPath, metadata] of this.notebookMetadata) {
@@ -351,11 +341,17 @@ export class CodexNotebookTreeViewProvider
 
                 const bookData = vrefData[fileNameWithoutExtension];
                 if (bookData) {
-                    const testament =
-                        bookData.testament === "OT" ? "Old Testament" : "New Testament";
+                    const testament = bookData.testament === "OT" ? "Old Testament" : "New Testament";
+                    if (!corpora[testament]) {
+                        corpora[testament] = new Node(
+                            testament,
+                            "corpus",
+                            vscode.TreeItemCollapsibleState.Expanded
+                        );
+                        corpora[testament].children = [];
+                    }
                     corpora[testament].children?.push(notebookNode);
                 } else if (metadata.corpusMarker) {
-                    // Add notebook to the corpus if it's not in vrefData but has a corpusMarker
                     if (!corpora[metadata.corpusMarker]) {
                         corpora[metadata.corpusMarker] = new Node(
                             metadata.corpusMarker,
@@ -366,14 +362,13 @@ export class CodexNotebookTreeViewProvider
                     }
                     corpora[metadata.corpusMarker].children?.push(notebookNode);
                 } else {
-                    // Ungrouped notebook
                     ungroupedNotebooks.push(notebookNode);
                 }
             }
 
             // Sort books within each testament
             for (const testament of ["Old Testament", "New Testament"]) {
-                corpora[testament].children?.sort((a, b) => {
+                corpora[testament]?.children?.sort((a, b) => {
                     const aOrd = Number(vrefData[a.label]?.ord) || Infinity;
                     const bOrd = Number(vrefData[b.label]?.ord) || Infinity;
                     return aOrd - bOrd;

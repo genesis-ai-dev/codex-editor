@@ -8,27 +8,35 @@ import { CodexCellEditorProvider } from "./codexCellEditorProvider/codexCellEdit
 import { registerSourceControl } from "./sourceControl/sourceControlProvider";
 
 export function registerProviders(context: vscode.ExtensionContext) {
+    const disposables: vscode.Disposable[] = [];
+
     // Register ResourcesProvider
-    context.subscriptions.push(ResourcesProvider.register(context));
+    disposables.push(ResourcesProvider.register(context));
 
     // Register StoryOutlineProvider
-    context.subscriptions.push(StoryOutlineProvider.register(context));
+    disposables.push(StoryOutlineProvider.register(context));
 
     // Register ObsEditorProvider
-    context.subscriptions.push(ObsEditorProvider.register(context));
+    disposables.push(ObsEditorProvider.register(context));
 
     // Register TranslationNotesProvider
     const { providerRegistration, commandRegistration } =
         TranslationNotesProvider.register(context);
-    context.subscriptions.push(providerRegistration, commandRegistration);
+    disposables.push(providerRegistration, commandRegistration);
 
     // Register DownloadedResourcesProvider
-    DownloadedResourcesProvider.register(context);
+    const downloadedResourcesDisposable = DownloadedResourcesProvider.register(context);
+    if (downloadedResourcesDisposable) {
+        disposables.push(downloadedResourcesDisposable);
+    }
 
     // Register CodexCellEditorProvider
-    context.subscriptions.push(CodexCellEditorProvider.register(context));
+    disposables.push(CodexCellEditorProvider.register(context));
 
     // Register SourceControlProvider
     const sourceControlProvider = registerSourceControl(context);
-    context.subscriptions.push(sourceControlProvider);
+    disposables.push(sourceControlProvider);
+
+    // Add all disposables to the context subscriptions
+    context.subscriptions.push(...disposables);
 }

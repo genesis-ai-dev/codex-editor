@@ -1,5 +1,10 @@
 import React, { useContext, useEffect, useRef, useState } from "react";
-import { EditorCellContent, EditorPostMessages, SpellCheckResponse } from "../../../../types";
+import {
+    EditorCellContent,
+    EditorPostMessages,
+    SpellCheckResponse,
+    Timestamps,
+} from "../../../../types";
 import Editor from "./Editor";
 import CloseButtonWithConfirmation from "../components/CloseButtonWithConfirmation";
 import { getCleanedHtml } from "./react-quill-spellcheck";
@@ -7,6 +12,7 @@ import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import { CodexCellTypes } from "../../../../types/enums";
 import SourceCellContext from "./contextProviders/SourceCellContext";
+import ConfirmationButton from "./ConfirmationButton";
 
 interface CellEditorProps {
     cellMarkers: string[];
@@ -20,6 +26,7 @@ interface CellEditorProps {
     handleSaveHtml: () => void;
     textDirection: "ltr" | "rtl";
     cellLabel?: string;
+    cellTimestamps: Timestamps | undefined;
 }
 
 const CellEditor: React.FC<CellEditorProps> = ({
@@ -34,17 +41,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
     handleSaveHtml,
     textDirection,
     cellLabel,
+    cellTimestamps,
 }) => {
+    console.log("contentBeingUpdated", { contentBeingUpdated });
     const { unsavedChanges, setUnsavedChanges, showFlashingBorder } =
         useContext(UnsavedChangesContext);
     const { sourceCellMap } = useContext(SourceCellContext);
     const cellEditorRef = useRef<HTMLDivElement>(null);
     const sourceCellContent = sourceCellMap?.[cellMarkers[0]];
-    console.log("sourceCellMap", {
-        sourceCellMap,
-        sourceCell: cellMarkers[0],
-        sourceCellContent,
-    });
+
     const unsavedChangesState = !!(
         contentBeingUpdated.cellContent &&
         getCleanedHtml(contentBeingUpdated.cellContent) &&
@@ -63,6 +68,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     }, [showFlashingBorder]);
 
     const [editableLabel, setEditableLabel] = useState(cellLabel || "");
+    const [feedback, setFeedback] = useState("");
 
     useEffect(() => {
         setEditableLabel(cellLabel || "");
@@ -94,6 +100,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
         handleLabelBlur();
     };
 
+    const handleFeedbackChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        setFeedback(e.target.value);
+    };
+
+    const handleFeedbackSend = () => {
+        // TODO: Implement feedback sending logic
+        console.log("Feedback sent:", feedback);
+        setFeedback("");
+    };
+
     const makeChild = () => {
         const parentCellId = cellMarkers[0].includes(":")
             ? cellMarkers[0].split(":").slice(0, 2).join(":")
@@ -103,13 +119,37 @@ const CellEditor: React.FC<CellEditorProps> = ({
             .toString(36)
             .substr(2, 9)}`;
 
+        const startTime = cellTimestamps?.startTime;
+        const endTime = cellTimestamps?.endTime;
+        let childStartTime;
+
+        if (startTime && endTime) {
+            const deltaTime = endTime - startTime;
+            childStartTime = startTime + deltaTime / 2;
+
+            const messageContentToUpdateParentTimeStamps: EditorPostMessages = {
+                command: "updateCellTimestamps",
+                content: {
+                    cellId: cellMarkers[0],
+                    timestamps: {
+                        startTime: startTime,
+                        endTime: childStartTime - 0.001,
+                    },
+                },
+            };
+            window.vscodeApi.postMessage(messageContentToUpdateParentTimeStamps);
+        }
+
         const messageContent: EditorPostMessages = {
             command: "makeChildOfCell",
             content: {
                 newCellId: newChildId,
                 cellIdOfCellBeforeNewCell: parentCellId,
                 cellType: cellType,
-                data: {}, // TODO: add timestamps
+                data: {
+                    startTime: childStartTime,
+                    endTime: endTime,
+                },
             },
         };
         window.vscodeApi.postMessage(messageContent);
@@ -124,13 +164,36 @@ const CellEditor: React.FC<CellEditorProps> = ({
             .toString(36)
             .substr(2, 9)}`;
 
+        const startTime = cellTimestamps?.startTime;
+        const endTime = cellTimestamps?.endTime;
+        let childStartTime;
+
+        if (startTime && endTime) {
+            const deltaTime = endTime - startTime;
+            childStartTime = startTime + deltaTime / 2;
+
+            const messageContentToUpdateParentTimeStamps: EditorPostMessages = {
+                command: "updateCellTimestamps",
+                content: {
+                    cellId: cellMarkers[0],
+                    timestamps: {
+                        startTime: startTime,
+                        endTime: childStartTime - 0.001,
+                    },
+                },
+            };
+            window.vscodeApi.postMessage(messageContentToUpdateParentTimeStamps);
+        }
         const messageContent: EditorPostMessages = {
             command: "makeChildOfCell",
             content: {
                 newCellId: newChildId,
                 cellIdOfCellBeforeNewCell: parentCellId,
                 cellType: CodexCellTypes.PARATEXT,
-                data: {},
+                data: {
+                    startTime: childStartTime,
+                    endTime: endTime,
+                },
             },
         };
         window.vscodeApi.postMessage(messageContent);
@@ -144,7 +207,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
             },
         };
         window.vscodeApi.postMessage(messageContent);
+        handleCloseEditor();
     };
+    const cellHasContent =
+        getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !== "";
 
     return (
         <div ref={cellEditorRef} className="cell-editor" style={{ direction: textDirection }}>
@@ -159,6 +225,22 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     />
                     <VSCodeButton onClick={handleLabelSave} appearance="icon" title="Save Label">
                         <i className="codicon codicon-save"></i>
+                    </VSCodeButton>
+                </div>
+                <div className="feedback-container">
+                    <textarea
+                        value={feedback}
+                        onChange={handleFeedbackChange}
+                        placeholder="Enter feedback"
+                        rows={1}
+                        style={{ resize: "vertical", minHeight: "24px", maxHeight: "100px" }}
+                    />
+                    <VSCodeButton
+                        onClick={handleFeedbackSend}
+                        appearance="icon"
+                        title="Send Feedback"
+                    >
+                        <i className="codicon codicon-send"></i>
                     </VSCodeButton>
                 </div>
                 {unsavedChanges ? (
@@ -219,10 +301,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     <i className="codicon codicon-type-hierarchy-sub"></i>
                 </VSCodeButton>
                 {!sourceCellContent && (
-                    <VSCodeButton onClick={deleteCell} appearance="icon">
-                        <i className="codicon codicon-trash"></i>
-                    </VSCodeButton>
-                    // TODO: add an way to undo the deletion
+                    <ConfirmationButton
+                        icon="trash"
+                        onClick={deleteCell}
+                        disabled={cellHasContent}
+                    />
                 )}
             </div>
         </div>
