@@ -131,10 +131,10 @@ export default function Timeline(props: TimelineProps) {
                     <audio src={props.src} ref={props.audioRef || canvasAudio} />
                 </div>
                 <div className="wrap z-index-2">
-                    <canvas ref={canvas1}></canvas>
+                    <canvas style={{ display: "block" }} ref={canvas1}></canvas>
                 </div>
                 <div className="wrap z-index-1">
-                    <canvas ref={canvas2}></canvas>
+                    <canvas style={{ display: "block" }} ref={canvas2}></canvas>
                 </div>
             </div>
             <div
