@@ -149,6 +149,8 @@ type ChatPostMessages =
     | { command: "fetchThread" }
     | { command: "abort-fetch" }
     | { command: "openSettings" }
+    | { command: "subscribeSettings"; settingsToSubscribe: string[] }
+    | { command: "updateSetting"; setting: string; value: string }
     | { command: "openContextItem"; text: string }
     | { command: "cellGraphData"; data: string[] }
     | {

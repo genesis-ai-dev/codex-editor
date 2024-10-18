@@ -64,6 +64,7 @@ function messageWithContext({
 }
 
 function App() {
+    const [enableGrading, setEnableGrading] = useState<boolean>(false);
     const [pendingMessage, setPendingMessage] = useState<ChatMessageWithContext>();
     const [selectedTextContext, setSelectedTextContext] = useState<string>("");
     const [currentlyActiveCellId, setCurrentlyActiveCellId] = useState<string>("");
@@ -178,6 +179,10 @@ function App() {
     }, [currentMessageThreadId, availableMessageThreads]);
 
     function gradeExists(): boolean {
+        //if grading is turned off there isn't a grade.
+        if (!enableGrading) {
+            return false;
+        }
         if (messageLog && messageLog.length > 0) {
             const latestMessage = messageLog[messageLog.length - 1];
             if (latestMessage?.grade !== undefined && latestMessage?.grade !== null) {
@@ -245,6 +250,11 @@ function App() {
         }
 
         function needsGrade(): boolean {
+            //if grading is turned off we don't need a grade.
+            if (!enableGrading) {
+                return false;
+            }
+
             //if the message queue isn't even set we don't need a grade.
             if (!messageLog) {
                 return false;
@@ -404,6 +414,13 @@ function App() {
                         }
                     }
                     break;
+                case "updateSetting":{
+                    console.log("JoshDebug: ChatView: updateSetting", message);
+                    if( message.setting === "enableDoctrineGrading" ) {
+                        setEnableGrading(message.value.toLowerCase().startsWith("t"));
+                    }
+                    break;
+                }
                 case "cellIdUpdate":
                     if (message.data) {
                         const { cellId, sourceCellContent } = message.data;
@@ -426,6 +443,11 @@ function App() {
             window.removeEventListener("message", handleMessage);
         };
     }, [currentMessageThreadId, messageLog, pendingMessage]);
+
+    //Make a useEffect which sends the message "subscribeSettings"
+    useEffect(() => {
+        vscode.postMessage({ command: "subscribeSettings", settingsToSubscribe: ["enableDoctrineGrading"] } as ChatPostMessages);
+    }, []);
 
     function markChatThreadAsDeleted(messageThreadIdToMarkAsDeleted: string) {
         vscode.postMessage({

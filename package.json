@@ -1001,6 +1001,12 @@
                         "default": 50,
                         "description": "The minimum frequency of a word to be automatically added to the dictionary. Changing this value will trigger updates to the dictionary."
                     },
+                    "translators-copilot.enableDoctrineGrading": {
+                        "title": "Enable Doctrine Grading",
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Enable or disable doctrine grading."
+                    },
                     "translators-copilot.textDirection": {
                         "type": "string",
                         "enum": [
