@@ -33,7 +33,15 @@ const TimelineEditor: React.FC<TimelineEditorProps> = ({ data, vscode }) => {
     const [timeBlocksWithUpdates, setTimeBlocksWithUpdates] = useState<TimeBlock[]>([]);
     console.log({ timeBlocksWithUpdates, data });
     return (
-        <div style={{ display: "flex", flexDirection: "column" }}>
+        <div
+            style={{
+                display: "flex",
+                flexDirection: "column",
+                maxWidth: "40rem",
+                alignSelf: "center",
+                width: "100%",
+            }}
+        >
             <Timeline
                 changeAreaShow={(start: number, end: number) => {
                     // console.log({ start, end });

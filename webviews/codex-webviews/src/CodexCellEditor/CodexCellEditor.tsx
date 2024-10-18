@@ -344,7 +344,13 @@ const CodexCellEditor: React.FC = () => {
                     />
                 </div>
                 {shouldShowVideoPlayer && videoUrl && (
-                    <div ref={videoPlayerRef}>
+                    <div
+                        style={{
+                            display: "flex",
+                            flexDirection: "column",
+                        }}
+                        ref={videoPlayerRef}
+                    >
                         <VideoPlayer
                             playerRef={playerRef}
                             videoUrl={videoUrl}

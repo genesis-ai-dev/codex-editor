@@ -121,39 +121,11 @@ export default function Timeline(props: TimelineProps) {
     const style = {
         height: "90px",
         paddingLeft: props.paddingLeft,
+        width: "100%",
     };
 
     return (
-        <>
-            <div
-                style={{
-                    display: "flex",
-                    justifyContent: "end",
-                    flexDirection: "row",
-                    gap: "10px",
-                    padding: "10px",
-                    backgroundColor: "var(--vscode-editor-background)",
-                }}
-            >
-                <VSCodeButton
-                    disabled={props.disableResetButton}
-                    onClick={() => {
-                        resetTimeline();
-                        props.onReset();
-                    }}
-                >
-                    <i className="codicon codicon-refresh"></i>
-                </VSCodeButton>
-
-                <VSCodeButton
-                    disabled={props.disableSaveButton}
-                    onClick={() => {
-                        props.onSave();
-                    }}
-                >
-                    <i className="codicon codicon-save"></i>
-                </VSCodeButton>
-            </div>
+        <div style={{ display: "flex", flexDirection: "row" }}>
             <div style={style} className="timeline-editor">
                 <div hidden>
                     <audio src={props.src} ref={props.audioRef || canvasAudio} />
@@ -165,6 +137,47 @@ export default function Timeline(props: TimelineProps) {
                     <canvas ref={canvas2}></canvas>
                 </div>
             </div>
-        </>
+            <div
+                style={{
+                    display: "flex",
+                    justifyContent: "end",
+                    flexDirection: "column",
+                    flex: 1,
+                    // gap: "10px",
+                    // padding: "10px",
+                    backgroundColor: "var(--vscode-scrollbar-shadow)",
+                }}
+            >
+                <VSCodeButton
+                    style={{
+                        display: "flex",
+                        flex: 1,
+                        borderRadius: 0,
+                    }}
+                    appearance="secondary"
+                    disabled={props.disableResetButton}
+                    onClick={() => {
+                        resetTimeline();
+                        props.onReset();
+                    }}
+                >
+                    <i className="codicon codicon-refresh"></i>
+                </VSCodeButton>
+
+                <VSCodeButton
+                    style={{
+                        display: "flex",
+                        flex: 2,
+                        borderRadius: 0,
+                    }}
+                    disabled={props.disableSaveButton}
+                    onClick={() => {
+                        props.onSave();
+                    }}
+                >
+                    <i className="codicon codicon-save"></i>
+                </VSCodeButton>
+            </div>
+        </div>
     );
 }
