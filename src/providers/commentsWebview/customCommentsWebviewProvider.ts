@@ -83,6 +83,7 @@ export class CustomWebviewProvider {
     _context: vscode.ExtensionContext;
     selectionChangeListener: any;
     commentsFilePath: Uri | undefined;
+    private lastSentComments: string = '';
 
     constructor(context: vscode.ExtensionContext) {
         this._context = context;
@@ -128,14 +129,19 @@ export class CustomWebviewProvider {
         });
 
         loadWebviewHtml(webviewView, this._context.extensionUri);
+        
+        // Send initial data when the webview becomes visible
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
                 this.sendCommentsToWebview(webviewView);
-                // webviewView.webview.postMessage({ command: "reload" });
+                this.sendCurrentCellId(webviewView);
             }
         });
+
+        // Send initial data if the webview is already visible
         if (webviewView.visible) {
             this.sendCommentsToWebview(webviewView);
+            this.sendCurrentCellId(webviewView);
         }
 
         // vscode.window.onDidChangeActiveTextEditor(() => {
@@ -292,13 +298,27 @@ export class CustomWebviewProvider {
         try {
             const fileContentUint8Array = await workspace.fs.readFile(this.commentsFilePath);
             const fileContent = new TextDecoder().decode(fileContentUint8Array);
+            
             webviewView.webview.postMessage({
                 command: "commentsFromWorkspace",
                 content: fileContent,
             } as CommentPostMessages);
+            
+            this.lastSentComments = fileContent;
         } catch (error) {
             console.error("Error reading comments file:", error);
             window.showErrorMessage(`Error reading comments file: ${this.commentsFilePath.fsPath}`);
+        }
+    }
+
+    private async sendCurrentCellId(webviewView: vscode.WebviewView) {
+        const { getStoreState } = await initializeStateStore();
+        const cellId = await getStoreState("cellId") as CellIdGlobalState | undefined;
+        if (cellId) {
+            webviewView.webview.postMessage({
+                command: "reload",
+                data: { cellId },
+            } as CommentPostMessages);
         }
     }
 }
