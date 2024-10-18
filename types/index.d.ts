@@ -123,6 +123,13 @@ interface SelectedTextDataWithContext {
     verseGraphData: any;
 }
 
+interface TimeBlock {
+    begin: number;
+    end: number;
+    text: string;
+    id: string;
+}
+
 type ChatPostMessages =
     | { command: "threadsFromWorkspace"; content: ChatMessageThread[] }
     | { command: "response"; finished: boolean; text: string }
@@ -271,7 +278,6 @@ type EditorCellContent = {
     cellContent: string;
     cellChanged: boolean;
     cellLabel?: string;
-    timestamps?: Timestamps;
 };
 
 export type EditorPostMessages =
@@ -292,6 +298,7 @@ export type EditorPostMessages =
           };
       }
     | { command: "saveHtml"; content: EditorCellContent }
+    | { command: "saveTimeBlocks"; content: TimeBlock[] }
     | { command: "replaceDuplicateCells"; content: QuillCellContent }
     | { command: "getContent" }
     | {

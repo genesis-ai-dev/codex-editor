@@ -1,14 +1,9 @@
-const toFixed2 = (i: number): number => Math.floor(i * 100) / 100;
+import { TimeBlock } from "../../../../../types";
 
-export interface Aligns {
-    begin: number;
-    end: number;
-    text: string;
-    id: string;
-}
+const toFixed3 = (i: number): number => Number(i.toFixed(3));
 
 export interface TimelineReturn {
-    setData: (alignments: Aligns[]) => void;
+    setData: (alignments: TimeBlock[]) => void;
     cancelAnimate: () => void;
     changeZoom: (deltaY: number) => void;
     changeCursorViewPort: (beginingTimeShow: number, endTimeShow: number) => void;
@@ -17,7 +12,7 @@ export interface TimelineReturn {
 export default function TimeLine(
     canvas: HTMLCanvasElement,
     canvas2: HTMLCanvasElement,
-    alignments: Aligns[],
+    alignments: TimeBlock[],
     endTime: number,
     getPlayer: () => void,
     changeAlignment: (
@@ -175,8 +170,8 @@ export default function TimeLine(
 
         this.draw = (context) => {
             context.save();
-            this.x = toFixed2(this.x);
-            this.edge = toFixed2(this.edge);
+            this.x = toFixed3(this.x);
+            this.edge = toFixed3(this.edge);
             context.fillStyle = ACTIVE_COLOR;
 
             if (currentHoveredIndex !== this.index) {
@@ -424,12 +419,12 @@ export default function TimeLine(
     }
     function outPrtcls() {
         const data = prtcls.map((p, i) => {
-            const begin = toFixed2(p.x / zoomLevel);
-            let end = toFixed2((p.x + p.edge) / zoomLevel);
+            const begin = toFixed3(p.x / zoomLevel);
+            let end = toFixed3((p.x + p.edge) / zoomLevel);
             const text = p.text;
 
             if (prtcls[i + 1]) {
-                const nextStart = toFixed2(prtcls[i + 1].x / zoomLevel);
+                const nextStart = toFixed3(prtcls[i + 1].x / zoomLevel);
                 if (nextStart < end) end = nextStart;
             }
 
@@ -710,7 +705,7 @@ export default function TimeLine(
         }
     }
 
-    function setData(aligns: Aligns[]) {
+    function setData(aligns: TimeBlock[]) {
         console.log({ aligns });
         prtcls = aligns.map(
             (p, i) =>

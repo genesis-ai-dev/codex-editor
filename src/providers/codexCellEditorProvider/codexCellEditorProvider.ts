@@ -712,6 +712,21 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         }
                         return;
                     }
+                    case "saveTimeBlocks": {
+                        console.log("saveTimeBlocks message received", { e });
+                        try {
+                            e.content.forEach((cell) => {
+                                document.updateCellTimestamps(cell.id, {
+                                    startTime: cell.begin,
+                                    endTime: cell.end,
+                                });
+                            });
+                        } catch (error) {
+                            console.error("Error updating cell timestamps:", error);
+                            vscode.window.showErrorMessage("Failed to update cell timestamps.");
+                        }
+                        return;
+                    }
                 }
             } catch (error) {
                 console.error("Unexpected error in message handler:", error);
@@ -1034,7 +1049,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
     }
 
-    private getVideoUrl(videoPath: string | undefined, webviewPanel: vscode.WebviewPanel): string | null {
+    private getVideoUrl(
+        videoPath: string | undefined,
+        webviewPanel: vscode.WebviewPanel
+    ): string | null {
         if (!videoPath) return null;
 
         if (videoPath.startsWith("http://") || videoPath.startsWith("https://")) {
