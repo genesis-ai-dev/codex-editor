@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { CommentPostMessages, NotebookCommentThread, CellIdGlobalState } from "../../../types";
 import { FileHandler, getCommentsFromFile, writeSerializedData } from "../../utils/fileUtils";
 import { initializeStateStore } from "../../stateStore";
+import { workspace, Uri, window } from "vscode";
 
 const abortController: AbortController | null = null;
 
@@ -78,44 +79,49 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
     webviewView.webview.html = html;
 };
 
-const sendCommentsToWebview = async (webviewView: vscode.WebviewView) => {
-    console.log("sendCommentsToWebview was called");
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    console.log({ workspaceFolders });
-    const filePath = workspaceFolders
-        ? vscode.Uri.joinPath(workspaceFolders[0].uri, "file-comments.json").fsPath
-        : "";
-    try {
-        const uri = vscode.Uri.file(filePath);
-        const fileContentUint8Array = await vscode.workspace.fs.readFile(uri);
-        const fileContent = new TextDecoder().decode(fileContentUint8Array);
-        webviewView.webview.postMessage({
-            command: "commentsFromWorkspace",
-            content: fileContent,
-        } as CommentPostMessages);
-    } catch (error) {
-        console.error("Error reading file in sendCommentsToWebview:", error);
-        // vscode.window.showErrorMessage(`Error reading file: ${filePath}`);
-    }
-};
-
 export class CustomWebviewProvider {
     _context: vscode.ExtensionContext;
     selectionChangeListener: any;
+    commentsFilePath: Uri | undefined;
+
     constructor(context: vscode.ExtensionContext) {
         this._context = context;
+        this.initializeCommentsFile();
+    }
+
+    private async initializeCommentsFile() {
+        const workspaceFolders = workspace.workspaceFolders;
+        if (!workspaceFolders) {
+            window.showErrorMessage(
+                "No workspace folder found. Unable to initialize comments file."
+            );
+            return;
+        }
+
+        this.commentsFilePath = Uri.joinPath(workspaceFolders[0].uri, "file-comments.json");
+
+        try {
+            await workspace.fs.stat(this.commentsFilePath);
+        } catch (error) {
+            // File doesn't exist, create it with an empty array
+            await workspace.fs.writeFile(this.commentsFilePath, new TextEncoder().encode("[]"));
+            console.log("Comments file created successfully.");
+        }
     }
 
     resolveWebviewView(webviewView: vscode.WebviewView) {
         initializeStateStore().then(({ storeListener }) => {
-            const disposeFunction = storeListener("cellId", (value) => {
-                if (value) {
-                    webviewView.webview.postMessage({
-                        command: "reload",
-                        data: { cellId: value.cellId },
-                    } as CommentPostMessages);
+            const disposeFunction = storeListener(
+                "cellId",
+                (value: CellIdGlobalState | undefined) => {
+                    if (value) {
+                        webviewView.webview.postMessage({
+                            command: "reload",
+                            data: { cellId: value },
+                        } as CommentPostMessages);
+                    }
                 }
-            });
+            );
             webviewView.onDidDispose(() => {
                 disposeFunction();
             });
@@ -124,12 +130,12 @@ export class CustomWebviewProvider {
         loadWebviewHtml(webviewView, this._context.extensionUri);
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
-                sendCommentsToWebview(webviewView);
+                this.sendCommentsToWebview(webviewView);
                 // webviewView.webview.postMessage({ command: "reload" });
             }
         });
         if (webviewView.visible) {
-            sendCommentsToWebview(webviewView);
+            this.sendCommentsToWebview(webviewView);
         }
 
         // vscode.window.onDidChangeActiveTextEditor(() => {
@@ -144,36 +150,7 @@ export class CustomWebviewProvider {
         // TODO: find out if the above code was needed. Find out why comments are not loading sometime at first
         // Find out why new comments are not being created
         // create a system of share types so message posting is easier to deal with.
-        const findUriForVerseRef = async (cellId: string): Promise<string | null> => {
-            let uri: string = "";
-            const workspaceFolders = vscode.workspace.workspaceFolders;
-            const draftsFolderUri = workspaceFolders
-                ? vscode.Uri.joinPath(workspaceFolders[0].uri, "files")
-                : undefined;
-            if (draftsFolderUri) {
-                const codexFiles = await vscode.workspace.findFiles(
-                    new vscode.RelativePattern(draftsFolderUri, "target/*.codex")
-                );
-                for (const file of codexFiles) {
-                    const document = await vscode.workspace.openTextDocument(file);
-                    const text = document.getText();
-                    if (text.includes(cellId)) {
-                        uri = file.toString();
-                        initializeStateStore().then(({ updateStoreState }) => {
-                            updateStoreState({
-                                key: "cellId",
-                                value: {
-                                    cellId,
-                                    uri,
-                                },
-                            });
-                        });
-                        break;
-                    }
-                }
-            }
-            return uri;
-        };
+
         const commentsFileName = "file-comments.json";
 
         const serializeCommentsToDisk = async (
@@ -212,18 +189,16 @@ export class CustomWebviewProvider {
                     case "updateCommentThread": {
                         const existingCommentsThreads = await getCommentsFromFile(commentsFileName);
 
-                        // NOTE: When the panel fist load the verseRef defaults to GEn 1:1 but there is no way for the webview to know the uri
+                        // NOTE: When the panel fist load the cellId defaults to null but there is no way for the webview to know the uri
                         if (!message.commentThread.uri) {
-                            const uriForVerseRef = await findUriForVerseRef(
-                                message.commentThread.verseRef
-                            );
-                            if (!uriForVerseRef) {
+                            const uriForCellId = message.commentThread.cellId.uri;
+                            if (!uriForCellId) {
                                 vscode.window.showInformationMessage(
-                                    `No file found with the verse reference: ${message.commentThread.verseRef}`
+                                    `No file found with the cellId: ${message.commentThread.cellId}`
                                 );
                                 return;
                             }
-                            message.commentThread.uri = uriForVerseRef;
+                            message.commentThread.uri = uriForCellId;
                             await serializeCommentsToDisk(
                                 existingCommentsThreads,
                                 message.commentThread
@@ -234,7 +209,7 @@ export class CustomWebviewProvider {
                                 message.commentThread
                             );
                         }
-                        sendCommentsToWebview(webviewView);
+                        this.sendCommentsToWebview(webviewView);
                         break;
                     }
                     case "deleteCommentThread": {
@@ -250,7 +225,7 @@ export class CustomWebviewProvider {
                             deleted: true,
                             comments: [],
                         });
-                        sendCommentsToWebview(webviewView);
+                        this.sendCommentsToWebview(webviewView);
                         break;
                     }
                     case "deleteComment": {
@@ -276,21 +251,21 @@ export class CustomWebviewProvider {
                                 ],
                             });
                         }
-                        sendCommentsToWebview(webviewView);
+                        this.sendCommentsToWebview(webviewView);
                         break;
                     }
                     case "fetchComments": {
-                        sendCommentsToWebview(webviewView);
+                        this.sendCommentsToWebview(webviewView);
                         break;
                     }
-                    case "getCurrentVerseRef": {
+                    case "getCurrentCellId": {
                         initializeStateStore().then(({ getStoreState }) => {
-                            getStoreState("cellId").then((value) => {
+                            getStoreState("cellId").then((value: CellIdGlobalState | undefined) => {
                                 if (value) {
                                     webviewView.webview.postMessage({
                                         command: "reload",
                                         data: {
-                                            cellId: value.cellId,
+                                            cellId: value,
                                         },
                                     } as CommentPostMessages);
                                 }
@@ -306,6 +281,25 @@ export class CustomWebviewProvider {
                 vscode.window.showErrorMessage("Service access failed.");
             }
         });
+    }
+
+    private async sendCommentsToWebview(webviewView: vscode.WebviewView) {
+        if (!this.commentsFilePath) {
+            console.error("Comments file path not initialized");
+            return;
+        }
+
+        try {
+            const fileContentUint8Array = await workspace.fs.readFile(this.commentsFilePath);
+            const fileContent = new TextDecoder().decode(fileContentUint8Array);
+            webviewView.webview.postMessage({
+                command: "commentsFromWorkspace",
+                content: fileContent,
+            } as CommentPostMessages);
+        } catch (error) {
+            console.error("Error reading comments file:", error);
+            window.showErrorMessage(`Error reading comments file: ${this.commentsFilePath.fsPath}`);
+        }
     }
 }
 

@@ -1,16 +1,17 @@
 import { useState, useEffect } from "react";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import "../App.css";
-import { NotebookCommentThread, CommentPostMessages } from "../../../../types";
-import VerseRefNavigation from "../components/VerseRefNavigation";
+import { NotebookCommentThread, CommentPostMessages, CellIdGlobalState } from "../../../../types";
 import UpdateAndViewCommentThreadTitle from "../components/UpdateAndViewCommentThreadTitle";
 import CommentViewSlashEditorSlashDelete from "../components/CommentViewSlashEditorSlashDelete";
 import { CommentTextForm, CommentTextFormProps } from "../components/CommentTextForm";
 import { v4 as uuidv4 } from "uuid";
+
 const vscode = acquireVsCodeApi();
 type Comment = NotebookCommentThread["comments"][0];
+
 function App() {
-    const [verseRef, setVerseRef] = useState<string>("GEN 1:1");
+    const [cellId, setCellId] = useState<CellIdGlobalState>({ cellId: "", uri: "" });
     const [uri, setUri] = useState<string>();
     const [commentThreadArray, setCommentThread] = useState<NotebookCommentThread[]>([]);
     const [showCommentForm, setShowCommentForm] = useState<{
@@ -25,30 +26,26 @@ function App() {
     };
 
     useEffect(() => {
-        if (commentThreadArray.length === 0) {
-            vscode.postMessage({
-                command: "fetchComments",
-            } as CommentPostMessages);
-        }
-
-        // get the current verseRef in the shared state store
-        vscode.postMessage({
-            command: "getCurrentVerseRef",
-        } as CommentPostMessages);
-
         const handleMessage = (event: MessageEvent) => {
             const message: CommentPostMessages = event.data;
             switch (message.command) {
                 case "commentsFromWorkspace": {
                     if (message.content) {
-                        console.log(message.content);
-                        const comments = JSON.parse(message.content);
-                        setCommentThread(comments);
+                        console.log("Received comments:", message.content);
+                        try {
+                            const comments = JSON.parse(message.content);
+                            setCommentThread(comments);
+                        } catch (error) {
+                            console.error("Error parsing comments:", error);
+                        }
                     }
                     break;
                 }
                 case "reload": {
-                    setVerseRef(message.data?.verseRef);
+                    console.log("Reload message received:", message.data);
+                    if (message.data?.cellId) {
+                        setCellId(message.data.cellId);
+                    }
                     setUri(message.data?.uri);
                     break;
                 }
@@ -57,11 +54,20 @@ function App() {
 
         window.addEventListener("message", handleMessage);
 
-        // Cleanup function to remove the event listener
+        // Only fetch comments when the component mounts
+        vscode.postMessage({
+            command: "fetchComments",
+        } as CommentPostMessages);
+
+        // Only get the current cellId when the component mounts
+        vscode.postMessage({
+            command: "getCurrentCellId",
+        } as CommentPostMessages);
+
         return () => {
             window.removeEventListener("message", handleMessage);
         };
-    }, []); // The empty array means this effect runs once on mount and cleanup on unmount
+    }, []); // Empty dependency array
 
     const handleSubmit: CommentTextFormProps["handleSubmit"] = ({
         comment: submittedCommentValue,
@@ -91,7 +97,7 @@ function App() {
             uri: uri,
             canReply: true,
             comments: [comment],
-            verseRef,
+            cellId: cellId,
             collapsibleState: 0,
             threadTitle: title || "",
             deleted: false,
@@ -128,7 +134,8 @@ function App() {
                 color: "var(--vscode-editorWidget-foreground)",
             }}
         >
-            <VerseRefNavigation verseRef={verseRef} callback={setVerseRef} />
+            <div>Current Cell ID: {cellId.cellId}</div>
+            <div>Current URI: {cellId.uri}</div>
             <div
                 className="comments-container"
                 style={{
@@ -147,7 +154,15 @@ function App() {
                     }}
                 >
                     {commentThreadArray.map((commentThread) => {
-                        if (commentThread.verseRef === verseRef && !commentThread.deleted) {
+                        console.log("Rendering comment thread:", commentThread);
+                        const [threadDocument, threadSection] =
+                            commentThread.cellId.cellId?.split(":") || [];
+                        const [currentDocument, currentSection] = cellId.cellId?.split(":") || [];
+                        if (
+                            threadDocument === currentDocument &&
+                            threadSection === currentSection &&
+                            !commentThread.deleted
+                        ) {
                             return (
                                 <div
                                     style={{
@@ -216,6 +231,7 @@ function App() {
                                 </div>
                             );
                         }
+                        return null;
                     })}
                 </div>
             </div>

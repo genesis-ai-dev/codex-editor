@@ -35,7 +35,7 @@ interface ChatMessageThread {
 interface NotebookCommentThread {
     id: string;
     uri?: string;
-    verseRef: string;
+    cellId: CellIdGlobalState;
     comments: {
         id: number;
         body: string;
@@ -111,7 +111,7 @@ type CommentPostMessages =
           command: "deleteComment";
           args: { commentId: number; commentThreadId: string };
       }
-    | { command: "getCurrentVerseRef" }
+    | { command: "getCurrentCellId"; data: CellIdGlobalState }
     | { command: "fetchComments" };
 
 interface SelectedTextDataWithContext {
