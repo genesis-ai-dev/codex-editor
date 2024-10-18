@@ -17,7 +17,7 @@ import registerQuillSpellChecker from "./react-quill-spellcheck";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import SourceCellContext from "./contextProviders/SourceCellContext";
 import DuplicateCellResolver from "./DuplicateCellResolver";
-import Timeline from "./Timeline/index";
+import TimelineEditor from "./TimelineEditor";
 
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
@@ -350,38 +350,7 @@ const CodexCellEditor: React.FC = () => {
                             videoUrl={videoUrl}
                             translationUnitsForSection={translationUnitsWithCurrentEditorContent}
                         />
-                        <Timeline
-                            changeAreaShow={(start, end) => {
-                                // console.log({ start, end });
-                            }}
-                            changeZoomLevel={(zoomLevel) => {
-                                // console.log({ zoomLevel });
-                            }}
-                            changeShift={(shift) => {
-                                // console.log({ shift });
-                            }}
-                            setAligns={(alignments) => {
-                                console.log({ alignments });
-                            }}
-                            // audioRef={playerRef}
-                            src={"..."}
-                            data={data}
-                            autoScroll
-                            colors={{
-                                background: "transparent",
-                                box: "#a9a9a9",
-                                boxHover: "#80add6",
-                                selectedBox: "#1890ff",
-                                playingBox: "#f0523f",
-                                text: "#212b33",
-                                selectedText: "white",
-                                tooltipBackground: "#474e54",
-                                tooltipText: "white",
-                                scrollBarBackground: "#f1f3f9",
-                                scrollBar: "#c2c9d6",
-                                scrollBarHover: "#8f96a3",
-                            }}
-                        />
+                        <TimelineEditor data={data} vscode={vscode} />
                     </div>
                 )}
             </div>
