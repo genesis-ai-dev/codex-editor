@@ -132,7 +132,7 @@ export default function Timeline(props: TimelineProps) {
                     flexDirection: "row",
                     gap: "10px",
                     padding: "10px",
-                    backgroundColor: "var(--vscode-badge-foreground)",
+                    backgroundColor: "var(--vscode-editor-background)",
                 }}
             >
                 <VSCodeButton
