@@ -52,6 +52,18 @@ const CellList: React.FC<CellListProps> = ({
         return duplicates;
     }, [translationUnits]);
 
+    const checkForAlert = (content: string) => {
+        const lowerContent = content.toLowerCase();
+        const hasAlert = lowerContent.includes("alert");
+        const hasPurple = lowerContent.includes("purple");
+        const hasBoth = lowerContent.includes("both");
+
+        if (hasBoth) return ["#FF6B6B", "#A0A0FF"]; // Brighter red and a more vibrant purple
+        if (hasPurple) return ["#A0A0FF"]; // A more vibrant purple
+        if (hasAlert) return ["#FF6B6B"]; // Brighter red
+        return [];
+    };
+
     const renderCellGroup = useMemo(
         () => (group: typeof translationUnits, startIndex: number) =>
             (
@@ -64,22 +76,48 @@ const CellList: React.FC<CellListProps> = ({
                         ({ cellMarkers, cellContent, cellType, cellLabel, timestamps }, index) => {
                             const cellId = cellMarkers.join(" ");
                             const hasDuplicateId = duplicateCellIds.has(cellId);
+                            const alertColors = checkForAlert(cellContent);
 
                             return (
-                                <CellContentDisplay
+                                <div
                                     key={startIndex + index}
-                                    cellIds={cellMarkers}
-                                    cellContent={cellContent}
-                                    cellIndex={startIndex + index}
-                                    cellType={cellType}
-                                    cellLabel={cellLabel}
-                                    setContentBeingUpdated={setContentBeingUpdated}
-                                    vscode={vscode}
-                                    textDirection={textDirection}
-                                    isSourceText={isSourceText}
-                                    hasDuplicateId={hasDuplicateId}
-                                    timestamps={timestamps}
-                                />
+                                    style={{ display: "flex", alignItems: "center" }}
+                                >
+                                    <div
+                                        style={{
+                                            display: "flex",
+                                            flexDirection: "column",
+                                            marginRight: "8px",
+                                        }}
+                                    >
+                                        {alertColors.map((color, i) => (
+                                            <div
+                                                key={i}
+                                                style={{
+                                                    width: "10px",
+                                                    height: "10px",
+                                                    borderRadius: "50%",
+                                                    backgroundColor: color,
+                                                    marginBottom: "-4px",
+                                                    boxShadow: "0 0 2px rgba(0,0,0,0.2)",
+                                                }}
+                                            />
+                                        ))}
+                                    </div>
+                                    <CellContentDisplay
+                                        cellIds={cellMarkers}
+                                        cellContent={cellContent}
+                                        cellIndex={startIndex + index}
+                                        cellType={cellType}
+                                        cellLabel={cellLabel}
+                                        setContentBeingUpdated={setContentBeingUpdated}
+                                        vscode={vscode}
+                                        textDirection={textDirection}
+                                        isSourceText={isSourceText}
+                                        hasDuplicateId={hasDuplicateId}
+                                        timestamps={timestamps}
+                                    />
+                                </div>
                             );
                         }
                     )}
@@ -105,21 +143,47 @@ const CellList: React.FC<CellListProps> = ({
                         result.push(renderCellGroup(currentGroup, groupStartIndex));
                         currentGroup = [];
                     }
+                    const alertColors = checkForAlert(cellContent);
                     result.push(
-                        <CellEditor
+                        <div
                             key={cellMarkers.join(" ")}
-                            cellMarkers={cellMarkers}
-                            cellContent={cellContent}
-                            cellIndex={i}
-                            cellType={cellType}
-                            cellLabel={cellLabel}
-                            spellCheckResponse={spellCheckResponse}
-                            contentBeingUpdated={contentBeingUpdated}
-                            setContentBeingUpdated={setContentBeingUpdated}
-                            handleCloseEditor={handleCloseEditor}
-                            handleSaveHtml={handleSaveHtml}
-                            textDirection={textDirection}
-                        />
+                            style={{ display: "flex", alignItems: "center" }}
+                        >
+                            <div
+                                style={{
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    marginRight: "8px",
+                                }}
+                            >
+                                {alertColors.map((color, i) => (
+                                    <div
+                                        key={i}
+                                        style={{
+                                            width: "10px",
+                                            height: "10px",
+                                            borderRadius: "50%",
+                                            backgroundColor: color,
+                                            marginBottom: "-4px",
+                                            boxShadow: "0 0 2px rgba(0,0,0,0.2)",
+                                        }}
+                                    />
+                                ))}
+                            </div>
+                            <CellEditor
+                                cellMarkers={cellMarkers}
+                                cellContent={cellContent}
+                                cellIndex={i}
+                                cellType={cellType}
+                                cellLabel={cellLabel}
+                                spellCheckResponse={spellCheckResponse}
+                                contentBeingUpdated={contentBeingUpdated}
+                                setContentBeingUpdated={setContentBeingUpdated}
+                                handleCloseEditor={handleCloseEditor}
+                                handleSaveHtml={handleSaveHtml}
+                                textDirection={textDirection}
+                            />
+                        </div>
                     );
                     groupStartIndex = i + 1;
                 } else if (cellContent?.trim()?.length === 0) {

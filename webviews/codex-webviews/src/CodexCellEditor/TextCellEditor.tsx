@@ -60,6 +60,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     }, [showFlashingBorder]);
 
     const [editableLabel, setEditableLabel] = useState(cellLabel || "");
+    const [feedback, setFeedback] = useState("");
 
     useEffect(() => {
         setEditableLabel(cellLabel || "");
@@ -89,6 +90,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     const handleLabelSave = () => {
         handleLabelBlur();
+    };
+
+    const handleFeedbackChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        setFeedback(e.target.value);
+    };
+
+    const handleFeedbackSend = () => {
+        // TODO: Implement feedback sending logic
+        console.log("Feedback sent:", feedback);
+        setFeedback("");
     };
 
     const makeChild = () => {
@@ -159,6 +170,22 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     />
                     <VSCodeButton onClick={handleLabelSave} appearance="icon" title="Save Label">
                         <i className="codicon codicon-save"></i>
+                    </VSCodeButton>
+                </div>
+                <div className="feedback-container">
+                    <textarea
+                        value={feedback}
+                        onChange={handleFeedbackChange}
+                        placeholder="Enter feedback"
+                        rows={1}
+                        style={{ resize: "vertical", minHeight: "24px", maxHeight: "100px" }}
+                    />
+                    <VSCodeButton
+                        onClick={handleFeedbackSend}
+                        appearance="icon"
+                        title="Send Feedback"
+                    >
+                        <i className="codicon codicon-send"></i>
                     </VSCodeButton>
                 </div>
                 {unsavedChanges ? (
