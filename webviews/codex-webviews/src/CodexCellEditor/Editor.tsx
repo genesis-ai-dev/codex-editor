@@ -11,7 +11,6 @@ const vscode: any = (window as any).vscodeApi;
 
 // Register the QuillSpellChecker with the VSCode API
 registerQuillSpellChecker(Quill, vscode);
-
 // Use VSCode icon for autocomplete
 icons["autocomplete"] = `<i class="codicon codicon-sparkle quill-toolbar-icon"></i>`;
 
@@ -128,7 +127,6 @@ export default function Editor(props: EditorProps) {
             }
         }
     }, []);
-
 
     useEffect(() => {
         if (quillRef.current && revertedValue !== undefined) {
