@@ -15,6 +15,7 @@ import {
 } from "../../types";
 import { CodexCellTypes } from "../../types/enums";
 import { NotebookMetadataManager } from "./notebookMetadataManager";
+import { getWorkSpaceUri } from "./index";
 
 export const NOTEBOOK_TYPE = "codex-type";
 
@@ -471,7 +472,7 @@ async function processUsfmFile(fileUri: vscode.Uri, notebookId?: string): Promis
         );
 
         console.log(`Created .source file for ${bookCode}`);
-        return generatedNotebookId || notebookId || "";
+        return generatedNotebookId;
     } catch (error) {
         console.error(`Error processing file ${fileUri.fsPath}:`, error);
         vscode.window.showErrorMessage(
@@ -638,13 +639,13 @@ export async function createProjectNotebooks({
                 .serializeNotebook(updatedNotebookData, new vscode.CancellationTokenSource().token)
                 .then((notebookFile) => {
                     const filePath = vscode.Uri.joinPath(
-                        vscode.workspace.workspaceFolders![0].uri,
+                        getWorkSpaceUri()!,
                         "files",
                         "target",
                         `${book}.codex`
-                    ).fsPath;
+                    );
                     return generateFile({
-                        filepath: filePath,
+                        filepath: vscode.workspace.asRelativePath(filePath),
                         fileContent: notebookFile,
                         shouldOverWrite,
                     });
@@ -699,7 +700,7 @@ export async function splitSourceFileByBook(
         const writePromises = Object.entries(bookData).map(async ([book, data]) => {
             const bookFileName = `${book}.source`;
             const bookFilePath = vscode.Uri.joinPath(
-                vscode.Uri.file(workspaceRoot),
+                getWorkSpaceUri()!,
                 ".project",
                 languageType === "source" ? "sourceTexts" : "targetTexts",
                 bookFileName
@@ -819,14 +820,15 @@ export async function createCodexNotebookFromWebVTT(
             new vscode.CancellationTokenSource().token
         );
 
-        const sourceFilePath = vscode.Uri.joinPath(
-            vscode.workspace.workspaceFolders?.[0].uri || vscode.Uri.file(''),
-            '.project',
-            'sourceTexts',
+        const sourceUri = vscode.Uri.joinPath(
+            getWorkSpaceUri()!,
+            ".project",
+            "sourceTexts",
             `${notebookName}.source`
         );
+
         await generateFile({
-            filepath: sourceFilePath.fsPath,
+            filepath: sourceUri.fsPath,
             fileContent: notebookFile,
             shouldOverWrite,
         });
@@ -852,12 +854,12 @@ export async function createCodexNotebookFromWebVTT(
         }
 
         const targetNotebookData = new vscode.NotebookData(targetCells);
-        const targetFilePath = vscode.Uri.joinPath(
-            vscode.workspace.workspaceFolders?.[0].uri || vscode.Uri.file(''),
-            'files',
-            'target',
+        const targetUri = vscode.Uri.joinPath(
+            getWorkSpaceUri()!,
+            "files",
+            "target",
             `${notebookName}.codex`
-        ).fsPath;
+        );
         const metadataManager = NotebookMetadataManager.getInstance();
         const metadata = metadataManager.getMetadataById(notebookName);
 
@@ -866,7 +868,7 @@ export async function createCodexNotebookFromWebVTT(
             textDirection: "ltr",
             originalName: notebookName,
             sourceFsPath: metadata?.sourceFsPath,
-            codexFsPath: targetFilePath,
+            codexFsPath: targetUri.fsPath,
             sourceCreatedAt: metadata?.sourceCreatedAt || new Date().toISOString(),
             gitStatus: metadata?.gitStatus || "untracked",
             navigation: metadata?.navigation || [],
@@ -879,7 +881,7 @@ export async function createCodexNotebookFromWebVTT(
             new vscode.CancellationTokenSource().token
         );
         await generateFile({
-            filepath: targetFilePath,
+            filepath: targetUri.fsPath,
             fileContent: targetNotebookFile,
             shouldOverWrite,
         });
@@ -899,3 +901,4 @@ export async function createCodexNotebookFromWebVTT(
         throw error; // Re-throw the error to be handled by the caller
     }
 }
+

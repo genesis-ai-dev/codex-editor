@@ -1,3 +1,4 @@
+import { getWorkSpaceUri } from "./../utils/index";
 import * as vscode from "vscode";
 import { CustomNotebookMetadata, FileType, SupportedFileExtension } from "../../types";
 import { fileTypeMap } from "./translationImporter";
@@ -66,7 +67,9 @@ async function importSourceFile(
         const metadataManager = NotebookMetadataManager.getInstance();
         await metadataManager.loadMetadata();
 
-        const baseName = vscode.workspace.asRelativePath(fileUri).split(path.sep).pop()?.split(".")[0] || `new_source`;
+        const baseName =
+            vscode.workspace.asRelativePath(fileUri).split(path.sep).pop()?.split(".")[0] ||
+            `new_source`;
         const notebookId = metadataManager.generateNewId(baseName);
 
         let importedNotebookIds: string[];
@@ -85,27 +88,33 @@ async function importSourceFile(
                 throw new Error("Unsupported file type for source text.");
         }
 
-        const workspaceFolder = vscode.workspace.workspaceFolders![0];
+        const workspaceFolderUri = getWorkSpaceUri();
+        if (!workspaceFolderUri) {
+            throw new Error("No workspace folder found. Cannot import source text.");
+        }
 
         for (const importedNotebookId of importedNotebookIds) {
             const sourceUri = vscode.Uri.joinPath(
-                workspaceFolder.uri,
+                workspaceFolderUri,
                 ".project",
                 "sourceTexts",
                 `${importedNotebookId}.source`
             );
             const codexUri = vscode.Uri.joinPath(
-                workspaceFolder.uri,
+                workspaceFolderUri,
                 "files",
                 "target",
                 `${importedNotebookId}.codex`
             );
 
+            // Create empty Codex notebooks for each book before updating metadata
+            await createEmptyCodexNotebooks(importedNotebookId);
+
             const metadata: CustomNotebookMetadata = {
                 id: importedNotebookId,
-                sourceFsPath: sourceUri.fsPath,
+                sourceFsPath: vscode.workspace.asRelativePath(sourceUri),
                 originalName: getFileNameFromUri(fileUri),
-                codexFsPath: codexUri.fsPath,
+                codexFsPath: vscode.workspace.asRelativePath(codexUri),
                 navigation: [],
                 sourceCreatedAt: "",
                 codexLastModified: "",
@@ -113,17 +122,11 @@ async function importSourceFile(
                 corpusMarker: "",
             };
 
-            // Add metadata to the original source file
-            await waitForFile(sourceUri, 5000); // Wait up to 5 seconds
-            await addMetadataToSourceFile(sourceUri, metadata);
-
-            metadataManager.addOrUpdateMetadata(metadata);
+            // Now that the files exist, we can update the metadata
+            await metadataManager.addOrUpdateMetadata(metadata);
 
             // Split the source file if it contains multiple books
-            await splitSourceFileByBook(sourceUri, workspaceFolder.uri.fsPath, "source");
-
-            // Create empty Codex notebooks for each book
-            await createEmptyCodexNotebooks(importedNotebookId);
+            await splitSourceFileByBook(sourceUri, workspaceFolderUri.fsPath, "source");
         }
 
         vscode.window.showInformationMessage("Source text imported successfully.");
