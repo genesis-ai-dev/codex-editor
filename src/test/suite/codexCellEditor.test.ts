@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 import { CodexCellEditorProvider } from "../../providers/codexCellEditorProvider/codexCellEditorProvider";
 import { codexSubtitleContent } from "./mocks/codexSubtitleContent";
+import { EditType } from "../../../types/enums";
 
 suite("CodexCellEditorProvider Test Suite", () => {
     vscode.window.showInformationMessage("Start all tests for CodexCellEditorProvider.");
@@ -67,6 +68,83 @@ suite("CodexCellEditorProvider Test Suite", () => {
         console.log({ document });
         assert.ok(document, "openCustomDocument should return a document");
         // Add more specific assertions based on your CodexCellDocument implementation
+    });
+
+    test("saveCustomDocument should not throw an error", async () => {
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+        await assert.doesNotReject(
+            provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token),
+            "saveCustomDocument should not throw an error"
+        );
+    });
+
+    test("getHtmlForWebview generates correct HTML structure", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+        const webview = {
+            asWebviewUri: (uri: vscode.Uri) => uri,
+            cspSource: "https://example.com",
+        } as any as vscode.Webview;
+
+        const html = provider["getHtmlForWebview"](webview, document, "ltr", false);
+        console.log({ html });
+
+        assert.ok(html.includes("<html"), "HTML should contain opening html tag");
+        assert.ok(html.includes("</html>"), "HTML should contain closing html tag");
+        assert.ok(html.includes('<div id="root"></div>'), "HTML should contain root div");
+        assert.ok(html.includes("window.initialData"), "HTML should include initial data script");
+    });
+
+    test("resolveCustomEditor sets up message passing", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        let receivedMessage: any = null;
+        const webviewPanel = {
+            webview: {
+                asWebviewUri: (uri: vscode.Uri) => uri,
+                html: "",
+                options: {},
+                onDidReceiveMessage: (callback: (message: any) => void) => {
+                    // Simulate receiving a message from the webview
+                    setTimeout(() => callback({ command: "getContent" }), 0);
+                    return { dispose: () => {} };
+                },
+                postMessage: (message: any) => {
+                    receivedMessage = message;
+                    return Promise.resolve();
+                },
+            },
+            onDidDispose: () => ({ dispose: () => {} }),
+        } as any as vscode.WebviewPanel;
+
+        await provider.resolveCustomEditor(
+            document,
+            webviewPanel,
+            new vscode.CancellationTokenSource().token
+        );
+
+        // Wait for the simulated message to be processed
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
+        assert.ok(receivedMessage, "Webview should receive a message");
+        assert.strictEqual(
+            receivedMessage.type,
+            "providerSendsInitialContent",
+            "Initial content should be sent to webview"
+        );
     });
 
     // Add more tests as needed

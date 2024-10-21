@@ -174,7 +174,7 @@ class CodexCellDocument implements vscode.CustomDocument {
 
     public async save(cancellation: vscode.CancellationToken): Promise<void> {
         const text = JSON.stringify(this._documentData, null, 2);
-        await vscode.workspace.fs.writeFile(this.uri, Buffer.from(text));
+        await vscode.workspace.fs.writeFile(this.uri, new TextEncoder().encode(text));
         this._edits = []; // Clear edits after saving
         this._isDirty = false; // Reset dirty flag
     }
@@ -184,7 +184,7 @@ class CodexCellDocument implements vscode.CustomDocument {
         cancellation: vscode.CancellationToken
     ): Promise<void> {
         const text = JSON.stringify(this._documentData, null, 2);
-        await vscode.workspace.fs.writeFile(targetResource, Buffer.from(text));
+        await vscode.workspace.fs.writeFile(targetResource, new TextEncoder().encode(text));
         this._isDirty = false; // Reset dirty flag
     }
 
