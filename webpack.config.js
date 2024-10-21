@@ -5,6 +5,7 @@
 "use strict";
 
 const path = require("path");
+const webpack = require("webpack");
 
 //@ts-check
 /** @typedef {import('webpack').Configuration} WebpackConfig **/
@@ -96,4 +97,62 @@ const serverConfig = {
     devtool: "nosources-source-map",
 };
 
-module.exports = [extensionConfig, serverConfig];
+const testConfig = {
+    name: "test",
+    target: "webworker",
+    mode: "none",
+    entry: "./src/test/suite/index.ts",
+    output: {
+        path: path.resolve(__dirname, "out", "test", "suite"),
+        filename: "index.js",
+        libraryTarget: "commonjs2",
+    },
+    externals: {
+        vscode: "commonjs vscode",
+    },
+    resolve: {
+        extensions: [".ts", ".js"],
+        fallback: {
+            assert: require.resolve("assert/"), // Add this fallback
+            process: require.resolve("process/browser"),
+            url: require.resolve("url/"),
+            fs: require.resolve("memfs"),
+            zlib: require.resolve("browserify-zlib"),
+            stream: require.resolve("stream-browserify"),
+            util: require.resolve("util/"),
+            os: require.resolve("os-browserify/browser"),
+        },
+    },
+    module: {
+        rules: [
+            {
+                test: /\.ts$/,
+                exclude: /node_modules/,
+                use: "ts-loader",
+            },
+            // Add this new rule for Markdown files
+            {
+                test: /\.md$/,
+                use: [
+                    {
+                        loader: "html-loader",
+                    },
+                    {
+                        loader: "markdown-loader",
+                        options: {},
+                    },
+                ],
+            },
+            // ... other rules
+        ],
+    },
+    plugins: [
+        new webpack.ProvidePlugin({
+            process: "process/browser",
+        }),
+        // ... other plugins if necessary
+    ],
+    devtool: "nosources-source-map",
+};
+
+module.exports = [extensionConfig, serverConfig, testConfig];

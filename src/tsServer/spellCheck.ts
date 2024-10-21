@@ -224,7 +224,9 @@ export class SpellCheckDiagnosticsProvider {
             const match = trimmedLine.match(verseRefRegex);
             const startIndex = match && trimmedLine.startsWith(match[0]) ? match[0].length : 0;
 
-            const words = line.slice(startIndex).split(/\s+/);
+            // Remove HTML tags before processing
+            const lineWithoutHtml = line.replace(/<[^>]*>/g, "");
+            const words = lineWithoutHtml.slice(startIndex).split(/\s+/);
             let editWindow = startIndex;
 
             words.forEach((word) => {
@@ -251,7 +253,7 @@ export class SpellCheckDiagnosticsProvider {
             // Check for repeated punctuation
             const repeatedPunctuationRegex = /([!?,.])\1+/g;
             let match2;
-            while ((match2 = repeatedPunctuationRegex.exec(line)) !== null) {
+            while ((match2 = repeatedPunctuationRegex.exec(lineWithoutHtml)) !== null) {
                 const range: Range = {
                     start: { line: lineIndex, character: match2.index },
                     end: { line: lineIndex, character: match2.index + match2[0].length },
@@ -266,7 +268,7 @@ export class SpellCheckDiagnosticsProvider {
 
             // Check for whitespace around punctuation
             const whitespaceAroundPunctuationRegex = /\s([!?,.])\s/g;
-            while ((match2 = whitespaceAroundPunctuationRegex.exec(line)) !== null) {
+            while ((match2 = whitespaceAroundPunctuationRegex.exec(lineWithoutHtml)) !== null) {
                 const range: Range = {
                     start: { line: lineIndex, character: match2.index },
                     end: { line: lineIndex, character: match2.index + match2[0].length },

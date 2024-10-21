@@ -196,7 +196,7 @@ export class SourceUploadProvider
             }
         });
 
-        // Start polling immediately if the panel is already visible
+        // // Start polling immediately if the panel is already visible
         if (webviewPanel.visible) {
             startPolling();
         }

@@ -1,8 +1,7 @@
 import Chatbot from "./chat";
 import { TranslationPair, SmartEditContext, SmartSuggestion, SavedSuggestions } from "../../types";
-import * as fs from "fs/promises";
-import * as path from "path";
 import * as vscode from "vscode";
+import * as path from "path";
 import { diffWords } from "diff";
 
 const SYSTEM_MESSAGE = `You are a helpful assistant. Given similar edits across a corpus, you will suggest edits to a new text. 
@@ -101,8 +100,11 @@ export class SmartEdits {
     private async loadSavedSuggestions(cellId: string): Promise<SavedSuggestions | null> {
         try {
             console.log(`Loading saved suggestions for cellId: ${cellId}`);
-            const fileContent = await fs.readFile(this.smartEditsPath, "utf8");
-            const savedEdits: { [key: string]: SavedSuggestions } = JSON.parse(fileContent);
+            const fileUri = vscode.Uri.file(this.smartEditsPath);
+            const fileContent = await vscode.workspace.fs.readFile(fileUri);
+            const savedEdits: { [key: string]: SavedSuggestions } = JSON.parse(
+                fileContent.toString()
+            );
             const result = savedEdits[cellId] || null;
             console.log(`Loaded suggestions for cellId ${cellId}:`, result);
             return result;
@@ -121,8 +123,9 @@ export class SmartEdits {
             console.log(`Saving suggestions for cellId: ${cellId}`);
             let savedEdits: { [key: string]: SavedSuggestions } = {};
             try {
-                const fileContent = await fs.readFile(this.smartEditsPath, "utf8");
-                savedEdits = JSON.parse(fileContent);
+                const fileUri = vscode.Uri.file(this.smartEditsPath);
+                const fileContent = await vscode.workspace.fs.readFile(fileUri);
+                savedEdits = JSON.parse(fileContent.toString());
             } catch (error) {
                 console.log("No existing saved edits found, starting with empty object");
             }
@@ -133,7 +136,11 @@ export class SmartEdits {
                 suggestions,
             };
 
-            await fs.writeFile(this.smartEditsPath, JSON.stringify(savedEdits, null, 2));
+            const fileUri = vscode.Uri.file(this.smartEditsPath);
+            await vscode.workspace.fs.writeFile(
+                fileUri,
+                Buffer.from(JSON.stringify(savedEdits, null, 2))
+            );
             console.log(`Saved suggestions for cellId: ${cellId}`);
         } catch (error) {
             console.error("Error saving suggestions:", error);
@@ -170,11 +177,9 @@ export class SmartEdits {
                         );
                     filePath = filePath.replace(".source", ".codex");
                     console.log(`Reading file for cellId ${entry.cellId}: ${filePath}`);
-                    const fileContent = await fs.readFile(
-                        vscode.Uri.parse(filePath).fsPath,
-                        "utf8"
-                    );
-                    const jsonContent = JSON.parse(fileContent);
+                    const fileUri = vscode.Uri.parse(filePath);
+                    const fileContent = await vscode.workspace.fs.readFile(fileUri);
+                    const jsonContent = JSON.parse(fileContent.toString());
                     const cell = jsonContent.cells.find(
                         (cell: any) => cell.metadata.id === entry.cellId
                     );

@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import { EditorCellContent, QuillCellContent, SpellCheckResponse } from "../../../../types";
 import CellEditor from "./TextCellEditor";
 import CellContentDisplay from "./CellContentDisplay";
@@ -20,6 +20,7 @@ interface CellListProps {
     isSourceText: boolean;
     windowHeight: number;
     headerHeight: number;
+    spellCheckFunction: (cellContent: string) => Promise<SpellCheckResponse | null>;
 }
 
 const CellList: React.FC<CellListProps> = ({
@@ -35,7 +36,10 @@ const CellList: React.FC<CellListProps> = ({
     isSourceText,
     windowHeight,
     headerHeight,
+    spellCheckFunction,
 }) => {
+    const [alertColorCache, setAlertColorCache] = useState<Map<string, string[]>>(new Map());
+
     // Detect duplicate cell IDs
     const duplicateCellIds = useMemo(() => {
         const idCounts = new Map<string, number>();
@@ -52,17 +56,34 @@ const CellList: React.FC<CellListProps> = ({
         return duplicates;
     }, [translationUnits]);
 
-    const checkForAlert = (content: string) => {
-        const lowerContent = content.toLowerCase();
-        const hasAlert = lowerContent.includes("alert");
-        const hasPurple = lowerContent.includes("purple");
-        const hasBoth = lowerContent.includes("both");
+    const checkForAlert = useCallback(
+        async (content: string, cellId: string) => {
+            if (alertColorCache.has(cellId)) {
+                return alertColorCache.get(cellId)!;
+            }
 
-        if (hasBoth) return ["#FF6B6B", "#A0A0FF"]; // Brighter red and a more vibrant purple
-        if (hasPurple) return ["#A0A0FF"]; // A more vibrant purple
-        if (hasAlert) return ["#FF6B6B"]; // Brighter red
-        return [];
-    };
+            const lowerContent = content.toLowerCase();
+            const hasAlert = lowerContent.includes("alert");
+            const hasPurple = lowerContent.includes("purple");
+            const hasBoth = lowerContent.includes("both");
+            const spellCheckResponse = await spellCheckFunction(content);
+
+            let colors: string[] = [];
+            if (spellCheckResponse && spellCheckResponse.length > 0) {
+                colors = ["#FF6B6B"]; // Brighter red for spell check errors
+            } else if (hasBoth) {
+                colors = ["#FF6B6B", "#A0A0FF"]; // Brighter red and a more vibrant purple
+            } else if (hasPurple) {
+                colors = ["#A0A0FF"]; // A more vibrant purple
+            } else if (hasAlert) {
+                colors = ["#FF6B6B"]; // Brighter red
+            }
+
+            setAlertColorCache((prev) => new Map(prev).set(cellId, colors));
+            return colors;
+        },
+        [alertColorCache, spellCheckFunction]
+    );
 
     const renderCellGroup = useMemo(
         () => (group: typeof translationUnits, startIndex: number) =>
@@ -76,7 +97,7 @@ const CellList: React.FC<CellListProps> = ({
                         ({ cellMarkers, cellContent, cellType, cellLabel, timestamps }, index) => {
                             const cellId = cellMarkers.join(" ");
                             const hasDuplicateId = duplicateCellIds.has(cellId);
-                            const alertColors = checkForAlert(cellContent);
+                            const alertColorsPromise = checkForAlert(cellContent, cellId);
 
                             return (
                                 <div
@@ -90,19 +111,9 @@ const CellList: React.FC<CellListProps> = ({
                                             marginRight: "8px",
                                         }}
                                     >
-                                        {alertColors.map((color, i) => (
-                                            <div
-                                                key={i}
-                                                style={{
-                                                    width: "10px",
-                                                    height: "10px",
-                                                    borderRadius: "50%",
-                                                    backgroundColor: color,
-                                                    marginBottom: "-4px",
-                                                    boxShadow: "0 0 2px rgba(0,0,0,0.2)",
-                                                }}
-                                            />
-                                        ))}
+                                        <React.Suspense fallback={<div>Loading...</div>}>
+                                            <AlertColors alertColorsPromise={alertColorsPromise} />
+                                        </React.Suspense>
                                     </div>
                                     <CellContentDisplay
                                         cellIds={cellMarkers}
@@ -123,7 +134,15 @@ const CellList: React.FC<CellListProps> = ({
                     )}
                 </span>
             ),
-        [cellDisplayMode, textDirection, setContentBeingUpdated, vscode, isSourceText]
+        [
+            cellDisplayMode,
+            textDirection,
+            setContentBeingUpdated,
+            vscode,
+            isSourceText,
+            checkForAlert,
+            duplicateCellIds,
+        ]
     );
 
     const renderCells = useMemo(
@@ -144,7 +163,7 @@ const CellList: React.FC<CellListProps> = ({
                         result.push(renderCellGroup(currentGroup, groupStartIndex));
                         currentGroup = [];
                     }
-                    const alertColors = checkForAlert(cellContent);
+                    const alertColorsPromise = checkForAlert(cellContent, cellMarkers.join(" "));
                     result.push(
                         <div
                             key={cellMarkers.join(" ")}
@@ -157,19 +176,9 @@ const CellList: React.FC<CellListProps> = ({
                                     marginRight: "8px",
                                 }}
                             >
-                                {alertColors.map((color, i) => (
-                                    <div
-                                        key={i}
-                                        style={{
-                                            width: "10px",
-                                            height: "10px",
-                                            borderRadius: "50%",
-                                            backgroundColor: color,
-                                            marginBottom: "-4px",
-                                            boxShadow: "0 0 2px rgba(0,0,0,0.2)",
-                                        }}
-                                    />
-                                ))}
+                                <React.Suspense fallback={<div>Loading...</div>}>
+                                    <AlertColors alertColorsPromise={alertColorsPromise} />
+                                </React.Suspense>
                             </div>
                             <CellEditor
                                 cellMarkers={cellMarkers}
@@ -223,6 +232,7 @@ const CellList: React.FC<CellListProps> = ({
             handleCloseEditor,
             handleSaveHtml,
             renderCellGroup,
+            checkForAlert,
         ]
     );
 
@@ -235,6 +245,34 @@ const CellList: React.FC<CellListProps> = ({
         >
             {renderCells()}
         </div>
+    );
+};
+
+const AlertColors: React.FC<{ alertColorsPromise: Promise<string[]> }> = ({
+    alertColorsPromise,
+}) => {
+    const [alertColors, setAlertColors] = React.useState<string[]>([]);
+
+    React.useEffect(() => {
+        alertColorsPromise.then(setAlertColors);
+    }, [alertColorsPromise]);
+
+    return (
+        <>
+            {alertColors.map((color, i) => (
+                <div
+                    key={i}
+                    style={{
+                        width: "10px",
+                        height: "10px",
+                        borderRadius: "50%",
+                        backgroundColor: color,
+                        marginBottom: "-4px",
+                        boxShadow: "0 0 2px rgba(0,0,0,0.2)",
+                    }}
+                />
+            ))}
+        </>
     );
 };
 
