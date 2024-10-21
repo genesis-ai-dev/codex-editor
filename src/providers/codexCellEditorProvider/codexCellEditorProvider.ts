@@ -16,6 +16,7 @@ import {
     CustomNotebookMetadata,
 } from "../../../types";
 import { NotebookMetadataManager } from "../../utils/notebookMetadataManager";
+import path from "path";
 
 function getNonce(): string {
     let text = "";
@@ -599,7 +600,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             const currentFileName = vscode.workspace.asRelativePath(
                                 document.uri.fsPath
                             );
-                            const baseFileName = currentFileName.split("/").pop() || "";
+                            const baseFileName = path.basename(currentFileName);
                             const sourceFileName = baseFileName.replace(".codex", ".source");
                             console.log("sourceFileName", { sourceFileName });
                             await vscode.commands.executeCommand(

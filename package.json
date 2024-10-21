@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.0.54",
+    "version": "0.0.55",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -1000,6 +1000,12 @@
                         "type": "number",
                         "default": 50,
                         "description": "The minimum frequency of a word to be automatically added to the dictionary. Changing this value will trigger updates to the dictionary."
+                    },
+                    "translators-copilot.enableDoctrineGrading": {
+                        "title": "Enable Doctrine Grading",
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Enable or disable doctrine grading."
                     },
                     "translators-copilot.textDirection": {
                         "type": "string",

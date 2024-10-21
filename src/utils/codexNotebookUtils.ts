@@ -1,15 +1,12 @@
 import * as vscode from "vscode";
-import * as fs from "fs";
 import { CodexContentSerializer } from "../serializer";
 import { getProjectMetadata, getWorkSpaceFolder } from ".";
 import { generateFiles as generateFile } from "./fileUtils";
 import { getAllBookRefs, getAllBookChapterRefs, getAllVrefs } from ".";
 import { vrefData } from "./verseRefUtils/verseData";
-import { LanguageProjectStatus } from "codex-types";
 import { extractVerseRefFromLine, verseRefRegex } from "./verseRefUtils";
 import { getTestamentForBook } from "./verseRefUtils/verseData";
 import grammar, { ParsedUSFM } from "usfm-grammar";
-import * as path from "path";
 import { WebVTTParser } from "webvtt-parser";
 import {
     CodexNotebookAsJSONData,
@@ -102,13 +99,24 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
 
     const allBooks = books ? books : getAllBookRefs();
     // Loop over all books and createCodexNotebook for each
+    const workspaceFolder = getWorkSpaceFolder();
+
+    if (!workspaceFolder) {
+        vscode.window.showErrorMessage("No workspace folder found");
+        return;
+    }
+    const workspaceRoot = workspaceFolder;
     for (const book of allBooks) {
         try {
-            const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
             let file;
             try {
                 file = await vscode.workspace.fs.readFile(
-                    vscode.Uri.file(`${workspaceRoot}/files/target/${book}.codex`)
+                    vscode.Uri.joinPath(
+                        vscode.Uri.file(workspaceRoot),
+                        "files",
+                        "target",
+                        `${book}.codex`
+                    )
                 );
             } catch (error) {
                 continue;
@@ -253,7 +261,12 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
             const notebookCreationPromise = serializer
                 .serializeNotebook(updatedNotebookData, new vscode.CancellationTokenSource().token)
                 .then((notebookFile) => {
-                    const filePath = `files/target/${book}.codex`;
+                    const filePath = vscode.Uri.joinPath(
+                        vscode.Uri.file(workspaceRoot),
+                        "files",
+                        "target",
+                        `${book}.codex`
+                    ).fsPath;
                     return generateFile({
                         filepath: filePath,
                         fileContent: notebookFile,
@@ -325,7 +338,7 @@ export async function importLocalUsfmSourceBible(
 
     const usfmFiles = isDirectory
         ? await vscode.workspace.fs.readDirectory(folderUri)
-        : [[folderUri.path.split("/").pop() || "", vscode.FileType.File]];
+        : [[vscode.workspace.asRelativePath(folderUri), vscode.FileType.File]];
 
     const usfmFileExtensions = [".usfm", ".sfm", ".SFM", ".USFM"];
     for (const [fileName, fileType] of usfmFiles) {
@@ -380,7 +393,8 @@ async function processUsfmFile(fileUri: vscode.Uri, notebookId?: string): Promis
         console.log(`Extracted ${verses.length} verses from ${fileUri.fsPath}`);
 
         const metadataManager = NotebookMetadataManager.getInstance();
-        const baseName = bookCode || fileUri.path.split("/").pop()?.split(".")[0] || `new_source`;
+        const baseName =
+            bookCode || vscode.workspace.asRelativePath(fileUri).split(".")[0] || `new_source`;
         const generatedNotebookId = notebookId || metadataManager.generateNewId(baseName);
 
         const bookData = {
@@ -623,7 +637,12 @@ export async function createProjectNotebooks({
             const notebookCreationPromise = serializer
                 .serializeNotebook(updatedNotebookData, new vscode.CancellationTokenSource().token)
                 .then((notebookFile) => {
-                    const filePath = `files/target/${book}.codex`;
+                    const filePath = vscode.Uri.joinPath(
+                        vscode.workspace.workspaceFolders![0].uri,
+                        "files",
+                        "target",
+                        `${book}.codex`
+                    ).fsPath;
                     return generateFile({
                         filepath: filePath,
                         fileContent: notebookFile,
@@ -679,18 +698,17 @@ export async function splitSourceFileByBook(
 
         const writePromises = Object.entries(bookData).map(async ([book, data]) => {
             const bookFileName = `${book}.source`;
-            const bookFilePath = path.join(
-                workspaceRoot,
+            const bookFilePath = vscode.Uri.joinPath(
+                vscode.Uri.file(workspaceRoot),
                 ".project",
                 languageType === "source" ? "sourceTexts" : "targetTexts",
                 bookFileName
             );
-            const bookFileUri = vscode.Uri.file(bookFilePath);
             await vscode.workspace.fs.writeFile(
-                bookFileUri,
+                bookFilePath,
                 new TextEncoder().encode(JSON.stringify(data, null, 2))
             );
-            createdBookFiles.push(bookFileUri);
+            createdBookFiles.push(bookFilePath);
         });
 
         await Promise.all(writePromises);
@@ -832,7 +850,7 @@ export async function createCodexNotebookFromWebVTT(
         const targetFilePath = `files/target/${notebookName}.codex`;
         const metadataManager = NotebookMetadataManager.getInstance();
         const metadata = metadataManager.getMetadataById(notebookName);
-        
+
         const targetNotebookMetadata: CustomNotebookMetadata = {
             id: notebookName,
             textDirection: "ltr",

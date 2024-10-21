@@ -7,6 +7,7 @@ import { processDownloadedBible } from "../../projectManager/sourceTextImporter"
 import { initProject } from "../scm/git";
 import { registerScmCommands } from "../scm/scmActionHandler";
 import { SourceUploadPostMessages } from "../../../types";
+import path from "path";
 
 function getNonce(): string {
     let text = "";
@@ -168,7 +169,7 @@ export class SourceUploadProvider
             if (!pollingInterval) {
                 pollingInterval = setInterval(async () => {
                     await this.updateMetadata(webviewPanel);
-                }, 10000); // Poll every 10 seconds
+                }, 10000) as unknown as NodeJS.Timeout; // Poll every 10 seconds
             }
         };
 
@@ -230,11 +231,11 @@ export class SourceUploadProvider
         webviewPanel.webview.postMessage({
             command: "updateCodexFiles",
             sourceFiles: existingSourceFiles.map((uri) => ({
-                name: uri.fsPath.split("/").pop(),
+                name: path.basename(uri.fsPath),
                 uri: uri.toString(),
             })),
             targetFiles: existingTargetFiles.map((uri) => ({
-                name: uri.fsPath.split("/").pop(),
+                name: path.basename(uri.fsPath),
                 uri: uri.toString(),
             })),
         });

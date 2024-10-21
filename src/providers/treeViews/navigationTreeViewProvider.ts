@@ -1,7 +1,7 @@
-import { getWorkSpaceUri } from "./../../utils/index";
+import { getWorkSpaceUri } from "../../utils/index";
 import * as vscode from "vscode";
 import { vrefData } from "../../utils/verseRefUtils/verseData";
-import * as path from "path";
+import { join, basename } from "path";
 import { debounce, isEqual } from "lodash";
 import { CustomNotebookMetadata } from "../../../types";
 
@@ -73,7 +73,7 @@ export class CodexNotebookTreeViewProvider
         if (this.workspaceRoot) {
             const pattern = new vscode.RelativePattern(
                 vscode.Uri.file(this.workspaceRoot),
-                "files/target/**/*.codex"
+                join("files", "target", "**", "*.codex")
             );
 
             this.fileWatcher = vscode.workspace.createFileSystemWatcher(pattern);
@@ -234,14 +234,14 @@ export class CodexNotebookTreeViewProvider
     }
 
     private async findCorrespondingSourceFile(codexUri: vscode.Uri): Promise<string | undefined> {
-        const codexFileName = path.basename(codexUri.fsPath, ".codex");
+        const codexFileName = basename(codexUri.fsPath, ".codex");
 
         // Check the config for primarySourceText
         const config = vscode.workspace.getConfiguration("codex-project-manager");
         const primarySourceText = config.get<string>("primarySourceText");
 
         if (primarySourceText) {
-            return path.basename(primarySourceText);
+            return basename(primarySourceText);
         }
 
         const workSpaceUri = getWorkSpaceUri();
@@ -259,7 +259,7 @@ export class CodexNotebookTreeViewProvider
                 ([name, type]) =>
                     type === vscode.FileType.File &&
                     name.endsWith(".source") &&
-                    name.split("/").pop() === codexFileName
+                    basename(name) === codexFileName
             );
 
             return matchingSourceFile ? matchingSourceFile[0] : undefined;
@@ -319,7 +319,7 @@ export class CodexNotebookTreeViewProvider
             const ungroupedNotebooks: Node[] = [];
 
             for (const [notebookPath, metadata] of this.notebookMetadata) {
-                const fileName = vscode.Uri.parse(notebookPath).path.split("/").pop() || "";
+                const fileName = basename(vscode.Uri.parse(notebookPath).path);
                 const fileNameWithoutExtension = fileName.slice(0, -6); // Remove .codex
                 const notebookUri = vscode.Uri.file(notebookPath);
                 const notebookNode = new Node(
