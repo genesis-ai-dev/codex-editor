@@ -372,9 +372,9 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             );
 
             const zeroDraftFileOptions = zeroDraftFiles.map((file) => ({
-                label: file.fsPath.split("/").pop() || "",
+                label: vscode.workspace.asRelativePath(file),
                 description: "Select a zero draft file to insert into notebooks",
-                detail: file.path,
+                detail: file.fsPath,
             }));
 
             const selectedFile = await vscode.window.showQuickPick(zeroDraftFileOptions, {

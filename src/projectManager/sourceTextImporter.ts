@@ -8,6 +8,7 @@ import {
 } from "../utils/codexNotebookUtils";
 import { NotebookMetadataManager } from "../utils/notebookMetadataManager";
 import { CodexContentSerializer } from "../serializer";
+import * as path from "path";
 
 export async function importSourceText(
     context: vscode.ExtensionContext,
@@ -44,8 +45,8 @@ async function importSourceFolder(
 }
 
 function getFileNameFromUri(fileUri: vscode.Uri): string {
-    const fileNameWithExtension = fileUri.path.split("/").pop() || "";
-    const fileName = fileNameWithExtension.split(".")[0] || fileNameWithExtension;
+    const fileNameWithExtension = path.basename(fileUri.fsPath);
+    const fileName = path.parse(fileNameWithExtension).name || fileNameWithExtension;
     return fileName;
 }
 
@@ -65,7 +66,7 @@ async function importSourceFile(
         const metadataManager = NotebookMetadataManager.getInstance();
         await metadataManager.loadMetadata();
 
-        const baseName = fileUri.path.split("/").pop()?.split(".")[0] || `new_source`;
+        const baseName = vscode.workspace.asRelativePath(fileUri).split(path.sep).pop()?.split(".")[0] || `new_source`;
         const notebookId = metadataManager.generateNewId(baseName);
 
         let importedNotebookIds: string[];
@@ -207,7 +208,7 @@ export async function createEmptyCodexNotebooks(sourceFileName: string): Promise
         const sourceContent = await vscode.workspace.fs.readFile(sourceFile);
         const sourceData = JSON.parse(new TextDecoder().decode(sourceContent));
 
-        const bookName = sourceFile.path.split("/").pop()?.split(".")[0] || "";
+        const bookName = path.basename(sourceFile.path, path.extname(sourceFile.path));
         const codexUri = vscode.Uri.joinPath(targetFolder, `${bookName}.codex`);
 
         // Create an empty Codex notebook with the same structure as the source
@@ -256,7 +257,7 @@ export async function processDownloadedBible(downloadedBibleFile: vscode.Uri): P
 
     // Create empty Codex notebooks for each newly created book file
     for (const sourceFile of createdSourceFiles) {
-        const fileName = sourceFile.path.split("/").pop()?.split(".")[0] || "";
+        const fileName = path.basename(sourceFile.path).split(".")[0] || "";
 
         try {
             await createEmptyCodexNotebooks(fileName);

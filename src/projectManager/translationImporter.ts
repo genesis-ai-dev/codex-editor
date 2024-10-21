@@ -216,7 +216,7 @@ async function insertZeroDrafts(
         if (alignedCell.notebookCell && !alignedCell.isParatext) {
             // Update currentBook and currentChapter based on non-paratext cells
             const cellIdParts = alignedCell.notebookCell.metadata.id.split(" ");
-            currentBook = cellIdParts[0] || codexFileUri.path.split("/").pop()?.split(".")[0] || "";
+            currentBook = cellIdParts[0] || path.basename(codexFileUri.path).split(".")[0] || "";
             currentChapter = cellIdParts[1]?.split(":")[0] || "1";
         }
 

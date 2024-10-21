@@ -1,5 +1,6 @@
 import { API, GitExtension } from "./../providers/scm/git.d";
 import * as vscode from "vscode";
+import * as path from "path";
 import { CodexContentSerializer } from "../serializer";
 import { generateUniqueId, clearIdCache } from "./idGenerator";
 import { NavigationCell } from "./codexNotebookUtils";
@@ -93,7 +94,7 @@ export class NotebookMetadataManager {
                 }
             }
 
-            const originalName = file.path.split("/").pop()?.split(".")[0] || "";
+            const originalName = path.basename(file.path, path.extname(file.path));
             const id = originalName;
             // notebookData.metadata?.id || notebookData.id || this.generateNewId(originalName);
 
@@ -196,8 +197,8 @@ export class NotebookMetadataManager {
         }
 
         // If metadata is not found, create a new one
-        const fileName = uri.path.split("/").pop() || "";
-        const baseName = fileName.split(".")[0];
+        const fileName = path.basename(uri.path);
+        const baseName = path.parse(fileName).name;
         const id = this.generateNewId(baseName);
         const newMetadata = this.getDefaultMetadata(id, baseName);
 
@@ -214,7 +215,7 @@ export class NotebookMetadataManager {
 
     public getMetadataBySourceFileName(sourceFileName: string): CustomNotebookMetadata | undefined {
         const baseName = sourceFileName.endsWith(".source")
-            ? sourceFileName.slice(0, -7)
+            ? path.parse(sourceFileName).name
             : sourceFileName;
         for (const metadata of this.metadataMap.values()) {
             if (metadata.id === baseName) {
@@ -260,7 +261,7 @@ export class NotebookMetadataManager {
         metadata: CustomNotebookMetadata
     ): Promise<void> {
         // Skip updating .dictionary files
-        if (fileFsPath.endsWith(".dictionary")) {
+        if (path.extname(fileFsPath) === ".dictionary") {
             debugLog("Skipping metadata update for dictionary file:", fileFsPath);
             return;
         }
@@ -280,7 +281,7 @@ export class NotebookMetadataManager {
             }
 
             // Update only the relevant metadata for each file type
-            if (fileFsPath.endsWith(".source")) {
+            if (path.extname(fileFsPath) === ".source") {
                 fileData.metadata = {
                     ...fileData.metadata,
                     id: metadata.id,
@@ -289,7 +290,7 @@ export class NotebookMetadataManager {
                     gitStatus: metadata.gitStatus,
                     corpusMarker: metadata.corpusMarker,
                 };
-            } else if (fileFsPath.endsWith(".codex")) {
+            } else if (path.extname(fileFsPath) === ".codex") {
                 fileData.metadata = {
                     ...fileData.metadata,
                     id: metadata.id,
