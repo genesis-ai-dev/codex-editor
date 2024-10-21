@@ -5,7 +5,7 @@
 "use strict";
 
 const path = require("path");
-const webpack = require('webpack');
+const webpack = require("webpack");
 
 //@ts-check
 /** @typedef {import('webpack').Configuration} WebpackConfig **/
@@ -113,9 +113,15 @@ const testConfig = {
     resolve: {
         extensions: [".ts", ".js"],
         fallback: {
-            "assert": require.resolve("assert/"),
-            "process": require.resolve("process/browser")
-        }
+            assert: require.resolve("assert/"), // Add this fallback
+            process: require.resolve("process/browser"),
+            url: require.resolve("url/"),
+            fs: require.resolve("memfs"),
+            zlib: require.resolve("browserify-zlib"),
+            stream: require.resolve("stream-browserify"),
+            util: require.resolve("util/"),
+            os: require.resolve("os-browserify/browser"),
+        },
     },
     module: {
         rules: [
@@ -124,12 +130,27 @@ const testConfig = {
                 exclude: /node_modules/,
                 use: "ts-loader",
             },
+            // Add this new rule for Markdown files
+            {
+                test: /\.md$/,
+                use: [
+                    {
+                        loader: "html-loader",
+                    },
+                    {
+                        loader: "markdown-loader",
+                        options: {},
+                    },
+                ],
+            },
+            // ... other rules
         ],
     },
     plugins: [
         new webpack.ProvidePlugin({
-            process: 'process/browser',
+            process: "process/browser",
         }),
+        // ... other plugins if necessary
     ],
     devtool: "nosources-source-map",
 };

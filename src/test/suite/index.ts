@@ -1,6 +1,18 @@
 // Imports mocha for the browser, defining the `mocha` global.
 require("mocha/mocha");
 
+// Define our own promisify function
+function promisify<T>(fn: any): (...args: any[]) => Promise<T> {
+    return (...args: any[]) => {
+        return new Promise<T>((resolve, reject) => {
+            fn(...args, (err: any, result: T) => {
+                if (err) reject(err);
+                else resolve(result);
+            });
+        });
+    };
+}
+
 export function run(): Promise<void> {
     return new Promise((c, e) => {
         mocha.setup({
@@ -14,7 +26,7 @@ export function run(): Promise<void> {
 
         try {
             // Run the mocha test
-            mocha.run((failures) => {
+            mocha.run((failures: number) => {
                 if (failures > 0) {
                     e(new Error(`${failures} tests failed.`));
                 } else {

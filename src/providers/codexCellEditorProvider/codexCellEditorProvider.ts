@@ -81,15 +81,20 @@ class CodexCellDocument implements vscode.CustomDocument {
         backupId: string | undefined,
         token: vscode.CancellationToken
     ): Promise<CodexCellDocument> {
-        // If we have a backup, read that. Otherwise read the resource from the workspace
         const dataFile = backupId ? vscode.Uri.parse(backupId) : uri;
         const fileData = await vscode.workspace.fs.readFile(dataFile);
-        return new CodexCellDocument(uri, fileData.toString());
+
+        // Properly decode the Uint8Array to a string
+        const decoder = new TextDecoder("utf-8");
+        const initialContent = decoder.decode(fileData);
+
+        return new CodexCellDocument(uri, initialContent);
     }
 
     private static async readFile(uri: vscode.Uri): Promise<string> {
         const fileData = await vscode.workspace.fs.readFile(uri);
-        return fileData.toString();
+        const decoder = new TextDecoder("utf-8");
+        return decoder.decode(fileData);
     }
 
     public get isDirty(): boolean {
@@ -397,7 +402,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         openContext: { backupId?: string },
         _token: vscode.CancellationToken
     ): Promise<CodexCellDocument> {
+        console.log("openCustomDocument called", { uri });
         const document = await CodexCellDocument.create(uri, openContext.backupId, _token);
+        console.log("openCustomDocument returned", { document });
         return document;
     }
 
