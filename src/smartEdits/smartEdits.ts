@@ -163,7 +163,11 @@ export class SmartEdits {
                 try {
                     let filePath = entry.targetCell.uri
                         .toString()
-                        .replace(".project/sourceTexts", "files/target");
+                        .split(path.sep).join('/') // Normalize path separators
+                        .replace(
+                            path.join('.project', 'sourceTexts').split(path.sep).join('/'),
+                            path.join('files', 'target').split(path.sep).join('/')
+                        );
                     filePath = filePath.replace(".source", ".codex");
                     console.log(`Reading file for cellId ${entry.cellId}: ${filePath}`);
                     const fileContent = await fs.readFile(

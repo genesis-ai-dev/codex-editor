@@ -819,9 +819,14 @@ export async function createCodexNotebookFromWebVTT(
             new vscode.CancellationTokenSource().token
         );
 
-        const sourceFilePath = `.project/sourceTexts/${notebookName}.source`;
+        const sourceFilePath = vscode.Uri.joinPath(
+            vscode.workspace.workspaceFolders?.[0].uri || vscode.Uri.file(''),
+            '.project',
+            'sourceTexts',
+            `${notebookName}.source`
+        );
         await generateFile({
-            filepath: sourceFilePath,
+            filepath: sourceFilePath.fsPath,
             fileContent: notebookFile,
             shouldOverWrite,
         });
@@ -847,7 +852,12 @@ export async function createCodexNotebookFromWebVTT(
         }
 
         const targetNotebookData = new vscode.NotebookData(targetCells);
-        const targetFilePath = `files/target/${notebookName}.codex`;
+        const targetFilePath = vscode.Uri.joinPath(
+            vscode.workspace.workspaceFolders?.[0].uri || vscode.Uri.file(''),
+            'files',
+            'target',
+            `${notebookName}.codex`
+        ).fsPath;
         const metadataManager = NotebookMetadataManager.getInstance();
         const metadata = metadataManager.getMetadataById(notebookName);
 

@@ -60,7 +60,7 @@ export const convertTwlRCUriToScribeResourceUri = async (
 ): Promise<vscode.Uri> => {
     const workspaceRootUri = vscode.workspace.workspaceFolders?.[0].uri as vscode.Uri;
 
-    const resourcesUri = vscode.Uri.joinPath(workspaceRootUri, ".project/resources");
+    const resourcesUri = vscode.Uri.joinPath(workspaceRootUri, ".project", "resources");
 
     const twlResourceMetaUri = vscode.Uri.joinPath(
         workspaceRootUri,

@@ -341,9 +341,9 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
         const metadata = JSON.parse(metadataContent.toString());
         console.log("metadata", { metadata });
         // Get a list of URIs for the downloaded source and target Bibles in the project, if any
-        const sourceTextsPath = vscode.Uri.joinPath(workspaceFolder.uri, ".project/sourceTexts");
+        const sourceTextsPath = vscode.Uri.joinPath(workspaceFolder.uri, '.project', 'sourceTexts');
 
-        const targetTextsPath = vscode.Uri.joinPath(workspaceFolder.uri, ".project/targetTexts");
+        const targetTextsPath = vscode.Uri.joinPath(workspaceFolder.uri, '.project', 'targetTexts');
         try {
             await vscode.workspace.fs.stat(targetTextsPath);
         } catch {

@@ -257,8 +257,8 @@ async function ensureBibleDownload() {
     if (workspaceFolders) {
         const workspaceRoot = workspaceFolders[0].uri.fsPath;
         const bibleFiles = await vscode.workspace.findFiles(
-            new vscode.RelativePattern(workspaceRoot, ".project/**/*.source"),
-            "**/node_modules/**",
+            new vscode.RelativePattern(workspaceRoot, vscode.Uri.joinPath(vscode.Uri.file(workspaceRoot), '.project', '**', '*.source').fsPath),
+            '**/node_modules/**',
             1
         );
         if (bibleFiles.length === 0) {

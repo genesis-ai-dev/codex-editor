@@ -27,7 +27,7 @@ export const getAllTranslationWordsOfResource = async (resourceId: string) => {
     }
     const resourcesDirUri = Uri.joinPath(
         workspace?.workspaceFolders?.[0].uri,
-        `.project/resources`
+        ...['', '.project', 'resources']
     );
 
     const resourceBibleDirUri = Uri.joinPath(resourcesDirUri, `./${resourceId}/bible`);
