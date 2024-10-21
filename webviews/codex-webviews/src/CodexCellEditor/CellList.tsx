@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import { EditorCellContent, QuillCellContent, SpellCheckResponse } from "../../../../types";
 import CellEditor from "./TextCellEditor";
 import CellContentDisplay from "./CellContentDisplay";
@@ -38,6 +38,8 @@ const CellList: React.FC<CellListProps> = ({
     headerHeight,
     spellCheckFunction,
 }) => {
+    const [alertColorCache, setAlertColorCache] = useState<Map<string, string[]>>(new Map());
+
     // Detect duplicate cell IDs
     const duplicateCellIds = useMemo(() => {
         const idCounts = new Map<string, number>();
@@ -54,22 +56,34 @@ const CellList: React.FC<CellListProps> = ({
         return duplicates;
     }, [translationUnits]);
 
-    const checkForAlert = async (content: string) => {
-        const lowerContent = content.toLowerCase();
-        const hasAlert = lowerContent.includes("alert");
-        const hasPurple = lowerContent.includes("purple");
-        const hasBoth = lowerContent.includes("both");
-        const spellCheckResponse = await spellCheckFunction(content);
+    const checkForAlert = useCallback(
+        async (content: string, cellId: string) => {
+            if (alertColorCache.has(cellId)) {
+                return alertColorCache.get(cellId)!;
+            }
 
-        if (spellCheckResponse && spellCheckResponse.length > 0) {
-            return ["#FF6B6B"]; // Brighter red for spell check errors
-        }
+            const lowerContent = content.toLowerCase();
+            const hasAlert = lowerContent.includes("alert");
+            const hasPurple = lowerContent.includes("purple");
+            const hasBoth = lowerContent.includes("both");
+            const spellCheckResponse = await spellCheckFunction(content);
 
-        if (hasBoth) return ["#FF6B6B", "#A0A0FF"]; // Brighter red and a more vibrant purple
-        if (hasPurple) return ["#A0A0FF"]; // A more vibrant purple
-        if (hasAlert) return ["#FF6B6B"]; // Brighter red
-        return [];
-    };
+            let colors: string[] = [];
+            if (spellCheckResponse && spellCheckResponse.length > 0) {
+                colors = ["#FF6B6B"]; // Brighter red for spell check errors
+            } else if (hasBoth) {
+                colors = ["#FF6B6B", "#A0A0FF"]; // Brighter red and a more vibrant purple
+            } else if (hasPurple) {
+                colors = ["#A0A0FF"]; // A more vibrant purple
+            } else if (hasAlert) {
+                colors = ["#FF6B6B"]; // Brighter red
+            }
+
+            setAlertColorCache((prev) => new Map(prev).set(cellId, colors));
+            return colors;
+        },
+        [alertColorCache, spellCheckFunction]
+    );
 
     const renderCellGroup = useMemo(
         () => (group: typeof translationUnits, startIndex: number) =>
@@ -83,7 +97,7 @@ const CellList: React.FC<CellListProps> = ({
                         ({ cellMarkers, cellContent, cellType, cellLabel, timestamps }, index) => {
                             const cellId = cellMarkers.join(" ");
                             const hasDuplicateId = duplicateCellIds.has(cellId);
-                            const alertColorsPromise = checkForAlert(cellContent);
+                            const alertColorsPromise = checkForAlert(cellContent, cellId);
 
                             return (
                                 <div
@@ -120,7 +134,15 @@ const CellList: React.FC<CellListProps> = ({
                     )}
                 </span>
             ),
-        [cellDisplayMode, textDirection, setContentBeingUpdated, vscode, isSourceText]
+        [
+            cellDisplayMode,
+            textDirection,
+            setContentBeingUpdated,
+            vscode,
+            isSourceText,
+            checkForAlert,
+            duplicateCellIds,
+        ]
     );
 
     const renderCells = useMemo(
@@ -141,7 +163,7 @@ const CellList: React.FC<CellListProps> = ({
                         result.push(renderCellGroup(currentGroup, groupStartIndex));
                         currentGroup = [];
                     }
-                    const alertColorsPromise = checkForAlert(cellContent);
+                    const alertColorsPromise = checkForAlert(cellContent, cellMarkers.join(" "));
                     result.push(
                         <div
                             key={cellMarkers.join(" ")}
@@ -210,6 +232,7 @@ const CellList: React.FC<CellListProps> = ({
             handleCloseEditor,
             handleSaveHtml,
             renderCellGroup,
+            checkForAlert,
         ]
     );
 
