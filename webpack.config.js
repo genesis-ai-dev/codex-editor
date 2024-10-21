@@ -5,6 +5,7 @@
 "use strict";
 
 const path = require("path");
+const webpack = require('webpack');
 
 //@ts-check
 /** @typedef {import('webpack').Configuration} WebpackConfig **/
@@ -96,4 +97,41 @@ const serverConfig = {
     devtool: "nosources-source-map",
 };
 
-module.exports = [extensionConfig, serverConfig];
+const testConfig = {
+    name: "test",
+    target: "webworker",
+    mode: "none",
+    entry: "./src/test/suite/index.ts",
+    output: {
+        path: path.resolve(__dirname, "out", "test", "suite"),
+        filename: "index.js",
+        libraryTarget: "commonjs2",
+    },
+    externals: {
+        vscode: "commonjs vscode",
+    },
+    resolve: {
+        extensions: [".ts", ".js"],
+        fallback: {
+            "assert": require.resolve("assert/"),
+            "process": require.resolve("process/browser")
+        }
+    },
+    module: {
+        rules: [
+            {
+                test: /\.ts$/,
+                exclude: /node_modules/,
+                use: "ts-loader",
+            },
+        ],
+    },
+    plugins: [
+        new webpack.ProvidePlugin({
+            process: 'process/browser',
+        }),
+    ],
+    devtool: "nosources-source-map",
+};
+
+module.exports = [extensionConfig, serverConfig, testConfig];

@@ -18,13 +18,15 @@
         {
             "name": "Extension Tests",
             "type": "extensionHost",
+            "debugWebWorkerHost": true,
             "request": "launch",
             "args": [
                 "--extensionDevelopmentPath=${workspaceFolder}",
-                "--extensionTestsPath=${workspaceFolder}/out/tests.js"
+                "--extensionDevelopmentKind=web",
+                "--extensionTestsPath=${workspaceFolder}/out/test/suite/index"
             ],
             "outFiles": ["${workspaceFolder}/out/**/*.js"],
-            "preLaunchTask": "${defaultBuildTask}"
+            "preLaunchTask": "npm: watch"
         }
     ]
 }
