@@ -53,11 +53,7 @@ export async function importTranslations(
 ): Promise<void> {
     debug("Starting importTranslations", { fileUri: fileUri.toString(), sourceNotebookId });
 
-    const fileExtension = vscode.workspace
-        .asRelativePath(fileUri)
-        .split(".")
-        .pop()
-        ?.toLowerCase() as SupportedFileExtension;
+    const fileExtension = fileUri.fsPath.split(".").pop()?.toLowerCase() as SupportedFileExtension;
 
     debug("File extension", fileExtension);
 

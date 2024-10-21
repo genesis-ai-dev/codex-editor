@@ -129,27 +129,34 @@ export class SourceUploadProvider
                 case "openFile":
                     console.log("openFile message in provider", { message });
                     if (message.fileUri) {
-                        if (
-                            message.fileUri.endsWith(".source") ||
-                            message.fileUri.endsWith(".codex")
-                        ) {
+                        const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+                        if (!workspaceUri) {
+                            vscode.window.showErrorMessage("No workspace folder found");
+                            return;
+                        }
+
+                        let fullUri: vscode.Uri;
+                        if (message.fileUri.startsWith("file://")) {
+                            fullUri = vscode.Uri.parse(message.fileUri);
+                        } else {
+                            fullUri = vscode.Uri.joinPath(workspaceUri, message.fileUri);
+                        }
+
+                        if (fullUri.path.endsWith(".source") || fullUri.path.endsWith(".codex")) {
                             await vscode.commands.executeCommand(
                                 "vscode.openWith",
-                                vscode.Uri.parse(message.fileUri),
+                                fullUri,
                                 "codex.cellEditor"
                             );
-                        } else if (message.fileUri.endsWith(".dictionary")) {
+                        } else if (fullUri.path.endsWith(".dictionary")) {
                             console.log("Opening dictionary editor", { message });
                             await vscode.commands.executeCommand(
                                 "vscode.openWith",
-                                vscode.Uri.parse(message.fileUri),
+                                fullUri,
                                 "codex.dictionaryEditor"
                             );
                         } else {
-                            vscode.commands.executeCommand(
-                                "vscode.open",
-                                vscode.Uri.parse(message.fileUri)
-                            );
+                            vscode.commands.executeCommand("vscode.open", fullUri);
                         }
                     } else {
                         vscode.window.showErrorMessage("File URI is null");

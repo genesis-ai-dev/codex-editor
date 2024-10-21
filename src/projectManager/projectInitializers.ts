@@ -359,7 +359,7 @@ export async function initializeProject(shouldImportUSFM: boolean) {
     }
 
     try {
-        await vscode.commands.executeCommand("translation-navigation.refreshNavigationTreeView");
+        await vscode.commands.executeCommand("codexNotebookTreeView.refresh");
     } catch (error) {
         console.log("Error calling commands of outside extension", error);
     }
@@ -488,7 +488,7 @@ export async function initializeProject(shouldImportUSFM: boolean) {
 
             try {
                 await vscode.commands.executeCommand(
-                    "translation-navigation.refreshNavigationTreeView"
+                    "codexNotebookTreeView.refresh"
                 );
             } catch (error) {
                 console.log("Error calling commands of outside extension", error);

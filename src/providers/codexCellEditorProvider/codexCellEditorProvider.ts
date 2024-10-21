@@ -17,6 +17,7 @@ import {
 } from "../../../types";
 import { NotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import path from "path";
+import { getWorkSpaceUri } from "../../utils";
 
 function getNonce(): string {
     let text = "";
@@ -597,15 +598,25 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     case "openSourceText": {
                         console.log("openSourceText message received", { e });
                         try {
-                            const currentFileName = vscode.workspace.asRelativePath(
-                                document.uri.fsPath
-                            );
+                            const workspaceFolderUri = getWorkSpaceUri();
+                            if (!workspaceFolderUri) {
+                                throw new Error("No workspace folder found");
+                            }
+                            const currentFileName = document.uri.fsPath;
                             const baseFileName = path.basename(currentFileName);
                             const sourceFileName = baseFileName.replace(".codex", ".source");
-                            console.log("sourceFileName", { sourceFileName });
+                            const sourceUri = vscode.Uri.joinPath(
+                                workspaceFolderUri,
+                                ".project",
+                                "sourceTexts",
+                                sourceFileName
+                            );
+                            console.log("sourceFileName", {
+                                sourceFileName
+                            });
                             await vscode.commands.executeCommand(
-                                "translation-navigation.openSourceFile",
-                                { sourceFile: sourceFileName }
+                                "codexNotebookTreeView.openSourceFile",
+                                { sourceFileUri: sourceUri }
                             );
                             this.postMessageToWebview(webviewPanel, {
                                 type: "jumpToSection",

@@ -33,7 +33,7 @@
         ],
         "viewsWelcome": [
             {
-                "view": "translation-navigation",
+                "view": "codexNotebookTreeView",
                 "contents": "Welcome to the Codex Translation Editor! When you bookmark cells in your Codex notebook, you will see navigation shortcuts here."
             },
             {
@@ -63,10 +63,10 @@
                     "contextualTitle": "Parallel Passages"
                 }
             ],
-            "translation-navigation": [
+            "codexNotebookTreeView": [
                 {
-                    "id": "translation-navigation",
-                    "name": "Project",
+                    "id": "codexNotebookTreeView",
+                    "name": "Codex Notebooks",
                     "visibility": "visible",
                     "initialSize": 1,
                     "icon": "$(compass)"
@@ -126,7 +126,7 @@
         "viewsContainers": {
             "activitybar": [
                 {
-                    "id": "translation-navigation",
+                    "id": "codexNotebookTreeView",
                     "title": "Navigation",
                     "icon": "$(compass)"
                 },
@@ -165,8 +165,8 @@
         "menus": {
             "view/title": [
                 {
-                    "command": "translation-navigation.refreshNavigationTreeView",
-                    "when": "view == translation-navigation",
+                    "command": "codexNotebookTreeView.refresh",
+                    "when": "view == codexNotebookTreeView",
                     "group": "navigation"
                 },
                 {
@@ -182,13 +182,13 @@
                     "group": "navigation"
                 },
                 {
-                    "command": "translation-navigation.openSection",
-                    "when": "view == translation-navigation",
+                    "command": "codexNotebookTreeView.openSection",
+                    "when": "view == codexNotebookTreeView",
                     "group": "navigation"
                 },
                 {
-                    "command": "translation-navigation.openSourceFile",
-                    "when": "view == translation-navigation && viewItem == document",
+                    "command": "codexNotebookTreeView.openSourceFile",
+                    "when": "view == codexNotebookTreeView && viewItem == document",
                     "group": "inline"
                 }
             ],
@@ -549,12 +549,12 @@
                 "title": "Create Codex Project"
             },
             {
-                "command": "translation-navigation.refreshNavigationTreeView",
+                "command": "codexNotebookTreeView.refresh",
                 "title": "Refresh",
                 "icon": "$(refresh)"
             },
             {
-                "command": "translation-navigation.openSection",
+                "command": "codexNotebookTreeView.openSection",
                 "title": "Open",
                 "icon": "$(arrow-right)"
             },
@@ -677,7 +677,7 @@
                 "title": "Open Video Player"
             },
             {
-                "command": "translation-navigation.openSourceFile",
+                "command": "codexNotebookTreeView.openSourceFile",
                 "title": "Open Source File",
                 "icon": "$(open-preview)"
             },

@@ -112,11 +112,11 @@ export class NotebookMetadataManager {
             const fileStat = await vscode.workspace.fs.stat(file);
 
             if (file.path.endsWith(".source")) {
-                metadata.sourceFsPath = vscode.workspace.asRelativePath(file.fsPath);
+                metadata.sourceFsPath = file.fsPath;
                 metadata.sourceCreatedAt = new Date(fileStat.ctime).toISOString();
                 debugLog("Updated sourceUri for:", id);
             } else if (file.path.endsWith(".codex")) {
-                metadata.codexFsPath = vscode.workspace.asRelativePath(file.fsPath);
+                metadata.codexFsPath = file.fsPath;
                 metadata.codexLastModified = new Date(fileStat.mtime).toISOString();
                 debugLog("Updated codexUri for:", id);
             }
@@ -212,9 +212,9 @@ export class NotebookMetadataManager {
         const newMetadata = this.getDefaultMetadata(id, baseName);
 
         if (uri.path.endsWith(".source")) {
-            newMetadata.sourceFsPath = vscode.workspace.asRelativePath(uri.fsPath);
+            newMetadata.sourceFsPath = uri.fsPath;
         } else if (uri.path.endsWith(".codex")) {
-            newMetadata.codexFsPath = vscode.workspace.asRelativePath(uri.fsPath);
+            newMetadata.codexFsPath = uri.fsPath;
         }
 
         this.metadataMap.set(id, newMetadata);

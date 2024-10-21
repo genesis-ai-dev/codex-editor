@@ -1,3 +1,4 @@
+import { getWorkSpaceUri } from "./../../utils/index";
 import * as vscode from "vscode";
 import { CodexKernel } from "../../controller";
 import { CodexContentSerializer } from "../../serializer";
@@ -24,26 +25,27 @@ import {
     Verse,
 } from "./sourceData";
 import { exportCodexContent } from "../../commands/exportHandler";
+import * as path from "path";
 
 const ROOT_PATH = getWorkSpaceFolder();
 
 export async function registerCommands(context: vscode.ExtensionContext) {
-    const scriptureTreeViewProvider = new CodexNotebookTreeViewProvider(ROOT_PATH);
-    vscode.window.registerTreeDataProvider("translation-navigation", scriptureTreeViewProvider);
+    const navigationTreeViewProvider = new CodexNotebookTreeViewProvider(ROOT_PATH, context);
+    vscode.window.registerTreeDataProvider("codexNotebookTreeView", navigationTreeViewProvider);
 
-    const scriptureExplorerRefreshCommand = vscode.commands.registerCommand(
-        "translation-navigation.refreshNavigationTreeView",
-        () => scriptureTreeViewProvider.refresh()
+    const navigationExplorerRefreshCommand = vscode.commands.registerCommand(
+        "codexNotebookTreeView.refresh",
+        () => navigationTreeViewProvider.refresh()
     );
 
-    const scriptureExplorerOpenChapterCommand = vscode.commands.registerCommand(
-        "translation-navigation.openSection",
-        async (notebookPath: string, cellIdToJumpTo: string) => {
+    const navigationExplorerOpenChapterCommand = vscode.commands.registerCommand(
+        "codexNotebookTreeView.openSection",
+        async (notebookPath: vscode.Uri, cellIdToJumpTo: string) => {
             try {
-                const uri = vscode.Uri.file(notebookPath);
+                const uri = notebookPath;
                 await vscode.commands.executeCommand("vscode.openWith", uri, "codex.cellEditor");
                 // After opening, jump to the specific cell
-                await jumpToCellInNotebook(context, notebookPath, cellIdToJumpTo);
+                await jumpToCellInNotebook(context, uri.fsPath, cellIdToJumpTo);
             } catch (error) {
                 vscode.window.showErrorMessage(`Failed to open section: ${error}`);
             }
@@ -165,34 +167,27 @@ export async function registerCommands(context: vscode.ExtensionContext) {
     );
 
     const openSourceUploadCommand = vscode.commands.registerCommand(
-        "translation-navigation.openSourceFile",
-        async (node: Node & { sourceFile?: string }) => {
-            if ("sourceFile" in node && node.sourceFile) {
+        "codexNotebookTreeView.openSourceFile",
+        async (treeNode: Node & { sourceFileUri?: vscode.Uri }) => {
+            if ("sourceFileUri" in treeNode && treeNode.sourceFileUri) {
                 const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
                 if (workspaceFolder) {
-                    const sourceFileUri = vscode.Uri.joinPath(
-                        workspaceFolder.uri,
-                        ".project",
-                        "sourceTexts",
-                        node.sourceFile
-                    );
-
                     try {
                         await vscode.commands.executeCommand(
                             "vscode.openWith",
-                            sourceFileUri,
+                            treeNode.sourceFileUri,
                             "codex.cellEditor",
                             { viewColumn: vscode.ViewColumn.Beside }
                         );
                     } catch (error) {
                         console.error(`Failed to open source file: ${error}`);
                         vscode.window.showErrorMessage(
-                            `Failed to open source file: ${JSON.stringify(node)}`
+                            `Failed to open source file: ${JSON.stringify(treeNode)}`
                         );
                     }
                 } else {
                     console.error(
-                        "No workspace folder found, aborting translation-navigation.openSourceFile."
+                        "No workspace folder found, aborting codexNotebookTreeView.openSourceFile."
                     );
                 }
             }
@@ -227,9 +222,9 @@ export async function registerCommands(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        scriptureTreeViewProvider,
-        scriptureExplorerRefreshCommand,
-        scriptureExplorerOpenChapterCommand,
+        navigationTreeViewProvider,
+        navigationExplorerRefreshCommand,
+        navigationExplorerOpenChapterCommand,
         indexVrefsCommand,
         openTnAcademyCommand,
         searchIndexCommand,
@@ -257,8 +252,16 @@ async function ensureBibleDownload() {
     if (workspaceFolders) {
         const workspaceRoot = workspaceFolders[0].uri.fsPath;
         const bibleFiles = await vscode.workspace.findFiles(
-            new vscode.RelativePattern(workspaceRoot, vscode.Uri.joinPath(vscode.Uri.file(workspaceRoot), '.project', '**', '*.source').fsPath),
-            '**/node_modules/**',
+            new vscode.RelativePattern(
+                workspaceRoot,
+                vscode.Uri.joinPath(
+                    vscode.Uri.file(workspaceRoot),
+                    ".project",
+                    "**",
+                    "*.source"
+                ).fsPath
+            ),
+            "**/node_modules/**",
             1
         );
         if (bibleFiles.length === 0) {

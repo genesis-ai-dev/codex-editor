@@ -16,6 +16,7 @@ import {
 import { CodexCellTypes } from "../../types/enums";
 import { NotebookMetadataManager } from "./notebookMetadataManager";
 import { getWorkSpaceUri } from "./index";
+import { basename } from "path";
 
 export const NOTEBOOK_TYPE = "codex-type";
 
@@ -339,7 +340,7 @@ export async function importLocalUsfmSourceBible(
 
     const usfmFiles = isDirectory
         ? await vscode.workspace.fs.readDirectory(folderUri)
-        : [[vscode.workspace.asRelativePath(folderUri), vscode.FileType.File]];
+        : [[folderUri, vscode.FileType.File]];
 
     const usfmFileExtensions = [".usfm", ".sfm", ".SFM", ".USFM"];
     for (const [fileName, fileType] of usfmFiles) {
@@ -369,90 +370,69 @@ async function processUsfmFile(fileUri: vscode.Uri, notebookId?: string): Promis
             new TextDecoder().decode(fileContent),
             grammar.LEVEL.RELAXED
         );
-        const jsonOutput = relaxedUsfmParser.toJSON() as any as ParsedUSFM;
+        let jsonOutput;
+        try {
+            jsonOutput = relaxedUsfmParser.toJSON() as any as ParsedUSFM;
+        } catch (error) {
+            vscode.window.showErrorMessage(
+                `Error parsing USFM file ${fileUri.fsPath}: ${
+                    error instanceof Error ? error.message : String(error)
+                }`
+            );
+            return notebookId || "";
+        }
         console.log(
             `Parsed JSON output for ${fileUri.fsPath}:`,
             JSON.stringify(jsonOutput, null, 2)
         );
 
-        // Convert JSON output to .source format
         const bookCode = jsonOutput.book.bookCode;
-        const verses = jsonOutput.chapters.flatMap((chapter: any) =>
-            chapter.contents
-                .filter(
-                    (content: any) =>
-                        content.verseNumber !== undefined || content.verseText !== undefined
-                )
-                .map(
-                    (verse: any) =>
-                        `${bookCode} ${chapter.chapterNumber}:${verse.verseNumber} ${
-                            verse.verseText || verse.text
-                        }`
-                )
-        );
-
-        console.log(`Extracted ${verses.length} verses from ${fileUri.fsPath}`);
-
         const metadataManager = NotebookMetadataManager.getInstance();
-        const baseName =
-            bookCode || vscode.workspace.asRelativePath(fileUri).split(".")[0] || `new_source`;
+        const baseName = basename(fileUri.fsPath).split(".")[0] || `new_source`;
         const generatedNotebookId = notebookId || metadataManager.generateNewId(baseName);
 
+        const cells: vscode.NotebookCellData[] = [];
+
+        jsonOutput.chapters.forEach((chapter: any) => {
+            // Add chapter heading
+            const chapterHeadingCell = new vscode.NotebookCellData(
+                vscode.NotebookCellKind.Code,
+                `<h1>Chapter ${chapter.chapterNumber}</h1>`,
+                "paratext"
+            );
+            chapterHeadingCell.metadata = {
+                type: "paratext",
+                id: `${bookCode} ${chapter.chapterNumber}:0`,
+            };
+            cells.push(chapterHeadingCell);
+
+            // Add verse cells
+            chapter.contents.forEach((content: any) => {
+                if (content.verseNumber && content.verseText) {
+                    const verseCell = new vscode.NotebookCellData(
+                        vscode.NotebookCellKind.Code,
+                        content.verseText,
+                        "scripture"
+                    );
+                    verseCell.metadata = {
+                        type: "text",
+                        id: `${bookCode} ${chapter.chapterNumber}:${content.verseNumber}`,
+                    };
+                    cells.push(verseCell);
+                }
+            });
+        });
+
         const bookData = {
-            cells: verses.map((verse) => ({
-                kind: 2,
-                language: "scripture",
-                value: verse.split(" ").slice(3).join(" "),
-                metadata: {
-                    type: "text",
-                    id: verse.split(" ").slice(0, 3).join(" "),
-                    navigation: [],
-                },
-            })),
+            cells,
             metadata: {
                 id: generatedNotebookId,
                 originalName: baseName,
                 data: {
-                    corpusMarker:
-                        getTestamentForBook(bookCode) === "OT"
-                            ? "Old Testament"
-                            : getTestamentForBook(bookCode) === "NT"
-                              ? "New Testament"
-                              : undefined,
+                    corpusMarker: getTestamentForBook(bookCode),
                 },
-                navigation: [],
             },
         };
-
-        // Add chapter headings and update navigation
-        let currentChapter = "";
-        const navigationCells: NavigationCell[] = [];
-        bookData.cells.forEach((cell, index) => {
-            const [, chapter] = cell.metadata.id.split(" ");
-            if (chapter !== currentChapter) {
-                currentChapter = chapter;
-                const chapterCellId = `${bookCode} ${chapter}:1:${Math.random()
-                    .toString(36)
-                    .substr(2, 11)}`;
-                bookData.cells.splice(index, 0, {
-                    kind: 2,
-                    language: "paratext",
-                    value: `<h1>Chapter ${chapter}</h1>`,
-                    metadata: {
-                        type: "paratext",
-                        id: chapterCellId,
-                        navigation: [],
-                    },
-                });
-                navigationCells.push({
-                    cellId: chapterCellId,
-                    children: [],
-                    label: `Chapter ${chapter}`,
-                });
-            }
-        });
-
-        bookData.metadata.navigation = navigationCells as any;
 
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
@@ -463,7 +443,7 @@ async function processUsfmFile(fileUri: vscode.Uri, notebookId?: string): Promis
             workspaceFolder.uri,
             ".project",
             "sourceTexts",
-            `${bookCode}.source`
+            `${baseName}.source`
         );
 
         await vscode.workspace.fs.writeFile(
@@ -638,14 +618,14 @@ export async function createProjectNotebooks({
             const notebookCreationPromise = serializer
                 .serializeNotebook(updatedNotebookData, new vscode.CancellationTokenSource().token)
                 .then((notebookFile) => {
-                    const filePath = vscode.Uri.joinPath(
+                    const fileUri = vscode.Uri.joinPath(
                         getWorkSpaceUri()!,
                         "files",
                         "target",
                         `${book}.codex`
                     );
                     return generateFile({
-                        filepath: vscode.workspace.asRelativePath(filePath),
+                        filepath: fileUri.fsPath,
                         fileContent: notebookFile,
                         shouldOverWrite,
                     });
@@ -901,4 +881,3 @@ export async function createCodexNotebookFromWebVTT(
         throw error; // Re-throw the error to be handled by the caller
     }
 }
-
