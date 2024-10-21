@@ -7,16 +7,14 @@ import {
 
 suite("ScriptureTreeViewProvider Test Suite", () => {
     vscode.window.showInformationMessage("Start all tests for ScriptureTreeViewProvider.");
+    const folderPath = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+    const provider = new CodexNotebookTreeViewProvider(folderPath);
 
     test("Initialization of CodexNotebookProvider", () => {
-        const folderPath = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
-        const provider = new CodexNotebookTreeViewProvider(folderPath);
         assert.ok(provider, "CodexNotebookProvider should be initialized successfully");
     });
 
-    test("getTreeItem should return a Node", () => {
-        const folderPath = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
-        const provider = new CodexNotebookTreeViewProvider(folderPath);
+    test("getTreeItem should return a TreeItem", () => {
         const testNode = new Node("Genesis", "corpus", vscode.TreeItemCollapsibleState.Collapsed);
         const treeItem = provider.getTreeItem(testNode);
         assert.ok(
@@ -24,5 +22,10 @@ suite("ScriptureTreeViewProvider Test Suite", () => {
             "getTreeItem should return a TreeItem instance"
         );
         assert.strictEqual(treeItem.label, "Genesis", "TreeItem should have the label 'Genesis'");
+        assert.strictEqual(
+            treeItem.collapsibleState,
+            vscode.TreeItemCollapsibleState.Collapsed,
+            "TreeItem should have the correct collapsible state"
+        );
     });
 });
