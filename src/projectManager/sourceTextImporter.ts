@@ -63,9 +63,7 @@ async function importSourceFile(
         const metadataManager = NotebookMetadataManager.getInstance();
         await metadataManager.loadMetadata();
 
-        const baseName =
-            path.basename(fileUri.fsPath).split(".")[0] ||
-            `new_source`;
+        const baseName = path.basename(fileUri.fsPath).split(".")[0] || `new_source`;
         const notebookId = metadataManager.generateNewId(baseName);
 
         let importedNotebookIds: string[];

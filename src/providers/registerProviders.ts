@@ -41,7 +41,12 @@ export function registerProviders(context: vscode.ExtensionContext) {
     // Register CodexNotebookTreeViewProvider
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const codexNotebookTreeViewProvider = new CodexNotebookTreeViewProvider(workspaceRoot, context);
-    disposables.push(vscode.window.registerTreeDataProvider("codexNotebookTreeView", codexNotebookTreeViewProvider));
+    disposables.push(
+        vscode.window.registerTreeDataProvider(
+            "codexNotebookTreeView",
+            codexNotebookTreeViewProvider
+        )
+    );
 
     // Add all disposables to the context subscriptions
     context.subscriptions.push(...disposables);

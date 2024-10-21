@@ -145,15 +145,15 @@ const CreateProject = () => {
 
     const filteredSourceLanguages =
         sourceLanguageQuery !== ""
-            ? LanguageCodes.filter((lang) =>
-                  lang?.refName?.toLowerCase().includes(sourceLanguageQuery.toLowerCase())
+            ? LanguageCodes.filter(
+                  (lang) => lang?.refName?.toLowerCase().includes(sourceLanguageQuery.toLowerCase())
               )
             : LanguageCodes;
 
     const filteredTargetLanguages =
         targetLanguageQuery !== ""
-            ? LanguageCodes.filter((lang) =>
-                  lang?.refName?.toLowerCase().includes(targetLanguageQuery.toLowerCase())
+            ? LanguageCodes.filter(
+                  (lang) => lang?.refName?.toLowerCase().includes(targetLanguageQuery.toLowerCase())
               )
             : LanguageCodes;
 

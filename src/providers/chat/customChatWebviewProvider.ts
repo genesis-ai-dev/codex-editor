@@ -619,7 +619,8 @@ export class CustomWebviewProvider {
                                 webviewView.webview.postMessage({
                                     command: "updateSetting",
                                     setting,
-                                    value: typeof value === "string" ? value : JSON.stringify(value),
+                                    value:
+                                        typeof value === "string" ? value : JSON.stringify(value),
                                 });
                                 //now subscribe for changes
                                 // config.onDidChange(
@@ -636,19 +637,26 @@ export class CustomWebviewProvider {
                                 // );
                                 vscode.workspace.onDidChangeConfiguration(
                                     (event: vscode.ConfigurationChangeEvent) => {
-                                        if (event.affectsConfiguration(`translators-copilot.${setting}`)) {
-                                            const newConfig = vscode.workspace.getConfiguration("translators-copilot");
+                                        if (
+                                            event.affectsConfiguration(
+                                                `translators-copilot.${setting}`
+                                            )
+                                        ) {
+                                            const newConfig =
+                                                vscode.workspace.getConfiguration(
+                                                    "translators-copilot"
+                                                );
                                             webviewView.webview.postMessage({
                                                 command: "updateSetting",
                                                 setting,
-                                                value: typeof newConfig.get(setting) === "string"
-                                                    ? newConfig.get(setting)
-                                                    : JSON.stringify(newConfig.get(setting)),
+                                                value:
+                                                    typeof newConfig.get(setting) === "string"
+                                                        ? newConfig.get(setting)
+                                                        : JSON.stringify(newConfig.get(setting)),
                                             });
                                         }
                                     }
                                 );
-                                
                             }
                         }
                         break;

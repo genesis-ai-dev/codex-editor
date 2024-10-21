@@ -619,7 +619,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                 sourceFileName
                             );
                             console.log("sourceFileName", {
-                                sourceFileName
+                                sourceFileName,
                             });
                             await vscode.commands.executeCommand(
                                 "codexNotebookTreeView.openSourceFile",

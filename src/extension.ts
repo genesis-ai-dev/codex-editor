@@ -93,7 +93,7 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
 
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (workspaceFolders && workspaceFolders.length > 0) {
-            const relativePattern = new vscode.RelativePattern(workspaceFolders[0], '**/*.codex');
+            const relativePattern = new vscode.RelativePattern(workspaceFolders[0], "**/*.codex");
             const codexNotebooksUris = await vscode.workspace.findFiles(relativePattern);
             if (codexNotebooksUris.length === 0) {
                 vscode.commands.executeCommand("codex-project-manager.openSourceUpload");

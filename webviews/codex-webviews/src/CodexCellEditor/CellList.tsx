@@ -86,54 +86,53 @@ const CellList: React.FC<CellListProps> = ({
     );
 
     const renderCellGroup = useMemo(
-        () => (group: typeof translationUnits, startIndex: number) =>
-            (
-                <span
-                    key={`group-${startIndex}`}
-                    className={`verse-group cell-display-${cellDisplayMode}`}
-                    style={{ direction: textDirection }}
-                >
-                    {group.map(
-                        ({ cellMarkers, cellContent, cellType, cellLabel, timestamps }, index) => {
-                            const cellId = cellMarkers.join(" ");
-                            const hasDuplicateId = duplicateCellIds.has(cellId);
-                            const alertColorsPromise = checkForAlert(cellContent, cellId);
+        () => (group: typeof translationUnits, startIndex: number) => (
+            <span
+                key={`group-${startIndex}`}
+                className={`verse-group cell-display-${cellDisplayMode}`}
+                style={{ direction: textDirection }}
+            >
+                {group.map(
+                    ({ cellMarkers, cellContent, cellType, cellLabel, timestamps }, index) => {
+                        const cellId = cellMarkers.join(" ");
+                        const hasDuplicateId = duplicateCellIds.has(cellId);
+                        const alertColorsPromise = checkForAlert(cellContent, cellId);
 
-                            return (
+                        return (
+                            <div
+                                key={startIndex + index}
+                                style={{ display: "flex", alignItems: "center" }}
+                            >
                                 <div
-                                    key={startIndex + index}
-                                    style={{ display: "flex", alignItems: "center" }}
+                                    style={{
+                                        display: "flex",
+                                        flexDirection: "column",
+                                        marginRight: "8px",
+                                    }}
                                 >
-                                    <div
-                                        style={{
-                                            display: "flex",
-                                            flexDirection: "column",
-                                            marginRight: "8px",
-                                        }}
-                                    >
-                                        <React.Suspense fallback={<div>Loading...</div>}>
-                                            <AlertColors alertColorsPromise={alertColorsPromise} />
-                                        </React.Suspense>
-                                    </div>
-                                    <CellContentDisplay
-                                        cellIds={cellMarkers}
-                                        cellContent={cellContent}
-                                        cellIndex={startIndex + index}
-                                        cellType={cellType}
-                                        cellLabel={cellLabel}
-                                        setContentBeingUpdated={setContentBeingUpdated}
-                                        vscode={vscode}
-                                        textDirection={textDirection}
-                                        isSourceText={isSourceText}
-                                        hasDuplicateId={hasDuplicateId}
-                                        timestamps={timestamps}
-                                    />
+                                    <React.Suspense fallback={<div>Loading...</div>}>
+                                        <AlertColors alertColorsPromise={alertColorsPromise} />
+                                    </React.Suspense>
                                 </div>
-                            );
-                        }
-                    )}
-                </span>
-            ),
+                                <CellContentDisplay
+                                    cellIds={cellMarkers}
+                                    cellContent={cellContent}
+                                    cellIndex={startIndex + index}
+                                    cellType={cellType}
+                                    cellLabel={cellLabel}
+                                    setContentBeingUpdated={setContentBeingUpdated}
+                                    vscode={vscode}
+                                    textDirection={textDirection}
+                                    isSourceText={isSourceText}
+                                    hasDuplicateId={hasDuplicateId}
+                                    timestamps={timestamps}
+                                />
+                            </div>
+                        );
+                    }
+                )}
+            </span>
+        ),
         [
             cellDisplayMode,
             textDirection,

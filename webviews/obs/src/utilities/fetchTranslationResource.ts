@@ -46,9 +46,8 @@ export const TRANSLATION_RESOURCE_TYPES = [
 export const fetchTranslationResource = async (
     resourceKey: (typeof TRANSLATION_RESOURCE_TYPES)[number]["key"]
 ) => {
-    const urlComponent = TRANSLATION_RESOURCE_TYPES.find(
-        (resource) => resource.key === resourceKey
-    )?.url_component;
+    const urlComponent = TRANSLATION_RESOURCE_TYPES.find((resource) => resource.key === resourceKey)
+        ?.url_component;
     const baseUrl = `${environment.GITEA_API_ENDPOINT}/catalog/search?metadataType=rc&`;
     const url = `${baseUrl}subject=${urlComponent}`;
     // Allow pre production

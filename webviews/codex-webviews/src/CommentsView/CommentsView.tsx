@@ -175,8 +175,7 @@ function App() {
                                     <div
                                         key={commentThread.id}
                                         style={{
-                                            backgroundColor:
-                                                "var(--vscode-dropdown-background)",
+                                            backgroundColor: "var(--vscode-dropdown-background)",
                                             padding: "20px",
                                             borderRadius: "5px",
                                             boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
@@ -231,9 +230,7 @@ function App() {
                                                 />
                                                 <VSCodeButton
                                                     onClick={() =>
-                                                        handleToggleCommentForm(
-                                                            commentThread.id
-                                                        )
+                                                        handleToggleCommentForm(commentThread.id)
                                                     }
                                                 >
                                                     Cancel

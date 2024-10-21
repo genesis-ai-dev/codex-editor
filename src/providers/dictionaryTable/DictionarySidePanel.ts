@@ -6,7 +6,11 @@ import { Dictionary, DictionaryEntry } from "codex-types";
 import { DictionarySummaryPostMessages } from "../../../types";
 
 // Dictionary path constant
-const dictionaryPath = vscode.Uri.joinPath(vscode.Uri.file(''), 'files', 'project.dictionary').fsPath;
+const dictionaryPath = vscode.Uri.joinPath(
+    vscode.Uri.file(""),
+    "files",
+    "project.dictionary"
+).fsPath;
 
 export class DictionarySummaryProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;

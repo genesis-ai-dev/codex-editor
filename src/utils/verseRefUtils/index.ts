@@ -42,8 +42,14 @@ export async function findReferences({
     for (const folder of workspaceFolders) {
         const normalizedFileType = fileType?.startsWith(".") ? fileType.substring(1) : fileType;
         const pattern = normalizedFileType
-            ? vscode.Uri.joinPath(folder.uri, '.project', 'resources', '**', `*.${normalizedFileType}`).fsPath
-            : vscode.Uri.joinPath(folder.uri, '.project', 'resources', '**').fsPath;
+            ? vscode.Uri.joinPath(
+                  folder.uri,
+                  ".project",
+                  "resources",
+                  "**",
+                  `*.${normalizedFileType}`
+              ).fsPath
+            : vscode.Uri.joinPath(folder.uri, ".project", "resources", "**").fsPath;
         const files = await vscode.workspace.findFiles(new vscode.RelativePattern(folder, pattern));
 
         console.log({ files });

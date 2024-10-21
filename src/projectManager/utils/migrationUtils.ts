@@ -42,7 +42,9 @@ export async function temporaryMigrationScript_checkMatthewNotebook() {
 
     const matthewNotebookPath = vscode.Uri.joinPath(
         workspaceFolders[0].uri,
-        "files", "target", "MAT.codex"
+        "files",
+        "target",
+        "MAT.codex"
     );
 
     try {
