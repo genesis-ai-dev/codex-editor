@@ -70,6 +70,8 @@ export class NotebookMetadataManager {
         clearIdCache();
         this.metadataMap.clear();
 
+        const gitAvailable = await this.isGitAvailable();
+
         const sourceFiles = await vscode.workspace.findFiles("**/*.source");
         const codexFiles = await vscode.workspace.findFiles("**/*.codex");
         const serializer = new CodexContentSerializer();
@@ -121,7 +123,11 @@ export class NotebookMetadataManager {
                 debugLog("Updated codexUri for:", id);
             }
 
-            metadata.gitStatus = await this.getGitStatusForFile(file);
+            if (gitAvailable) {
+                metadata.gitStatus = await this.getGitStatusForFile(file);
+            } else {
+                metadata.gitStatus = "uninitialized";
+            }
 
             // Merge any additional metadata from the file
             if (notebookData.metadata) {
@@ -148,47 +154,48 @@ export class NotebookMetadataManager {
     private async getGitStatusForFile(
         fileUri: vscode.Uri
     ): Promise<CustomNotebookMetadata["gitStatus"]> {
-        const gitApi = await getGitAPI();
-        if (!gitApi || gitApi.repositories.length === 0) {
+        try {
+            const gitApi = await getGitAPI();
+            if (!gitApi || gitApi.repositories.length === 0) {
+                return "uninitialized";
+            }
+            const repository = gitApi.repositories[0];
+
+            if (!repository || !repository.state.HEAD) {
+                return "uninitialized";
+            }
+
+            const workingChanges = repository.state.workingTreeChanges;
+            const indexChanges = repository.state.indexChanges;
+            const mergeChanges = repository.state.mergeChanges;
+
+            const inMerge = mergeChanges.some((change) => change.uri.fsPath === fileUri.fsPath);
+            if (inMerge) {
+                return "conflict";
+            }
+
+            const inIndex = indexChanges.some((change) => change.uri.fsPath === fileUri.fsPath);
+            if (inIndex) {
+                return "modified";
+            }
+
+            const inWorking = workingChanges.some((change) => change.uri.fsPath === fileUri.fsPath);
+            if (inWorking) {
+                return "modified";
+            }
+
+            const isUntracked = workingChanges.some(
+                (change) => change.status === Status.UNTRACKED && change.uri.fsPath === fileUri.fsPath
+            );
+            if (isUntracked) {
+                return "untracked";
+            }
+
+            return "committed";
+        } catch (error) {
+            console.error("Error getting Git status:", error);
             return "uninitialized";
         }
-        const repository = gitApi.repositories[0];
-
-        if (!repository) {
-            return "uninitialized";
-        }
-
-        if (!repository.state.HEAD) {
-            return "uninitialized";
-        }
-
-        const workingChanges = repository.state.workingTreeChanges;
-        const indexChanges = repository.state.indexChanges;
-        const mergeChanges = repository.state.mergeChanges;
-
-        const inMerge = mergeChanges.some((change) => change.uri.fsPath === fileUri.fsPath);
-        if (inMerge) {
-            return "conflict";
-        }
-
-        const inIndex = indexChanges.some((change) => change.uri.fsPath === fileUri.fsPath);
-        if (inIndex) {
-            return "modified";
-        }
-
-        const inWorking = workingChanges.some((change) => change.uri.fsPath === fileUri.fsPath);
-        if (inWorking) {
-            return "modified";
-        }
-
-        const isUntracked = workingChanges.some(
-            (change) => change.status === Status.UNTRACKED && change.uri.fsPath === fileUri.fsPath
-        );
-        if (isUntracked) {
-            return "untracked";
-        }
-
-        return "committed";
     }
 
     public getMetadataById(id: string): CustomNotebookMetadata | undefined {
@@ -332,5 +339,14 @@ export class NotebookMetadataManager {
         const newId = generateUniqueId(baseName);
         debugLog("Generated new ID:", newId, "for base name:", baseName);
         return newId;
+    }
+
+    private async isGitAvailable(): Promise<boolean> {
+        try {
+            const gitApi = await getGitAPI();
+            return !!gitApi;
+        } catch {
+            return false;
+        }
     }
 }
