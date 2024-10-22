@@ -237,4 +237,34 @@ suite("CodexCellEditorProvider Test Suite", () => {
             "New cell should be in the cells"
         );
     });
+    test("addCell adds a new cell with timestamps", async () => {
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+        const cellId = "newCellId";
+        const cellIdOfCellBeforeNewCell = codexSubtitleContent.cells[0].metadata.id;
+        const timestamps: Timestamps = {
+            startTime: new Date().getTime(),
+            endTime: new Date().getTime(),
+        };
+        document.addCell(cellId, cellIdOfCellBeforeNewCell, CodexCellTypes.PARATEXT, {
+            ...timestamps,
+        });
+        const updatedContent = await document.getText();
+        const cells = JSON.parse(updatedContent).cells;
+        console.log({ cell: JSON.stringify(cells[1], null, 2) });
+
+        assert.strictEqual(
+            cells.find((c: any) => c.metadata.id === cellId).metadata.data.startTime,
+            timestamps.startTime,
+            "Start time should be present"
+        );
+        assert.strictEqual(
+            cells.find((c: any) => c.metadata.id === cellId).metadata.data.endTime,
+            timestamps.endTime,
+            "End time should be present"
+        );
+    });
 });
