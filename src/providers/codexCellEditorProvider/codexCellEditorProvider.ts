@@ -832,6 +832,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 // If it's a relative path, join it with the workspace URI
                 const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
                 if (workspaceUri) {
+                    // FIXME: if we don't add the video path, then you can use videos from anywhere on your machine
                     const fullPath = vscode.Uri.joinPath(workspaceUri, videoPath);
                     videoUri = webview.asWebviewUri(fullPath).toString();
                 }
