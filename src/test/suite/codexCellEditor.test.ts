@@ -147,5 +147,18 @@ suite("CodexCellEditorProvider Test Suite", () => {
         );
     });
 
-    // Add more tests as needed
+    test("updateCellContent updates the cell content", async () => {
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+        const cellId = codexSubtitleContent.cells[0].metadata.id;
+        const contentForUpdate = "Updated content";
+        document.updateCellContent(cellId, contentForUpdate, EditType.USER_EDIT);
+        const updatedContent = await document.getText();
+        console.log({ updatedContent });
+        const cell = JSON.parse(updatedContent).cells.find((c: any) => c.metadata.id === cellId);
+        assert.strictEqual(cell.value, contentForUpdate, "Cell content should be updated");
+    });
 });
