@@ -278,7 +278,7 @@ function App() {
         if (needsGrade()) {
             requestGrade();
         }
-    }, [messageLog, messageLog.length, contextItems, selectedTextContext]);
+    }, [messageLog, messageLog.length, contextItems, selectedTextContext, enableGrading]);
 
     // FIXME: use loading state to show/hide a progress ring while
     useEffect(() => {
