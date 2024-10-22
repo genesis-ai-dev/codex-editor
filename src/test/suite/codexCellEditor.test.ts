@@ -267,4 +267,115 @@ suite("CodexCellEditorProvider Test Suite", () => {
             "End time should be present"
         );
     });
+
+    test("webviewPanel.webview.onDidReceiveMessage handles messages correctly", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        let onDidReceiveMessageCallback: ((message: any) => void) | null = null;
+        const webviewPanel = {
+            webview: {
+                html: "",
+                options: {
+                    enableScripts: true,
+                },
+                asWebviewUri: (uri: vscode.Uri) => uri,
+                cspSource: "https://example.com",
+                onDidReceiveMessage: (callback: (message: any) => void) => {
+                    onDidReceiveMessageCallback = callback;
+                    return { dispose: () => {} };
+                },
+                postMessage: (message: any) => Promise.resolve(),
+            },
+            onDidDispose: (callback: () => void) => ({ dispose: () => {} }),
+        } as any as vscode.WebviewPanel;
+
+        await provider.resolveCustomEditor(
+            document,
+            webviewPanel,
+            new vscode.CancellationTokenSource().token
+        );
+
+        assert.ok(onDidReceiveMessageCallback, "onDidReceiveMessage callback should be set");
+
+        // Test saveHtml message
+        const cellId = codexSubtitleContent.cells[0].metadata.id;
+        const newContent = "Updated HTML content";
+        // @ts-expect-error: test
+        onDidReceiveMessageCallback!({
+            command: "saveHtml",
+            content: {
+                cellMarkers: [cellId],
+                cellContent: newContent,
+            },
+        });
+
+        // Wait for the update to be processed
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
+        // Verify that the document was updated
+        const updatedContent = JSON.parse(document.getText());
+        assert.strictEqual(
+            updatedContent.cells[0].value,
+            newContent,
+            "Document content should be updated after saveHtml message"
+        );
+
+        // Test llmCompletion message
+        let llmCompletionCalled = false;
+        (provider as any).performLLMCompletion = async () => {
+            llmCompletionCalled = true;
+            return "LLM generated content";
+        };
+        // @ts-expect-error: test
+        onDidReceiveMessageCallback!({
+            command: "llmCompletion",
+            content: {
+                currentLineId: cellId,
+            },
+        });
+
+        // Wait for the LLM completion to be processed
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
+        assert.ok(
+            llmCompletionCalled,
+            "performLLMCompletion should be called after llmCompletion message"
+        );
+
+        // Test updateCellTimestamps message
+        const newTimestamps = { startTime: 10, endTime: 20 };
+        // @ts-expect-error: test
+        onDidReceiveMessageCallback!({
+            command: "updateCellTimestamps",
+            content: {
+                cellId: cellId,
+                timestamps: newTimestamps,
+            },
+        });
+
+        // Wait for the update to be processed
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
+        // Verify that the timestamps were updated
+        const updatedTimestamps = JSON.parse(document.getText()).cells[0].metadata.data;
+        assert.deepStrictEqual(
+            updatedTimestamps,
+            newTimestamps,
+            "Cell timestamps should be updated after updateCellTimestamps message"
+        );
+
+        // test addWord message
+        // @ts-expect-error: test
+        onDidReceiveMessageCallback!({
+            command: "addWord",
+            words: ["test"],
+        });
+                
+        // Add more tests for other message types as needed...
+    });
 });

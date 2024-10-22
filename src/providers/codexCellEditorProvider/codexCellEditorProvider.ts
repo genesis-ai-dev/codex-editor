@@ -403,9 +403,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         openContext: { backupId?: string },
         _token: vscode.CancellationToken
     ): Promise<CodexCellDocument> {
-        console.log("openCustomDocument called", { uri });
         const document = await CodexCellDocument.create(uri, openContext.backupId, _token);
-        console.log("openCustomDocument returned", { document });
+
         return document;
     }
 
@@ -414,7 +413,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         webviewPanel: vscode.WebviewPanel,
         _token: vscode.CancellationToken
     ): Promise<void> {
-        console.log("resolveCustomEditor called");
         webviewPanel.webview.options = {
             enableScripts: true,
         };
@@ -432,7 +430,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             const notebookData: vscode.NotebookData = this.getDocumentAsJson(document);
 
             const processedData = this.processNotebookData(notebookData);
-            console.log("document._sourceCellMap", document._sourceCellMap);
+
             this.postMessageToWebview(webviewPanel, {
                 type: "providerSendsInitialContent",
                 content: processedData,
@@ -583,9 +581,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         return;
                     }
                     case "updateTextDirection": {
-                        console.log("updateTextDirection message received", {
-                            direction: e.direction,
-                        });
                         try {
                             const updatedMetadata = {
                                 textDirection: e.direction,
@@ -603,7 +598,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         return;
                     }
                     case "openSourceText": {
-                        console.log("openSourceText message received", { e });
                         try {
                             const workspaceFolderUri = getWorkSpaceUri();
                             if (!workspaceFolderUri) {
@@ -618,9 +612,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                 "sourceTexts",
                                 sourceFileName
                             );
-                            console.log("sourceFileName", {
-                                sourceFileName,
-                            });
+
                             await vscode.commands.executeCommand(
                                 "codexNotebookTreeView.openSourceFile",
                                 { sourceFileUri: sourceUri }
@@ -636,7 +628,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         return;
                     }
                     case "makeChildOfCell": {
-                        console.log("makeChildOfCell message received", { e });
                         try {
                             document.addCell(
                                 e.content.newCellId,
