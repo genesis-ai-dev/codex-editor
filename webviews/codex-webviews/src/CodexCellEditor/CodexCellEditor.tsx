@@ -376,7 +376,6 @@ const CodexCellEditor: React.FC = () => {
                         translationUnits={translationUnitsForSection}
                         contentBeingUpdated={contentBeingUpdated}
                         setContentBeingUpdated={setContentBeingUpdated}
-                        spellCheckResponse={spellCheckResponse}
                         handleCloseEditor={handleCloseEditor}
                         handleSaveHtml={handleSaveHtml}
                         vscode={vscode}
@@ -385,6 +384,27 @@ const CodexCellEditor: React.FC = () => {
                         isSourceText={isSourceText}
                         windowHeight={windowHeight}
                         headerHeight={headerHeight}
+                        spellCheckFunction={(cellContent: string) => {
+                            return new Promise<SpellCheckResponse | null>((resolve) => {
+                                vscode.postMessage({
+                                    command: "from-quill-spellcheck-getSpellCheckResponse",
+                                    content: {
+                                        cellContent,
+                                        cellChanged: true,
+                                    },
+                                });
+                                const handleSpellCheckResponse = (event: MessageEvent) => {
+                                    if (event.data.type === "providerSendsSpellCheckResponse") {
+                                        window.removeEventListener(
+                                            "message",
+                                            handleSpellCheckResponse
+                                        );
+                                        resolve(event.data.content as SpellCheckResponse);
+                                    }
+                                };
+                                window.addEventListener("message", handleSpellCheckResponse);
+                            });
+                        }}
                     />
                 </div>
             </div>

@@ -25,9 +25,12 @@ export async function readSourceAndTargetFiles(): Promise<{
 
     const sourcePattern = new vscode.RelativePattern(
         workspaceFolder,
-        ".project/sourceTexts/*.source"
+        vscode.Uri.joinPath(workspaceFolder, ".project", "sourceTexts", "*.source").fsPath
     );
-    const targetPattern = new vscode.RelativePattern(workspaceFolder, "files/target/*.codex");
+    const targetPattern = new vscode.RelativePattern(
+        workspaceFolder,
+        vscode.Uri.joinPath(workspaceFolder, "files", "target", "*.codex").fsPath
+    );
 
     const sourceUris = await vscode.workspace.findFiles(sourcePattern);
     const targetUris = await vscode.workspace.findFiles(targetPattern);

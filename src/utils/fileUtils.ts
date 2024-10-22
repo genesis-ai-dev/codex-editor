@@ -1,8 +1,18 @@
 // eslint-disable-next-line @typescript-eslint/naming-convention
 import * as vscode from "vscode";
-import { getWorkSpaceFolder } from ".";
 import * as path from "path";
 import { ChatMessageThread, NotebookCommentThread } from "../../types";
+import { getWorkSpaceUri } from "./index";
+
+function sanitizePath(workspaceUri: vscode.Uri, filepath: string): string {
+    const workspacePath = workspaceUri.fsPath;
+    if (filepath.startsWith(workspacePath)) {
+        console.warn(`Duplicate workspace path detected in filepath: ${filepath}`);
+        console.warn(`Removing duplicate path.`);
+        return filepath.slice(workspacePath.length).replace(/^[/\\]+/, "");
+    }
+    return filepath;
+}
 
 export const generateFiles = async ({
     filepath,
@@ -13,57 +23,29 @@ export const generateFiles = async ({
     fileContent: Uint8Array;
     shouldOverWrite: boolean;
 }) => {
-    const workspaceFolder = getWorkSpaceFolder();
+    const workspaceUri = getWorkSpaceUri();
 
-    if (!workspaceFolder) {
-        return;
+    if (!workspaceUri) {
+        vscode.window.showErrorMessage("No workspace folder found");
+        return false;
     }
 
-    const newFilePath = vscode.Uri.file(
-        path.join(workspaceFolder, filepath.startsWith("/") ? filepath : `/${filepath}`)
-    );
+    const sanitizedFilepath = sanitizePath(workspaceUri, filepath);
+    const newFilePath = vscode.Uri.joinPath(workspaceUri, sanitizedFilepath);
     let fileSuccessfullyCreated: boolean = false;
 
-    vscode.workspace.fs.stat(newFilePath).then(
-        () => {
-            if (shouldOverWrite) {
-                vscode.workspace.fs.writeFile(newFilePath, fileContent).then(
-                    () => {
-                        fileSuccessfullyCreated = true;
-                        // vscode.window.showInformationMessage(
-                        //     `${filepath} overwritten successfully!`,
-                        // );
-                    },
-                    (err) => {
-                        console.error(`Error: ${err}`);
-                        vscode.window.showErrorMessage(
-                            `Error overwriting ${filepath} file: ${err.message}`
-                        );
-                    }
-                );
-            } else {
-                // vscode.window.showInformationMessage(
-                //     `${filepath} file already exists!`,
-                // );
-            }
-        },
-        (err) => {
-            vscode.workspace.fs.writeFile(newFilePath, fileContent).then(
-                () => {
-                    fileSuccessfullyCreated = true;
-                    // vscode.window.showInformationMessage(
-                    //     `${filepath} file created successfully!`,
-                    // );
-                },
-                (err) => {
-                    console.error(`Error: ${err}`);
-                    vscode.window.showErrorMessage(
-                        `Error creating new ${filepath} file: ${err.message}`
-                    );
-                }
-            );
+    try {
+        await vscode.workspace.fs.stat(newFilePath);
+        if (shouldOverWrite) {
+            await vscode.workspace.fs.writeFile(newFilePath, fileContent);
+            fileSuccessfullyCreated = true;
         }
-    );
+    } catch {
+        // File doesn't exist, create it
+        await vscode.workspace.fs.writeFile(newFilePath, fileContent);
+        fileSuccessfullyCreated = true;
+    }
+
     return fileSuccessfullyCreated;
 };
 
@@ -80,12 +62,13 @@ export async function writeSerializedData(serializedData: string, filename: stri
 
 export class FileHandler {
     async writeFile(filename: string, data: string): Promise<void> {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (!workspaceFolders) {
-            throw new Error("No workspace folders found.");
+        const workspaceUri = getWorkSpaceUri();
+        if (!workspaceUri) {
+            throw new Error("No workspace folder found.");
         }
-        const uri = vscode.Uri.joinPath(workspaceFolders[0].uri, filename);
-        console.log(`Attempting to write file: ${uri.fsPath}`); // Log the file path
+        const sanitizedFilename = sanitizePath(workspaceUri, filename);
+        const uri = vscode.Uri.joinPath(workspaceUri, sanitizedFilename);
+        console.log(`Attempting to write file: ${uri.fsPath}`);
 
         const uint8Array = new TextEncoder().encode(data);
 
@@ -98,32 +81,31 @@ export class FileHandler {
     }
 
     async readFile(filename: string): Promise<string> {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (!workspaceFolders) {
-            throw new Error("No workspace folders found.");
+        const workspaceUri = getWorkSpaceUri();
+        if (!workspaceUri) {
+            throw new Error("No workspace folder found.");
         }
 
-        const uri = vscode.Uri.joinPath(workspaceFolders[0].uri, filename);
+        const sanitizedFilename = sanitizePath(workspaceUri, filename);
+        const uri = vscode.Uri.joinPath(workspaceUri, sanitizedFilename);
 
         try {
             const uint8Array = await vscode.workspace.fs.readFile(uri);
             return new TextDecoder().decode(uint8Array);
         } catch (error) {
             console.error("Error reading file:", error, `Path: ${uri.fsPath}`);
-            throw error; // Rethrow the error to handle it in the calling code
+            throw error;
         }
     }
 }
 
 export const getCommentsFromFile = async (fileName: string): Promise<NotebookCommentThread[]> => {
     try {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        console.log({ workspaceFolders });
-        const filePath = workspaceFolders
-            ? vscode.Uri.joinPath(workspaceFolders[0].uri, fileName).fsPath
-            : "";
-
-        const uri = vscode.Uri.file(filePath);
+        const workspaceUri = getWorkSpaceUri();
+        if (!workspaceUri) {
+            throw new Error("No workspace folder found.");
+        }
+        const uri = vscode.Uri.joinPath(workspaceUri, fileName);
         const fileContentUint8Array = await vscode.workspace.fs.readFile(uri);
         const fileContent = new TextDecoder().decode(fileContentUint8Array);
         return JSON.parse(fileContent);
@@ -135,12 +117,11 @@ export const getCommentsFromFile = async (fileName: string): Promise<NotebookCom
 
 export const getChatMessagesFromFile = async (fileName: string): Promise<ChatMessageThread[]> => {
     try {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        const filePath = workspaceFolders
-            ? vscode.Uri.joinPath(workspaceFolders[0].uri, fileName).fsPath
-            : "";
-
-        const uri = vscode.Uri.file(filePath);
+        const workspaceUri = getWorkSpaceUri();
+        if (!workspaceUri) {
+            throw new Error("No workspace folder found.");
+        }
+        const uri = vscode.Uri.joinPath(workspaceUri, fileName);
         const fileContentUint8Array = await vscode.workspace.fs.readFile(uri);
         const fileContent = new TextDecoder().decode(fileContentUint8Array);
         return JSON.parse(fileContent);
@@ -151,13 +132,11 @@ export const getChatMessagesFromFile = async (fileName: string): Promise<ChatMes
 };
 
 export const projectFileExists = async () => {
-    const workspaceFolder = vscode.workspace.workspaceFolders
-        ? vscode.workspace.workspaceFolders[0]
-        : undefined;
-    if (!workspaceFolder) {
+    const workspaceUri = getWorkSpaceUri();
+    if (!workspaceUri) {
         return false;
     }
-    const projectFilePath = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
+    const projectFilePath = vscode.Uri.joinPath(workspaceUri, "metadata.json");
     const fileExists = await vscode.workspace.fs.stat(projectFilePath).then(
         () => true,
         () => false

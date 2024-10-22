@@ -40,7 +40,7 @@ suite("createProjectNotebooks Test Suite", () => {
         const projectMetadata = await getProjectMetadata();
 
         const generatedCodexFile = await vscode.workspace.fs.readFile(
-            vscode.Uri.file(`${workspacePath}/files/target/GEN.codex`)
+            vscode.Uri.joinPath(vscode.Uri.file(workspacePath), "files", "target", "GEN.codex")
         );
 
         // Parse the generatedCodexFile as JSON

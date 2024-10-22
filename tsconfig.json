@@ -17,5 +17,5 @@
         "skipLibCheck": true
     },
     "include": ["src/**/*", "types/**/*", "custom.d.ts"],
-    "exclude": ["node_modules", "webviews"]
+    "exclude": ["node_modules", "webviews", "src/test/**"]
 }

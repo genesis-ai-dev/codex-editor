@@ -58,7 +58,7 @@ async function handleSyncAction(fileUri: vscode.Uri, status: string) {
 
 async function initializeRepository(fileUri: vscode.Uri) {
     try {
-        const folderUri = vscode.Uri.joinPath(fileUri, '..');
+        const folderUri = vscode.Uri.joinPath(fileUri, "..");
         await initProject("Codex User", "codex@example.com", folderUri);
         vscode.window.showInformationMessage("Git repository initialized successfully.");
     } catch (error) {

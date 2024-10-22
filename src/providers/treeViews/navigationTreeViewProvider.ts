@@ -1,432 +1,342 @@
-import { getWorkSpaceUri } from "../../utils/index";
 import * as vscode from "vscode";
+import { debounce } from "lodash";
+import { getWorkSpaceUri } from "../../utils/index";
 import { vrefData } from "../../utils/verseRefUtils/verseData";
-import { join, basename } from "path";
-import { debounce, isEqual } from "lodash";
+import { basename, dirname } from "path";
 import { CustomNotebookMetadata } from "../../../types";
+import { NotebookMetadataManager } from "../../utils/notebookMetadataManager";
+import * as path from "path";
 
-// TODO: we should probably use the notebookMetadataManager to get the metadata for the notebooks, though we would need to add some more data to the metadata manager to get navigation info/cell content where cells contain headings
+export interface CodexNode {
+    resource: vscode.Uri;
+    type: "corpus" | "document" | "section" | "cell";
+    label: string;
+    cellId?: string;
+    sourceFileUri?: vscode.Uri;
+}
 
-export class Node extends vscode.TreeItem {
-    public children?: Node[];
+export class CodexModel {
+    private notebookMetadataManager: NotebookMetadataManager;
 
-    constructor(
-        public readonly label: string,
-        public readonly type: "corpus" | "document" | "section" | "cell",
-        public readonly collapsibleState: vscode.TreeItemCollapsibleState,
-        public readonly notebookUri?: vscode.Uri,
-        public readonly cellId?: string,
-        public readonly sourceFile?: string
-    ) {
-        super(label, collapsibleState);
-        this.contextValue = type;
+    constructor(private workspaceRoot: string | undefined) {
+        this.notebookMetadataManager = NotebookMetadataManager.getInstance();
+    }
 
-        if (type === "document" || type === "section" || type === "cell") {
-            this.command = {
-                command: "translation-navigation.openSection",
-                title: "Open Section",
-                arguments: [notebookUri?.fsPath, cellId],
-            };
+    public async getRoots(): Promise<CodexNode[]> {
+        if (!this.workspaceRoot) {
+            return [];
+        }
+        return this.getNotebooksByCorpus();
+    }
+
+    public async getChildren(node: CodexNode): Promise<CodexNode[]> {
+        if (node.type === "corpus") {
+            return this.getNotebooksForCorpus(node.label);
+        } else if (node.type === "document") {
+            return this.getSectionsForNotebook(node.resource);
+        }
+        return [];
+    }
+
+    private async getNotebooksByCorpus(): Promise<CodexNode[]> {
+        const corpora: Record<string, CodexNode> = {};
+        const ungroupedNotebooks: CodexNode[] = [];
+
+        for (const metadata of this.notebookMetadataManager.getAllMetadata()) {
+            if (!metadata.codexFsPath) continue;
+
+            const fileName = basename(metadata.codexFsPath);
+            const fileNameWithoutExtension = fileName.slice(0, -6);
+            const notebookUri = vscode.Uri.file(metadata.codexFsPath);
+
+            const bookData = vrefData[fileNameWithoutExtension];
+            if (bookData) {
+                const testament = bookData.testament === "OT" ? "Old Testament" : "New Testament";
+                if (!corpora[testament]) {
+                    corpora[testament] = {
+                        resource: vscode.Uri.parse(`codex-corpus:${testament}`),
+                        type: "corpus",
+                        label: testament,
+                    };
+                }
+            } else if (metadata.corpusMarker) {
+                if (!corpora[metadata.corpusMarker]) {
+                    corpora[metadata.corpusMarker] = {
+                        resource: vscode.Uri.parse(`codex-corpus:${metadata.corpusMarker}`),
+                        type: "corpus",
+                        label: metadata.corpusMarker,
+                    };
+                }
+            } else {
+                ungroupedNotebooks.push({
+                    resource: notebookUri,
+                    type: "document",
+                    label: fileNameWithoutExtension,
+                    sourceFileUri: metadata.sourceFsPath
+                        ? vscode.Uri.file(metadata.sourceFsPath)
+                        : undefined,
+                });
+            }
         }
 
-        if (type === "document") {
-            this.iconPath = new vscode.ThemeIcon("book");
+        return [...Object.values(corpora), ...ungroupedNotebooks];
+    }
+
+    private async getNotebooksForCorpus(corpus: string): Promise<CodexNode[]> {
+        const notebooks: CodexNode[] = [];
+
+        for (const metadata of this.notebookMetadataManager.getAllMetadata()) {
+            if (!metadata.codexFsPath) continue;
+
+            const fileName = basename(metadata.codexFsPath);
+            const fileNameWithoutExtension = fileName.slice(0, -6);
+            const notebookUri = vscode.Uri.file(metadata.codexFsPath);
+
+            const bookData = vrefData[fileNameWithoutExtension];
+            const testament = bookData?.testament === "OT" ? "Old Testament" : "New Testament";
+
+            if (testament === corpus || metadata.corpusMarker === corpus) {
+                notebooks.push({
+                    resource: notebookUri,
+                    type: "document",
+                    label: fileNameWithoutExtension,
+                    sourceFileUri: metadata.sourceFsPath
+                        ? vscode.Uri.file(metadata.sourceFsPath)
+                        : undefined,
+                });
+            }
         }
+
+        return notebooks.sort((a, b) => {
+            const aOrd = Number(vrefData[a.label]?.ord) || Infinity;
+            const bOrd = Number(vrefData[b.label]?.ord) || Infinity;
+            return aOrd - bOrd;
+        });
+    }
+
+    private async getSectionsForNotebook(notebookUri: vscode.Uri): Promise<CodexNode[]> {
+        try {
+            const notebookContentUint8Array = await vscode.workspace.fs.readFile(notebookUri);
+            const notebookContent = new TextDecoder().decode(notebookContentUint8Array);
+            const notebookJson = JSON.parse(notebookContent);
+            const metadata = notebookJson?.metadata as CustomNotebookMetadata;
+
+            const headings = this.extractHeadingsFromNotebook(notebookJson);
+
+            return headings.map((heading) => ({
+                resource: vscode.Uri.parse(`${notebookUri.toString()}#${heading.cellId}`),
+                type: "section",
+                label: heading.text,
+                cellId: heading.cellId,
+                sourceFileUri: metadata.sourceFsPath
+                    ? vscode.Uri.file(metadata.sourceFsPath)
+                    : undefined,
+            }));
+        } catch (error) {
+            console.error(`Error getting sections for notebook ${notebookUri.fsPath}:`, error);
+            return [];
+        }
+    }
+
+    private extractHeadingsFromNotebook(notebookJson: any): any[] {
+        const headings: any[] = [];
+
+        if (!Array.isArray(notebookJson.cells)) return headings;
+
+        notebookJson.cells.forEach((cell: any) => {
+            const content = cell.value;
+            const regex = /<h([1-6])>(.*?)<\/h\1>/g;
+            let match;
+
+            while ((match = regex.exec(content)) !== null) {
+                headings.push({
+                    level: parseInt(match[1], 10),
+                    text: match[2],
+                    cellId: cell.metadata?.id || "",
+                });
+            }
+        });
+
+        return headings;
     }
 }
 
+// export class CodexTreeDataProvider implements vscode.TreeDataProvider<CodexNode> {
+//     private _onDidChangeTreeData: vscode.EventEmitter<CodexNode | undefined | null | void> =
+//         new vscode.EventEmitter<CodexNode | undefined | null | void>();
+//     readonly onDidChangeTreeData: vscode.Event<CodexNode | undefined | null | void> =
+//         this._onDidChangeTreeData.event;
+
+//     readonly workspaceRoot: vscode.Uri | undefined;
+
+//     constructor(private readonly model: CodexModel) {
+//         this.workspaceRoot = getWorkSpaceUri();
+//     }
+
+//     public refresh(): void {
+//         this._onDidChangeTreeData.fire();
+//     }
+
+//     public getTreeItem(element: CodexNode): vscode.TreeItem {
+//         if (this.workspaceRoot) {
+//             return {
+//                 resourceUri: element.resource,
+//                 label: element.label,
+//                 collapsibleState:
+//                     element.type !== "cell"
+//                         ? vscode.TreeItemCollapsibleState.Collapsed
+//                         : vscode.TreeItemCollapsibleState.None,
+//                 contextValue: element.type,
+//                 command:
+//                     element.type === "document" || element.type === "section"
+//                         ? {
+//                               command: "codexNotebookTreeView.openSection",
+//                               title: "Open Section",
+//                               arguments: [
+//                                   element.sourceFile
+//                                       ? vscode.Uri.file(
+//                                             path.join(
+//                                                 this.workspaceRoot.fsPath,
+//                                                 element.resource.fsPath
+//                                             )
+//                                         )
+//                                       : element.resource,
+//                                   element.cellId,
+//                               ],
+//                           }
+//                         : undefined,
+//                 iconPath: element.type === "document" ? new vscode.ThemeIcon("book") : undefined,
+//             };
+//         }
+//         return {
+//             label: element.label,
+//         };
+//     }
+
+//     public getChildren(element?: CodexNode): Thenable<CodexNode[]> {
+//         if (element) {
+//             return this.model.getChildren(element);
+//         } else {
+//             return this.model.getRoots();
+//         }
+//     }
+
+//     public getParent(element: CodexNode): vscode.ProviderResult<CodexNode> {
+//         const parentPath = dirname(element.resource.path);
+//         if (parentPath === "/") {
+//             return undefined;
+//         }
+//         return {
+//             resource: element.resource.with({ path: parentPath }),
+//             type: "corpus",
+//             label: basename(parentPath),
+//         };
+//     }
+// }
+
 export class CodexNotebookTreeViewProvider
-    implements vscode.TreeDataProvider<Node>, vscode.Disposable
+    implements vscode.TreeDataProvider<CodexNode>, vscode.Disposable
 {
-    private _onDidChangeTreeData: vscode.EventEmitter<Node | undefined | void> =
-        new vscode.EventEmitter<Node | undefined | void>();
-    readonly onDidChangeTreeData: vscode.Event<Node | undefined | void> =
+    private _onDidChangeTreeData: vscode.EventEmitter<CodexNode | undefined | null | void> =
+        new vscode.EventEmitter<CodexNode | undefined | null | void>();
+    readonly onDidChangeTreeData: vscode.Event<CodexNode | undefined | null | void> =
         this._onDidChangeTreeData.event;
 
-    private notebookMetadata: Map<
-        string,
-        { headings: Heading[]; corpusMarker?: string; sourceFile?: string }
-    > = new Map();
-
+    private codexViewer: vscode.TreeView<CodexNode>;
     private fileWatcher: vscode.FileSystemWatcher | undefined;
+    private debouncedRefresh: () => void;
+    private model: CodexModel;
 
-    private debounceTimer: NodeJS.Timeout | null = null;
-    private pendingChanges: Map<string, number> = new Map();
-    private lastRefreshTime: number = 0;
-    private refreshDebounceTime: number = 1000; // 5 seconds
+    constructor(
+        private workspaceRoot: string | undefined,
+        context: vscode.ExtensionContext
+    ) {
+        this.model = new CodexModel(workspaceRoot);
 
-    private debouncedRefresh = debounce(() => {
-        const now = Date.now();
-        if (now - this.lastRefreshTime < this.refreshDebounceTime) {
-            console.log("Skipping refresh due to debounce");
-            return;
-        }
-        this.lastRefreshTime = now;
-        this.refresh();
-    }, 1000);
+        this.codexViewer = vscode.window.createTreeView("codexNotebookTreeView", {
+            treeDataProvider: this,
+            showCollapseAll: true,
+        });
 
-    private fileWatcherSuspended: boolean = false;
-
-    constructor(private workspaceRoot: string | undefined) {
-        this.initializeNotebookMetadata();
+        this.debouncedRefresh = debounce(() => this.refresh(), 1000, { maxWait: 5000 });
 
         if (this.workspaceRoot) {
             const pattern = new vscode.RelativePattern(
-                vscode.Uri.file(this.workspaceRoot),
-                join("files", "target", "**", "*.codex")
+                this.workspaceRoot,
+                "**/files/target/**/*.codex"
             );
 
             this.fileWatcher = vscode.workspace.createFileSystemWatcher(pattern);
 
             this.fileWatcher.onDidCreate((uri) => this.onFileChanged(uri));
             this.fileWatcher.onDidChange((uri) => this.onFileChanged(uri));
-            this.fileWatcher.onDidDelete((uri) => this.onFileChanged(uri));
+            this.fileWatcher.onDidDelete((uri) => this.onFileDeleted(uri));
 
             console.log("File watcher initialized");
         }
-
-        vscode.commands.registerCommand("translation-navigation.suspendFileWatcher", () => {
-            this.suspendFileWatcher();
-        });
-
-        vscode.commands.registerCommand("translation-navigation.resumeFileWatcher", () => {
-            this.resumeFileWatcher();
-        });
     }
 
-    private async initializeNotebookMetadata(): Promise<void> {
-        if (!this.workspaceRoot) {
-            return;
+    public refresh(): void {
+        this._onDidChangeTreeData.fire();
+    }
+
+    public getTreeItem(element: CodexNode): vscode.TreeItem {
+        return {
+            resourceUri: element.resource,
+            label: element.label,
+            collapsibleState:
+                element.type !== "cell"
+                    ? vscode.TreeItemCollapsibleState.Collapsed
+                    : vscode.TreeItemCollapsibleState.None,
+            contextValue: element.type,
+            command:
+                element.type === "document" || element.type === "section"
+                    ? {
+                          command: "codexNotebookTreeView.openSection",
+                          title: "Open Section",
+                          arguments: [element.resource, element.cellId],
+                      }
+                    : undefined,
+            iconPath: element.type === "document" ? new vscode.ThemeIcon("book") : undefined,
+        };
+    }
+
+    public getChildren(element?: CodexNode): Thenable<CodexNode[]> {
+        if (element) {
+            return this.model.getChildren(element);
+        } else {
+            return this.model.getRoots();
         }
+    }
 
-        const notebooksUri = vscode.Uri.joinPath(
-            vscode.Uri.file(this.workspaceRoot),
-            "files",
-            "target"
-        );
-        const files = await vscode.workspace.fs.readDirectory(notebooksUri);
-
-        for (const [file, type] of files) {
-            if (type === vscode.FileType.File && file.endsWith(".codex")) {
-                const notebookUri = vscode.Uri.joinPath(notebooksUri, file);
-                try {
-                    const notebookContent = await vscode.workspace.fs.readFile(notebookUri);
-                    let notebookJson;
-                    try {
-                        notebookJson = JSON.parse(notebookContent.toString());
-                    } catch (parseError) {
-                        console.error(`Error parsing JSON for file ${file}:`, parseError);
-                        console.log("Content causing the error:", notebookContent.toString());
-                        continue;
-                    }
-                    const metadata = notebookJson?.metadata as CustomNotebookMetadata;
-
-                    this.notebookMetadata.set(notebookUri.fsPath, {
-                        headings: this.extractHeadingsFromNotebook(notebookJson),
-                        corpusMarker: metadata?.corpusMarker,
-                    });
-                } catch (error) {
-                    console.error(
-                        `Error processing file in initializeNotebookMetadata ${file}:`,
-                        error
-                    );
-                }
-            }
+    public getParent(element: CodexNode): vscode.ProviderResult<CodexNode> {
+        const parentPath = dirname(element.resource.path);
+        if (parentPath === "/") {
+            return undefined;
         }
+        return {
+            resource: element.resource.with({ path: parentPath }),
+            type: "corpus",
+            label: basename(parentPath),
+        };
     }
 
     private onFileChanged(uri: vscode.Uri): void {
-        if (this.fileWatcherSuspended) {
-            console.log("File watcher suspended, ignoring change:", uri.fsPath);
-            return;
-        }
-
-        const fsPath = uri.fsPath;
-        const now = Date.now();
-        const lastChangeTime = this.pendingChanges.get(fsPath) || 0;
-
-        if (now - lastChangeTime < 1000) {
-            // Ignore changes within 1 second
-            console.log("Ignoring rapid change:", fsPath);
-            return;
-        }
-
-        console.log("File changed:", fsPath);
-        this.pendingChanges.set(fsPath, now);
-
-        // Clear any existing timeout
-        if (this.debounceTimer) {
-            clearTimeout(this.debounceTimer);
-        }
-
-        // Set a new timeout
-        this.debounceTimer = setTimeout(() => {
-            this.debouncedRefresh();
-        }, 2000) as unknown as NodeJS.Timeout; // Wait for 2 seconds of inactivity before refreshing
+        this.debouncedRefresh();
     }
 
-    private async fileExists(uri: vscode.Uri): Promise<boolean> {
-        try {
-            await vscode.workspace.fs.stat(uri);
-            return true;
-        } catch {
-            return false;
-        }
+    private onFileDeleted(uri: vscode.Uri): void {
+        this.debouncedRefresh();
     }
 
-    private async updateNotebookMetadata(uri: vscode.Uri): Promise<void> {
-        try {
-            const notebookContent = await vscode.workspace.fs.readFile(uri);
-            console.log("Reading notebook metadata:", uri.fsPath);
-            const notebookJson = JSON.parse(notebookContent.toString());
-            const metadata = notebookJson?.metadata as CustomNotebookMetadata;
-
-            const sourceFile =
-                metadata?.sourceFsPath || (await this.findCorrespondingSourceFile(uri));
-
-            // Extract headings from notebook content
-            const headings = this.extractHeadingsFromNotebook(notebookJson);
-
-            const newMetadata = {
-                headings: headings,
-                corpusMarker: metadata?.corpusMarker,
-                sourceFsPath: metadata?.sourceFsPath,
-            };
-
-            // Update the in-memory metadata
-            this.notebookMetadata.set(uri.fsPath, newMetadata);
-            console.log("Updated in-memory metadata:", uri.fsPath);
-
-            // Trigger a refresh of the tree view
-            this.refresh();
-        } catch (error) {
-            console.error(`Error processing file in updateNotebookMetadata ${uri.fsPath}:`, error);
-        }
-    }
-
-    private extractHeadingsFromNotebook(notebookJson: any): Heading[] {
-        const headings: Heading[] = [];
-
-        for (const cell of notebookJson.cells) {
-            let content = "";
-
-            if (cell.kind === vscode.NotebookCellKind.Markup) {
-                content = cell.value;
-            } else if (cell.kind === vscode.NotebookCellKind.Code) {
-                content = cell.value;
-            }
-
-            const regex = /<h([1-6])>(.*?)<\/h\1>/g;
-            let match;
-            while ((match = regex.exec(content)) !== null) {
-                const level = parseInt(match[1]);
-                const text = match[2];
-
-                headings.push({
-                    level: level,
-                    text: text,
-                    cellId: cell.metadata?.id,
-                });
-            }
-        }
-
-        return headings;
-    }
-
-    private async findCorrespondingSourceFile(codexUri: vscode.Uri): Promise<string | undefined> {
-        const codexFileName = basename(codexUri.fsPath, ".codex");
-
-        // Check the config for primarySourceText
-        const config = vscode.workspace.getConfiguration("codex-project-manager");
-        const primarySourceText = config.get<string>("primarySourceText");
-
-        if (primarySourceText) {
-            return basename(primarySourceText);
-        }
-
-        const workSpaceUri = getWorkSpaceUri();
-
-        if (!workSpaceUri) {
-            console.error("No workspace found. Cannot find source file for " + codexFileName);
-            return undefined;
-        }
-
-        // If not found in config, look for a matching .source file
-        const sourceTextsFolderUri = vscode.Uri.joinPath(workSpaceUri, ".project", "sourceTexts");
-        try {
-            const files = await vscode.workspace.fs.readDirectory(sourceTextsFolderUri);
-            const matchingSourceFile = files.find(
-                ([name, type]) =>
-                    type === vscode.FileType.File &&
-                    name.endsWith(".source") &&
-                    basename(name) === codexFileName
-            );
-
-            return matchingSourceFile ? matchingSourceFile[0] : undefined;
-        } catch (error) {
-            console.error(`Error reading source texts directory: ${error}`);
-            return undefined;
-        }
-    }
-
-    refresh(): void {
-        console.log("Refreshing tree view");
-        this.processPendingChanges().then(() => {
-            console.log("Tree view refresh completed");
-            this._onDidChangeTreeData.fire();
+    private openResource(resource: vscode.Uri, cellId?: string): void {
+        vscode.commands.executeCommand("vscode.open", resource, {
+            selection: cellId ? [0, 0, 0, 0] : undefined,
         });
-    }
-
-    private async processPendingChanges(): Promise<void> {
-        console.log("Processing pending changes");
-        const now = Date.now();
-        for (const [path, timestamp] of this.pendingChanges.entries()) {
-            if (now - timestamp > 1000) {
-                // Only process changes older than 1 second
-                const uri = vscode.Uri.file(path);
-                if (await this.fileExists(uri)) {
-                    console.log("Updating metadata for:", path);
-                    await this.updateNotebookMetadata(uri);
-                } else {
-                    console.log("Deleting metadata for:", path);
-                    this.notebookMetadata.delete(path);
-                }
-                this.pendingChanges.delete(path);
-            }
-        }
-    }
-
-    getTreeItem(element: Node): vscode.TreeItem {
-        return element;
-    }
-
-    async getChildren(element?: Node): Promise<Node[] | undefined> {
-        if (!this.workspaceRoot) {
-            return Promise.resolve([]);
-        }
-
-        if (element) {
-            return Promise.resolve(element.children);
-        } else {
-            const notebooks = await this.getNotebooksByCorpus();
-            return Promise.resolve(notebooks);
-        }
-    }
-
-    private async getNotebooksByCorpus(): Promise<Node[]> {
-        try {
-            const corpora: Record<string, Node> = {};
-            const ungroupedNotebooks: Node[] = [];
-
-            for (const [notebookPath, metadata] of this.notebookMetadata) {
-                const fileName = basename(vscode.Uri.parse(notebookPath).path);
-                const fileNameWithoutExtension = fileName.slice(0, -6); // Remove .codex
-                const notebookUri = vscode.Uri.file(notebookPath);
-                const notebookNode = new Node(
-                    fileNameWithoutExtension,
-                    "document",
-                    vscode.TreeItemCollapsibleState.Collapsed,
-                    notebookUri,
-                    undefined,
-                    `${fileNameWithoutExtension}.source`
-                );
-
-                if (metadata.headings) {
-                    notebookNode.children = this.createNodesFromHeadings(
-                        metadata.headings,
-                        notebookUri,
-                        metadata.sourceFile
-                    );
-                }
-
-                const bookData = vrefData[fileNameWithoutExtension];
-                if (bookData) {
-                    const testament = bookData.testament === "OT" ? "Old Testament" : "New Testament";
-                    if (!corpora[testament]) {
-                        corpora[testament] = new Node(
-                            testament,
-                            "corpus",
-                            vscode.TreeItemCollapsibleState.Expanded
-                        );
-                        corpora[testament].children = [];
-                    }
-                    corpora[testament].children?.push(notebookNode);
-                } else if (metadata.corpusMarker) {
-                    if (!corpora[metadata.corpusMarker]) {
-                        corpora[metadata.corpusMarker] = new Node(
-                            metadata.corpusMarker,
-                            "corpus",
-                            vscode.TreeItemCollapsibleState.Expanded
-                        );
-                        corpora[metadata.corpusMarker].children = [];
-                    }
-                    corpora[metadata.corpusMarker].children?.push(notebookNode);
-                } else {
-                    ungroupedNotebooks.push(notebookNode);
-                }
-            }
-
-            // Sort books within each testament
-            for (const testament of ["Old Testament", "New Testament"]) {
-                corpora[testament]?.children?.sort((a, b) => {
-                    const aOrd = Number(vrefData[a.label]?.ord) || Infinity;
-                    const bOrd = Number(vrefData[b.label]?.ord) || Infinity;
-                    return aOrd - bOrd;
-                });
-            }
-
-            const result: Node[] = Object.values(corpora);
-
-            // Add ungrouped notebooks
-            result.push(...ungroupedNotebooks);
-
-            return result;
-        } catch (error) {
-            vscode.window.showErrorMessage(`Error processing notebooks: ${error}`);
-            return [];
-        }
-    }
-
-    private createNodesFromHeadings(
-        headings: Heading[],
-        notebookUri: vscode.Uri,
-        sourceFile?: string
-    ): Node[] {
-        const nodes: Node[] = [];
-
-        headings.forEach((heading) => {
-            const node = new Node(
-                heading.text,
-                "section",
-                vscode.TreeItemCollapsibleState.None,
-                notebookUri,
-                heading.cellId,
-                sourceFile
-            );
-            nodes.push(node);
-        });
-
-        return nodes;
-    }
-
-    public suspendFileWatcher(): void {
-        this.fileWatcherSuspended = true;
-    }
-
-    public resumeFileWatcher(): void {
-        this.fileWatcherSuspended = false;
     }
 
     public dispose(): void {
-        if (this.fileWatcher) {
-            this.fileWatcher.dispose();
-        }
+        this.fileWatcher?.dispose();
+        this.codexViewer.dispose();
     }
 }
-
-// Define the 'Heading' type.
-type Heading = {
-    level: number;
-    text: string;
-    cellId: string;
-};

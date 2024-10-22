@@ -1,3 +1,4 @@
+import { getWorkSpaceUri } from "./../utils/index";
 import * as vscode from "vscode";
 import { CustomNotebookMetadata, FileType, SupportedFileExtension } from "../../types";
 import { fileTypeMap } from "./translationImporter";
@@ -54,11 +55,7 @@ async function importSourceFile(
     context: vscode.ExtensionContext,
     fileUri: vscode.Uri
 ): Promise<void> {
-    const fileExtension = vscode.workspace
-        .asRelativePath(fileUri)
-        .split(".")
-        .pop()
-        ?.toLowerCase() as SupportedFileExtension;
+    const fileExtension = fileUri.fsPath.split(".").pop()?.toLowerCase() as SupportedFileExtension;
 
     const fileType = fileTypeMap[fileExtension] || "plaintext";
 
@@ -66,7 +63,7 @@ async function importSourceFile(
         const metadataManager = NotebookMetadataManager.getInstance();
         await metadataManager.loadMetadata();
 
-        const baseName = vscode.workspace.asRelativePath(fileUri).split(path.sep).pop()?.split(".")[0] || `new_source`;
+        const baseName = path.basename(fileUri.fsPath).split(".")[0] || `new_source`;
         const notebookId = metadataManager.generateNewId(baseName);
 
         let importedNotebookIds: string[];
@@ -85,21 +82,27 @@ async function importSourceFile(
                 throw new Error("Unsupported file type for source text.");
         }
 
-        const workspaceFolder = vscode.workspace.workspaceFolders![0];
+        const workspaceFolderUri = getWorkSpaceUri();
+        if (!workspaceFolderUri) {
+            throw new Error("No workspace folder found. Cannot import source text.");
+        }
 
         for (const importedNotebookId of importedNotebookIds) {
             const sourceUri = vscode.Uri.joinPath(
-                workspaceFolder.uri,
+                workspaceFolderUri,
                 ".project",
                 "sourceTexts",
                 `${importedNotebookId}.source`
             );
             const codexUri = vscode.Uri.joinPath(
-                workspaceFolder.uri,
+                workspaceFolderUri,
                 "files",
                 "target",
                 `${importedNotebookId}.codex`
             );
+
+            // Create empty Codex notebooks for each book before updating metadata
+            await createEmptyCodexNotebooks(importedNotebookId);
 
             const metadata: CustomNotebookMetadata = {
                 id: importedNotebookId,
@@ -113,17 +116,11 @@ async function importSourceFile(
                 corpusMarker: "",
             };
 
-            // Add metadata to the original source file
-            await waitForFile(sourceUri, 5000); // Wait up to 5 seconds
-            await addMetadataToSourceFile(sourceUri, metadata);
-
-            metadataManager.addOrUpdateMetadata(metadata);
+            // Now that the files exist, we can update the metadata
+            await metadataManager.addOrUpdateMetadata(metadata);
 
             // Split the source file if it contains multiple books
-            await splitSourceFileByBook(sourceUri, workspaceFolder.uri.fsPath, "source");
-
-            // Create empty Codex notebooks for each book
-            await createEmptyCodexNotebooks(importedNotebookId);
+            await splitSourceFileByBook(sourceUri, workspaceFolderUri.fsPath, "source");
         }
 
         vscode.window.showInformationMessage("Source text imported successfully.");
@@ -191,14 +188,21 @@ export async function createEmptyCodexNotebooks(sourceFileName: string): Promise
     }
 
     const sourceFolder = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts");
-    const targetFolder = vscode.Uri.joinPath(workspaceFolder.uri, "files", "target");
 
-    const sourceFiles = await vscode.workspace.findFiles(
-        new vscode.RelativePattern(sourceFolder, `${sourceFileName}*.source`)
+    // Find all .source files
+    const allSourceFiles = await vscode.workspace.findFiles(
+        new vscode.RelativePattern(sourceFolder, `*.source`)
     );
+    console.log("RYDER: Found source files:", allSourceFiles);
+
+    // Filter for the specific source file we're interested in
+    const sourceFiles = allSourceFiles.filter(
+        (file) => path.basename(file.fsPath, ".source") === sourceFileName
+    );
+    console.log("RYDER: Filtered source files:", sourceFiles);
 
     if (sourceFiles.length === 0) {
-        throw new Error(`No source file found for ${sourceFileName}`);
+        throw new Error(`No source file found for ${sourceFileName} in ${sourceFolder.fsPath}`);
     }
 
     const metadataManager = NotebookMetadataManager.getInstance();
@@ -209,7 +213,12 @@ export async function createEmptyCodexNotebooks(sourceFileName: string): Promise
         const sourceData = JSON.parse(new TextDecoder().decode(sourceContent));
 
         const bookName = path.basename(sourceFile.path, path.extname(sourceFile.path));
-        const codexUri = vscode.Uri.joinPath(targetFolder, `${bookName}.codex`);
+        const codexUri = vscode.Uri.joinPath(
+            workspaceFolder.uri,
+            "files",
+            "target",
+            `${bookName}.codex`
+        );
 
         // Create an empty Codex notebook with the same structure as the source
         const emptyCodexData = {
@@ -219,7 +228,7 @@ export async function createEmptyCodexNotebooks(sourceFileName: string): Promise
             })),
             metadata: {
                 ...sourceData.metadata,
-                codexUri: codexUri.toString(),
+                codexUri: codexUri,
             },
         };
 
@@ -231,7 +240,7 @@ export async function createEmptyCodexNotebooks(sourceFileName: string): Promise
         // Update metadata
         const metadata = metadataManager.getMetadataById(sourceData.metadata.id);
         if (metadata) {
-            metadata.codexFsPath = codexUri.toString();
+            metadata.codexFsPath = codexUri.fsPath;
             metadataManager.addOrUpdateMetadata(metadata);
         }
 

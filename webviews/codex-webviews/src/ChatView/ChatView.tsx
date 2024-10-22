@@ -405,8 +405,8 @@ function App() {
                         }
                     }
                     break;
-                case "updateSetting":{
-                    if( message.setting === "enableDoctrineGrading" ) {
+                case "updateSetting": {
+                    if (message.setting === "enableDoctrineGrading") {
                         setEnableGrading(message.value.toLowerCase().startsWith("t"));
                     }
                     break;
@@ -436,7 +436,10 @@ function App() {
 
     //Make a useEffect which sends the message "subscribeSettings"
     useEffect(() => {
-        vscode.postMessage({ command: "subscribeSettings", settingsToSubscribe: ["enableDoctrineGrading"] } as ChatPostMessages);
+        vscode.postMessage({
+            command: "subscribeSettings",
+            settingsToSubscribe: ["enableDoctrineGrading"],
+        } as ChatPostMessages);
     }, []);
 
     function markChatThreadAsDeleted(messageThreadIdToMarkAsDeleted: string) {

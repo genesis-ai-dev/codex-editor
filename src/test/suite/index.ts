@@ -1,39 +1,41 @@
-import * as path from "path";
-import glob from "glob";
-import Mocha = require("mocha");
+// Imports mocha for the browser, defining the `mocha` global.
+require("mocha/mocha");
+
+// Define our own promisify function
+function promisify<T>(fn: any): (...args: any[]) => Promise<T> {
+    return (...args: any[]) => {
+        return new Promise<T>((resolve, reject) => {
+            fn(...args, (err: any, result: T) => {
+                if (err) reject(err);
+                else resolve(result);
+            });
+        });
+    };
+}
 
 export function run(): Promise<void> {
-    // Create the mocha test
-    const mocha = new Mocha({
-        ui: "tdd",
-        color: true,
-    });
-
-    const testsRoot = path.resolve(__dirname, "..");
-    return new Promise((resolve, reject) => {
-        // @ts-expect-error - glob is not typed or something is wrong with the types package
-        glob("**/**.test.js", { cwd: testsRoot }, (err: Error | null, files: string[]) => {
-            if (err) {
-                reject(err);
-            } else {
-                files.forEach((file: string) => {
-                    mocha.addFile(path.resolve(testsRoot, file));
-                });
-
-                try {
-                    // Run the mocha test
-                    mocha.run((failures: number) => {
-                        if (failures > 0) {
-                            reject(new Error(`${failures} tests failed.`));
-                        } else {
-                            resolve();
-                        }
-                    });
-                } catch (err) {
-                    console.error(err);
-                    reject(err);
-                }
-            }
+    return new Promise((c, e) => {
+        mocha.setup({
+            ui: "tdd",
+            reporter: undefined,
         });
+
+        // Bundles all files in the current directory matching `*.test`
+        const importAll = (r: __WebpackModuleApi.RequireContext) => r.keys().forEach(r);
+        importAll(require.context(".", true, /\.test$/));
+
+        try {
+            // Run the mocha test
+            mocha.run((failures: number) => {
+                if (failures > 0) {
+                    e(new Error(`${failures} tests failed.`));
+                } else {
+                    c();
+                }
+            });
+        } catch (err) {
+            console.error(err);
+            e(err);
+        }
     });
 }

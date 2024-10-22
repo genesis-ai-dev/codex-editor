@@ -83,7 +83,7 @@ export class CustomWebviewProvider {
     _context: vscode.ExtensionContext;
     selectionChangeListener: any;
     commentsFilePath: Uri | undefined;
-    private lastSentComments: string = '';
+    private lastSentComments: string = "";
 
     constructor(context: vscode.ExtensionContext) {
         this._context = context;
@@ -129,7 +129,7 @@ export class CustomWebviewProvider {
         });
 
         loadWebviewHtml(webviewView, this._context.extensionUri);
-        
+
         // Send initial data when the webview becomes visible
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
@@ -298,12 +298,12 @@ export class CustomWebviewProvider {
         try {
             const fileContentUint8Array = await workspace.fs.readFile(this.commentsFilePath);
             const fileContent = new TextDecoder().decode(fileContentUint8Array);
-            
+
             webviewView.webview.postMessage({
                 command: "commentsFromWorkspace",
                 content: fileContent,
             } as CommentPostMessages);
-            
+
             this.lastSentComments = fileContent;
         } catch (error) {
             console.error("Error reading comments file:", error);
@@ -313,7 +313,7 @@ export class CustomWebviewProvider {
 
     private async sendCurrentCellId(webviewView: vscode.WebviewView) {
         const { getStoreState } = await initializeStateStore();
-        const cellId = await getStoreState("cellId") as CellIdGlobalState | undefined;
+        const cellId = (await getStoreState("cellId")) as CellIdGlobalState | undefined;
         if (cellId) {
             webviewView.webview.postMessage({
                 command: "reload",

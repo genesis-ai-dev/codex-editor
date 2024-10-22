@@ -91,9 +91,15 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
         console.log("metadata.json exists");
         vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
 
-        const codexNotebooksUris = await vscode.workspace.findFiles("files/target/*.codex");
-        if (codexNotebooksUris.length === 0) {
-            vscode.commands.executeCommand("codex-project-manager.openSourceUpload");
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (workspaceFolders && workspaceFolders.length > 0) {
+            const relativePattern = new vscode.RelativePattern(workspaceFolders[0], "**/*.codex");
+            const codexNotebooksUris = await vscode.workspace.findFiles(relativePattern);
+            if (codexNotebooksUris.length === 0) {
+                vscode.commands.executeCommand("codex-project-manager.openSourceUpload");
+            }
+        } else {
+            console.log("No workspace folder found");
         }
 
         registerCodeLensProviders(context);
@@ -155,7 +161,7 @@ function registerCodeLensProviders(context: vscode.ExtensionContext) {
 
 async function executeCommandsAfter() {
     vscode.commands.executeCommand("workbench.action.focusAuxiliaryBar");
-    vscode.commands.executeCommand("translation-navigation.refreshNavigationTreeView");
+    vscode.commands.executeCommand("codexNotebookTreeView.refresh");
     vscode.commands.executeCommand("codex-editor-extension.setEditorFontToTargetLanguage");
 }
 

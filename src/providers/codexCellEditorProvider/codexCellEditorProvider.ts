@@ -17,6 +17,7 @@ import {
 } from "../../../types";
 import { NotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import path from "path";
+import { getWorkSpaceUri } from "../../utils";
 
 function getNonce(): string {
     let text = "";
@@ -81,15 +82,20 @@ class CodexCellDocument implements vscode.CustomDocument {
         backupId: string | undefined,
         token: vscode.CancellationToken
     ): Promise<CodexCellDocument> {
-        // If we have a backup, read that. Otherwise read the resource from the workspace
         const dataFile = backupId ? vscode.Uri.parse(backupId) : uri;
         const fileData = await vscode.workspace.fs.readFile(dataFile);
-        return new CodexCellDocument(uri, fileData.toString());
+
+        // Properly decode the Uint8Array to a string
+        const decoder = new TextDecoder("utf-8");
+        const initialContent = decoder.decode(fileData);
+
+        return new CodexCellDocument(uri, initialContent);
     }
 
     private static async readFile(uri: vscode.Uri): Promise<string> {
         const fileData = await vscode.workspace.fs.readFile(uri);
-        return fileData.toString();
+        const decoder = new TextDecoder("utf-8");
+        return decoder.decode(fileData);
     }
 
     public get isDirty(): boolean {
@@ -168,7 +174,7 @@ class CodexCellDocument implements vscode.CustomDocument {
 
     public async save(cancellation: vscode.CancellationToken): Promise<void> {
         const text = JSON.stringify(this._documentData, null, 2);
-        await vscode.workspace.fs.writeFile(this.uri, Buffer.from(text));
+        await vscode.workspace.fs.writeFile(this.uri, new TextEncoder().encode(text));
         this._edits = []; // Clear edits after saving
         this._isDirty = false; // Reset dirty flag
     }
@@ -178,7 +184,7 @@ class CodexCellDocument implements vscode.CustomDocument {
         cancellation: vscode.CancellationToken
     ): Promise<void> {
         const text = JSON.stringify(this._documentData, null, 2);
-        await vscode.workspace.fs.writeFile(targetResource, Buffer.from(text));
+        await vscode.workspace.fs.writeFile(targetResource, new TextEncoder().encode(text));
         this._isDirty = false; // Reset dirty flag
     }
 
@@ -397,7 +403,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         openContext: { backupId?: string },
         _token: vscode.CancellationToken
     ): Promise<CodexCellDocument> {
+        console.log("openCustomDocument called", { uri });
         const document = await CodexCellDocument.create(uri, openContext.backupId, _token);
+        console.log("openCustomDocument returned", { document });
         return document;
     }
 
@@ -597,15 +605,25 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     case "openSourceText": {
                         console.log("openSourceText message received", { e });
                         try {
-                            const currentFileName = vscode.workspace.asRelativePath(
-                                document.uri.fsPath
-                            );
+                            const workspaceFolderUri = getWorkSpaceUri();
+                            if (!workspaceFolderUri) {
+                                throw new Error("No workspace folder found");
+                            }
+                            const currentFileName = document.uri.fsPath;
                             const baseFileName = path.basename(currentFileName);
                             const sourceFileName = baseFileName.replace(".codex", ".source");
-                            console.log("sourceFileName", { sourceFileName });
+                            const sourceUri = vscode.Uri.joinPath(
+                                workspaceFolderUri,
+                                ".project",
+                                "sourceTexts",
+                                sourceFileName
+                            );
+                            console.log("sourceFileName", {
+                                sourceFileName,
+                            });
                             await vscode.commands.executeCommand(
-                                "translation-navigation.openSourceFile",
-                                { sourceFile: sourceFileName }
+                                "codexNotebookTreeView.openSourceFile",
+                                { sourceFileUri: sourceUri }
                             );
                             this.postMessageToWebview(webviewPanel, {
                                 type: "jumpToSection",
