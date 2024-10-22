@@ -4,7 +4,7 @@ import * as path from "path";
 import { CodexCellEditorProvider } from "../../providers/codexCellEditorProvider/codexCellEditorProvider";
 import { codexSubtitleContent } from "./mocks/codexSubtitleContent";
 import { CodexCellTypes, EditType } from "../../../types/enums";
-import { Timestamps } from "../../../types";
+import { QuillCellContent, Timestamps } from "../../../types";
 
 suite("CodexCellEditorProvider Test Suite", () => {
     vscode.window.showInformationMessage("Start all tests for CodexCellEditorProvider.");
@@ -276,7 +276,8 @@ suite("CodexCellEditorProvider Test Suite", () => {
             new vscode.CancellationTokenSource().token
         );
 
-        let onDidReceiveMessageCallback: ((message: any) => void) | null = null;
+        let onDidReceiveMessageCallback: any = null;
+        let postMessageCallback: any = null;
         const webviewPanel = {
             webview: {
                 html: "",
@@ -289,7 +290,13 @@ suite("CodexCellEditorProvider Test Suite", () => {
                     onDidReceiveMessageCallback = callback;
                     return { dispose: () => {} };
                 },
-                postMessage: (message: any) => Promise.resolve(),
+                postMessage: (message: any) => {
+                    console.log("postMessage called", {
+                        message: JSON.stringify(message, null, 2),
+                    });
+                    postMessageCallback = message;
+                    return Promise.resolve();
+                },
             },
             onDidDispose: (callback: () => void) => ({ dispose: () => {} }),
         } as any as vscode.WebviewPanel;
@@ -305,7 +312,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
         // Test saveHtml message
         const cellId = codexSubtitleContent.cells[0].metadata.id;
         const newContent = "Updated HTML content";
-        // @ts-expect-error: test
+
         onDidReceiveMessageCallback!({
             command: "saveHtml",
             content: {
@@ -331,7 +338,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             llmCompletionCalled = true;
             return "LLM generated content";
         };
-        // @ts-expect-error: test
+
         onDidReceiveMessageCallback!({
             command: "llmCompletion",
             content: {
@@ -349,7 +356,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
         // Test updateCellTimestamps message
         const newTimestamps = { startTime: 10, endTime: 20 };
-        // @ts-expect-error: test
+
         onDidReceiveMessageCallback!({
             command: "updateCellTimestamps",
             content: {
@@ -369,13 +376,31 @@ suite("CodexCellEditorProvider Test Suite", () => {
             "Cell timestamps should be updated after updateCellTimestamps message"
         );
 
-        // test addWord message
-        // @ts-expect-error: test
+        // test requestAutocompleteChapter message
+        const quillCellContent: QuillCellContent[] = [
+            {
+                cellMarkers: [cellId],
+                cellContent: "test",
+                cellType: CodexCellTypes.PARATEXT,
+                editHistory: [],
+            },
+        ];
+
         onDidReceiveMessageCallback!({
-            command: "addWord",
-            words: ["test"],
+            command: "requestAutocompleteChapter",
+            content: quillCellContent,
         });
-                
-        // Add more tests for other message types as needed...
+
+        // Wait for the autocomplete to be processed
+
+        assert.ok(
+            postMessageCallback,
+            "postMessage should be called after requestAutocompleteChapter message"
+        );
+        assert.strictEqual(
+            postMessageCallback.type,
+            "providerCompletesChapterAutocompletion",
+            "postMessage should be called with providerCompletesChapterAutocompletion type"
+        );
     });
 });
