@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 import { CodexCellEditorProvider } from "../../providers/codexCellEditorProvider/codexCellEditorProvider";
 import { codexSubtitleContent } from "./mocks/codexSubtitleContent";
-import { EditType } from "../../../types/enums";
+import { CodexCellTypes, EditType } from "../../../types/enums";
 import { Timestamps } from "../../../types";
 
 suite("CodexCellEditorProvider Test Suite", () => {
@@ -187,6 +187,54 @@ suite("CodexCellEditorProvider Test Suite", () => {
             cell.metadata.data.endTime,
             timestamps.endTime,
             "End time should be updated"
+        );
+    });
+
+    test("deleteCell deletes the cell", async () => {
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+        const cellId = codexSubtitleContent.cells[0].metadata.id;
+        document.deleteCell(cellId);
+        const updatedContent = await document.getText();
+        const cells = JSON.parse(updatedContent).cells;
+        // cells should not contain the deleted cell
+        assert.strictEqual(
+            cells.length,
+            codexSubtitleContent.cells.length - 1,
+            "Cells should be one less"
+        );
+        assert.strictEqual(
+            cells.find((c: any) => c.metadata.id === cellId),
+            undefined,
+            "Deleted cell should not be in the cells"
+        );
+    });
+
+    test("addCell adds a new cell", async () => {
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+        const cellId = "newCellId";
+        const cellIdOfCellBeforeNewCell = codexSubtitleContent.cells[0].metadata.id;
+        document.addCell(cellId, cellIdOfCellBeforeNewCell, CodexCellTypes.PARATEXT, {});
+        const updatedContent = await document.getText();
+        const cells = JSON.parse(updatedContent).cells;
+        console.log({ cell: JSON.stringify(cells[1], null, 2) });
+        // cells should contain the new cell
+        assert.strictEqual(
+            cells.length,
+            codexSubtitleContent.cells.length + 1,
+            "Cells should be one more"
+        );
+        assert.strictEqual(
+            !!cells.find((c: any) => c.metadata.id === cellId),
+            true,
+            "New cell should be in the cells"
         );
     });
 });
