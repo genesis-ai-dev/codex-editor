@@ -403,4 +403,60 @@ suite("CodexCellEditorProvider Test Suite", () => {
             "postMessage should be called with providerCompletesChapterAutocompletion type"
         );
     });
+
+    test("text direction update should be reflected in the webview", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        let onDidReceiveMessageCallback: any = null;
+        let postMessageCallback: any = null;
+        const webviewPanel = {
+            webview: {
+                html: "",
+                options: {
+                    enableScripts: true,
+                },
+                asWebviewUri: (uri: vscode.Uri) => uri,
+                cspSource: "https://example.com",
+                onDidReceiveMessage: (callback: (message: any) => void) => {
+                    onDidReceiveMessageCallback = callback;
+                    return { dispose: () => {} };
+                },
+                postMessage: (message: any) => {
+                    console.log("postMessage called", {
+                        message: JSON.stringify(message, null, 2),
+                    });
+                    postMessageCallback = message;
+                    return Promise.resolve();
+                },
+            },
+            onDidDispose: (callback: () => void) => ({ dispose: () => {} }),
+        } as any as vscode.WebviewPanel;
+
+        await provider.resolveCustomEditor(
+            document,
+            webviewPanel,
+            new vscode.CancellationTokenSource().token
+        );
+
+        // test updateTextDirection message
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
+        onDidReceiveMessageCallback!({
+            command: "updateTextDirection",
+            direction: "rtl",
+        });
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        const updatedTextDirection = JSON.parse(document.getText()).metadata.textDirection;
+        console.log({ updatedTextDirection });
+        assert.strictEqual(
+            updatedTextDirection,
+            "rtl",
+            "Text direction should be updated after updateTextDirection message"
+        );
+    });
 });

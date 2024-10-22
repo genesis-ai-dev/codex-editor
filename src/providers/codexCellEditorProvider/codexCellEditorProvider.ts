@@ -416,7 +416,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         webviewPanel.webview.options = {
             enableScripts: true,
         };
-        const textDirection = this.getTextDirection();
+        const textDirection = this.getTextDirection(document);
         const isSourceText = document.uri.fsPath.endsWith(".source");
 
         webviewPanel.webview.html = this.getHtmlForWebview(
@@ -593,7 +593,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                 content: await document.getNotebookMetadata(),
                             });
                         } catch (error) {
-                            console.error("Error updating notebook metadata:", error);
+                            console.error("Error updating notebook text direction:", error);
+                            vscode.window.showErrorMessage("Failed to update text direction.");
                         }
                         return;
                     }
@@ -748,7 +749,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration("translators-copilot.textDirection")) {
-                this.updateTextDirection(webviewPanel);
+                this.updateTextDirection(webviewPanel, document);
             }
         });
     }
@@ -888,12 +889,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
     }
 
-    private getTextDirection(): string {
-        return vscode.workspace.getConfiguration("translators-copilot").get("textDirection", "ltr");
+    private getTextDirection(document: CodexCellDocument): string {
+        const notebookData = this.getDocumentAsJson(document);
+        console.log("getTextDirection", notebookData.metadata?.textDirection);
+        return notebookData.metadata?.textDirection || "ltr";
     }
 
-    private updateTextDirection(webviewPanel: vscode.WebviewPanel): void {
-        const textDirection = this.getTextDirection();
+    private updateTextDirection(
+        webviewPanel: vscode.WebviewPanel,
+        document: CodexCellDocument
+    ): void {
+        const textDirection = this.getTextDirection(document);
         this.postMessageToWebview(webviewPanel, {
             type: "providerUpdatesTextDirection",
             textDirection: textDirection as "ltr" | "rtl",
@@ -1035,7 +1041,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         webviewPanel.webview.html = this.getHtmlForWebview(
             webviewPanel.webview,
             document,
-            this.getTextDirection(),
+            this.getTextDirection(document),
             isSourceText
         );
 

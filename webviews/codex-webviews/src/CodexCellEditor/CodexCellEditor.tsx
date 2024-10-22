@@ -36,7 +36,9 @@ const CodexCellEditor: React.FC = () => {
     );
     const [chapterNumber, setChapterNumber] = useState<number>(1);
     const [autocompletionProgress, setAutocompletionProgress] = useState<number | null>(null);
-    const [textDirection, setTextDirection] = useState<"ltr" | "rtl">("ltr");
+    const [textDirection, setTextDirection] = useState<"ltr" | "rtl">(
+        (window as any).initialData?.metadata?.textDirection || "ltr"
+    );
     const [cellDisplayMode, setCellDisplayMode] = useState<CELL_DISPLAY_MODES>(
         CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
     );
@@ -112,14 +114,6 @@ const CodexCellEditor: React.FC = () => {
         setVideoUrl((window as any).initialData?.videoUrl || "");
         setMetadata((window as any).initialData?.metadata || {});
     }, []);
-
-    useEffect(() => {
-        // Send the text direction to the extension whenever it changes
-        vscode.postMessage({
-            command: "updateTextDirection",
-            direction: textDirection,
-        } as EditorPostMessages);
-    }, [textDirection]);
 
     useEffect(() => {
         // Initialize Quill and register SpellChecker and SmartEdits only once
@@ -325,7 +319,13 @@ const CodexCellEditor: React.FC = () => {
                         totalChapters={totalChapters}
                         unsavedChanges={!!contentBeingUpdated.cellContent}
                         onAutocompleteChapter={handleAutocompleteChapter}
-                        onSetTextDirection={setTextDirection}
+                        onSetTextDirection={(direction) => {
+                            setTextDirection(direction);
+                            vscode.postMessage({
+                                command: "updateTextDirection",
+                                direction,
+                            } as EditorPostMessages);
+                        }}
                         textDirection={textDirection}
                         onSetCellDisplayMode={setCellDisplayMode}
                         cellDisplayMode={cellDisplayMode}
@@ -373,6 +373,7 @@ const CodexCellEditor: React.FC = () => {
                         </div>
                     )}
                     <CellList
+                        spellCheckResponse={spellCheckResponse}
                         translationUnits={translationUnitsForSection}
                         contentBeingUpdated={contentBeingUpdated}
                         setContentBeingUpdated={setContentBeingUpdated}
