@@ -4,6 +4,7 @@ import * as path from "path";
 import { CodexCellEditorProvider } from "../../providers/codexCellEditorProvider/codexCellEditorProvider";
 import { codexSubtitleContent } from "./mocks/codexSubtitleContent";
 import { EditType } from "../../../types/enums";
+import { Timestamps } from "../../../types";
 
 suite("CodexCellEditorProvider Test Suite", () => {
     vscode.window.showInformationMessage("Start all tests for CodexCellEditorProvider.");
@@ -160,5 +161,32 @@ suite("CodexCellEditorProvider Test Suite", () => {
         console.log({ updatedContent });
         const cell = JSON.parse(updatedContent).cells.find((c: any) => c.metadata.id === cellId);
         assert.strictEqual(cell.value, contentForUpdate, "Cell content should be updated");
+    });
+
+    test("updateCellTimestamps updates the cell timestamps", async () => {
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+        const cellId = codexSubtitleContent.cells[0].metadata.id;
+        const timestamps: Timestamps = {
+            startTime: new Date().getTime(),
+            endTime: new Date().getTime(),
+        };
+        document.updateCellTimestamps(cellId, timestamps);
+        const updatedContent = await document.getText();
+        console.log({ updatedContent });
+        const cell = JSON.parse(updatedContent).cells.find((c: any) => c.metadata.id === cellId);
+        assert.strictEqual(
+            cell.metadata.data.startTime,
+            timestamps.startTime,
+            "Start time should be updated"
+        );
+        assert.strictEqual(
+            cell.metadata.data.endTime,
+            timestamps.endTime,
+            "End time should be updated"
+        );
     });
 });
