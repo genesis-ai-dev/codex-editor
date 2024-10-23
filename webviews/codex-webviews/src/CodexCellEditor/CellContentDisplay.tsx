@@ -71,12 +71,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     // FIXME: we need to allow for the ref/id to be displayed at the start or end of the cell
     return (
         <span
-            className={
-                `verse-display ${
-                    cellType === CodexCellTypes.TEXT ? "canonical-display" : "paratext-display"
-                } ${cellType === CodexCellTypes.PARATEXT ? "paratext-display" : ""}` +
-                ` cell-content ${hasDuplicateId ? "duplicate-id" : ""}`
-            }
+            className={`verse-display ${
+                cellType === CodexCellTypes.TEXT ? "canonical-display" : "paratext-display"
+            } cell-content ${hasDuplicateId ? "duplicate-id" : ""}`}
             onClick={handleVerseClick}
             style={{
                 direction: textDirection,

@@ -296,6 +296,12 @@ li {
     display: none; /* Hide paratext indicators unless in one-line-per-cell mode */
 }
 
+.cell-display-inline .paratext-display:hover,
+.cell-display-inline .paratext-display *:hover {
+    background-color: var(--vscode-editor-selectionHighlightBackground);
+    display: inline;
+}
+
 .cell-display-one-line-per-cell .paratext-display {
     background-color: var(
         --vscode-editor-inactiveSelectionBackground
@@ -303,6 +309,7 @@ li {
     border-inline-start: 4px solid var(--vscode-editorInfo-foreground); /* Strong accent from VSCode theme */
     padding: 0.5rem;
     border-radius: 4px;
+    display: block;
 }
 
 .cell-display-one-line-per-cell .paratext-indicator {
