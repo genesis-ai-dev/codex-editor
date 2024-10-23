@@ -27,6 +27,7 @@ interface CellEditorProps {
     textDirection: "ltr" | "rtl";
     cellLabel?: string;
     cellTimestamps: Timestamps | undefined;
+    cellIsChild: boolean;
 }
 
 const CellEditor: React.FC<CellEditorProps> = ({
@@ -42,8 +43,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
     textDirection,
     cellLabel,
     cellTimestamps,
+    cellIsChild,
 }) => {
-    console.log("contentBeingUpdated", { contentBeingUpdated });
     const { unsavedChanges, setUnsavedChanges, showFlashingBorder } =
         useContext(UnsavedChangesContext);
     const { sourceCellMap } = useContext(SourceCellContext);
@@ -111,10 +112,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     };
 
     const makeChild = () => {
-        const parentCellId = cellMarkers[0].includes(":")
-            ? cellMarkers[0].split(":").slice(0, 2).join(":")
-            : `${cellMarkers[0]}:1`; // Fallback to chapter 1 if not present
-
+        const parentCellId = cellMarkers[0];
         const newChildId = `${parentCellId}:${Date.now()}-${Math.random()
             .toString(36)
             .substr(2, 9)}`;
@@ -156,9 +154,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     };
 
     const addParatextCell = () => {
-        const parentCellId = cellMarkers[0].includes(":")
-            ? cellMarkers[0].split(":").slice(0, 2).join(":")
-            : `${cellMarkers[0]}:1`; // Fallback to chapter 1 if not present
+        const parentCellId = cellMarkers[0];
 
         const newChildId = `${parentCellId}:paratext-${Date.now()}-${Math.random()
             .toString(36)
@@ -175,7 +171,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
             const messageContentToUpdateParentTimeStamps: EditorPostMessages = {
                 command: "updateCellTimestamps",
                 content: {
-                    cellId: cellMarkers[0],
+                    cellId: parentCellId,
                     timestamps: {
                         startTime: startTime,
                         endTime: childStartTime - 0.001,
@@ -297,9 +293,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 <VSCodeButton onClick={addParatextCell} appearance="icon" title="Add Paratext Cell">
                     <i className="codicon codicon-diff-added"></i>
                 </VSCodeButton>
-                <VSCodeButton onClick={makeChild} appearance="icon" title="Add Child Cell">
-                    <i className="codicon codicon-type-hierarchy-sub"></i>
-                </VSCodeButton>
+                {cellType !== CodexCellTypes.PARATEXT && !cellIsChild && (
+                    <VSCodeButton onClick={makeChild} appearance="icon" title="Add Child Cell">
+                        <i className="codicon codicon-type-hierarchy-sub"></i>
+                    </VSCodeButton>
+                )}
                 {!sourceCellContent && (
                     <ConfirmationButton
                         icon="trash"

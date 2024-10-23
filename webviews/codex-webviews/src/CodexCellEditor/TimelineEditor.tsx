@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import Timeline from "./Timeline/index";
-import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { EditorPostMessages, TimeBlock } from "../../../../types";
 
 interface TimelineEditorProps {

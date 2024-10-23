@@ -138,6 +138,21 @@ const CellList: React.FC<CellListProps> = ({
                 const { cellMarkers, cellContent, cellType, cellLabel, timestamps } =
                     translationUnits[i];
 
+                const checkIfCurrentCellIsChild = () => {
+                    const currentCellId = cellMarkers[0];
+                    const translationUnitsWithCurrentCellRemoved = translationUnits.filter(
+                        ({ cellMarkers }) => cellMarkers[0] !== currentCellId
+                    );
+
+                    const currentCellWithLastIdSegmentRemoved = currentCellId
+                        .split(":")
+                        .slice(0, 2)
+                        .join(":");
+                    return translationUnitsWithCurrentCellRemoved.some(
+                        ({ cellMarkers }) => cellMarkers[0] === currentCellWithLastIdSegmentRemoved
+                    );
+                };
+
                 if (
                     !isSourceText &&
                     cellMarkers.join(" ") === contentBeingUpdated.cellMarkers?.join(" ")
@@ -146,6 +161,8 @@ const CellList: React.FC<CellListProps> = ({
                         result.push(renderCellGroup(currentGroup, groupStartIndex));
                         currentGroup = [];
                     }
+                    const cellIsChild = checkIfCurrentCellIsChild();
+
                     const alertColorsPromise = checkForAlert(cellContent, cellMarkers.join(" "));
                     result.push(
                         <div
@@ -176,6 +193,7 @@ const CellList: React.FC<CellListProps> = ({
                                 handleCloseEditor={handleCloseEditor}
                                 handleSaveHtml={handleSaveHtml}
                                 textDirection={textDirection}
+                                cellIsChild={cellIsChild}
                             />
                         </div>
                     );

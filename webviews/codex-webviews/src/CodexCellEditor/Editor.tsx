@@ -141,7 +141,6 @@ export default function Editor(props: EditorProps) {
     }, [revertedValue]);
 
     const llmCompletion = async () => {
-        console.log("llmCompletion vscode", { vscode, window }, window.vscodeApi);
         window.vscodeApi.postMessage({
             command: "llmCompletion",
             content: {
@@ -151,7 +150,6 @@ export default function Editor(props: EditorProps) {
 
         const newTextContentFromLLM: string = await new Promise((resolve) => {
             const messageListener = (event: MessageEvent) => {
-                console.log("messageListener", { event });
                 if (event.data.type === "llmCompletionResponse") {
                     resolve(event.data.content.completion);
                     window.removeEventListener("message", messageListener);
