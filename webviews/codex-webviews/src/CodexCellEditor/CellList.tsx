@@ -86,53 +86,41 @@ const CellList: React.FC<CellListProps> = ({
     );
 
     const renderCellGroup = useMemo(
-        () => (group: typeof translationUnits, startIndex: number) => (
-            <span
-                key={`group-${startIndex}`}
-                className={`verse-group cell-display-${cellDisplayMode}`}
-                style={{ direction: textDirection }}
-            >
-                {group.map(
-                    ({ cellMarkers, cellContent, cellType, cellLabel, timestamps }, index) => {
-                        const cellId = cellMarkers.join(" ");
-                        const hasDuplicateId = duplicateCellIds.has(cellId);
-                        const alertColorsPromise = checkForAlert(cellContent, cellId);
+        () => (group: typeof translationUnits, startIndex: number) =>
+            (
+                <span
+                    key={`group-${startIndex}`}
+                    className={`verse-group cell-display-${cellDisplayMode}`}
+                    style={{ direction: textDirection }}
+                >
+                    {group.map(
+                        ({ cellMarkers, cellContent, cellType, cellLabel, timestamps }, index) => {
+                            const cellId = cellMarkers.join(" ");
+                            const hasDuplicateId = duplicateCellIds.has(cellId);
+                            const alertColorsPromise = checkForAlert(cellContent, cellId);
 
-                        return (
-                            <div
-                                key={startIndex + index}
-                                style={{ display: "flex", alignItems: "center" }}
-                            >
-                                <div
-                                    style={{
-                                        display: "flex",
-                                        flexDirection: "column",
-                                        marginRight: "8px",
-                                    }}
-                                >
-                                    <React.Suspense fallback={<div>Loading...</div>}>
-                                        <AlertColors alertColorsPromise={alertColorsPromise} />
-                                    </React.Suspense>
-                                </div>
-                                <CellContentDisplay
-                                    cellIds={cellMarkers}
-                                    cellContent={cellContent}
-                                    cellIndex={startIndex + index}
-                                    cellType={cellType}
-                                    cellLabel={cellLabel}
-                                    setContentBeingUpdated={setContentBeingUpdated}
-                                    vscode={vscode}
-                                    textDirection={textDirection}
-                                    isSourceText={isSourceText}
-                                    hasDuplicateId={hasDuplicateId}
-                                    timestamps={timestamps}
-                                />
-                            </div>
-                        );
-                    }
-                )}
-            </span>
-        ),
+                            return (
+                                <span key={startIndex + index}>
+                                    <AlertColors alertColorsPromise={alertColorsPromise} />
+                                    <CellContentDisplay
+                                        cellIds={cellMarkers}
+                                        cellContent={cellContent}
+                                        cellIndex={startIndex + index}
+                                        cellType={cellType}
+                                        cellLabel={cellLabel}
+                                        setContentBeingUpdated={setContentBeingUpdated}
+                                        vscode={vscode}
+                                        textDirection={textDirection}
+                                        isSourceText={isSourceText}
+                                        hasDuplicateId={hasDuplicateId}
+                                        timestamps={timestamps}
+                                    />
+                                </span>
+                            );
+                        }
+                    )}
+                </span>
+            ),
         [
             cellDisplayMode,
             textDirection,
@@ -259,17 +247,15 @@ const AlertColors: React.FC<{ alertColorsPromise: Promise<string[]> }> = ({
     return (
         <>
             {alertColors.map((color, i) => (
-                <div
+                <span
                     key={i}
                     style={{
-                        width: "10px",
-                        height: "10px",
-                        borderRadius: "50%",
-                        backgroundColor: color,
-                        marginBottom: "-4px",
-                        boxShadow: "0 0 2px rgba(0,0,0,0.2)",
+                        fontSize: "2rem",
+                        color: color,
                     }}
-                />
+                >
+                    •
+                </span>
             ))}
         </>
     );
