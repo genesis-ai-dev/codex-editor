@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from "react";
 import Timeline from "./Timeline/index";
 import { EditorPostMessages, TimeBlock } from "../../../../types";
+import ReactPlayer from "react-player";
 
 interface TimelineEditorProps {
     data: TimeBlock[];
     vscode: any;
+    currentTime: number;
 }
 
 const getListOfTimeBlocksWithUpdatedTimes = (
@@ -28,7 +30,7 @@ const getListOfTimeBlocksWithUpdatedTimes = (
     return timeBlocksWithUpdates;
 };
 
-const TimelineEditor: React.FC<TimelineEditorProps> = ({ data, vscode }) => {
+const TimelineEditor: React.FC<TimelineEditorProps> = ({ data, vscode, currentTime }) => {
     const [timeBlocksWithUpdates, setTimeBlocksWithUpdates] = useState<TimeBlock[]>([]);
 
     return (
@@ -59,6 +61,7 @@ const TimelineEditor: React.FC<TimelineEditorProps> = ({ data, vscode }) => {
                     setTimeBlocksWithUpdates(timeBlocksWithUpdates);
                 }}
                 // audioRef={playerRef}
+                currentTime={currentTime}
                 src={"..."}
                 data={data}
                 autoScroll

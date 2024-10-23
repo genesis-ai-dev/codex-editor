@@ -32,6 +32,7 @@ export interface TimelineProps {
     disableSaveButton?: boolean;
     onSave: () => void;
     onReset: () => void;
+    currentTime: number;
 }
 
 export default function Timeline(props: TimelineProps) {
@@ -78,6 +79,7 @@ export default function Timeline(props: TimelineProps) {
             changeAreaShow || defaultFunction,
             {
                 autoScroll: props.autoScroll,
+                currentTime: props.currentTime,
                 colors: {
                     background: props.colors?.background || "transparent",
                     box: props.colors?.box || "#a9a9a9",
