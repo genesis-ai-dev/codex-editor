@@ -28,6 +28,7 @@ export default function TimeLine(
     tellAreaChangesToRectComponent: (beginingTimeShow: number, endTimeShow: number) => void,
     options: {
         autoScroll: boolean;
+        currentTime: number;
         colors: {
             background: string;
             box: string;
@@ -104,7 +105,7 @@ export default function TimeLine(
     let rightResize = false;
     let leftResize = false;
     let globalRatio = 1;
-    let currentTime = 0;
+    let currentTime = options.currentTime;
     let beginingTimeShow = 0;
     let endTimeShow = Math.abs(w + shift) / zoomLevel;
     let moveIndex: number;
@@ -955,8 +956,7 @@ export default function TimeLine(
         let _player;
 
         if (!player) player = getPlayer();
-        currentTime =
-            ((_player = player) === null || _player === void 0 ? void 0 : _player.currentTime) || 0;
+        currentTime = options.currentTime || 0;
         calculateViewPortTimes();
         if (player) handleCursorOutOfViewPort(currentTime); //clear paper
 

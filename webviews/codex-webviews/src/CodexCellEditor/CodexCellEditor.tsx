@@ -18,6 +18,7 @@ import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import SourceCellContext from "./contextProviders/SourceCellContext";
 import DuplicateCellResolver from "./DuplicateCellResolver";
 import TimelineEditor from "./TimelineEditor";
+import VideoTimelineEditor from "./VideoTimelineEditor";
 
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
@@ -292,23 +293,6 @@ const CodexCellEditor: React.FC = () => {
         );
     }
 
-    // const data = [{ begin: 25, end: 35, text: "This is subtitle" }];
-    const removeHtmlTags = (text: string) => {
-        return text.replace(/<[^>]*>?/g, "").replace(/\n/g, " ");
-    };
-    const data: {
-        begin: number;
-        end: number;
-        text: string;
-        id: string;
-    }[] = translationUnitsForSection.map((unit) => {
-        return {
-            begin: unit.timestamps?.startTime || 0,
-            end: unit.timestamps?.endTime || 0,
-            text: removeHtmlTags(unit.cellContent),
-            id: unit.cellMarkers[0],
-        };
-    });
     return (
         <div className="codex-cell-editor">
             <div className="static-header" ref={headerRef}>
@@ -351,12 +335,12 @@ const CodexCellEditor: React.FC = () => {
                         }}
                         ref={videoPlayerRef}
                     >
-                        <VideoPlayer
-                            playerRef={playerRef}
+                        <VideoTimelineEditor
                             videoUrl={videoUrl}
                             translationUnitsForSection={translationUnitsWithCurrentEditorContent}
+                            vscode={vscode}
+                            playerRef={playerRef}
                         />
-                        <TimelineEditor data={data} vscode={vscode} />
                     </div>
                 )}
             </div>
