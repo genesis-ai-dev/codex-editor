@@ -383,8 +383,6 @@ const CodexCellEditor: React.FC = () => {
                         textDirection={textDirection}
                         cellDisplayMode={cellDisplayMode}
                         isSourceText={isSourceText}
-                        windowHeight={windowHeight}
-                        headerHeight={headerHeight}
                         spellCheckFunction={(cellContent: string) => {
                             return new Promise<SpellCheckResponse | null>((resolve) => {
                                 vscode.postMessage({

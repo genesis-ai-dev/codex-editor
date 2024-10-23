@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import Timeline from "./Timeline/index";
-import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { EditorPostMessages, TimeBlock } from "../../../../types";
 
 interface TimelineEditorProps {
@@ -15,7 +14,7 @@ const getListOfTimeBlocksWithUpdatedTimes = (
     const timeBlocksWithUpdates: TimeBlock[] = [];
     newTimeBlocks.forEach((newTimeBlock) => {
         const oldBlock = oldTimeBlocks.find((block) => block.id === newTimeBlock.id);
-        console.log({ oldBlock, newTimeBlock });
+
         if (oldBlock) {
             if (newTimeBlock.begin !== oldBlock.begin) {
                 timeBlocksWithUpdates.push(newTimeBlock);
@@ -31,7 +30,7 @@ const getListOfTimeBlocksWithUpdatedTimes = (
 
 const TimelineEditor: React.FC<TimelineEditorProps> = ({ data, vscode }) => {
     const [timeBlocksWithUpdates, setTimeBlocksWithUpdates] = useState<TimeBlock[]>([]);
-    console.log({ timeBlocksWithUpdates, data });
+
     return (
         <div
             style={{

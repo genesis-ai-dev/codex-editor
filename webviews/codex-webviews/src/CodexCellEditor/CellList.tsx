@@ -18,8 +18,6 @@ interface CellListProps {
     textDirection: "ltr" | "rtl";
     cellDisplayMode: CELL_DISPLAY_MODES;
     isSourceText: boolean;
-    windowHeight: number;
-    headerHeight: number;
     spellCheckFunction: (cellContent: string) => Promise<SpellCheckResponse | null>;
 }
 
@@ -34,8 +32,6 @@ const CellList: React.FC<CellListProps> = ({
     textDirection,
     cellDisplayMode,
     isSourceText,
-    windowHeight,
-    headerHeight,
     spellCheckFunction,
 }) => {
     const [alertColorCache, setAlertColorCache] = useState<Map<string, string[]>>(new Map());
@@ -86,53 +82,41 @@ const CellList: React.FC<CellListProps> = ({
     );
 
     const renderCellGroup = useMemo(
-        () => (group: typeof translationUnits, startIndex: number) => (
-            <span
-                key={`group-${startIndex}`}
-                className={`verse-group cell-display-${cellDisplayMode}`}
-                style={{ direction: textDirection }}
-            >
-                {group.map(
-                    ({ cellMarkers, cellContent, cellType, cellLabel, timestamps }, index) => {
-                        const cellId = cellMarkers.join(" ");
-                        const hasDuplicateId = duplicateCellIds.has(cellId);
-                        const alertColorsPromise = checkForAlert(cellContent, cellId);
+        () => (group: typeof translationUnits, startIndex: number) =>
+            (
+                <span
+                    key={`group-${startIndex}`}
+                    className={`verse-group cell-display-${cellDisplayMode}`}
+                    style={{ direction: textDirection }}
+                >
+                    {group.map(
+                        ({ cellMarkers, cellContent, cellType, cellLabel, timestamps }, index) => {
+                            const cellId = cellMarkers.join(" ");
+                            const hasDuplicateId = duplicateCellIds.has(cellId);
+                            const alertColorsPromise = checkForAlert(cellContent, cellId);
 
-                        return (
-                            <div
-                                key={startIndex + index}
-                                style={{ display: "flex", alignItems: "center" }}
-                            >
-                                <div
-                                    style={{
-                                        display: "flex",
-                                        flexDirection: "column",
-                                        marginRight: "8px",
-                                    }}
-                                >
-                                    <React.Suspense fallback={<div>Loading...</div>}>
-                                        <AlertColors alertColorsPromise={alertColorsPromise} />
-                                    </React.Suspense>
-                                </div>
-                                <CellContentDisplay
-                                    cellIds={cellMarkers}
-                                    cellContent={cellContent}
-                                    cellIndex={startIndex + index}
-                                    cellType={cellType}
-                                    cellLabel={cellLabel}
-                                    setContentBeingUpdated={setContentBeingUpdated}
-                                    vscode={vscode}
-                                    textDirection={textDirection}
-                                    isSourceText={isSourceText}
-                                    hasDuplicateId={hasDuplicateId}
-                                    timestamps={timestamps}
-                                />
-                            </div>
-                        );
-                    }
-                )}
-            </span>
-        ),
+                            return (
+                                <span key={startIndex + index}>
+                                    <AlertColors alertColorsPromise={alertColorsPromise} />
+                                    <CellContentDisplay
+                                        cellIds={cellMarkers}
+                                        cellContent={cellContent}
+                                        cellIndex={startIndex + index}
+                                        cellType={cellType}
+                                        cellLabel={cellLabel}
+                                        setContentBeingUpdated={setContentBeingUpdated}
+                                        vscode={vscode}
+                                        textDirection={textDirection}
+                                        isSourceText={isSourceText}
+                                        hasDuplicateId={hasDuplicateId}
+                                        timestamps={timestamps}
+                                    />
+                                </span>
+                            );
+                        }
+                    )}
+                </span>
+            ),
         [
             cellDisplayMode,
             textDirection,
@@ -154,6 +138,21 @@ const CellList: React.FC<CellListProps> = ({
                 const { cellMarkers, cellContent, cellType, cellLabel, timestamps } =
                     translationUnits[i];
 
+                const checkIfCurrentCellIsChild = () => {
+                    const currentCellId = cellMarkers[0];
+                    const translationUnitsWithCurrentCellRemoved = translationUnits.filter(
+                        ({ cellMarkers }) => cellMarkers[0] !== currentCellId
+                    );
+
+                    const currentCellWithLastIdSegmentRemoved = currentCellId
+                        .split(":")
+                        .slice(0, 2)
+                        .join(":");
+                    return translationUnitsWithCurrentCellRemoved.some(
+                        ({ cellMarkers }) => cellMarkers[0] === currentCellWithLastIdSegmentRemoved
+                    );
+                };
+
                 if (
                     !isSourceText &&
                     cellMarkers.join(" ") === contentBeingUpdated.cellMarkers?.join(" ")
@@ -162,6 +161,8 @@ const CellList: React.FC<CellListProps> = ({
                         result.push(renderCellGroup(currentGroup, groupStartIndex));
                         currentGroup = [];
                     }
+                    const cellIsChild = checkIfCurrentCellIsChild();
+
                     const alertColorsPromise = checkForAlert(cellContent, cellMarkers.join(" "));
                     result.push(
                         <div
@@ -192,6 +193,7 @@ const CellList: React.FC<CellListProps> = ({
                                 handleCloseEditor={handleCloseEditor}
                                 handleSaveHtml={handleSaveHtml}
                                 textDirection={textDirection}
+                                cellIsChild={cellIsChild}
                             />
                         </div>
                     );
@@ -235,12 +237,10 @@ const CellList: React.FC<CellListProps> = ({
         ]
     );
 
-    const listHeight = windowHeight - headerHeight - 20; // 20px for padding
-
     return (
         <div
             className="verse-list ql-editor"
-            style={{ direction: textDirection, height: `${listHeight}px`, overflowY: "auto" }}
+            style={{ direction: textDirection, overflowY: "auto" }}
         >
             {renderCells()}
         </div>
@@ -259,17 +259,15 @@ const AlertColors: React.FC<{ alertColorsPromise: Promise<string[]> }> = ({
     return (
         <>
             {alertColors.map((color, i) => (
-                <div
+                <span
                     key={i}
                     style={{
-                        width: "10px",
-                        height: "10px",
-                        borderRadius: "50%",
-                        backgroundColor: color,
-                        marginBottom: "-4px",
-                        boxShadow: "0 0 2px rgba(0,0,0,0.2)",
+                        fontSize: "2rem",
+                        color: color,
                     }}
-                />
+                >
+                    •
+                </span>
             ))}
         </>
     );
