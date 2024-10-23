@@ -10,6 +10,7 @@ import {
 } from "@vscode/webview-ui-toolkit/react";
 import { ProjectOverview } from "../../../../types";
 import { ProjectList } from "./ProjectList";
+import "./App.css";
 
 // At the top of the file, add:
 declare const vscode: {
@@ -33,7 +34,8 @@ interface ProjectListItem {
     lastOpened?: Date;
 }
 
-type ViewMode = "overview" | "projectList";
+// Update ViewMode type
+type ViewMode = "overview" | "projectList" | "sourceSetup";
 
 function App() {
     const [projectOverview, setProjectOverview] = useState<ProjectOverview | null>(null);
@@ -45,6 +47,14 @@ function App() {
     const [projects, setProjects] = useState<ProjectListItem[]>([]);
     const [watchedFolders, setWatchedFolders] = useState<string[]>([]);
     // const [primarySourceText, setprimarySourceText] = useState<string | null>(null);
+    const [sourceSetupStep, setSourceSetupStep] = useState<
+        "initial" | "format" | "location" | "import"
+    >("initial");
+    const [selectedSourceFile, setSelectedSourceFile] = useState<string | null>(null);
+    const [hasExistingTranslation, setHasExistingTranslation] = useState<boolean | null>(null);
+    const [translationFormat, setTranslationFormat] = useState<
+        "WEB/TTT" | "eBible" | "USFM" | "USX" | null
+    >(null);
 
     const handleMessage = useCallback((event: MessageEvent) => {
         console.log("Received message:", event.data);
@@ -99,6 +109,16 @@ function App() {
             }
             case "sendWatchedFolders": {
                 setWatchedFolders(message.data);
+                break;
+            }
+            case "sourceFileSelected": {
+                setSelectedSourceFile(message.data.path);
+                setSourceSetupStep("format");
+                break;
+            }
+            case "importComplete": {
+                setViewMode("overview");
+                vscode.postMessage({ command: "requestProjectOverview" });
                 break;
             }
             default:
@@ -186,15 +206,29 @@ function App() {
         handleAction("refreshProjects");
     }, [handleAction]);
 
+    const handleSourceFileSetup = useCallback(() => {
+        setViewMode("sourceSetup");
+        setSourceSetupStep("initial");
+    }, []);
+
+    const handleSelectSourceFile = useCallback(() => {
+        handleAction("selectSourceFile");
+    }, [handleAction]);
+
+    const handleCreateSourceFolder = useCallback(() => {
+        if (!selectedSourceFile) return;
+        handleAction("createSourceFolder", { sourcePath: selectedSourceFile });
+    }, [selectedSourceFile, handleAction]);
+
     // Add a useEffect to handle view mode changes based on workspace state
     useEffect(() => {
         if (noProjectFound && viewMode === "projectList") {
             // If we're in project list view and there's no project, stay there
             return;
         }
-        
+
         if (noProjectFound && !projectOverview) {
-            // If there's no project and we're not in project list view, 
+            // If there's no project and we're not in project list view,
             // show the initialize project view
             setViewMode("overview");
         }
@@ -204,15 +238,17 @@ function App() {
     if (viewMode === "projectList") {
         return (
             <ProjectList
-                projects={projects as Array<{
-                    name: string;
-                    path: string;
-                    lastOpened?: Date;
-                    lastModified: Date;
-                    version: string;
-                    hasVersionMismatch?: boolean;
-                    isOutdated?: boolean;
-                }>}
+                projects={
+                    projects as Array<{
+                        name: string;
+                        path: string;
+                        lastOpened?: Date;
+                        lastModified: Date;
+                        version: string;
+                        hasVersionMismatch?: boolean;
+                        isOutdated?: boolean;
+                    }>
+                }
                 watchedFolders={watchedFolders}
                 onCreateNew={handleCreateNewProject}
                 onOpenProject={handleOpenProject}
@@ -225,23 +261,132 @@ function App() {
         );
     }
 
+    const renderSourceSetup = () => {
+        if (!sourceSetupStep) return null;
+
+        return (
+            <div className="source-setup-container">
+                {sourceSetupStep === "initial" && (
+                    <div className="setup-step">
+                        <h2>Select Source File</h2>
+                        <VSCodeButton onClick={handleSelectSourceFile}>
+                            <i className="codicon codicon-file-add"></i>
+                            Choose File
+                        </VSCodeButton>
+                        {selectedSourceFile && (
+                            <>
+                                <p>Selected: {selectedSourceFile}</p>
+                                <div className="translation-query">
+                                    <h3>Have you already started translating?</h3>
+                                    <div className="button-group">
+                                        <VSCodeButton
+                                            onClick={() => {
+                                                setHasExistingTranslation(true);
+                                                setSourceSetupStep("format");
+                                            }}
+                                        >
+                                            Yes
+                                        </VSCodeButton>
+                                        <VSCodeButton
+                                            onClick={() => {
+                                                setHasExistingTranslation(false);
+                                                handleCreateSourceFolder();
+                                            }}
+                                        >
+                                            No
+                                        </VSCodeButton>
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                )}
+
+                {sourceSetupStep === "format" && hasExistingTranslation && (
+                    <div className="setup-step">
+                        <h2>Select Translation Format</h2>
+                        <div className="format-options">
+                            {["WEB/TTT", "eBible", "USFM", "USX"].map((format) => (
+                                <VSCodeButton
+                                    key={format}
+                                    onClick={() => {
+                                        setTranslationFormat(format as any);
+                                        setSourceSetupStep("location");
+                                    }}
+                                >
+                                    {format}
+                                </VSCodeButton>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {sourceSetupStep === "location" && translationFormat && (
+                    <div className="setup-step">
+                        <h2>Select Translation Location</h2>
+                        <div className="location-options">
+                            <VSCodeButton
+                                onClick={() =>
+                                    handleAction("importRemoteTranslation", {
+                                        format: translationFormat,
+                                    })
+                                }
+                            >
+                                Remote Storage
+                            </VSCodeButton>
+                            <VSCodeButton
+                                onClick={() =>
+                                    handleAction("importLocalTranslation", {
+                                        format: translationFormat,
+                                    })
+                                }
+                            >
+                                Local File
+                            </VSCodeButton>
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    };
+
     return (
         <div style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
             <VSCodePanels>
                 <VSCodePanelTab id="current-project">Current Project</VSCodePanelTab>
                 <VSCodePanelTab id="all-projects">All Projects</VSCodePanelTab>
-                
+                {projectOverview && <VSCodePanelTab id="source-setup">Source Setup</VSCodePanelTab>}
+
                 <VSCodePanelView id="current-project-view">
                     {isLoading ? (
                         <div>Loading project overview...</div>
                     ) : error && !projectOverview && !noProjectFound ? (
-                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "2rem" }}>
+                        <div
+                            style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "center",
+                                gap: "2rem",
+                            }}
+                        >
                             <p style={{ color: "var(--vscode-errorForeground)" }}>{error}</p>
-                            <VSCodeButton onClick={() => handleAction("requestProjectOverview")}>Retry</VSCodeButton>
+                            <VSCodeButton onClick={() => handleAction("requestProjectOverview")}>
+                                Retry
+                            </VSCodeButton>
                         </div>
                     ) : noProjectFound ? (
-                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "2rem" }}>
-                            <VSCodeButton onClick={() => handleAction("initializeProject")} style={{ marginTop: "2rem" }}>
+                        <div
+                            style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "center",
+                                gap: "2rem",
+                            }}
+                        >
+                            <VSCodeButton
+                                onClick={() => handleAction("initializeProject")}
+                                style={{ marginTop: "2rem" }}
+                            >
                                 <i className="codicon codicon-plus"></i>
                                 <div style={{ marginInline: "0.25rem" }}>Initialize Project</div>
                             </VSCodeButton>
@@ -249,7 +394,9 @@ function App() {
                     ) : projectOverview ? (
                         <VSCodeDataGrid grid-template-columns="1fr 1fr auto">
                             <VSCodeDataGridRow>
-                                <VSCodeDataGridCell grid-column="1">Project Name</VSCodeDataGridCell>
+                                <VSCodeDataGridCell grid-column="1">
+                                    Project Name
+                                </VSCodeDataGridCell>
                                 <VSCodeDataGridCell
                                     grid-column="2"
                                     style={{
@@ -299,7 +446,9 @@ function App() {
                             </VSCodeDataGridRow>
 
                             <VSCodeDataGridRow>
-                                <VSCodeDataGridCell grid-column="1">Source Language</VSCodeDataGridCell>
+                                <VSCodeDataGridCell grid-column="1">
+                                    Source Language
+                                </VSCodeDataGridCell>
                                 <VSCodeDataGridCell
                                     grid-column="2"
                                     style={{
@@ -317,14 +466,18 @@ function App() {
                                     )}
                                 </VSCodeDataGridCell>
                                 <VSCodeDataGridCell grid-column="3">
-                                    <VSCodeButton onClick={() => handleAction("changeSourceLanguage")}>
+                                    <VSCodeButton
+                                        onClick={() => handleAction("changeSourceLanguage")}
+                                    >
                                         <i className="codicon codicon-source-control"></i>
                                     </VSCodeButton>
                                 </VSCodeDataGridCell>
                             </VSCodeDataGridRow>
 
                             <VSCodeDataGridRow>
-                                <VSCodeDataGridCell grid-column="1">Target Language</VSCodeDataGridCell>
+                                <VSCodeDataGridCell grid-column="1">
+                                    Target Language
+                                </VSCodeDataGridCell>
                                 <VSCodeDataGridCell
                                     grid-column="2"
                                     style={{
@@ -342,14 +495,18 @@ function App() {
                                     )}
                                 </VSCodeDataGridCell>
                                 <VSCodeDataGridCell grid-column="3">
-                                    <VSCodeButton onClick={() => handleAction("changeTargetLanguage")}>
+                                    <VSCodeButton
+                                        onClick={() => handleAction("changeTargetLanguage")}
+                                    >
                                         <i className="codicon codicon-globe"></i>
                                     </VSCodeButton>
                                 </VSCodeDataGridCell>
                             </VSCodeDataGridRow>
 
                             <VSCodeDataGridRow>
-                                <VSCodeDataGridCell grid-column="1">Abbreviation</VSCodeDataGridCell>
+                                <VSCodeDataGridCell grid-column="1">
+                                    Abbreviation
+                                </VSCodeDataGridCell>
                                 <VSCodeDataGridCell
                                     grid-column="2"
                                     style={{
@@ -399,7 +556,9 @@ function App() {
                             </VSCodeDataGridRow>
 
                             <VSCodeDataGridRow>
-                                <VSCodeDataGridCell grid-column="1">Source Texts</VSCodeDataGridCell>
+                                <VSCodeDataGridCell grid-column="1">
+                                    Source Texts
+                                </VSCodeDataGridCell>
                                 <VSCodeDataGridCell
                                     grid-column="2"
                                     style={{
@@ -494,7 +653,9 @@ function App() {
                             </VSCodeDataGridRow>
 
                             <VSCodeDataGridRow>
-                                <VSCodeDataGridCell grid-column="1">Copilot Settings</VSCodeDataGridCell>
+                                <VSCodeDataGridCell grid-column="1">
+                                    Copilot Settings
+                                </VSCodeDataGridCell>
                                 <VSCodeDataGridCell grid-column="3">
                                     <VSCodeButton onClick={() => handleAction("openAISettings")}>
                                         <i className="codicon codicon-settings"></i>
@@ -503,20 +664,28 @@ function App() {
                             </VSCodeDataGridRow>
 
                             <VSCodeDataGridRow>
-                                <VSCodeDataGridCell grid-column="1">Export Project</VSCodeDataGridCell>
+                                <VSCodeDataGridCell grid-column="1">
+                                    Export Project
+                                </VSCodeDataGridCell>
                                 <VSCodeDataGridCell grid-column="3">
-                                    <VSCodeButton onClick={() => handleAction("exportProjectAsPlaintext")}>
+                                    <VSCodeButton
+                                        onClick={() => handleAction("exportProjectAsPlaintext")}
+                                    >
                                         <i className="codicon codicon-export"></i>
                                     </VSCodeButton>
                                 </VSCodeDataGridCell>
                             </VSCodeDataGridRow>
 
                             <VSCodeDataGridRow>
-                                <VSCodeDataGridCell grid-column="1">Publish Project</VSCodeDataGridCell>
+                                <VSCodeDataGridCell grid-column="1">
+                                    Publish Project
+                                </VSCodeDataGridCell>
                                 <VSCodeDataGridCell grid-column="3">
                                     {/* <VSCodeButton onClick={() => handleAction("publishProject")}> */}
                                     <VSCodeButton
-                                        onClick={() => alert("Publish Project not implemented yet.")}
+                                        onClick={() =>
+                                            alert("Publish Project not implemented yet.")
+                                        }
                                     >
                                         <i className="codicon codicon-cloud-upload"></i>
                                     </VSCodeButton>
@@ -524,7 +693,9 @@ function App() {
                             </VSCodeDataGridRow>
 
                             <VSCodeDataGridRow>
-                                <VSCodeDataGridCell grid-column="1">All Projects</VSCodeDataGridCell>
+                                <VSCodeDataGridCell grid-column="1">
+                                    All Projects
+                                </VSCodeDataGridCell>
                                 <VSCodeDataGridCell grid-column="3">
                                     <VSCodeButton onClick={handleViewAllProjects}>
                                         <i className="codicon codicon-list-flat"></i>
@@ -536,18 +707,20 @@ function App() {
                         "No project overview available"
                     )}
                 </VSCodePanelView>
-                
+
                 <VSCodePanelView id="all-projects-view">
                     <ProjectList
-                        projects={projects as Array<{
-                            name: string;
-                            path: string;
-                            lastOpened?: Date;
-                            lastModified: Date;
-                            version: string;
-                            hasVersionMismatch?: boolean;
-                            isOutdated?: boolean;
-                        }>}
+                        projects={
+                            projects as Array<{
+                                name: string;
+                                path: string;
+                                lastOpened?: Date;
+                                lastModified: Date;
+                                version: string;
+                                hasVersionMismatch?: boolean;
+                                isOutdated?: boolean;
+                            }>
+                        }
                         watchedFolders={watchedFolders}
                         onCreateNew={handleCreateNewProject}
                         onOpenProject={handleOpenProject}
@@ -557,6 +730,9 @@ function App() {
                         showBackButton={false}
                     />
                 </VSCodePanelView>
+                {projectOverview && (
+                    <VSCodePanelView id="source-setup-view">{renderSourceSetup()}</VSCodePanelView>
+                )}
             </VSCodePanels>
         </div>
     );

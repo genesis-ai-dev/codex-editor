@@ -6,8 +6,20 @@ import { downloadBible } from "../../projectManager/projectInitializers";
 import { processDownloadedBible } from "../../projectManager/sourceTextImporter";
 import { initProject } from "../scm/git";
 import { registerScmCommands } from "../scm/scmActionHandler";
-import { SourceUploadPostMessages } from "../../../types";
+import {
+    SourceUploadPostMessages,
+    SourceUploadResponseMessages,
+    AggregatedMetadata,
+} from "../../../types";
 import path from "path";
+
+// Add new types for workflow status tracking
+interface ProcessingStatus {
+    fileValidation: boolean;
+    folderCreation: boolean;
+    metadataSetup: boolean;
+    importComplete: boolean;
+}
 
 function getNonce(): string {
     let text = "";
@@ -62,109 +74,181 @@ export class SourceUploadProvider
         await this.updateMetadata(webviewPanel);
 
         webviewPanel.webview.onDidReceiveMessage(async (message: SourceUploadPostMessages) => {
-            switch (message.command) {
-                case "getMetadata":
-                    await this.updateMetadata(webviewPanel);
-                    break;
-                case "uploadSourceText":
-                    try {
-                        const fileUri = await this.saveUploadedFile(
-                            message.fileContent,
-                            message.fileName
-                        );
-                        await importSourceText(this.context, fileUri);
-                        vscode.window.showInformationMessage("Source text uploaded successfully.");
+            try {
+                switch (message.command) {
+                    case "getMetadata":
                         await this.updateMetadata(webviewPanel);
-                    } catch (error) {
-                        console.error(`Error uploading source text: ${error}`);
-                        vscode.window.showErrorMessage(`Error uploading source text: ${error}`);
-                    }
-                    break;
-                case "uploadTranslation":
-                    console.log("uploadTranslation message in provider", message);
-                    try {
-                        const fileUri = await this.saveUploadedFile(
-                            message.fileContent,
-                            message.fileName
-                        );
-                        const metadataManager = NotebookMetadataManager.getInstance();
-                        await metadataManager.loadMetadata();
-                        const sourceMetadata = metadataManager.getMetadataBySourceFileName(
-                            message.sourceFileName
-                        );
-                        if (!sourceMetadata) {
-                            throw new Error("Source notebook metadata not found");
-                        }
-                        await importTranslations(this.context, fileUri, sourceMetadata.id);
-                        vscode.window.showInformationMessage("Translation uploaded successfully.");
-                        await this.updateMetadata(webviewPanel);
-                    } catch (error) {
-                        console.error(`Error uploading translation: ${error}`);
-                        vscode.window.showErrorMessage(`Error uploading translation: ${error}`);
-                    }
-                    break;
-                case "downloadBible":
-                    try {
-                        const downloadedBibleFile = await downloadBible("source");
-                        if (downloadedBibleFile) {
-                            await processDownloadedBible(downloadedBibleFile);
-                            await this.updateCodexFiles(webviewPanel);
+                        break;
+                    case "uploadSourceText":
+                        try {
+                            const fileUri = await this.saveUploadedFile(
+                                message.fileContent,
+                                message.fileName
+                            );
+                            await importSourceText(this.context, fileUri);
                             vscode.window.showInformationMessage(
-                                "Bible downloaded and processed successfully."
+                                "Source text uploaded successfully."
                             );
+                            await this.updateMetadata(webviewPanel);
+                        } catch (error) {
+                            console.error(`Error uploading source text: ${error}`);
+                            vscode.window.showErrorMessage(`Error uploading source text: ${error}`);
                         }
-                    } catch (error) {
-                        console.error(`Error downloading Bible: ${error}`);
-                        vscode.window.showErrorMessage(`Error downloading Bible: ${error}`);
-                    }
-                    break;
-                case "syncAction":
-                    await vscode.commands.executeCommand(
-                        "codex.scm.handleSyncAction",
-                        vscode.Uri.parse(message.fileUri),
-                        message.status
-                    );
-                    await this.updateMetadata(webviewPanel);
-                    break;
-                case "openFile":
-                    console.log("openFile message in provider", { message });
-                    if (message.fileUri) {
-                        const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-                        if (!workspaceUri) {
-                            vscode.window.showErrorMessage("No workspace folder found");
-                            return;
+                        break;
+                    case "uploadTranslation":
+                        console.log("uploadTranslation message in provider", message);
+                        try {
+                            const fileUri = await this.saveUploadedFile(
+                                message.fileContent,
+                                message.fileName
+                            );
+                            const metadataManager = NotebookMetadataManager.getInstance();
+                            await metadataManager.loadMetadata();
+                            const sourceMetadata = metadataManager.getMetadataBySourceFileName(
+                                message.sourceFileName
+                            );
+                            if (!sourceMetadata) {
+                                throw new Error("Source notebook metadata not found");
+                            }
+                            await importTranslations(this.context, fileUri, sourceMetadata.id);
+                            vscode.window.showInformationMessage(
+                                "Translation uploaded successfully."
+                            );
+                            await this.updateMetadata(webviewPanel);
+                        } catch (error) {
+                            console.error(`Error uploading translation: ${error}`);
+                            vscode.window.showErrorMessage(`Error uploading translation: ${error}`);
                         }
+                        break;
+                    case "downloadBible":
+                        try {
+                            const downloadedBibleFile = await downloadBible("source");
+                            if (downloadedBibleFile) {
+                                await processDownloadedBible(downloadedBibleFile);
+                                await this.updateCodexFiles(webviewPanel);
+                                vscode.window.showInformationMessage(
+                                    "Bible downloaded and processed successfully."
+                                );
+                            }
+                        } catch (error) {
+                            console.error(`Error downloading Bible: ${error}`);
+                            vscode.window.showErrorMessage(`Error downloading Bible: ${error}`);
+                        }
+                        break;
+                    case "syncAction":
+                        await vscode.commands.executeCommand(
+                            "codex.scm.handleSyncAction",
+                            vscode.Uri.parse(message.fileUri),
+                            message.status
+                        );
+                        await this.updateMetadata(webviewPanel);
+                        break;
+                    case "openFile":
+                        console.log("openFile message in provider", { message });
+                        if (message.fileUri) {
+                            const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+                            if (!workspaceUri) {
+                                vscode.window.showErrorMessage("No workspace folder found");
+                                return;
+                            }
 
-                        let fullUri: vscode.Uri;
-                        if (message.fileUri.startsWith("file://")) {
-                            fullUri = vscode.Uri.parse(message.fileUri);
-                        } else {
-                            fullUri = vscode.Uri.joinPath(workspaceUri, message.fileUri);
-                        }
+                            let fullUri: vscode.Uri;
+                            if (message.fileUri.startsWith("file://")) {
+                                fullUri = vscode.Uri.parse(message.fileUri);
+                            } else {
+                                fullUri = vscode.Uri.joinPath(workspaceUri, message.fileUri);
+                            }
 
-                        if (fullUri.path.endsWith(".source") || fullUri.path.endsWith(".codex")) {
-                            await vscode.commands.executeCommand(
-                                "vscode.openWith",
-                                fullUri,
-                                "codex.cellEditor"
-                            );
-                        } else if (fullUri.path.endsWith(".dictionary")) {
-                            console.log("Opening dictionary editor", { message });
-                            await vscode.commands.executeCommand(
-                                "vscode.openWith",
-                                fullUri,
-                                "codex.dictionaryEditor"
-                            );
+                            if (
+                                fullUri.path.endsWith(".source") ||
+                                fullUri.path.endsWith(".codex")
+                            ) {
+                                await vscode.commands.executeCommand(
+                                    "vscode.openWith",
+                                    fullUri,
+                                    "codex.cellEditor"
+                                );
+                            } else if (fullUri.path.endsWith(".dictionary")) {
+                                console.log("Opening dictionary editor", { message });
+                                await vscode.commands.executeCommand(
+                                    "vscode.openWith",
+                                    fullUri,
+                                    "codex.dictionaryEditor"
+                                );
+                            } else {
+                                vscode.commands.executeCommand("vscode.open", fullUri);
+                            }
                         } else {
-                            vscode.commands.executeCommand("vscode.open", fullUri);
+                            vscode.window.showErrorMessage("File URI is null");
                         }
-                    } else {
-                        vscode.window.showErrorMessage("File URI is null");
+                        break;
+                    case "createSourceFolder": {
+                        if (message.data?.sourcePath) {
+                            await this.handleSourceFileSetup(webviewPanel, message.data.sourcePath);
+                        }
+                        break;
                     }
-                    break;
-                default:
-                    console.log("Unknown message command", { message });
-                    break;
+                    case "selectSourceFile": {
+                        try {
+                            const fileUri = await vscode.window.showOpenDialog({
+                                canSelectFiles: true,
+                                canSelectFolders: false,
+                                canSelectMany: false,
+                                filters: {
+                                    "Text Files": ["txt", "usfm", "usx", "xml"],
+                                    "All Files": ["*"],
+                                },
+                            });
+
+                            if (fileUri && fileUri[0]) {
+                                webviewPanel.webview.postMessage({
+                                    command: "sourceFileSelected",
+                                    data: { path: fileUri[0].fsPath },
+                                } as SourceUploadResponseMessages);
+                            }
+                        } catch (error) {
+                            console.error("Error selecting source file:", error);
+                            webviewPanel.webview.postMessage({
+                                command: "error",
+                                message: "Failed to select source file",
+                            } as SourceUploadResponseMessages);
+                        }
+                        break;
+                    }
+                    case "importRemoteTranslation":
+                    case "importLocalTranslation": {
+                        try {
+                            const isRemote = message.command === "importRemoteTranslation";
+                            // Handle translation import based on format and location
+                            // This will be implemented in the future
+                            webviewPanel.webview.postMessage({
+                                command: "error",
+                                message: `${isRemote ? "Remote" : "Local"} translation import not yet implemented`,
+                            } as SourceUploadResponseMessages);
+                        } catch (error) {
+                            console.error("Error importing translation:", error);
+                            webviewPanel.webview.postMessage({
+                                command: "error",
+                                message: `Failed to import translation: ${error.message}`,
+                            } as SourceUploadResponseMessages);
+                        }
+                        break;
+                    }
+                    case "closePanel":
+                        webviewPanel.dispose();
+                        break;
+                    default:
+                        console.log("Unknown message command", { message });
+                        break;
+                }
+            } catch (error) {
+                const errorMessage =
+                    error instanceof Error ? error.message : "Unknown error occurred";
+                console.error("Error handling message:", error);
+                webviewPanel.webview.postMessage({
+                    command: "error",
+                    message: errorMessage,
+                } as SourceUploadResponseMessages);
             }
             await this.updateMetadata(webviewPanel);
         });
@@ -313,5 +397,77 @@ export class SourceUploadProvider
                 <script nonce="${nonce}" src="${scriptUri}"></script>
             </body>
             </html>`;
+    }
+
+    private async handleSourceFileSetup(webviewPanel: vscode.WebviewPanel, sourcePath: string) {
+        try {
+            const sendStatus = (
+                status: Record<string, "pending" | "active" | "complete" | "error">
+            ) => {
+                webviewPanel.webview.postMessage({
+                    command: "updateProcessingStatus",
+                    status,
+                } as SourceUploadResponseMessages);
+            };
+
+            // Update processing status
+            sendStatus({ fileValidation: "active" });
+
+            // Validate file
+            const sourceUri = vscode.Uri.file(sourcePath);
+            await vscode.workspace.fs.stat(sourceUri);
+
+            sendStatus({
+                fileValidation: "complete",
+                folderCreation: "active",
+            });
+
+            // Create source folder structure
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                throw new Error("No workspace folder found");
+            }
+
+            // Create source folder
+            const sourceFolderUri = vscode.Uri.joinPath(workspaceFolder.uri, "source");
+            await vscode.workspace.fs.createDirectory(sourceFolderUri);
+
+            sendStatus({
+                fileValidation: "complete",
+                folderCreation: "complete",
+                metadataSetup: "active",
+            });
+
+            // Import the source text
+            await importSourceText(this.context, sourceUri);
+
+            sendStatus({
+                fileValidation: "complete",
+                folderCreation: "complete",
+                metadataSetup: "complete",
+                importComplete: "active",
+            });
+
+            // Final success message
+            sendStatus({
+                fileValidation: "complete",
+                folderCreation: "complete",
+                metadataSetup: "complete",
+                importComplete: "complete",
+            });
+
+            // Signal completion
+            webviewPanel.webview.postMessage({
+                command: "setupComplete",
+                data: { path: sourcePath },
+            } as SourceUploadResponseMessages);
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+            console.error("Error in source file setup:", error);
+            webviewPanel.webview.postMessage({
+                command: "error",
+                message: `Failed to setup source file: ${errorMessage}`,
+            } as SourceUploadResponseMessages);
+        }
     }
 }

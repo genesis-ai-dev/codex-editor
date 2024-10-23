@@ -164,17 +164,19 @@ type ChatPostMessages =
       };
 
 type SourceUploadPostMessages =
-    | { command: "downloadBible" }
-    | { command: "getMetadata" }
-    | { command: "openFile"; fileUri: string }
-    | { command: "syncAction"; status: string; fileUri: string }
-    | { command: "uploadSourceText"; fileContent: string; fileName: string; sourceFileName: string }
+    | { command: "uploadSourceText"; fileContent: string; fileName: string }
     | {
           command: "uploadTranslation";
           fileContent: string;
           fileName: string;
           sourceFileName: string;
-      };
+      }
+    | { command: "getMetadata" }
+    | { command: "downloadBible" }
+    | { command: "syncAction"; status: string; fileUri: string }
+    | { command: "openFile"; fileUri: string }
+    | { command: "closePanel" }
+    | { command: "createSourceFolder"; data: { sourcePath: string } };
 
 type DictionaryPostMessages =
     | { command: "sendData"; data: Dictionary }
@@ -584,4 +586,62 @@ export interface FileTypeMap {
     sfm: "usfm";
     SFM: "usfm";
     USFM: "usfm";
+}
+
+// Add to your existing SourceUploadPostMessages type
+export type SourceUploadPostMessages = {
+    command:
+        | "getMetadata"
+        | "uploadSourceText"
+        | "uploadTranslation"
+        | "downloadBible"
+        | "openFile"
+        | "syncAction"
+        | "createSourceFolder"
+        | "selectSourceFile"
+        | "importRemoteTranslation"
+        | "importLocalTranslation"
+        | "closePanel";
+    fileContent?: string;
+    fileName?: string;
+    sourceFileName?: string;
+    fileUri?: string;
+    status?: string;
+    data?: {
+        sourcePath?: string;
+        format?: string;
+    };
+};
+
+export type SourceUploadResponseMessages = {
+    command:
+        | "updateMetadata"
+        | "sourceFileSelected"
+        | "updateProcessingStatus"
+        | "setupComplete"
+        | "error";
+    metadata?: AggregatedMetadata[];
+    data?: {
+        path?: string;
+    };
+    status?: Record<string, "pending" | "active" | "complete" | "error">;
+    message?: string;
+};
+
+export interface AggregatedMetadata {
+    id: string;
+    originalName: string;
+    sourceFsPath?: string;
+    codexFsPath?: string;
+    videoUrl?: string;
+    lastModified?: string;
+    gitStatus?:
+        | "uninitialized"
+        | "modified"
+        | "added"
+        | "deleted"
+        | "renamed"
+        | "conflict"
+        | "untracked"
+        | "committed";
 }
