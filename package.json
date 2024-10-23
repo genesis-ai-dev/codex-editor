@@ -792,6 +792,30 @@
                         "type": "string",
                         "default": "",
                         "description": "Path to the primary source text for the project"
+                    },
+                    "codex-project-manager.knownProjects": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "default": [],
+                        "description": "List of known Codex project paths"
+                    },
+                    "codex-project-manager.watchedFolders": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "default": [],
+                        "description": "List of folders to watch for Codex projects"
+                    },
+                    "codex-project-manager.projectHistory": {
+                        "type": "object",
+                        "default": {},
+                        "description": "History of project access times",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
                     }
                 }
             },
@@ -1166,7 +1190,8 @@
         "uuid": "^9.0.1",
         "vscode-languageclient": "^9.0.1",
         "vscode-uri": "^3.0.8",
-        "webvtt-parser": "^2.2.0"
+        "webvtt-parser": "^2.2.0",
+        "date-fns": "^2.30.0"
     },
     "overrides": {
         "minimatch": "5.1.2"

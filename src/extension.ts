@@ -33,6 +33,14 @@ let autoCompleteStatusBarItem: StatusBarItem;
 export async function activate(context: vscode.ExtensionContext) {
     vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
 
+    // Register trust change listener
+    context.subscriptions.push(
+        vscode.workspace.onDidGrantWorkspaceTrust(async () => {
+            console.log("Workspace trust granted, reactivating extension");
+            await vscode.commands.executeCommand("workbench.action.reloadWindow");
+        })
+    );
+
     const fs = vscode.workspace.fs;
     const workspaceFolders = vscode.workspace.workspaceFolders;
 
@@ -40,6 +48,19 @@ export async function activate(context: vscode.ExtensionContext) {
     registerProjectManager(context);
 
     if (workspaceFolders && workspaceFolders.length > 0) {
+        if (!vscode.workspace.isTrusted) {
+            console.log("Workspace not trusted. Waiting for trust...");
+            vscode.window.showWarningMessage(
+                "This workspace needs to be trusted before Codex Editor can fully activate.",
+                "Trust Workspace"
+            ).then(selection => {
+                if (selection === "Trust Workspace") {
+                    vscode.commands.executeCommand("workbench.action.trustWorkspace");
+                }
+            });
+            return;
+        }
+
         const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
 
         let metadataExists = false;

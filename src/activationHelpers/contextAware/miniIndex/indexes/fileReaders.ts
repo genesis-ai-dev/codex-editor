@@ -58,14 +58,20 @@ async function readFile(
         throw new Error(`No metadata found for file: ${uri.toString()}`);
     }
 
+    // Add null check for data.cells
+    if (!data || !data.cells) {
+        throw new Error(`Invalid file format - missing cells array in: ${uri.toString()}`);
+    }
+
     const fileData: FileData = {
         uri,
         id: metadata.id,
         cells: data.cells.map((cell: any) => ({
-            ...cell,
             metadata: {
-                ...cell.metadata,
+                type: cell?.metadata?.type,
+                id: cell?.metadata?.id,
             },
+            value: cell?.value ?? "",
         })),
     };
     console.log(`File ${uri.toString()} has ${fileData.cells.length} cells`);
