@@ -276,7 +276,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     onChange={({ html }) => {
                         setContentBeingUpdated({
                             cellMarkers,
-                            cellContent: html.endsWith("\n") ? html : `${html}\n`,
+                            cellContent: html,
                             cellChanged: true,
                             cellLabel: editableLabel,
                         });

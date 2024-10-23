@@ -18,8 +18,6 @@ interface CellListProps {
     textDirection: "ltr" | "rtl";
     cellDisplayMode: CELL_DISPLAY_MODES;
     isSourceText: boolean;
-    windowHeight: number;
-    headerHeight: number;
     spellCheckFunction: (cellContent: string) => Promise<SpellCheckResponse | null>;
 }
 
@@ -34,8 +32,6 @@ const CellList: React.FC<CellListProps> = ({
     textDirection,
     cellDisplayMode,
     isSourceText,
-    windowHeight,
-    headerHeight,
     spellCheckFunction,
 }) => {
     const [alertColorCache, setAlertColorCache] = useState<Map<string, string[]>>(new Map());
@@ -223,12 +219,10 @@ const CellList: React.FC<CellListProps> = ({
         ]
     );
 
-    const listHeight = windowHeight - headerHeight - 20; // 20px for padding
-
     return (
         <div
             className="verse-list ql-editor"
-            style={{ direction: textDirection, height: `${listHeight}px`, overflowY: "auto" }}
+            style={{ direction: textDirection, overflowY: "auto" }}
         >
             {renderCells()}
         </div>
