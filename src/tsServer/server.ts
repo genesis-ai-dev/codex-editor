@@ -122,17 +122,17 @@ connection.onRequest(
             args: [params.cellId],
         });
         let code = 0;
-        if (savedSuggestions && savedSuggestions.length > 0) {
+        if (savedSuggestions && savedSuggestions.suggestions.length > 0) {
             code = 2;
         }
-        debugLog("SERVER SERVER: savedSuggestions: ", savedSuggestions, " ID: ", params.cellId);
+        debugLog("SERVER: savedSuggestions: ", savedSuggestions.suggestions, " ID: ", params.cellId);
         return { code, cellId: params.cellId, savedSuggestions };
     }
 );
 connection.onRequest("spellcheck/check", async (params: { text: string; cellChanged: boolean }) => {
     debugLog("SERVER: Received spellcheck/check request:", { params });
 
-    const text = params.text.toLowerCase();
+    const text = params.text;
     const matches: MatchesEntity[] = [];
 
     // Get smart edit suggestions only if the cellId has changed

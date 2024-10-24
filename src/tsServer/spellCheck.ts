@@ -156,8 +156,8 @@ export class SpellChecker {
             .map((entry) => ({
                 word: entry.headWord,
                 distance: this.levenshteinDistance(
-                    cleanedWord.toLowerCase(),
-                    entry.headWord.toLowerCase()
+                    cleanedWord,
+                    entry.headWord
                 ),
             }))
             .sort((a, b) => a.distance - b.distance)
@@ -187,7 +187,7 @@ export class SpellChecker {
 
         for (let i = 1; i <= b.length; i++) {
             for (let j = 1; j <= a.length; j++) {
-                if (b.charAt(i - 1).toLowerCase() === a.charAt(j - 1).toLowerCase()) {
+                if (b.charAt(i - 1) === a.charAt(j - 1)) {
                     matrix[i][j] = matrix[i - 1][j - 1];
                 } else {
                     matrix[i][j] = Math.min(
