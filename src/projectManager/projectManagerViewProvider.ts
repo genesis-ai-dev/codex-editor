@@ -106,7 +106,9 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
         <link href="${codiconsUri}" rel="stylesheet" />
         <script nonce="${nonce}">
             const vscode = acquireVsCodeApi();
-            const apiBaseUrl = ${JSON.stringify(process.env.API_BASE_URL || "http://localhost:3002")}
+            const apiBaseUrl = ${JSON.stringify(
+                process.env.API_BASE_URL || "http://localhost:3002"
+            )}
         </script>
     </head>
     <body>
@@ -150,6 +152,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             });
         } else {
             const hasMetadata = await checkIfMetadataIsInitialized();
+            console.log("Metadata initialized:", hasMetadata);
             if (!hasMetadata) {
                 // If no metadata exists, show the project list view
                 const projects = await findAllCodexProjects();
@@ -158,7 +161,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                     data: projects,
                 });
             } else {
-                await this.updateProjectOverview();
+                await this.updateProjectOverview(true);
             }
         }
 
@@ -261,6 +264,9 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
 
             if (!newProjectOverview) {
                 // If no project overview is available, send a message to show the "Create New Project" button
+                vscode.window.showWarningMessage(
+                    "No project metadata found. Please initialize a project."
+                );
                 this._view?.webview.postMessage({
                     command: "noProjectFound",
                 });
@@ -286,6 +292,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             }
         } catch (error) {
             console.error("Error updating project overview:", error);
+            vscode.window.showErrorMessage("Failed to load project overview. Please try again.");
             this._view?.webview.postMessage({
                 command: "error",
                 message: "Failed to load project overview. Please try again.",
@@ -572,21 +579,29 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     private async refreshProjects() {
-        const projects = await findAllCodexProjects();
-        this._view?.webview.postMessage({
-            command: "sendProjectsList",
-            data: projects,
-        });
+        try {
+            const projects = await findAllCodexProjects();
+            this._view?.webview.postMessage({
+                command: "sendProjectsList",
+                data: projects,
+            });
+        } catch (error) {
+            console.error("Error refreshing projects:", error);
+            this._view?.webview.postMessage({
+                command: "error",
+                message: "Failed to refresh projects. Please try again.",
+            });
+        }
     }
 
     // Add this method to the CustomWebviewProvider class
     private async refreshWatchedFolders() {
         const config = vscode.workspace.getConfiguration("codex-project-manager");
         const watchedFolders = config.get<string[]>("watchedFolders") || [];
-        
+
         this._view?.webview.postMessage({
             command: "sendWatchedFolders",
-            data: watchedFolders
+            data: watchedFolders,
         });
     }
 }

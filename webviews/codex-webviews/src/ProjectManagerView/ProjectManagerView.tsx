@@ -56,12 +56,27 @@ function App() {
         "WEB/TTT" | "eBible" | "USFM" | "USX" | null
     >(null);
 
+    // Add a new useEffect to handle tab changes
+    useEffect(() => {
+        const handleTabChange = (event: any) => {
+            if (event.detail.id === "current-project") {
+                vscode.postMessage({ command: "requestProjectOverview" });
+            }
+        };
+
+        window.addEventListener("vscode-panel-tab-change", handleTabChange);
+
+        return () => {
+            window.removeEventListener("vscode-panel-tab-change", handleTabChange);
+        };
+    }, []);
+
+    // Modify the handleMessage function to ensure overview is updated
     const handleMessage = useCallback((event: MessageEvent) => {
         console.log("Received message:", event.data);
         const message = event.data;
         switch (message.command) {
             case "sendProjectOverview":
-            case "projectCreated": {
                 console.log("Setting project overview:", message.data);
                 setProjectOverview(message.data);
                 setIsLoading(false);
@@ -70,7 +85,6 @@ function App() {
                 setInitialLoadAttempted(true);
                 setViewMode("overview");
                 break;
-            }
             case "noProjectFound": {
                 setNoProjectFound(true);
                 setIsLoading(false);
@@ -105,6 +119,7 @@ function App() {
             }
             case "sendProjectsList": {
                 setProjects(message.data);
+                setViewMode("projectList");
                 break;
             }
             case "sendWatchedFolders": {

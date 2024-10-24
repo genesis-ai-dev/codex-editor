@@ -291,7 +291,6 @@ const SourceUploader: React.FC = () => {
         }
     };
 
-    // Add this inside your component
     const initialProcessingStages = {
         fileValidation: {
             label: "Validating File",

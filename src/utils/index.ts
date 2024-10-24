@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { nonCanonicalBookRefs, vrefData } from "./verseRefUtils/verseData";
 import { Project } from "codex-types";
 import { updateWorkspaceState } from "./workspaceEventListener";
+import { ProjectOverview } from "@types";
 
 export const getWorkSpaceFolder = (): string | undefined => {
     /**
@@ -26,7 +27,7 @@ export const getWorkSpaceUri = (): vscode.Uri | undefined => {
     return vscode.Uri.file(workspaceFolder);
 };
 
-export async function getProjectMetadata(): Promise<Project> {
+export async function getProjectMetadata(): Promise<ProjectOverview> {
     /**
      * Generic function to get the project metadata
      */
@@ -46,7 +47,7 @@ export async function getProjectMetadata(): Promise<Project> {
     const projectMetadata = await vscode.workspace.fs.readFile(projectMetadataPath).then(
         (projectMetadata) => {
             try {
-                return JSON.parse(Buffer.from(projectMetadata).toString()) as Project;
+                return JSON.parse(Buffer.from(projectMetadata).toString()) as ProjectOverview;
             } catch (error: any) {
                 vscode.window.showErrorMessage(
                     `Failed to parse project metadata: ${error.message}`

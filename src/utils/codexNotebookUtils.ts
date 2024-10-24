@@ -885,12 +885,12 @@ export async function createCodexNotebookFromWebVTT(
 }
 
 export async function writeSourceFile(uri: vscode.Uri, content: string): Promise<void> {
-    const tempUri = vscode.Uri.joinPath(uri, '.temp');
+    const tempUri = vscode.Uri.joinPath(uri, ".temp");
     try {
         await vscode.workspace.fs.writeFile(tempUri, Buffer.from(content));
         await vscode.workspace.fs.rename(tempUri, uri, { overwrite: true });
     } catch (error) {
-        console.error('Error writing file:', error);
+        console.error("Error writing file:", error);
         throw error;
     }
 }
@@ -903,11 +903,11 @@ export async function splitSourceFile(uri: vscode.Uri): Promise<void> {
 
         for (const book of books) {
             const bookId = book.substring(0, 3).toLowerCase();
-            const bookUri = vscode.Uri.joinPath(uri, '..', `${bookId}.source`);
+            const bookUri = vscode.Uri.joinPath(uri, "..", `${bookId}.source`);
             await writeSourceFile(bookUri, `\\id ${book}`);
         }
     } catch (error) {
-        console.error('Error splitting file:', error);
+        console.error("Error splitting file:", error);
         throw error;
     }
 }

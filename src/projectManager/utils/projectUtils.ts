@@ -9,6 +9,7 @@ import ProjectTemplate from "../../providers/obs/data/TextTemplate.json";
 import { ProjectMetadata, ProjectOverview } from "../../../types";
 import { initializeProject } from "../projectInitializers";
 import * as semver from "semver";
+import { getProjectMetadata } from "../../utils";
 
 export interface ProjectDetails {
     projectName?: string;
@@ -331,27 +332,21 @@ export const projectFileExists = async () => {
 };
 
 export async function getProjectOverview(): Promise<ProjectOverview | undefined> {
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-    if (!workspaceFolder) {
-        console.error("No workspace folder found");
-        return undefined;
-    }
-
-    const metadataUri = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
-
     try {
-        const metadataContent = await vscode.workspace.fs.readFile(metadataUri);
-        const metadata = JSON.parse(metadataContent.toString());
-        console.log("metadata", { metadata });
-        // Get a list of URIs for the downloaded source and target Bibles in the project, if any
-        const sourceTextsPath = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts");
-
-        const targetTextsPath = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "targetTexts");
-        try {
-            await vscode.workspace.fs.stat(targetTextsPath);
-        } catch {
-            await vscode.workspace.fs.createDirectory(targetTextsPath);
+        const metadata = await getProjectMetadata();
+        if (!metadata) {
+            console.warn("No metadata found. Returning undefined.");
+            return undefined;
         }
+
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            console.error("No workspace folder found");
+            return undefined;
+        }
+
+        const sourceTextsPath = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts");
+        const targetTextsPath = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "targetTexts");
 
         const sourceTexts: vscode.Uri[] = [];
         const targetTexts: vscode.Uri[] = [];
@@ -378,51 +373,81 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
             console.error("Error reading target text Bibles:", error);
         }
 
-        // Handle potential errors
-        if (!targetTexts) {
-            try {
-                // Directory might not exist, attempt to create it
-                await vscode.workspace.fs.createDirectory(targetTextsPath);
-                return undefined;
-            } catch (err) {
-                console.error("Error creating directory:", err);
-                throw err; // Rethrow other errors
-            }
-        }
-
-        const config = vscode.workspace.getConfiguration("codex-project-manager");
-
         return {
-            projectName: metadata.projectName,
-            abbreviation: metadata.meta.abbreviation,
-            sourceLanguage: metadata.languages.find(
+            format: metadata.format || "Unknown Format",
+            projectName: metadata.projectName || "Unnamed Project",
+            projectStatus: metadata.projectStatus || "Unknown Status",
+            category: metadata.meta?.category || "Uncategorized",
+            userName: metadata.meta?.generator?.userName || "Anonymous",
+            meta: {
+                version: metadata.meta?.version || "0.0.1",
+                // FIXME: the codex-types library is out of date. Thus we have mismatched and/or duplicate values being defined
+                category: metadata.meta?.category || "Uncategorized",
+                generator: {
+                    softwareName: metadata.meta?.generator?.softwareName || "Unknown Software",
+                    softwareVersion: metadata.meta?.generator?.softwareVersion || "0.0.1",
+                    userName: metadata.meta?.generator?.userName || "Anonymous",
+                },
+                defaultLocale: metadata.meta?.defaultLocale || "en",
+                dateCreated: metadata.meta?.dateCreated || new Date().toISOString(),
+                normalization: metadata.meta?.normalization || "NFC",
+                comments: metadata.meta?.comments || [],
+            },
+            idAuthorities: metadata.idAuthorities || {},
+            identification: metadata.identification || {},
+            languages: metadata.languages || [],
+            type: metadata.type || {},
+            confidential: metadata.confidential || false,
+            agencies: metadata.agencies || [],
+            targetAreas: metadata.targetAreas || [],
+            localizedNames: metadata.localizedNames || {},
+            ingredients: metadata.ingredients || {},
+            copyright: metadata.copyright || {
+                shortStatements: [],
+            },
+            abbreviation: metadata.abbreviation || "N/A",
+            sourceLanguage: metadata.languages?.find(
                 (lang: LanguageMetadata) => lang.projectStatus === LanguageProjectStatus.SOURCE
-            ),
-            targetLanguage: metadata.languages.find(
+            ) || {
+                name: { en: "Unknown" },
+                tag: "unknown",
+                refName: "Unknown",
+                projectStatus: LanguageProjectStatus.SOURCE,
+            },
+            targetLanguage: metadata.languages?.find(
                 (lang: LanguageMetadata) => lang.projectStatus === LanguageProjectStatus.TARGET
-            ),
-            category: metadata.meta.category,
-            userName: metadata.meta.generator.userName,
+            ) || {
+                name: { en: "Unknown" },
+                tag: "unknown",
+                refName: "Unknown",
+                projectStatus: LanguageProjectStatus.TARGET,
+            },
             sourceTexts,
             targetTexts,
-            targetFont: metadata.targetFont || "",
+            targetFont: metadata.targetFont || "Default Font",
         };
     } catch (error) {
-        console.log("metadata.json not found or couldn't be read", { error });
+        console.error("Failed to read project metadata:", error);
         return undefined;
     }
 }
 
 export const checkIfMetadataIsInitialized = async (): Promise<boolean> => {
-    const metadataUri = vscode.Uri.joinPath(
-        vscode.workspace.workspaceFolders![0].uri,
-        "metadata.json"
-    );
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+        console.error("No workspace folder found");
+        return false;
+    }
+
+    const metadataUri = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
+    console.log("Checking metadata at:", metadataUri.fsPath);
+
     try {
         await vscode.workspace.fs.stat(metadataUri);
+        console.log("Metadata file exists");
         return true;
     } catch (error) {
-        // File doesn't exist, which is expected for a new project
+        console.error("Metadata file does not exist or cannot be accessed:", error);
         return false;
     }
 };
@@ -454,7 +479,6 @@ export async function accessMetadataFile(): Promise<ProjectMetadata | undefined>
         return;
     }
 }
-
 export async function reopenWalkthrough() {
     await vscode.commands.executeCommand("workbench.action.closeAllGroups");
 

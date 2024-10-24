@@ -1,7 +1,13 @@
 import * as vscode from "vscode";
 import { WebVTTParser } from "webvtt-parser";
 import { CodexContentSerializer, CodexNotebookReader } from "../serializer";
-import { SupportedFileExtension, FileType, FileTypeMap, CustomNotebookCellData } from "../../types";
+import {
+    SupportedFileExtension,
+    FileType,
+    FileTypeMap,
+    CustomNotebookCellData,
+    ImportedContent,
+} from "../../types";
 import { CodexCellTypes } from "../../types/enums";
 import * as fs from "fs/promises"; // Add this import if not already present
 import * as path from "path";
@@ -30,13 +36,6 @@ export const fileTypeMap: FileTypeMap = {
     SFM: "usfm",
     USFM: "usfm",
 };
-
-interface ImportedContent {
-    id: string;
-    content: string;
-    startTime?: number;
-    endTime?: number;
-}
 
 interface AlignedCell {
     notebookCell: vscode.NotebookCell | null;

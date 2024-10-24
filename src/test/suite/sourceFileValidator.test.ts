@@ -44,7 +44,7 @@ suite("SourceFileValidator Test Suite", () => {
 
         const result = await validator.validateSourceFile(tempUri);
 
-        assert.strictEqual(result.isValid, false, 'The file should be rejected due to size limit');
+        assert.strictEqual(result.isValid, false, "The file should be rejected due to size limit");
         assert.strictEqual(result.errors[0].code, ValidationErrorCode.FILE_SIZE_EXCEEDED);
     });
 
@@ -55,7 +55,11 @@ suite("SourceFileValidator Test Suite", () => {
 
         const result = await validator.validateSourceFile(tempUri);
 
-        assert.strictEqual(result.isValid, false, 'The file should be rejected due to unsupported type');
+        assert.strictEqual(
+            result.isValid,
+            false,
+            "The file should be rejected due to unsupported type"
+        );
         assert.strictEqual(result.errors[0].code, ValidationErrorCode.UNSUPPORTED_FILE_TYPE);
     });
 
@@ -65,7 +69,7 @@ suite("SourceFileValidator Test Suite", () => {
         await vscode.workspace.fs.writeFile(tempUri, Buffer.from("invalid content"));
 
         let result = await validator.validateSourceFile(tempUri);
-        assert.strictEqual(result.isValid, false, 'The USFM content should be invalid');
+        assert.strictEqual(result.isValid, false, "The USFM content should be invalid");
         assert.strictEqual(result.errors[0].code, ValidationErrorCode.INVALID_CONTENT);
 
         // Test valid USFM
@@ -74,7 +78,7 @@ suite("SourceFileValidator Test Suite", () => {
         await vscode.workspace.fs.writeFile(tempUri, Buffer.from(validUsfm));
 
         result = await validator.validateSourceFile(tempUri);
-        assert.strictEqual(result.isValid, true, 'The USFM content should be valid');
+        assert.strictEqual(result.isValid, true, "The USFM content should be valid");
         assert.strictEqual(result.errors.length, 0);
     });
 
@@ -85,7 +89,7 @@ suite("SourceFileValidator Test Suite", () => {
         await vscode.workspace.fs.writeFile(tempUri, Buffer.from("invalid content"));
         let result = await validator.validateSourceFile(tempUri);
 
-        assert.strictEqual(result.isValid, false, 'The USX content should be invalid');
+        assert.strictEqual(result.isValid, false, "The USX content should be invalid");
         assert.strictEqual(result.errors[0].code, ValidationErrorCode.INVALID_CONTENT);
 
         // Test valid USX
@@ -93,7 +97,7 @@ suite("SourceFileValidator Test Suite", () => {
         await vscode.workspace.fs.writeFile(tempUri, Buffer.from(validUsx));
 
         result = await validator.validateSourceFile(tempUri);
-        assert.strictEqual(result.isValid, true, 'The USX content should be valid');
+        assert.strictEqual(result.isValid, true, "The USX content should be valid");
     });
 
     test("should handle concurrent validation requests", async () => {
@@ -109,7 +113,7 @@ suite("SourceFileValidator Test Suite", () => {
 
         // All should be valid
         results.forEach((result) => {
-            assert.strictEqual(result.isValid, true, 'All files should be valid');
+            assert.strictEqual(result.isValid, true, "All files should be valid");
             assert.strictEqual(result.errors.length, 0);
         });
 
@@ -126,7 +130,11 @@ suite("SourceFileValidator Test Suite", () => {
 
         const result = await validator.validateSourceFile(nonExistentUri);
 
-        assert.strictEqual(result.isValid, false, 'The validation should fail for non-existent file');
+        assert.strictEqual(
+            result.isValid,
+            false,
+            "The validation should fail for non-existent file"
+        );
         assert.strictEqual(result.errors[0].code, ValidationErrorCode.SYSTEM_ERROR);
     });
 

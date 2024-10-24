@@ -1,4 +1,4 @@
-import { Dictionary, LanguageMetadata } from "codex-types";
+import { Dictionary, LanguageMetadata, Project } from "codex-types";
 import * as vscode from "vscode";
 import { ScriptureTSV } from "./TsvTypes";
 
@@ -310,7 +310,7 @@ export type EditorPostMessages =
     | { command: "updateCellTimestamps"; content: { cellId: string; timestamps: Timestamps } }
     | { command: "deleteCell"; content: { cellId: string } }
     | { command: "addWord"; words: string[] }
-    | { command: "isProblematic"; content: { text: string, cellId: string } }
+    | { command: "isProblematic"; content: { text: string; cellId: string } }
     | {
           command: "makeChildOfCell";
           content: {
@@ -348,7 +348,10 @@ type EditorReceiveMessages =
       }
     | { type: "providerCompletesChapterAutocompletion" }
     | { type: "providerSendsSpellCheckResponse"; content: SpellCheckResponse }
-    | { type: "providerSendsIsProblematicResponse"; content:{ problematic: boolean, cellId: string }}
+    | {
+          type: "providerSendsIsProblematicResponse";
+          content: { problematic: boolean; cellId: string };
+      }
     | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl" }
     | { type: "providerSendsLLMCompletionResponse"; content: { completion: string } }
     | { type: "jumpToSection"; content: string }
@@ -443,7 +446,7 @@ interface SpellCheckResponse {
 type SpellCheckResult = SpellCheckResponse[];
 
 /* This is the project overview that populates the project manager webview */
-interface ProjectOverview {
+interface ProjectOverview extends Project {
     projectName: string;
     abbreviation: string;
     sourceLanguage: LanguageMetadata;
@@ -642,4 +645,29 @@ export interface SourceFileValidationOptions {
     maxFileSizeBytes?: number;
     supportedExtensions?: string[];
     minDiskSpaceBytes?: number;
+}
+
+interface ImportedContent {
+    id: string;
+    content: string;
+    startTime?: number;
+    endTime?: number;
+}
+
+// Add or verify these message types
+type ProjectManagerPostMessages =
+    | { command: "sendProjectsList"; data: Project[] }
+    | { command: "noWorkspaceOpen"; data: Project[] }
+    | { command: "requestProjectOverview" }
+    | { command: "error"; message: string };
+
+// Ensure the Project type is correctly defined
+interface Project {
+    name: string;
+    path: string;
+    lastOpened?: Date;
+    lastModified: Date;
+    version: string;
+    hasVersionMismatch?: boolean;
+    isOutdated?: boolean;
 }
