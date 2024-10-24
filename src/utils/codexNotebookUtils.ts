@@ -387,7 +387,8 @@ async function processUsfmFile(fileUri: vscode.Uri, notebookId?: string): Promis
         );
 
         const bookCode = jsonOutput.book.bookCode;
-        const metadataManager = NotebookMetadataManager.getInstance();
+        const metadataManager = new NotebookMetadataManager();
+        await metadataManager.initialize();
         const baseName = basename(fileUri.fsPath).split(".")[0] || `new_source`;
         const generatedNotebookId = notebookId || metadataManager.generateNewId(baseName);
 
@@ -840,7 +841,8 @@ export async function createCodexNotebookFromWebVTT(
             "target",
             `${notebookName}.codex`
         );
-        const metadataManager = NotebookMetadataManager.getInstance();
+        const metadataManager = new NotebookMetadataManager();
+        await metadataManager.initialize();
         const metadata = metadataManager.getMetadataById(notebookName);
 
         const targetNotebookMetadata: CustomNotebookMetadata = {

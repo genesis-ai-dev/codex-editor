@@ -37,7 +37,8 @@ export async function readSourceAndTargetFiles(): Promise<{
         targetUris.map((uri) => uri.fsPath)
     );
 
-    const metadataManager = NotebookMetadataManager.getInstance();
+    const metadataManager = new NotebookMetadataManager();
+    await metadataManager.initialize();
     await metadataManager.loadMetadata();
 
     const sourceFiles = await Promise.all(sourceUris.map((uri) => readFile(uri, metadataManager)));

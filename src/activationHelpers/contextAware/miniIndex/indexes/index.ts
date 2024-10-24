@@ -117,7 +117,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         }
     }, 3000);
 
-    const metadataManager = NotebookMetadataManager.getInstance();
+    const metadataManager = new NotebookMetadataManager();
+    await metadataManager.initialize();
     await metadataManager.loadMetadata();
 
     async function rebuildIndexes(force: boolean = false) {

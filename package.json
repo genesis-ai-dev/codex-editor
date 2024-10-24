@@ -1163,6 +1163,7 @@
         "@vscode/webview-ui-toolkit": "^1.4.0",
         "bible-reference-range": "^1.1.1",
         "codex-types": "^0.0.4",
+        "date-fns": "^2.30.0",
         "diff": "^7.0.0",
         "fitty": "^2.4.2",
         "hog-features": "^1.0.0",
@@ -1181,7 +1182,7 @@
         "proc-log": "^5.0.0",
         "react-wordcloud": "^1.2.7",
         "semver": "^7.6.0",
-        "sinon": "^17.0.1",
+        "sinon": "^19.0.2",
         "sql.js": "^1.11.0",
         "token.js": "^0.4.3",
         "url": "^0.11.4",
@@ -1190,8 +1191,7 @@
         "uuid": "^9.0.1",
         "vscode-languageclient": "^9.0.1",
         "vscode-uri": "^3.0.8",
-        "webvtt-parser": "^2.2.0",
-        "date-fns": "^2.30.0"
+        "webvtt-parser": "^2.2.0"
     },
     "overrides": {
         "minimatch": "5.1.2"

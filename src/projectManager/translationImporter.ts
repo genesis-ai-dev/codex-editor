@@ -121,7 +121,8 @@ export async function importTranslations(
 
         debug("Imported content length", importedContent.length);
 
-        const metadataManager = NotebookMetadataManager.getInstance();
+        const metadataManager = new NotebookMetadataManager();
+        await metadataManager.initialize();
         await metadataManager.loadMetadata();
 
         const sourceMetadata = metadataManager.getMetadataById(sourceNotebookId);

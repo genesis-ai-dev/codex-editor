@@ -103,7 +103,8 @@ export class SourceUploadProvider
                                 message.fileContent,
                                 message.fileName
                             );
-                            const metadataManager = NotebookMetadataManager.getInstance();
+                            const metadataManager = new NotebookMetadataManager();
+                            await metadataManager.initialize();
                             await metadataManager.loadMetadata();
                             const sourceMetadata = metadataManager.getMetadataBySourceFileName(
                                 message.sourceFileName
@@ -224,7 +225,9 @@ export class SourceUploadProvider
                             // This will be implemented in the future
                             webviewPanel.webview.postMessage({
                                 command: "error",
-                                message: `${isRemote ? "Remote" : "Local"} translation import not yet implemented`,
+                                message: `${
+                                    isRemote ? "Remote" : "Local"
+                                } translation import not yet implemented`,
                             } as SourceUploadResponseMessages);
                         } catch (error: any) {
                             console.error("Error importing translation:", error);
@@ -293,7 +296,8 @@ export class SourceUploadProvider
     }
 
     private async updateMetadata(webviewPanel: vscode.WebviewPanel) {
-        const metadataManager = NotebookMetadataManager.getInstance();
+        const metadataManager = new NotebookMetadataManager();
+        await metadataManager.initialize();
         await metadataManager.loadMetadata();
         const allMetadata = metadataManager.getAllMetadata();
 
