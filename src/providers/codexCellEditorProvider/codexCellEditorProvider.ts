@@ -505,6 +505,33 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         }
                         return;
                     }
+                    case "isProblematic": {
+                        // console.log("isProblematic message received", { e });
+                        try {
+                            const result = await vscode.commands.executeCommand(
+                                "translators-copilot.isProblematic",
+                                e.content.text,
+                                e.content.cellId // Pass the cellId
+                            );
+                            // console.log(
+                            //     "Result!: ",
+                            //     result
+                            // );
+                            this.postMessageToWebview(webviewPanel, {
+                                type: "providerSendsIsProblematicResponse",
+                                content: {
+                                    problematic: result as boolean,
+                                    cellId: e.content.cellId,
+                                },
+                            });
+                        } catch (error) {
+                            console.error("Error during isProblematic:", error);
+                            vscode.window.showErrorMessage(
+                                "Failed to check if text is problematic."
+                            );
+                        }
+                        return;
+                    }
                     case "saveHtml":
                         console.log("saveHtml message received", { e });
                         try {

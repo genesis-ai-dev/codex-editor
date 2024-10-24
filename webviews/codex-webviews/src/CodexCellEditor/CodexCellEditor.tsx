@@ -53,6 +53,9 @@ const CodexCellEditor: React.FC = () => {
     const playerRef = useRef<ReactPlayer>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     const { setSourceCellMap } = useContext(SourceCellContext);
+    const removeHtmlTags = (text: string) => {
+        return text.replace(/<[^>]*>?/g, "").replace(/\n/g, " ");
+    };
     // A "temp" video URL that is used to update the video URL in the metadata modal.
     // We need to use the client-side file picker, so we need to then pass the picked
     // video URL back to the extension so the user can save or cancel the change.
@@ -355,7 +358,7 @@ const CodexCellEditor: React.FC = () => {
                         </div>
                     )}
                     <CellList
-                        spellCheckResponse={spellCheckResponse}
+                        // spellCheckResponse={spellCheckResponse}
                         translationUnits={translationUnitsForSection}
                         contentBeingUpdated={contentBeingUpdated}
                         setContentBeingUpdated={setContentBeingUpdated}
@@ -365,25 +368,35 @@ const CodexCellEditor: React.FC = () => {
                         textDirection={textDirection}
                         cellDisplayMode={cellDisplayMode}
                         isSourceText={isSourceText}
-                        spellCheckFunction={(cellContent: string) => {
-                            return new Promise<SpellCheckResponse | null>((resolve) => {
-                                vscode.postMessage({
-                                    command: "from-quill-spellcheck-getSpellCheckResponse",
-                                    content: {
-                                        cellContent,
-                                        cellChanged: true,
-                                    },
-                                });
-                                const handleSpellCheckResponse = (event: MessageEvent) => {
-                                    if (event.data.type === "providerSendsSpellCheckResponse") {
-                                        window.removeEventListener(
-                                            "message",
-                                            handleSpellCheckResponse
-                                        );
-                                        resolve(event.data.content as SpellCheckResponse);
+                        windowHeight={windowHeight}
+                        headerHeight={headerHeight}
+                        isProblematicFunction={(cellContent: string, cellId: string) => {
+                            vscode.postMessage({
+                                command: "isProblematic",
+                                content: {
+                                    text: removeHtmlTags(cellContent),
+                                    cellId: cellId, // Include cellId in the message
+                                },
+                            } as EditorPostMessages);
+                            return new Promise((resolve) => {
+                                const handleIsProblematicResponse = (event: MessageEvent) => {
+                                    const message = event.data;
+                                    if (message.type === "providerSendsIsProblematicResponse") {
+                                        // window.removeEventListener(
+                                        //     "message",
+                                        //     handleIsProblematicResponse
+                                        // );
+                                        // console.log("Message CCE: ", message);
+                                        // Make sure we only resolve for the cell we requested
+                                        if (message.content.cellId === cellId) {
+                                            resolve({
+                                                isProblematic: message.content.problematic,
+                                                cellId: message.content.cellId,
+                                            });
+                                        }
                                     }
                                 };
-                                window.addEventListener("message", handleSpellCheckResponse);
+                                window.addEventListener("message", handleIsProblematicResponse);
                             });
                         }}
                     />
