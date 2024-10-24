@@ -37,11 +37,14 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     getAlertCodeFunction,
 }) => {
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
-    const [getAlertCode, setgetAlertCode] = useState<number>(0);
+    const [getAlertCode, setgetAlertCode] = useState<number>(-1);
 
     useEffect(() => {
         const checkContent = async () => {
             try {
+                if (getAlertCode !== -1) {
+                    return;
+                }
                 const result = await getAlertCodeFunction(cellContent, cellIds[0]);
                 console.log("CCD:  ", result);
                 setgetAlertCode(result.getAlertCode);
@@ -52,7 +55,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         };
 
         checkContent();
-    }, [cellContent, cellIds, getAlertCodeFunction]);
+    }, [cellContent, cellIds]);
 
     const handleVerseClick = () => {
         if (unsavedChanges || isSourceText) {
@@ -108,7 +111,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             {cellType === CodexCellTypes.TEXT && (
                 <sup>
                     {displayLabel}
-                    {getAlertCode == 0 && ( // Claude had the good idea of a transparent one, this will keep the render more consistent I think.
+                    {(getAlertCode == 0 || getAlertCode == -1) && ( // Claude had the good idea of a transparent one, this will keep the render more consistent I think.
                         <span
                             style={{
                                 display: "inline-block",

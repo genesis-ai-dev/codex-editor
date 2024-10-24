@@ -54,7 +54,10 @@ const CodexCellEditor: React.FC = () => {
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     const { setSourceCellMap } = useContext(SourceCellContext);
     const removeHtmlTags = (text: string) => {
-        return text.replace(/<[^>]*>?/g, "").replace(/\n/g, " ");
+        return text
+            .replace(/<[^>]*>?/g, "")
+            .replace(/\n/g, " ")
+            .replace(/&nbsp;/g, " ");
     };
     // A "temp" video URL that is used to update the video URL in the metadata modal.
     // We need to use the client-side file picker, so we need to then pass the picked

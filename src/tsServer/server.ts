@@ -117,7 +117,16 @@ connection.onRequest(
             text,
             cellId: params.cellId,
         });
-        return { code: 0, cellId: params.cellId };
+        const savedSuggestions = await connection.sendRequest(ExecuteCommandRequest, {
+            command: "codex-smart-edits.getSavedSuggestions",
+            args: [params.cellId],
+        });
+        let code = 0;
+        if (savedSuggestions && savedSuggestions.length > 0) {
+            code = 2;
+        }
+        debugLog("SERVER SERVER: savedSuggestions: ", savedSuggestions, " ID: ", params.cellId);
+        return { code, cellId: params.cellId, savedSuggestions };
     }
 );
 connection.onRequest("spellcheck/check", async (params: { text: string; cellChanged: boolean }) => {

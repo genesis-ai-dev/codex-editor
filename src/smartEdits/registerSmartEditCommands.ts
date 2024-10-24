@@ -28,6 +28,23 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
             }
         )
     );
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-smart-edits.getSavedSuggestions",
+            async (cellId: string) => {
+                try {
+                    const suggestions = await smartEdits.loadSavedSuggestions(cellId);
+                    return suggestions;
+                } catch (error) {
+                    console.error("Error getting saved suggestions:", error);
+                    vscode.window.showErrorMessage(
+                        "Failed to get smart edits. Please check the console for more details."
+                    );
+                    return [];
+                }
+            }
+        )
+    );
 
     console.log("Smart Edit commands registered");
 };
