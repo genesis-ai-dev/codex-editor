@@ -8,7 +8,7 @@ suite("ImportTransaction Test Suite", () => {
     let workspaceUri: vscode.Uri;
 
     suiteSetup(async () => {
-        // Create temp workspace folder if needed
+        // Ensure a temporary workspace folder is available
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
             await vscode.workspace.updateWorkspaceFolders(0, 0, {

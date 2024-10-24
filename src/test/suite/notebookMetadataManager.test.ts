@@ -9,7 +9,7 @@ suite("NotebookMetadataManager Test Suite", () => {
     let tempUri: vscode.Uri;
 
     suiteSetup(async () => {
-        // Create a temporary workspace folder
+        // Ensure a temporary workspace folder is available
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
             await vscode.workspace.updateWorkspaceFolders(0, 0, {
@@ -49,14 +49,14 @@ suite("NotebookMetadataManager Test Suite", () => {
         }
     });
 
-    test("should add metadata and retrieve it correctly", async () => {
+    test("should add and retrieve metadata correctly", async () => {
         await manager.addOrUpdateMetadata(testMetadata);
         const retrievedMetadata = await manager.getMetadata(testMetadata.id);
 
         assert.deepStrictEqual(
             retrievedMetadata,
             testMetadata,
-            "Metadata should be retrieved correctly"
+            "The retrieved metadata should match the added metadata"
         );
     });
 
@@ -69,7 +69,7 @@ suite("NotebookMetadataManager Test Suite", () => {
         assert.strictEqual(
             retrievedMetadata?.originalName,
             "Updated Notebook",
-            "Metadata should be updated"
+            "The metadata should reflect the updated name"
         );
     });
 
@@ -84,11 +84,11 @@ suite("NotebookMetadataManager Test Suite", () => {
         const retrievedMetadata = await manager.getMetadata(testMetadata.id);
         assert.ok(
             ["Update 1", "Update 2"].includes(retrievedMetadata!.originalName!),
-            "Metadata should reflect one of the updates"
+            "The metadata should reflect one of the concurrent updates"
         );
     });
 
-    test("should persist metadata changes durably", async () => {
+    test("should persist metadata changes across sessions", async () => {
         await manager.addOrUpdateMetadata(testMetadata);
 
         // Simulate VS Code crash/reload
@@ -99,7 +99,7 @@ suite("NotebookMetadataManager Test Suite", () => {
         assert.deepStrictEqual(
             retrievedMetadata,
             testMetadata,
-            "Metadata should persist across sessions"
+            "The metadata should persist across sessions"
         );
     });
 
@@ -111,12 +111,12 @@ suite("NotebookMetadataManager Test Suite", () => {
         await vscode.workspace.fs.writeFile(tempFileUri, Buffer.from("Temporary content"));
 
         const stat = await vscode.workspace.fs.stat(tempFileUri);
-        assert.ok(stat.type === vscode.FileType.File, "Temp file should be created");
+        assert.ok(stat.type === vscode.FileType.File, "The temporary file should be created");
 
         await vscode.workspace.fs.delete(tempFileUri);
         await assert.rejects(
             async () => await vscode.workspace.fs.stat(tempFileUri),
-            "Temp file should be deleted"
+            "The temporary file should be deleted"
         );
     });
 });

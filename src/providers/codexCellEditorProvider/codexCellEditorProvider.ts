@@ -464,16 +464,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         webviewPanel.webview.onDidReceiveMessage(async (e: EditorPostMessages) => {
             try {
-                console.log("message received (codexCellEditorProvider.ts): ", { e });
                 switch (e.command) {
                     case "addWord": {
-                        console.log("addWord message received", { e });
                         try {
                             const result = await vscode.commands.executeCommand(
                                 "spellcheck.addWord",
                                 e.words
                             );
-                            console.log("spellcheck.addWord command result:", result);
                             webviewPanel.webview.postMessage({
                                 type: "wordAdded",
                                 content: e.words,
@@ -485,10 +482,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         return;
                     }
                     case "from-quill-spellcheck-getSpellCheckResponse": {
-                        console.log(
-                            "from-quill-spellcheck-getSpellCheckResponse message received",
-                            { e }
-                        );
                         try {
                             const response = await vscode.commands.executeCommand(
                                 "translators-copilot.spellCheckText",
@@ -506,17 +499,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         return;
                     }
                     case "isProblematic": {
-                        // console.log("isProblematic message received", { e });
                         try {
                             const result = await vscode.commands.executeCommand(
                                 "translators-copilot.isProblematic",
                                 e.content.text,
                                 e.content.cellId // Pass the cellId
                             );
-                            // console.log(
-                            //     "Result!: ",
-                            //     result
-                            // );
                             this.postMessageToWebview(webviewPanel, {
                                 type: "providerSendsIsProblematicResponse",
                                 content: {
@@ -533,7 +521,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         return;
                     }
                     case "saveHtml":
-                        console.log("saveHtml message received", { e });
                         try {
                             document.updateCellContent(
                                 e.content.cellMarkers[0],
@@ -549,7 +536,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         updateWebview();
                         return;
                     case "setCurrentIdToGlobalState":
-                        console.log("setVerseRef message received", { e });
                         try {
                             await initializeStateStore().then(({ updateStoreState }) => {
                                 updateStoreState({
@@ -573,9 +559,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                 document,
                                 e.content.currentLineId
                             );
-                            console.log("completionResult", {
-                                completionResult,
-                            });
                             this.postMessageToWebview(webviewPanel, {
                                 type: "providerSendsLLMCompletionResponse",
                                 content: {

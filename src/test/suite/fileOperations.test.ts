@@ -7,11 +7,11 @@ suite('File System Operations Test Suite', () => {
     let workspaceUri: vscode.Uri;
 
     suiteSetup(async () => {
-        // Create temp workspace folder if needed
+        // Ensure a temporary workspace folder is available
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
             await vscode.workspace.updateWorkspaceFolders(0, 0, {
-                uri: vscode.Uri.file('/tmp/test-workspace')
+                uri: vscode.Uri.file('/tmp/test-workspace'),
             });
         }
         workspaceUri = vscode.workspace.workspaceFolders![0].uri;
@@ -38,7 +38,7 @@ suite('File System Operations Test Suite', () => {
         await writeSourceFile(tempFileUri, 'Atomic content');
 
         const stat = await vscode.workspace.fs.stat(tempFileUri);
-        assert.ok(stat.type === vscode.FileType.File, 'File should be written atomically');
+        assert.ok(stat.type === vscode.FileType.File, 'The file should be written atomically');
 
         await vscode.workspace.fs.delete(tempFileUri);
     });
@@ -47,7 +47,7 @@ suite('File System Operations Test Suite', () => {
         const invalidUri = vscode.Uri.file('/invalid/path/to/file');
         await assert.rejects(
             async () => await writeSourceFile(invalidUri, 'Content'),
-            'Should throw an error for invalid file path'
+            'An error should be thrown for an invalid file path'
         );
     });
 
@@ -64,8 +64,8 @@ suite('File System Operations Test Suite', () => {
         const genStat = await vscode.workspace.fs.stat(genFile);
         const exoStat = await vscode.workspace.fs.stat(exoFile);
 
-        assert.ok(genStat.type === vscode.FileType.File, 'Genesis file should exist');
-        assert.ok(exoStat.type === vscode.FileType.File, 'Exodus file should exist');
+        assert.ok(genStat.type === vscode.FileType.File, 'The Genesis file should exist');
+        assert.ok(exoStat.type === vscode.FileType.File, 'The Exodus file should exist');
 
         await vscode.workspace.fs.delete(genFile);
         await vscode.workspace.fs.delete(exoFile);
