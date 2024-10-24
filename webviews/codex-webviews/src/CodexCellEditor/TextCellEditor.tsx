@@ -1,10 +1,5 @@
 import React, { useContext, useEffect, useRef, useState } from "react";
-import {
-    EditorCellContent,
-    EditorPostMessages,
-    SpellCheckResponse,
-    Timestamps,
-} from "../../../../types";
+import { EditorCellContent, EditorPostMessages, Timestamps } from "../../../../types";
 import Editor from "./Editor";
 import CloseButtonWithConfirmation from "../components/CloseButtonWithConfirmation";
 import { getCleanedHtml } from "./react-quill-spellcheck";
@@ -19,7 +14,10 @@ interface CellEditorProps {
     cellContent: string;
     cellIndex: number;
     cellType: CodexCellTypes;
-    spellCheckResponse: SpellCheckResponse | null;
+    isProblematic: (
+        text: string,
+        cellId: string
+    ) => Promise<{ isProblematic: boolean; cellId: string }>;
     contentBeingUpdated: EditorCellContent;
     setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorCellContent>>;
     handleCloseEditor: () => void;

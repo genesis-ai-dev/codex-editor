@@ -17,6 +17,18 @@ export function registerClientCommands(
             }
         )
     );
+    disposables.push(
+        vscode.commands.registerCommand(
+            "translators-copilot.isProblematic",
+            async (text: string, cellId: string) => {
+                if (client) {
+                    const ret = client.sendRequest("spellcheck/isProblematic", { text, cellId });
+                    console.log("RCC: ", ret);
+                    return ret;
+                }
+            }
+        )
+    );
 
     disposables.push(
         vscode.commands.registerCommand(

@@ -21,7 +21,7 @@ import { RequestType } from "vscode-languageserver";
 import { debug } from "console";
 import { tokenizeText } from "../utils/nlpUtils";
 
-const DEBUG_MODE = false; // Flag for debug mode
+const DEBUG_MODE = true; // Flag for debug mode
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
@@ -88,7 +88,38 @@ connection.onInitialize((params: InitializeParams) => {
     } as InitializeResult;
 });
 let lastCellChanged: boolean = false;
+connection.onRequest(
+    "spellcheck/isProblematic",
+    async (params: { text: string; cellId: string }) => {
+        debugLog("SERVER: Received spellcheck/isProblematic request:", { params });
+        const text = params.text.toLowerCase();
+        const words = tokenizeText({
+            method: "whitespace_and_punctuation",
+            text: text,
+        });
 
+        // spellcheck
+        for (const word of words) {
+            const spellCheckResult = spellChecker.spellCheck(word);
+            if (
+                spellCheckResult &&
+                spellCheckResult.corrections &&
+                spellCheckResult.corrections.length > 0
+            ) {
+                debugLog("SERVER: Spell check result is problematic: ", {
+                    spellCheckResult,
+                    cellId: params.cellId,
+                });
+                return { isProblematic: true, cellId: params.cellId };
+            }
+        }
+        debugLog("SERVER: Spell check result is not problematic: ", {
+            text,
+            cellId: params.cellId,
+        });
+        return { isProblematic: false, cellId: params.cellId };
+    }
+);
 connection.onRequest("spellcheck/check", async (params: { text: string; cellChanged: boolean }) => {
     debugLog("SERVER: Received spellcheck/check request:", { params });
 

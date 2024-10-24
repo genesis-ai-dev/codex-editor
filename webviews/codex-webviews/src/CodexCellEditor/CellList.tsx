@@ -1,9 +1,9 @@
-import React, { useMemo, useState, useCallback } from "react";
-import { EditorCellContent, QuillCellContent, SpellCheckResponse } from "../../../../types";
+import React, { useMemo, useState, useCallback, useRef, useEffect } from "react";
+import { EditorCellContent, QuillCellContent } from "../../../../types";
 import CellEditor from "./TextCellEditor";
 import CellContentDisplay from "./CellContentDisplay";
 import EmptyCellDisplay from "./EmptyCellDisplay";
-import "@vscode/codicons/dist/codicon.css"; // Import codicons
+import "@vscode/codicons/dist/codicon.css";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 import { WebviewApi } from "vscode-webview";
 
@@ -11,32 +11,34 @@ interface CellListProps {
     translationUnits: QuillCellContent[];
     contentBeingUpdated: EditorCellContent;
     setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorCellContent>>;
-    spellCheckResponse: SpellCheckResponse | null;
     handleCloseEditor: () => void;
     handleSaveHtml: () => void;
     vscode: WebviewApi<unknown>;
     textDirection: "ltr" | "rtl";
     cellDisplayMode: CELL_DISPLAY_MODES;
     isSourceText: boolean;
-    spellCheckFunction: (cellContent: string) => Promise<SpellCheckResponse | null>;
+    windowHeight: number;
+    headerHeight: number;
+    isProblematicFunction: (
+        text: string,
+        cellId: string
+    ) => Promise<{ isProblematic: boolean; cellId: string }>;
 }
 
 const CellList: React.FC<CellListProps> = ({
     translationUnits,
     contentBeingUpdated,
     setContentBeingUpdated,
-    spellCheckResponse,
     handleCloseEditor,
     handleSaveHtml,
     vscode,
     textDirection,
     cellDisplayMode,
     isSourceText,
-    spellCheckFunction,
+    windowHeight,
+    headerHeight,
+    isProblematicFunction,
 }) => {
-    const [alertColorCache, setAlertColorCache] = useState<Map<string, string[]>>(new Map());
-
-    // Detect duplicate cell IDs
     const duplicateCellIds = useMemo(() => {
         const idCounts = new Map<string, number>();
         const duplicates = new Set<string>();
@@ -52,224 +54,209 @@ const CellList: React.FC<CellListProps> = ({
         return duplicates;
     }, [translationUnits]);
 
-    const checkForAlert = useCallback(
-        async (content: string, cellId: string) => {
-            if (alertColorCache.has(cellId)) {
-                return alertColorCache.get(cellId)!;
-            }
+    const renderCellGroup = useCallback(
+        (group: typeof translationUnits, startIndex: number) => (
+            <span
+                key={`group-${startIndex}`}
+                className={`verse-group cell-display-${cellDisplayMode}`}
+                style={{ direction: textDirection }}
+            >
+                {group.map(
+                    ({ cellMarkers, cellContent, cellType, cellLabel, timestamps }, index) => {
+                        const cellId = cellMarkers.join(" ");
+                        const hasDuplicateId = duplicateCellIds.has(cellId);
 
-            const lowerContent = content.toLowerCase();
-            const hasAlert = lowerContent.includes("alert");
-            const hasPurple = lowerContent.includes("purple");
-            const hasBoth = lowerContent.includes("both");
-            const spellCheckResponse = await spellCheckFunction(content);
-
-            let colors: string[] = [];
-            if (spellCheckResponse && spellCheckResponse.length > 0) {
-                colors = ["#FF6B6B"]; // Brighter red for spell check errors
-            } else if (hasBoth) {
-                colors = ["#FF6B6B", "#A0A0FF"]; // Brighter red and a more vibrant purple
-            } else if (hasPurple) {
-                colors = ["#A0A0FF"]; // A more vibrant purple
-            } else if (hasAlert) {
-                colors = ["#FF6B6B"]; // Brighter red
-            }
-
-            setAlertColorCache((prev) => new Map(prev).set(cellId, colors));
-            return colors;
-        },
-        [alertColorCache, spellCheckFunction]
-    );
-
-    const renderCellGroup = useMemo(
-        () => (group: typeof translationUnits, startIndex: number) =>
-            (
-                <span
-                    key={`group-${startIndex}`}
-                    className={`verse-group cell-display-${cellDisplayMode}`}
-                    style={{ direction: textDirection }}
-                >
-                    {group.map(
-                        ({ cellMarkers, cellContent, cellType, cellLabel, timestamps }, index) => {
-                            const cellId = cellMarkers.join(" ");
-                            const hasDuplicateId = duplicateCellIds.has(cellId);
-                            const alertColorsPromise = checkForAlert(cellContent, cellId);
-
-                            return (
-                                <span key={startIndex + index}>
-                                    <AlertColors alertColorsPromise={alertColorsPromise} />
-                                    <CellContentDisplay
-                                        cellIds={cellMarkers}
-                                        cellContent={cellContent}
-                                        cellIndex={startIndex + index}
-                                        cellType={cellType}
-                                        cellLabel={cellLabel}
-                                        setContentBeingUpdated={setContentBeingUpdated}
-                                        vscode={vscode}
-                                        textDirection={textDirection}
-                                        isSourceText={isSourceText}
-                                        hasDuplicateId={hasDuplicateId}
-                                        timestamps={timestamps}
-                                    />
-                                </span>
-                            );
-                        }
-                    )}
-                </span>
-            ),
+                        return (
+                            <div
+                                key={startIndex + index}
+                                style={{ display: "flex", alignItems: "center" }}
+                            >
+                                <AlertColors
+                                    cellId={cellId}
+                                    cellContent={cellContent}
+                                    isProblematicFunction={isProblematicFunction}
+                                />
+                                <CellContentDisplay
+                                    cellIds={cellMarkers}
+                                    cellContent={cellContent}
+                                    cellIndex={startIndex + index}
+                                    cellType={cellType}
+                                    cellLabel={cellLabel}
+                                    setContentBeingUpdated={setContentBeingUpdated}
+                                    vscode={vscode}
+                                    textDirection={textDirection}
+                                    isSourceText={isSourceText}
+                                    hasDuplicateId={hasDuplicateId}
+                                    timestamps={timestamps}
+                                />
+                            </div>
+                        );
+                    }
+                )}
+            </span>
+        ),
         [
             cellDisplayMode,
             textDirection,
             setContentBeingUpdated,
             vscode,
             isSourceText,
-            checkForAlert,
             duplicateCellIds,
+            isProblematicFunction,
         ]
     );
 
-    const renderCells = useMemo(
-        () => () => {
-            const result = [];
-            let currentGroup = [];
-            let groupStartIndex = 0;
+    const renderCells = useCallback(() => {
+        const result = [];
+        let currentGroup = [];
+        let groupStartIndex = 0;
 
-            for (let i = 0; i < translationUnits.length; i++) {
-                const { cellMarkers, cellContent, cellType, cellLabel, timestamps } =
-                    translationUnits[i];
+        for (let i = 0; i < translationUnits.length; i++) {
+            const { cellMarkers, cellContent, cellType, cellLabel, timestamps } =
+                translationUnits[i];
 
-                const checkIfCurrentCellIsChild = () => {
-                    const currentCellId = cellMarkers[0];
-                    const translationUnitsWithCurrentCellRemoved = translationUnits.filter(
-                        ({ cellMarkers }) => cellMarkers[0] !== currentCellId
-                    );
-
-                    const currentCellWithLastIdSegmentRemoved = currentCellId
-                        .split(":")
-                        .slice(0, 2)
-                        .join(":");
-                    return translationUnitsWithCurrentCellRemoved.some(
-                        ({ cellMarkers }) => cellMarkers[0] === currentCellWithLastIdSegmentRemoved
-                    );
-                };
-
-                if (
-                    !isSourceText &&
-                    cellMarkers.join(" ") === contentBeingUpdated.cellMarkers?.join(" ")
-                ) {
-                    if (currentGroup.length > 0) {
-                        result.push(renderCellGroup(currentGroup, groupStartIndex));
-                        currentGroup = [];
-                    }
-                    const cellIsChild = checkIfCurrentCellIsChild();
-
-                    const alertColorsPromise = checkForAlert(cellContent, cellMarkers.join(" "));
-                    result.push(
-                        <div
-                            key={cellMarkers.join(" ")}
-                            style={{ display: "flex", alignItems: "center" }}
-                        >
-                            <div
-                                style={{
-                                    display: "flex",
-                                    flexDirection: "column",
-                                    marginRight: "8px",
-                                }}
-                            >
-                                <React.Suspense fallback={<div>Loading...</div>}>
-                                    <AlertColors alertColorsPromise={alertColorsPromise} />
-                                </React.Suspense>
-                            </div>
-                            <CellEditor
-                                cellMarkers={cellMarkers}
-                                cellContent={cellContent}
-                                cellIndex={i}
-                                cellType={cellType}
-                                cellLabel={cellLabel}
-                                cellTimestamps={timestamps}
-                                spellCheckResponse={spellCheckResponse}
-                                contentBeingUpdated={contentBeingUpdated}
-                                setContentBeingUpdated={setContentBeingUpdated}
-                                handleCloseEditor={handleCloseEditor}
-                                handleSaveHtml={handleSaveHtml}
-                                textDirection={textDirection}
-                                cellIsChild={cellIsChild}
-                            />
-                        </div>
-                    );
-                    groupStartIndex = i + 1;
-                } else if (cellContent?.trim()?.length === 0) {
-                    if (currentGroup.length > 0) {
-                        result.push(renderCellGroup(currentGroup, groupStartIndex));
-                        currentGroup = [];
-                    }
-                    result.push(
-                        <EmptyCellDisplay
-                            key={cellMarkers.join(" ")}
-                            cellMarkers={cellMarkers}
-                            cellLabel={cellLabel}
-                            setContentBeingUpdated={setContentBeingUpdated}
-                            textDirection={textDirection}
-                            vscode={vscode}
-                        />
-                    );
-                    groupStartIndex = i + 1;
-                } else {
-                    currentGroup.push(translationUnits[i]);
+            if (
+                !isSourceText &&
+                cellMarkers.join(" ") === contentBeingUpdated.cellMarkers?.join(" ")
+            ) {
+                if (currentGroup.length > 0) {
+                    result.push(renderCellGroup(currentGroup, groupStartIndex));
+                    currentGroup = [];
                 }
+                result.push(
+                    <div
+                        key={cellMarkers.join(" ")}
+                        style={{ display: "flex", alignItems: "center" }}
+                    >
+                        <AlertColors
+                            cellId={cellMarkers.join(" ")}
+                            cellContent={cellContent}
+                            isProblematicFunction={isProblematicFunction}
+                        />
+                        <CellEditor
+                            cellMarkers={cellMarkers}
+                            cellContent={cellContent}
+                            cellIndex={i}
+                            cellType={cellType}
+                            cellLabel={cellLabel}
+                            cellTimestamps={timestamps}
+                            isProblematic={isProblematicFunction}
+                            contentBeingUpdated={contentBeingUpdated}
+                            setContentBeingUpdated={setContentBeingUpdated}
+                            handleCloseEditor={handleCloseEditor}
+                            handleSaveHtml={handleSaveHtml}
+                            textDirection={textDirection}
+                        />
+                    </div>
+                );
+                groupStartIndex = i + 1;
+            } else if (cellContent?.trim()?.length === 0) {
+                if (currentGroup.length > 0) {
+                    result.push(renderCellGroup(currentGroup, groupStartIndex));
+                    currentGroup = [];
+                }
+                result.push(
+                    <EmptyCellDisplay
+                        key={cellMarkers.join(" ")}
+                        cellMarkers={cellMarkers}
+                        cellLabel={cellLabel}
+                        setContentBeingUpdated={setContentBeingUpdated}
+                        textDirection={textDirection}
+                        vscode={vscode}
+                    />
+                );
+                groupStartIndex = i + 1;
+            } else {
+                currentGroup.push(translationUnits[i]);
             }
+        }
 
-            if (currentGroup.length > 0) {
-                result.push(renderCellGroup(currentGroup, groupStartIndex));
-            }
+        if (currentGroup.length > 0) {
+            result.push(renderCellGroup(currentGroup, groupStartIndex));
+        }
 
-            return result;
-        },
-        [
-            translationUnits,
-            contentBeingUpdated,
-            isSourceText,
-            spellCheckResponse,
-            handleCloseEditor,
-            handleSaveHtml,
-            renderCellGroup,
-            checkForAlert,
-        ]
-    );
+        return result;
+    }, [
+        translationUnits,
+        contentBeingUpdated,
+        isSourceText,
+        handleCloseEditor,
+        handleSaveHtml,
+        renderCellGroup,
+        isProblematicFunction,
+        setContentBeingUpdated,
+        textDirection,
+        vscode,
+    ]);
+
+    const listHeight = windowHeight - headerHeight - 20;
 
     return (
         <div
             className="verse-list ql-editor"
-            style={{ direction: textDirection, overflowY: "auto" }}
+            style={{
+                direction: textDirection,
+                overflowY: "auto",
+                maxHeight: `${listHeight}px`,
+            }}
         >
             {renderCells()}
         </div>
     );
 };
 
-const AlertColors: React.FC<{ alertColorsPromise: Promise<string[]> }> = ({
-    alertColorsPromise,
-}) => {
-    const [alertColors, setAlertColors] = React.useState<string[]>([]);
+const AlertColors: React.FC<{
+    cellId: string;
+    cellContent: string;
+    isProblematicFunction: (
+        text: string,
+        cellId: string
+    ) => Promise<{ isProblematic: boolean; cellId: string }>;
+}> = ({ cellId, cellContent, isProblematicFunction }) => {
+    const [isProblematic, setIsProblematic] = useState<boolean>(false);
+    const [isLoading, setIsLoading] = useState<boolean>(true);
+    const resultsCache = new Map<string, boolean>();
 
-    React.useEffect(() => {
-        alertColorsPromise.then(setAlertColors);
-    }, [alertColorsPromise]);
+    useEffect(() => {
+        const checkContent = async () => {
+            if (resultsCache.has(cellId)) {
+                setIsProblematic(resultsCache.get(cellId)!);
+                setIsLoading(false);
+                return;
+            }
+
+            try {
+                const result = await isProblematicFunction(cellContent, cellId);
+                resultsCache.set(cellId, result.isProblematic.isProblematic);
+                setIsProblematic(result.isProblematic.isProblematic);
+            } catch (error) {
+                console.error("Error checking content:", error);
+                resultsCache.set(cellId, false);
+                setIsProblematic(false);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        checkContent();
+    }, [cellId, cellContent, isProblematicFunction]);
+
+    if (isLoading) return null;
+    if (!isProblematic) return null;
 
     return (
-        <>
-            {alertColors.map((color, i) => (
-                <span
-                    key={i}
-                    style={{
-                        fontSize: "2rem",
-                        color: color,
-                    }}
-                >
-                    •
-                </span>
-            ))}
-        </>
+        <div style={{ display: "flex", flexDirection: "column", marginRight: "8px" }}>
+            <div
+                style={{
+                    width: "10px",
+                    height: "10px",
+                    borderRadius: "50%",
+                    backgroundColor: "#FF6B6B",
+                    marginBottom: "-4px",
+                    boxShadow: "0 0 2px rgba(0,0,0,0.2)",
+                }}
+            />
+        </div>
     );
 };
 
