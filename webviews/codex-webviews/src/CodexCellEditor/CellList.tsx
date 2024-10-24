@@ -71,11 +71,6 @@ const CellList: React.FC<CellListProps> = ({
                                 key={startIndex + index}
                                 style={{ display: "flex", alignItems: "center" }}
                             >
-                                <AlertColors
-                                    cellId={cellId}
-                                    cellContent={cellContent}
-                                    isProblematicFunction={isProblematicFunction}
-                                />
                                 <CellContentDisplay
                                     cellIds={cellMarkers}
                                     cellContent={cellContent}
@@ -88,6 +83,7 @@ const CellList: React.FC<CellListProps> = ({
                                     isSourceText={isSourceText}
                                     hasDuplicateId={hasDuplicateId}
                                     timestamps={timestamps}
+                                    isProblematicFunction={isProblematicFunction}
                                 />
                             </div>
                         );
@@ -128,11 +124,6 @@ const CellList: React.FC<CellListProps> = ({
                         key={cellMarkers.join(" ")}
                         style={{ display: "flex", alignItems: "center" }}
                     >
-                        <AlertColors
-                            cellId={cellMarkers.join(" ")}
-                            cellContent={cellContent}
-                            isProblematicFunction={isProblematicFunction}
-                        />
                         <CellEditor
                             cellMarkers={cellMarkers}
                             cellContent={cellContent}
@@ -201,61 +192,6 @@ const CellList: React.FC<CellListProps> = ({
             }}
         >
             {renderCells()}
-        </div>
-    );
-};
-
-const AlertColors: React.FC<{
-    cellId: string;
-    cellContent: string;
-    isProblematicFunction: (
-        text: string,
-        cellId: string
-    ) => Promise<{ isProblematic: boolean; cellId: string }>;
-}> = ({ cellId, cellContent, isProblematicFunction }) => {
-    const [isProblematic, setIsProblematic] = useState<boolean>(false);
-    const [isLoading, setIsLoading] = useState<boolean>(true);
-    const resultsCache = new Map<string, boolean>();
-
-    useEffect(() => {
-        const checkContent = async () => {
-            if (resultsCache.has(cellId)) {
-                setIsProblematic(resultsCache.get(cellId)!);
-                setIsLoading(false);
-                return;
-            }
-
-            try {
-                const result = await isProblematicFunction(cellContent, cellId);
-                resultsCache.set(cellId, result.isProblematic.isProblematic);
-                setIsProblematic(result.isProblematic.isProblematic);
-            } catch (error) {
-                console.error("Error checking content:", error);
-                resultsCache.set(cellId, false);
-                setIsProblematic(false);
-            } finally {
-                setIsLoading(false);
-            }
-        };
-
-        checkContent();
-    }, [cellId, cellContent, isProblematicFunction]);
-
-    if (isLoading) return null;
-    if (!isProblematic) return null;
-
-    return (
-        <div style={{ display: "flex", flexDirection: "column", marginRight: "8px" }}>
-            <div
-                style={{
-                    width: "10px",
-                    height: "10px",
-                    borderRadius: "50%",
-                    backgroundColor: "#FF6B6B",
-                    marginBottom: "-4px",
-                    boxShadow: "0 0 2px rgba(0,0,0,0.2)",
-                }}
-            />
         </div>
     );
 };

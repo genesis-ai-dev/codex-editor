@@ -1,4 +1,4 @@
-import React, { useContext } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import { EditorCellContent, EditorPostMessages, Timestamps } from "../../../../types";
 import { HACKY_removeContiguousSpans } from "./utils";
 import { CodexCellTypes } from "../../../../types/enums";
@@ -17,6 +17,10 @@ interface CellContentDisplayProps {
     isSourceText: boolean;
     hasDuplicateId: boolean;
     timestamps: Timestamps | undefined;
+    isProblematicFunction: (
+        text: string,
+        cellId: string
+    ) => Promise<{ isProblematic: boolean; cellId: string }>;
 }
 
 const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
@@ -30,8 +34,24 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     isSourceText,
     hasDuplicateId,
     timestamps,
+    isProblematicFunction,
 }) => {
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
+    const [isProblematic, setIsProblematic] = useState<boolean>(false);
+
+    useEffect(() => {
+        const checkContent = async () => {
+            try {
+                const result = await isProblematicFunction(cellContent, cellIds[0]);
+                setIsProblematic(result.isProblematic.isProblematic);
+            } catch (error) {
+                console.error("Error checking content:", error);
+                setIsProblematic(false);
+            }
+        };
+
+        checkContent();
+    }, [cellContent, cellIds, isProblematicFunction]);
 
     const handleVerseClick = () => {
         if (unsavedChanges || isSourceText) {
@@ -84,7 +104,23 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                     <i className="codicon codicon-warning"></i>
                 </span>
             )}
-            {cellType === CodexCellTypes.TEXT && <sup>{displayLabel}</sup>}
+            {cellType === CodexCellTypes.TEXT && (
+                <sup>
+                    {displayLabel}
+                    {isProblematic && (
+                        <span
+                            style={{
+                                display: "inline-block",
+                                width: "5px",
+                                height: "5px",
+                                borderRadius: "50%",
+                                backgroundColor: "#FF6B6B",
+                                marginLeft: "4px",
+                            }}
+                        />
+                    )}
+                </sup>
+            )}
             {/* Display a visual indicator for paratext cells */}
             {cellType === CodexCellTypes.PARATEXT && (
                 <span className="paratext-indicator">[Paratext]</span>
