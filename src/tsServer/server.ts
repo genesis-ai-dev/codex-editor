@@ -89,9 +89,9 @@ connection.onInitialize((params: InitializeParams) => {
 });
 let lastCellChanged: boolean = false;
 connection.onRequest(
-    "spellcheck/isProblematic",
+    "spellcheck/getAlertCode",
     async (params: { text: string; cellId: string }) => {
-        debugLog("SERVER: Received spellcheck/isProblematic request:", { params });
+        debugLog("SERVER: Received spellcheck/getAlertCode request:", { params });
         const text = params.text.toLowerCase();
         const words = tokenizeText({
             method: "whitespace_and_punctuation",
@@ -110,14 +110,23 @@ connection.onRequest(
                     spellCheckResult,
                     cellId: params.cellId,
                 });
-                return { isProblematic: true, cellId: params.cellId };
+                return { code: 1, cellId: params.cellId };
             }
         }
         debugLog("SERVER: Spell check result is not problematic: ", {
             text,
             cellId: params.cellId,
         });
-        return { isProblematic: false, cellId: params.cellId };
+        const savedSuggestions = await connection.sendRequest(ExecuteCommandRequest, {
+            command: "codex-smart-edits.getSavedSuggestions",
+            args: [params.cellId],
+        });
+        let code = 0;
+        if (savedSuggestions && savedSuggestions.length > 0) {
+            code = 2;
+        }
+        debugLog("SERVER SERVER: savedSuggestions: ", savedSuggestions, " ID: ", params.cellId);
+        return { code, cellId: params.cellId, savedSuggestions };
     }
 );
 connection.onRequest("spellcheck/check", async (params: { text: string; cellChanged: boolean }) => {

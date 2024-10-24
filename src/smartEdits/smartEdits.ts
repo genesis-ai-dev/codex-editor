@@ -97,7 +97,7 @@ export class SmartEdits {
         return suggestions;
     }
 
-    private async loadSavedSuggestions(cellId: string): Promise<SavedSuggestions | null> {
+    async loadSavedSuggestions(cellId: string): Promise<SavedSuggestions | null> {
         try {
             console.log(`Loading saved suggestions for cellId: ${cellId}`);
             const fileUri = vscode.Uri.file(this.smartEditsPath);
