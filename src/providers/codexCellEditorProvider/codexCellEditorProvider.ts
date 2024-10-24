@@ -48,7 +48,8 @@ class CodexCellDocument implements vscode.CustomDocument {
         this.uri = uri;
         this._documentData = initialContent.trim().length === 0 ? {} : JSON.parse(initialContent);
         if (!this._documentData.metadata) {
-            const metadata = NotebookMetadataManager.getInstance();
+            const metadata = new NotebookMetadataManager();
+            metadata.initialize();
             metadata.loadMetadata().then(() => {
                 const matchingMetadata = metadata
                     .getAllMetadata()
@@ -140,24 +141,18 @@ class CodexCellDocument implements vscode.CustomDocument {
         });
     }
     public replaceDuplicateCells(content: QuillCellContent) {
-        console.log(`Searching for cell with ID: ${content.cellMarkers[0]}`);
         let indexOfCellToDelete = this._documentData.cells.findIndex((cell) => {
-            console.log(`Checking cell:`, { cell });
             return cell.metadata?.id === content.cellMarkers[0];
         });
-        console.log(`Found cell at index: ${indexOfCellToDelete}`);
         const cellMarkerOfCellBeforeNewCell =
             indexOfCellToDelete === 0
                 ? null
                 : this._documentData.cells[indexOfCellToDelete - 1].metadata?.id;
         while (indexOfCellToDelete !== -1) {
             this._documentData.cells.splice(indexOfCellToDelete, 1);
-            console.log(`Searching for next cell with ID 2: ${content.cellMarkers[0]}`);
             indexOfCellToDelete = this._documentData.cells.findIndex((cell) => {
-                console.log(`Checking cell 2:`, { cell });
                 return cell.metadata?.id === content.cellMarkers[0];
             });
-            console.log(`Found next cell at index 2: ${indexOfCellToDelete}`);
         }
 
         this.addCell(

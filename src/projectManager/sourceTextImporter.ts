@@ -60,7 +60,8 @@ async function importSourceFile(
     const fileType = fileTypeMap[fileExtension] || "plaintext";
 
     try {
-        const metadataManager = NotebookMetadataManager.getInstance();
+        const metadataManager = new NotebookMetadataManager();
+        await metadataManager.initialize();
         await metadataManager.loadMetadata();
 
         const baseName = path.basename(fileUri.fsPath).split(".")[0] || `new_source`;
@@ -205,7 +206,8 @@ export async function createEmptyCodexNotebooks(sourceFileName: string): Promise
         throw new Error(`No source file found for ${sourceFileName} in ${sourceFolder.fsPath}`);
     }
 
-    const metadataManager = NotebookMetadataManager.getInstance();
+    const metadataManager = new NotebookMetadataManager();
+    await metadataManager.initialize();
     await metadataManager.loadMetadata();
 
     for (const sourceFile of sourceFiles) {

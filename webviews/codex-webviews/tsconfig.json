@@ -20,7 +20,7 @@
         "noUnusedParameters": true,
         "noFallthroughCasesInSwitch": true,
         "noImplicitAny": true,
-        "typeRoots": ["./node_modules/@types", "./src/types", "./src"]
+        "typeRoots": ["./node_modules/@types", "./src/types/index.d.ts", "./src"]
     },
     "exclude": ["build"],
     "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.d.ts"],

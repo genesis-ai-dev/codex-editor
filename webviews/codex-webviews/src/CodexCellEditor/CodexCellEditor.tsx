@@ -67,8 +67,6 @@ const CodexCellEditor: React.FC = () => {
             isSourceText: boolean,
             sourceCellMap: { [k: string]: { content: string; versions: string[] } }
         ) => {
-            // const sourceCellMapObject = Object.fromEntries(sourceCellMap);
-            console.log("sourceCellMap in CodexCellEditor", { sourceCellMap });
             setTranslationUnits(content);
             setIsSourceText(isSourceText);
             setSourceCellMap(sourceCellMap);

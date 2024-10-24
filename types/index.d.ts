@@ -176,7 +176,25 @@ type SourceUploadPostMessages =
     | { command: "syncAction"; status: string; fileUri: string }
     | { command: "openFile"; fileUri: string }
     | { command: "closePanel" }
-    | { command: "createSourceFolder"; data: { sourcePath: string } };
+    | { command: "createSourceFolder"; data: { sourcePath: string } }
+    | { command: "importRemoteTranslation"; data: { sourcePath: string } }
+    | { command: "importLocalTranslation"; data: { sourcePath: string } }
+    | { command: "selectSourceFile"; data: { sourcePath: string } };
+
+export type SourceUploadResponseMessages = {
+    command:
+        | "updateMetadata"
+        | "sourceFileSelected"
+        | "updateProcessingStatus"
+        | "setupComplete"
+        | "error";
+    metadata?: AggregatedMetadata[];
+    data?: {
+        path?: string;
+    };
+    status?: Record<string, "pending" | "active" | "complete" | "error">;
+    message?: string;
+};
 
 type DictionaryPostMessages =
     | { command: "sendData"; data: Dictionary }
@@ -590,46 +608,6 @@ export interface FileTypeMap {
     USFM: "usfm";
 }
 
-// Add to your existing SourceUploadPostMessages type
-export type SourceUploadPostMessages = {
-    command:
-        | "getMetadata"
-        | "uploadSourceText"
-        | "uploadTranslation"
-        | "downloadBible"
-        | "openFile"
-        | "syncAction"
-        | "createSourceFolder"
-        | "selectSourceFile"
-        | "importRemoteTranslation"
-        | "importLocalTranslation"
-        | "closePanel";
-    fileContent?: string;
-    fileName?: string;
-    sourceFileName?: string;
-    fileUri?: string;
-    status?: string;
-    data?: {
-        sourcePath?: string;
-        format?: string;
-    };
-};
-
-export type SourceUploadResponseMessages = {
-    command:
-        | "updateMetadata"
-        | "sourceFileSelected"
-        | "updateProcessingStatus"
-        | "setupComplete"
-        | "error";
-    metadata?: AggregatedMetadata[];
-    data?: {
-        path?: string;
-    };
-    status?: Record<string, "pending" | "active" | "complete" | "error">;
-    message?: string;
-};
-
 export interface AggregatedMetadata {
     id: string;
     originalName: string;
@@ -646,4 +624,22 @@ export interface AggregatedMetadata {
         | "conflict"
         | "untracked"
         | "committed";
+}
+
+// Add these to your existing types
+export interface ValidationResult {
+    isValid: boolean;
+    errors: ValidationError[];
+}
+
+export interface ValidationError {
+    code: ValidationErrorCode;
+    message: string;
+    details?: unknown;
+}
+
+export interface SourceFileValidationOptions {
+    maxFileSizeBytes?: number;
+    supportedExtensions?: string[];
+    minDiskSpaceBytes?: number;
 }

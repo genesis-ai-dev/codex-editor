@@ -19,7 +19,8 @@ export class CodexModel {
     private notebookMetadataManager: NotebookMetadataManager;
 
     constructor(private workspaceRoot: string | undefined) {
-        this.notebookMetadataManager = NotebookMetadataManager.getInstance();
+        this.notebookMetadataManager = new NotebookMetadataManager();
+        this.notebookMetadataManager.initialize();
     }
 
     public async getRoots(): Promise<CodexNode[]> {

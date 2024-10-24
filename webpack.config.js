@@ -32,6 +32,7 @@ const extensionConfig = {
         extensions: [".ts", ".js"],
         alias: {
             "@": path.resolve(__dirname, "src"),
+            "@types": path.resolve(__dirname, "types"),
         },
     },
     module: {

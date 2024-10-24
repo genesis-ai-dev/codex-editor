@@ -10,8 +10,9 @@ import {
     SourceUploadPostMessages,
     SourceUploadResponseMessages,
     AggregatedMetadata,
-} from "../../../types";
+} from "../../../types/index";
 import path from "path";
+import { SourceFileValidator } from "../../validation/sourceFileValidator";
 
 // Add new types for workflow status tracking
 interface ProcessingStatus {
@@ -102,7 +103,8 @@ export class SourceUploadProvider
                                 message.fileContent,
                                 message.fileName
                             );
-                            const metadataManager = NotebookMetadataManager.getInstance();
+                            const metadataManager = new NotebookMetadataManager();
+                            await metadataManager.initialize();
                             await metadataManager.loadMetadata();
                             const sourceMetadata = metadataManager.getMetadataBySourceFileName(
                                 message.sourceFileName
@@ -223,9 +225,11 @@ export class SourceUploadProvider
                             // This will be implemented in the future
                             webviewPanel.webview.postMessage({
                                 command: "error",
-                                message: `${isRemote ? "Remote" : "Local"} translation import not yet implemented`,
+                                message: `${
+                                    isRemote ? "Remote" : "Local"
+                                } translation import not yet implemented`,
                             } as SourceUploadResponseMessages);
-                        } catch (error) {
+                        } catch (error: any) {
                             console.error("Error importing translation:", error);
                             webviewPanel.webview.postMessage({
                                 command: "error",
@@ -292,7 +296,8 @@ export class SourceUploadProvider
     }
 
     private async updateMetadata(webviewPanel: vscode.WebviewPanel) {
-        const metadataManager = NotebookMetadataManager.getInstance();
+        const metadataManager = new NotebookMetadataManager();
+        await metadataManager.initialize();
         await metadataManager.loadMetadata();
         const allMetadata = metadataManager.getAllMetadata();
 
@@ -400,6 +405,8 @@ export class SourceUploadProvider
     }
 
     private async handleSourceFileSetup(webviewPanel: vscode.WebviewPanel, sourcePath: string) {
+        const validator = new SourceFileValidator();
+
         try {
             const sendStatus = (
                 status: Record<string, "pending" | "active" | "complete" | "error">
@@ -415,7 +422,12 @@ export class SourceUploadProvider
 
             // Validate file
             const sourceUri = vscode.Uri.file(sourcePath);
-            await vscode.workspace.fs.stat(sourceUri);
+            const validationResult = await validator.validateSourceFile(sourceUri);
+            if (!validationResult.isValid) {
+                throw new Error(
+                    `Validation failed: ${validationResult.errors.map((e) => e.message).join(", ")}`
+                );
+            }
 
             sendStatus({
                 fileValidation: "complete",

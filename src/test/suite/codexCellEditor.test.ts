@@ -23,10 +23,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
         // Write content to the temporary file
         const encoder = new TextEncoder();
         const fileContent = JSON.stringify(codexSubtitleContent, null, 2);
-        console.log({ fileContent });
         await vscode.workspace.fs.writeFile(tempUri, encoder.encode(fileContent));
-
-        // console.log({ tempUri: tempUri.fsPath, __dirname });
     });
 
     suiteTeardown(async () => {
@@ -54,19 +51,15 @@ suite("CodexCellEditorProvider Test Suite", () => {
     });
 
     test("openCustomDocument should return a CodexCellDocument", async () => {
-        console.log({ tempUri: JSON.stringify(tempUri, null, 2) });
-
         // read the file content
         const fileContent = await vscode.workspace.fs.readFile(tempUri);
         const decoder = new TextDecoder();
-        console.log({ fileContentAsString: decoder.decode(fileContent) });
 
         const document = await provider.openCustomDocument(
             tempUri,
             { backupId: undefined },
             new vscode.CancellationTokenSource().token
         );
-        console.log({ document });
         assert.ok(document, "openCustomDocument should return a document");
         // Add more specific assertions based on your CodexCellDocument implementation
     });
@@ -96,7 +89,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
         } as any as vscode.Webview;
 
         const html = provider["getHtmlForWebview"](webview, document, "ltr", false);
-        console.log({ html });
 
         assert.ok(html.includes("<html"), "HTML should contain opening html tag");
         assert.ok(html.includes("</html>"), "HTML should contain closing html tag");
@@ -158,7 +150,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
         const contentForUpdate = "Updated content";
         document.updateCellContent(cellId, contentForUpdate, EditType.USER_EDIT);
         const updatedContent = await document.getText();
-        console.log({ updatedContent });
         const cell = JSON.parse(updatedContent).cells.find((c: any) => c.metadata.id === cellId);
         assert.strictEqual(cell.value, contentForUpdate, "Cell content should be updated");
     });
@@ -176,7 +167,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
         };
         document.updateCellTimestamps(cellId, timestamps);
         const updatedContent = await document.getText();
-        console.log({ updatedContent });
         const cell = JSON.parse(updatedContent).cells.find((c: any) => c.metadata.id === cellId);
         assert.strictEqual(
             cell.metadata.data.startTime,
@@ -224,7 +214,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
         document.addCell(cellId, cellIdOfCellBeforeNewCell, CodexCellTypes.PARATEXT, {});
         const updatedContent = await document.getText();
         const cells = JSON.parse(updatedContent).cells;
-        console.log({ cell: JSON.stringify(cells[1], null, 2) });
         // cells should contain the new cell
         assert.strictEqual(
             cells.length,
@@ -254,7 +243,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
         });
         const updatedContent = await document.getText();
         const cells = JSON.parse(updatedContent).cells;
-        console.log({ cell: JSON.stringify(cells[1], null, 2) });
 
         assert.strictEqual(
             cells.find((c: any) => c.metadata.id === cellId).metadata.data.startTime,
@@ -291,9 +279,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
                     return { dispose: () => {} };
                 },
                 postMessage: (message: any) => {
-                    console.log("postMessage called", {
-                        message: JSON.stringify(message, null, 2),
-                    });
                     postMessageCallback = message;
                     return Promise.resolve();
                 },
@@ -427,9 +412,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
                     return { dispose: () => {} };
                 },
                 postMessage: (message: any) => {
-                    console.log("postMessage called", {
-                        message: JSON.stringify(message, null, 2),
-                    });
                     postMessageCallback = message;
                     return Promise.resolve();
                 },
@@ -452,7 +434,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
         });
         await new Promise((resolve) => setTimeout(resolve, 10));
         const updatedTextDirection = JSON.parse(document.getText()).metadata.textDirection;
-        console.log({ updatedTextDirection });
         assert.strictEqual(
             updatedTextDirection,
             "rtl",
@@ -482,9 +463,6 @@ suite("CodexCellEditorProvider Test Suite", () => {
                     return { dispose: () => {} };
                 },
                 postMessage: (message: any) => {
-                    console.log("postMessage called", {
-                        message: JSON.stringify(message, null, 2),
-                    });
                     postMessageCallback = message;
                     return Promise.resolve();
                 },
