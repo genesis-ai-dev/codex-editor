@@ -2,7 +2,7 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 
 import { SourceFileValidator } from "../../validation/sourceFileValidator";
-import { ValidationErrorCode } from "../../../types";
+import { ValidationErrorCode } from "../../../types/enums";
 
 suite("SourceFileValidator Test Suite", () => {
     let validator: SourceFileValidator;

@@ -1,10 +1,6 @@
 import * as vscode from "vscode";
-import {
-    SourceFileValidationOptions,
-    ValidationResult,
-    ValidationError,
-    ValidationErrorCode,
-} from "../../types";
+import { SourceFileValidationOptions, ValidationResult, ValidationError } from "../../types";
+import { ValidationErrorCode } from "../../types/enums";
 
 const DEFAULT_OPTIONS: SourceFileValidationOptions = {
     maxFileSizeBytes: 50 * 1024 * 1024, // 50MB

@@ -64,3 +64,11 @@ export enum MainChatLanguage {
     Khmer = "ភាសាខ្មែរ (Khmer)",
     Lao = "ພາສາລາວ (Lao)",
 }
+
+export enum ValidationErrorCode {
+    FILE_SIZE_EXCEEDED = "FILE_SIZE_EXCEEDED",
+    UNSUPPORTED_FILE_TYPE = "UNSUPPORTED_FILE_TYPE",
+    INVALID_CONTENT = "INVALID_CONTENT",
+    INSUFFICIENT_SPACE = "INSUFFICIENT_SPACE",
+    SYSTEM_ERROR = "SYSTEM_ERROR",
+}
