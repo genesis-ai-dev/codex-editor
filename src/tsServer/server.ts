@@ -125,18 +125,56 @@ connection.onRequest(
         if (savedSuggestions && savedSuggestions.suggestions.length > 0) {
             code = 2;
         }
-        debugLog("SERVER: savedSuggestions: ", savedSuggestions.suggestions, " ID: ", params.cellId);
+        debugLog(
+            "SERVER: savedSuggestions: ",
+            savedSuggestions.suggestions,
+            " ID: ",
+            params.cellId
+        );
         return { code, cellId: params.cellId, savedSuggestions };
     }
 );
+
 connection.onRequest("spellcheck/check", async (params: { text: string; cellChanged: boolean }) => {
     debugLog("SERVER: Received spellcheck/check request:", { params });
 
     const text = params.text;
     const matches: MatchesEntity[] = [];
 
-    // Get smart edit suggestions only if the cellId has changed
-    if (params.cellChanged !== lastCellChanged) {
+    // Perform regular spellcheck first
+    const words = tokenizeText({
+        method: "whitespace_and_punctuation",
+        text: params.text,
+    });
+
+    let hasSpellingErrors = false;
+
+    for (const word of words) {
+        if (!word) continue; // Skip empty words
+
+        const spellCheckResult = spellChecker.spellCheck(word);
+        if (!spellCheckResult) continue;
+
+        const offset = text.toLowerCase().indexOf(word.toLowerCase(), 0);
+        if (offset === -1) continue;
+
+        if (spellCheckResult.corrections && spellCheckResult.corrections.length > 0) {
+            matches.push({
+                id: `UNKNOWN_WORD_${matches.length}`,
+                text: word,
+                replacements: spellCheckResult.corrections
+                    .filter((c) => c !== null && c !== undefined)
+                    .map((correction) => ({ value: correction })),
+                offset: offset,
+                length: word.length,
+                color: "red", // Default color for spelling errors
+            });
+            hasSpellingErrors = true;
+        }
+    }
+
+    // Only process smart edits if there are no spelling errors
+    if (!hasSpellingErrors && params.cellChanged !== lastCellChanged) {
         specialPhrases = [];
         const smartEditSuggestions = await connection.sendRequest(ExecuteCommandRequest, {
             command: "codex-smart-edits.getEdits",
@@ -144,8 +182,6 @@ connection.onRequest("spellcheck/check", async (params: { text: string; cellChan
         });
 
         debugLog("Received smart edit suggestions:", smartEditSuggestions);
-
-        // Clear previous special phrases from smart edits
 
         // Process smart edit suggestions as special phrases
         smartEditSuggestions.forEach((suggestion: any, index: number) => {
@@ -158,73 +194,25 @@ connection.onRequest("spellcheck/check", async (params: { text: string; cellChan
 
         // Update the last processed cellId
         lastCellChanged = params.cellChanged;
-    }
 
-    debugLog("Special phrases:", specialPhrases);
-    // Handle special phrases first to avoid overlapping with single-word matches
-    specialPhrases.forEach(({ phrase, replacement, color }, index) => {
-        let startIndex = 0;
-        const phraseLower = phrase.toLowerCase();
+        // Handle special phrases
+        specialPhrases.forEach(({ phrase, replacement, color }, index) => {
+            let startIndex = 0;
+            const phraseLower = phrase.toLowerCase();
 
-        while ((startIndex = text.indexOf(phraseLower, startIndex)) !== -1) {
-            matches.push({
-                id: `SPECIAL_PHRASE_${index}_${matches.length}`,
-                text: phrase,
-                replacements: [{ value: replacement }],
-                offset: startIndex,
-                length: phrase.length,
-                color: color, // Assign specified color
-            });
-            startIndex += phrase.length;
-        }
-    });
-    debugLog("Made it past special phrases");
-    // Perform regular spellcheck for other words
-    const words = tokenizeText({
-        method: "whitespace_and_punctuation",
-        text: params.text,
-    });
-    words.forEach((word, index) => {
-        try {
-            if (!word) return; // Skip empty words
-            const lowerWord = word.toLowerCase();
-            debugLog("Processing word:", word);
-
-            // Skip if the word is part of any special phrase matched
-            const isPartOfSpecialPhrase = specialPhrases.some(({ phrase }) =>
-                phrase.toLowerCase().includes(lowerWord)
-            );
-            if (isPartOfSpecialPhrase) return;
-
-            const spellCheckResult = spellChecker.spellCheck(word);
-            if (!spellCheckResult) {
-                debugLog("Spell check result is undefined for word:", word);
-                return;
-            }
-
-            const offset = params.text.toLowerCase().indexOf(lowerWord, 0);
-            if (offset === -1) {
-                debugLog("Word not found in text:", word);
-                return;
-            }
-
-            if (spellCheckResult.corrections && spellCheckResult.corrections.length > 0) {
+            while ((startIndex = text.toLowerCase().indexOf(phraseLower, startIndex)) !== -1) {
                 matches.push({
-                    id: `UNKNOWN_WORD_${matches.length}`,
-                    text: word,
-                    replacements: spellCheckResult.corrections
-                        .filter((c) => c !== null && c !== undefined)
-                        .map((correction) => ({ value: correction })),
-                    offset: offset,
-                    length: word.length,
-                    color: "red", // Default color for spelling errors
+                    id: `SPECIAL_PHRASE_${index}_${matches.length}`,
+                    text: phrase,
+                    replacements: [{ value: replacement }],
+                    offset: startIndex,
+                    length: phrase.length,
+                    color: color,
                 });
+                startIndex += phrase.length;
             }
-        } catch (error) {
-            debugLog("Error processing word:", word, error);
-            // Continue to the next word
-        }
-    });
+        });
+    }
 
     debugLog(`Returning matches: ${JSON.stringify(matches)}`);
     return matches;

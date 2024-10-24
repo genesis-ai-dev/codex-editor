@@ -69,6 +69,9 @@ export class QuillSpellChecker {
                 this.quill.setText(content.replace(specialCharacters, ""));
             }
             this.onTextChange();
+        } else if (source === "silent") {
+            // Skip spell checking for silent operations (like accepting suggestions)
+            return;
         } else if (this.matches.length > 0 && this.quill.getText().trim()) {
             this.boxes.addSuggestionBoxes();
         }
@@ -109,6 +112,11 @@ export class QuillSpellChecker {
                 match.offset + match.replacements[replacementIndex].value.length,
                 "silent"
             );
+
+            // Remove just this match from the matches array
+            this.matches = this.matches.filter((m) => m.id !== id);
+
+            // Remove only this suggestion box
             this.boxes.removeCurrentSuggestionBox(
                 match,
                 match.replacements[replacementIndex].value
