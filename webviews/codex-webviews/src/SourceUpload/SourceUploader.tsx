@@ -44,11 +44,14 @@ type ProcessingStatus = "pending" | "active" | "complete" | "error";
 interface WorkflowState {
     step: WorkflowStep;
     selectedFile: File | null;
-    processingStages: Record<string, {
-        label: string;
-        description: string;
-        status: ProcessingStatus;
-    }>;
+    processingStages: Record<
+        string,
+        {
+            label: string;
+            description: string;
+            status: ProcessingStatus;
+        }
+    >;
 }
 
 const SourceUploader: React.FC = () => {
@@ -65,29 +68,29 @@ const SourceUploader: React.FC = () => {
             fileValidation: {
                 label: "Validating File",
                 description: "Checking file format and content",
-                status: "pending"
+                status: "pending",
             },
             folderCreation: {
                 label: "Creating Project Structure",
                 description: "Setting up source and target folders",
-                status: "pending"
+                status: "pending",
             },
             sourceNotebook: {
                 label: "Creating Source Notebook",
                 description: "Processing source content",
-                status: "pending"
+                status: "pending",
             },
             targetNotebook: {
                 label: "Preparing Translation Notebook",
                 description: "Creating corresponding translation file",
-                status: "pending"
+                status: "pending",
             },
             metadataSetup: {
                 label: "Finalizing Setup",
                 description: "Setting up project metadata",
-                status: "pending"
-            }
-        }
+                status: "pending",
+            },
+        },
     });
 
     useEffect(() => {
@@ -101,29 +104,38 @@ const SourceUploader: React.FC = () => {
                     break;
                 case "updateProcessingStatus":
                     if (message.status) {
-                        setWorkflow(prev => ({
+                        setWorkflow((prev) => ({
                             ...prev,
-                            processingStages: Object.entries(message.status).reduce((acc, [key, status]) => ({
-                                ...acc,
-                                [key]: {
-                                    ...prev.processingStages[key],
-                                    status
-                                }
-                            }), prev.processingStages)
+                            processingStages: Object.entries(message.status).reduce<
+                                Record<
+                                    string,
+                                    { label: string; description: string; status: ProcessingStatus }
+                                >
+                            >(
+                                (acc, [key, status]) => ({
+                                    ...acc,
+                                    [key]: {
+                                        ...prev.processingStages[key],
+                                        status: status as ProcessingStatus,
+                                    },
+                                }),
+                                prev.processingStages
+                            ),
                         }));
                     }
                     break;
                 case "setupComplete":
-                    setWorkflow(prev => ({
+                    setWorkflow((prev) => ({
                         ...prev,
-                        step: "complete"
+                        step: "complete",
                     }));
                     break;
                 case "error":
                     // Handle error state by updating the active stage to error
-                    setWorkflow(prev => {
-                        const activeStage = Object.entries(prev.processingStages)
-                            .find(([_, stage]) => stage.status === "active");
+                    setWorkflow((prev) => {
+                        const activeStage = Object.entries(prev.processingStages).find(
+                            ([_, stage]) => stage.status === "active"
+                        );
                         if (activeStage) {
                             return {
                                 ...prev,
@@ -131,9 +143,9 @@ const SourceUploader: React.FC = () => {
                                     ...prev.processingStages,
                                     [activeStage[0]]: {
                                         ...prev.processingStages[activeStage[0]],
-                                        status: "error"
-                                    }
-                                }
+                                        status: "error",
+                                    },
+                                },
                             };
                         }
                         return prev;
@@ -450,30 +462,30 @@ const SourceUploader: React.FC = () => {
     // Add these handlers
     const handleCreateSourceFolder = useCallback(() => {
         if (!workflow.selectedFile) return;
-        
-        setWorkflow(prev => ({
+
+        setWorkflow((prev) => ({
             ...prev,
-            step: "processing"
+            step: "processing",
         }));
 
         // Create a temporary URL for the file
         const fileUrl = URL.createObjectURL(workflow.selectedFile);
-        
+
         vscode.postMessage({
             command: "createSourceFolder",
             data: {
-                sourcePath: fileUrl
-            }
+                sourcePath: fileUrl,
+            },
         } as SourceUploadPostMessages);
     }, [workflow.selectedFile]);
 
     const handleOpenSourceFile = useCallback(() => {
         if (!workflow.selectedFile) return;
-        
+
         const fileUrl = URL.createObjectURL(workflow.selectedFile);
         vscode.postMessage({
             command: "openFile",
-            fileUri: fileUrl
+            fileUri: fileUrl,
         } as SourceUploadPostMessages);
     }, [workflow.selectedFile]);
 

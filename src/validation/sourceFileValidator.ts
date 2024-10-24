@@ -4,7 +4,7 @@ import {
     ValidationResult,
     ValidationError,
     ValidationErrorCode,
-} from "../../types/index.d";
+} from "../../types";
 
 const DEFAULT_OPTIONS: SourceFileValidationOptions = {
     maxFileSizeBytes: 50 * 1024 * 1024, // 50MB
