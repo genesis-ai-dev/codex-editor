@@ -645,3 +645,29 @@ export interface AggregatedMetadata {
         | "untracked"
         | "committed";
 }
+
+// Add these to your existing types
+export interface ValidationResult {
+    isValid: boolean;
+    errors: ValidationError[];
+}
+
+export interface ValidationError {
+    code: ValidationErrorCode;
+    message: string;
+    details?: unknown;
+}
+
+export enum ValidationErrorCode {
+    FILE_SIZE_EXCEEDED = "FILE_SIZE_EXCEEDED",
+    UNSUPPORTED_FILE_TYPE = "UNSUPPORTED_FILE_TYPE",
+    INVALID_CONTENT = "INVALID_CONTENT",
+    INSUFFICIENT_SPACE = "INSUFFICIENT_SPACE",
+    SYSTEM_ERROR = "SYSTEM_ERROR",
+}
+
+export interface SourceFileValidationOptions {
+    maxFileSizeBytes?: number;
+    supportedExtensions?: string[];
+    minDiskSpaceBytes?: number;
+}
