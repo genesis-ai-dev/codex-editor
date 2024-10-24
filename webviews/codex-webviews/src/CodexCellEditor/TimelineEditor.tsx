@@ -32,7 +32,7 @@ const getListOfTimeBlocksWithUpdatedTimes = (
 
 const TimelineEditor: React.FC<TimelineEditorProps> = ({ data, vscode, currentTime }) => {
     const [timeBlocksWithUpdates, setTimeBlocksWithUpdates] = useState<TimeBlock[]>([]);
-
+    const [zoomLevel, setZoomLevel] = useState(1);
     return (
         <div
             style={{
@@ -44,11 +44,13 @@ const TimelineEditor: React.FC<TimelineEditorProps> = ({ data, vscode, currentTi
             }}
         >
             <Timeline
+                initialZoomLevel={zoomLevel}
                 changeAreaShow={(start: number, end: number) => {
                     // console.log({ start, end });
                 }}
                 changeZoomLevel={(zoomLevel: number) => {
-                    // console.log({ zoomLevel });
+                    setZoomLevel(zoomLevel);
+                    console.log({ zoomLevel });
                 }}
                 changeShift={(shift: number) => {
                     // console.log({ shift });

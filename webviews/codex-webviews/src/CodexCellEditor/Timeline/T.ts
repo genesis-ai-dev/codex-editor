@@ -29,6 +29,7 @@ export default function TimeLine(
     options: {
         autoScroll: boolean;
         currentTime: number;
+        initialZoomLevel?: number; // Add this to options
         colors: {
             background: string;
             box: string;
@@ -96,7 +97,7 @@ export default function TimeLine(
     let player: any;
     let shift = 0;
     let movingDirection: string;
-    let zoomLevel = w / endTime || 1;
+    let zoomLevel = options.initialZoomLevel || w / endTime || 1; // Initialize with prop if available
     let moving = false;
     let resizing = false;
     let currentPrtcl: any;
@@ -191,6 +192,7 @@ export default function TimeLine(
             context.beginPath();
             context.strokeStyle = "#888888";
             context.lineWidth = 1;
+            // console.log("this.x shift this.edge", this.x, shift, this.edge);
             context.moveTo(this.x + shift - 1 + this.edge, this.y + 1);
             context.lineTo(this.x + shift - 1 + this.edge, this.y + TRACK_HEIGHT);
             context.closePath();
@@ -216,6 +218,7 @@ export default function TimeLine(
         // let xx = event.pageX - canvas.offsetLeft;
         const xxxx = event.pageX - canvasCoords.x;
         const yyyy = event.pageY - canvasCoords.y - window.pageYOffset;
+        // console.log("canvasCoords", { canvasCoords, xxxx, yyyy });
         return {
             x: xxxx,
             y: yyyy,
@@ -223,6 +226,8 @@ export default function TimeLine(
     }
 
     function getOffsetCoords(mouse: any, rect: any) {
+        // console.log("mouse", mouse);
+        // console.log("rect", rect);
         return {
             x: mouse.x - rect.x,
             y: mouse.y - rect.y,
@@ -261,7 +266,7 @@ export default function TimeLine(
         try {
             e.preventDefault();
         } catch (error) {
-            console.log(error);
+            // console.log(error);
         }
 
         if (resizing) return;
@@ -707,7 +712,7 @@ export default function TimeLine(
     }
 
     function setData(aligns: TimeBlock[]) {
-        console.log({ aligns });
+        // console.log({ aligns });
         prtcls = aligns.map(
             (p, i) =>
                 // @ts-expect-error: square is some how a class
@@ -745,7 +750,31 @@ export default function TimeLine(
     }
 
     function handleCursorOutOfViewPort(time: number) {
-        if (!player.paused) changeCursorViewPort(time);
+        if (!autoScroll || scrolling) return;
+
+        const viewportWidth = endTimeShow - beginingTimeShow;
+        const margin = viewportWidth * 0.2; // 20% margin
+
+        // Calculate cursor position relative to viewport
+        const cursorPosition = time;
+        const distanceFromEnd = endTimeShow - cursorPosition;
+        const distanceFromStart = cursorPosition - beginingTimeShow;
+
+        // Scroll if cursor is too close to edges
+        if (distanceFromEnd < margin) {
+            // Cursor is near right edge - scroll right
+            const targetShift = -1 * (time * zoomLevel - w * 0.7);
+            shift = Math.max(targetShift, maximumShift);
+        } else if (distanceFromStart < margin) {
+            // Cursor is near left edge - scroll left
+            const targetShift = -1 * (time * zoomLevel - w * 0.3);
+            shift = Math.min(targetShift, 0);
+        }
+
+        checkShift();
+        if (bgCtx) {
+            drawBG(bgCtx);
+        }
     }
 
     function changeCursorViewPort(time: number) {

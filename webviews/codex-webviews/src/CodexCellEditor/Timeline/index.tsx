@@ -33,6 +33,7 @@ export interface TimelineProps {
     onSave: () => void;
     onReset: () => void;
     currentTime: number;
+    initialZoomLevel?: number; // Add this new prop
 }
 
 export default function Timeline(props: TimelineProps) {
@@ -51,6 +52,7 @@ export default function Timeline(props: TimelineProps) {
         props.setAligns(z);
     };
     const changeZoomLevel = (z: number) => {
+        console.log("changeZoomLevel", z);
         props.changeZoomLevel(z);
         zoomLevel = z;
     };
@@ -80,6 +82,7 @@ export default function Timeline(props: TimelineProps) {
             {
                 autoScroll: props.autoScroll,
                 currentTime: props.currentTime,
+                initialZoomLevel: props.initialZoomLevel, // Pass the prop through
                 colors: {
                     background: props.colors?.background || "transparent",
                     box: props.colors?.box || "#a9a9a9",
@@ -125,9 +128,46 @@ export default function Timeline(props: TimelineProps) {
         paddingLeft: props.paddingLeft,
         width: "100%",
     };
-
+    const initialZoomLevel = props.initialZoomLevel || 1;
     return (
         <div style={{ display: "flex", flexDirection: "row" }}>
+            <div
+                style={{
+                    display: "flex",
+                    justifyContent: "end",
+                    flexDirection: "column",
+                    flex: 1,
+                    // gap: "10px",
+                    // padding: "10px",
+                    backgroundColor: "var(--vscode-scrollbar-shadow)",
+                }}
+            >
+                <VSCodeButton
+                    style={{
+                        display: "flex",
+                        flex: 1,
+                        borderRadius: 0,
+                    }}
+                    onClick={() => {
+                        changeZoomLevel(initialZoomLevel + 1);
+                    }}
+                >
+                    <i className="codicon codicon-zoom-in"></i>
+                </VSCodeButton>
+
+                <VSCodeButton
+                    style={{
+                        display: "flex",
+                        flex: 1,
+                        borderRadius: 0,
+                    }}
+                    onClick={() => {
+                        changeZoomLevel(initialZoomLevel - 1);
+                    }}
+                >
+                    <i className="codicon codicon-zoom-out"></i>
+                </VSCodeButton>
+            </div>
             <div style={style} className="timeline-editor">
                 <div hidden>
                     <audio src={props.src} ref={props.audioRef || canvasAudio} />
