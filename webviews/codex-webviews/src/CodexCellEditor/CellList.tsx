@@ -19,10 +19,10 @@ interface CellListProps {
     isSourceText: boolean;
     windowHeight: number;
     headerHeight: number;
-    isProblematicFunction: (
+    getAlertCodeFunction: (
         text: string,
         cellId: string
-    ) => Promise<{ isProblematic: boolean; cellId: string }>;
+    ) => Promise<{ getAlertCode: boolean; cellId: string }>;
 }
 
 const CellList: React.FC<CellListProps> = ({
@@ -37,7 +37,7 @@ const CellList: React.FC<CellListProps> = ({
     isSourceText,
     windowHeight,
     headerHeight,
-    isProblematicFunction,
+    getAlertCodeFunction,
 }) => {
     const duplicateCellIds = useMemo(() => {
         const idCounts = new Map<string, number>();
@@ -83,7 +83,7 @@ const CellList: React.FC<CellListProps> = ({
                                     isSourceText={isSourceText}
                                     hasDuplicateId={hasDuplicateId}
                                     timestamps={timestamps}
-                                    isProblematicFunction={isProblematicFunction}
+                                    getAlertCodeFunction={getAlertCodeFunction}
                                 />
                             </div>
                         );
@@ -98,7 +98,7 @@ const CellList: React.FC<CellListProps> = ({
             vscode,
             isSourceText,
             duplicateCellIds,
-            isProblematicFunction,
+            getAlertCodeFunction,
         ]
     );
 
@@ -131,7 +131,7 @@ const CellList: React.FC<CellListProps> = ({
                             cellType={cellType}
                             cellLabel={cellLabel}
                             cellTimestamps={timestamps}
-                            isProblematic={isProblematicFunction}
+                            getAlertCode={getAlertCodeFunction}
                             contentBeingUpdated={contentBeingUpdated}
                             setContentBeingUpdated={setContentBeingUpdated}
                             handleCloseEditor={handleCloseEditor}
@@ -174,7 +174,7 @@ const CellList: React.FC<CellListProps> = ({
         handleCloseEditor,
         handleSaveHtml,
         renderCellGroup,
-        isProblematicFunction,
+        getAlertCodeFunction,
         setContentBeingUpdated,
         textDirection,
         vscode,

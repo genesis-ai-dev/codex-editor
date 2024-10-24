@@ -370,33 +370,33 @@ const CodexCellEditor: React.FC = () => {
                         isSourceText={isSourceText}
                         windowHeight={windowHeight}
                         headerHeight={headerHeight}
-                        isProblematicFunction={(cellContent: string, cellId: string) => {
+                        getAlertCodeFunction={(cellContent: string, cellId: string) => {
                             vscode.postMessage({
-                                command: "isProblematic",
+                                command: "getAlertCode",
                                 content: {
                                     text: removeHtmlTags(cellContent),
                                     cellId: cellId, // Include cellId in the message
                                 },
                             } as EditorPostMessages);
                             return new Promise((resolve) => {
-                                const handleIsProblematicResponse = (event: MessageEvent) => {
+                                const handlegetAlertCodeResponse = (event: MessageEvent) => {
                                     const message = event.data;
-                                    if (message.type === "providerSendsIsProblematicResponse") {
+                                    if (message.type === "providerSendsgetAlertCodeResponse") {
                                         // window.removeEventListener(
                                         //     "message",
-                                        //     handleIsProblematicResponse
+                                        //     handlegetAlertCodeResponse
                                         // );
-                                        // console.log("Message CCE: ", message);
+                                        console.log("Message CCE: ", message);
                                         // Make sure we only resolve for the cell we requested
                                         if (message.content.cellId === cellId) {
                                             resolve({
-                                                isProblematic: message.content.problematic,
+                                                getAlertCode: message.content.code,
                                                 cellId: message.content.cellId,
                                             });
                                         }
                                     }
                                 };
-                                window.addEventListener("message", handleIsProblematicResponse);
+                                window.addEventListener("message", handlegetAlertCodeResponse);
                             });
                         }}
                     />

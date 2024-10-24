@@ -14,10 +14,10 @@ interface CellEditorProps {
     cellContent: string;
     cellIndex: number;
     cellType: CodexCellTypes;
-    isProblematic: (
+    getAlertCode: (
         text: string,
         cellId: string
-    ) => Promise<{ isProblematic: boolean; cellId: string }>;
+    ) => Promise<{ getAlertCode: boolean; cellId: string }>;
     contentBeingUpdated: EditorCellContent;
     setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorCellContent>>;
     handleCloseEditor: () => void;

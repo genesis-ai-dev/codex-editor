@@ -89,9 +89,9 @@ connection.onInitialize((params: InitializeParams) => {
 });
 let lastCellChanged: boolean = false;
 connection.onRequest(
-    "spellcheck/isProblematic",
+    "spellcheck/getAlertCode",
     async (params: { text: string; cellId: string }) => {
-        debugLog("SERVER: Received spellcheck/isProblematic request:", { params });
+        debugLog("SERVER: Received spellcheck/getAlertCode request:", { params });
         const text = params.text.toLowerCase();
         const words = tokenizeText({
             method: "whitespace_and_punctuation",
@@ -110,14 +110,14 @@ connection.onRequest(
                     spellCheckResult,
                     cellId: params.cellId,
                 });
-                return { isProblematic: true, cellId: params.cellId };
+                return { code: 1, cellId: params.cellId };
             }
         }
         debugLog("SERVER: Spell check result is not problematic: ", {
             text,
             cellId: params.cellId,
         });
-        return { isProblematic: false, cellId: params.cellId };
+        return { code: 0, cellId: params.cellId };
     }
 );
 connection.onRequest("spellcheck/check", async (params: { text: string; cellChanged: boolean }) => {

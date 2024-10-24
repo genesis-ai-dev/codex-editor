@@ -17,10 +17,10 @@ interface CellContentDisplayProps {
     isSourceText: boolean;
     hasDuplicateId: boolean;
     timestamps: Timestamps | undefined;
-    isProblematicFunction: (
+    getAlertCodeFunction: (
         text: string,
         cellId: string
-    ) => Promise<{ isProblematic: boolean; cellId: string }>;
+    ) => Promise<{ code: number; cellId: string }>;
 }
 
 const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
@@ -34,24 +34,25 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     isSourceText,
     hasDuplicateId,
     timestamps,
-    isProblematicFunction,
+    getAlertCodeFunction,
 }) => {
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
-    const [isProblematic, setIsProblematic] = useState<boolean>(false);
+    const [getAlertCode, setgetAlertCode] = useState<number>(0);
 
     useEffect(() => {
         const checkContent = async () => {
             try {
-                const result = await isProblematicFunction(cellContent, cellIds[0]);
-                setIsProblematic(result.isProblematic.isProblematic);
+                const result = await getAlertCodeFunction(cellContent, cellIds[0]);
+                console.log("CCD:  ", result);
+                setgetAlertCode(result.getAlertCode);
             } catch (error) {
                 console.error("Error checking content:", error);
-                setIsProblematic(false);
+                setgetAlertCode(0);
             }
         };
 
         checkContent();
-    }, [cellContent, cellIds, isProblematicFunction]);
+    }, [cellContent, cellIds, getAlertCodeFunction]);
 
     const handleVerseClick = () => {
         if (unsavedChanges || isSourceText) {
@@ -107,7 +108,19 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             {cellType === CodexCellTypes.TEXT && (
                 <sup>
                     {displayLabel}
-                    {isProblematic && (
+                    {getAlertCode == 0 && ( // Claude had the good idea of a transparent one, this will keep the render more consistent I think.
+                        <span
+                            style={{
+                                display: "inline-block",
+                                width: "5px",
+                                height: "5px",
+                                borderRadius: "50%",
+                                backgroundColor: "transparent",
+                                marginLeft: "4px",
+                            }}
+                        />
+                    )}
+                    {getAlertCode == 1 && (
                         <span
                             style={{
                                 display: "inline-block",
@@ -115,6 +128,30 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                                 height: "5px",
                                 borderRadius: "50%",
                                 backgroundColor: "#FF6B6B",
+                                marginLeft: "4px",
+                            }}
+                        />
+                    )}
+                    {getAlertCode == 2 && (
+                        <span
+                            style={{
+                                display: "inline-block",
+                                width: "5px",
+                                height: "5px",
+                                borderRadius: "50%",
+                                backgroundColor: "purple",
+                                marginLeft: "4px",
+                            }}
+                        />
+                    )}
+                    {getAlertCode == 3 && (
+                        <span
+                            style={{
+                                display: "inline-block",
+                                width: "5px",
+                                height: "5px",
+                                borderRadius: "50%",
+                                backgroundColor: "white",
                                 marginLeft: "4px",
                             }}
                         />

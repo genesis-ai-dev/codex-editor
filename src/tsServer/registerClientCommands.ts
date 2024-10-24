@@ -19,10 +19,10 @@ export function registerClientCommands(
     );
     disposables.push(
         vscode.commands.registerCommand(
-            "translators-copilot.isProblematic",
+            "translators-copilot.alertCode",
             async (text: string, cellId: string) => {
                 if (client) {
-                    const ret = client.sendRequest("spellcheck/isProblematic", { text, cellId });
+                    const ret = client.sendRequest("spellcheck/getAlertCode", { text, cellId });
                     console.log("RCC: ", ret);
                     return ret;
                 }

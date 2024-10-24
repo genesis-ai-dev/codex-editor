@@ -498,22 +498,25 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         }
                         return;
                     }
-                    case "isProblematic": {
+
+                    case "getAlertCode": {
+                        // console.log("getAlertCode message received", { e });
                         try {
                             const result = await vscode.commands.executeCommand(
-                                "translators-copilot.isProblematic",
+                                "translators-copilot.alertCode",
                                 e.content.text,
                                 e.content.cellId // Pass the cellId
                             );
+
                             this.postMessageToWebview(webviewPanel, {
-                                type: "providerSendsIsProblematicResponse",
+                                type: "providerSendsgetAlertCodeResponse",
                                 content: {
-                                    problematic: result as boolean,
+                                    code: (result as any).code as number,
                                     cellId: e.content.cellId,
                                 },
                             });
                         } catch (error) {
-                            console.error("Error during isProblematic:", error);
+                            console.error("Error during getAlertCode:", error);
                             vscode.window.showErrorMessage(
                                 "Failed to check if text is problematic."
                             );

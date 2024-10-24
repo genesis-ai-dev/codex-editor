@@ -310,7 +310,7 @@ export type EditorPostMessages =
     | { command: "updateCellTimestamps"; content: { cellId: string; timestamps: Timestamps } }
     | { command: "deleteCell"; content: { cellId: string } }
     | { command: "addWord"; words: string[] }
-    | { command: "isProblematic"; content: { text: string, cellId: string } }
+    | { command: "getAlertCode"; content: { text: string; cellId: string } }
     | {
           command: "makeChildOfCell";
           content: {
@@ -348,7 +348,10 @@ type EditorReceiveMessages =
       }
     | { type: "providerCompletesChapterAutocompletion" }
     | { type: "providerSendsSpellCheckResponse"; content: SpellCheckResponse }
-    | { type: "providerSendsIsProblematicResponse"; content:{ problematic: boolean, cellId: string }}
+    | {
+          type: "providerSendsgetAlertCodeResponse";
+          content: { getAlertCode: number; cellId: string };
+      }
     | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl" }
     | { type: "providerSendsLLMCompletionResponse"; content: { completion: string } }
     | { type: "jumpToSection"; content: string }
