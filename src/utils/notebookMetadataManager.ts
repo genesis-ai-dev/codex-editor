@@ -36,6 +36,8 @@ async function getGitAPI(): Promise<GitAPI | undefined> {
 export class NotebookMetadataManager {
     private metadataMap: Map<string, CustomNotebookMetadata> = new Map();
     private storageUri: vscode.Uri;
+    private _onDidChangeMetadata = new vscode.EventEmitter<void>();
+    public readonly onDidChangeMetadata = this._onDidChangeMetadata.event;
 
     constructor(storageUri?: vscode.Uri) {
         if (storageUri) {
@@ -64,6 +66,7 @@ export class NotebookMetadataManager {
     async addOrUpdateMetadata(metadata: CustomNotebookMetadata): Promise<void> {
         this.metadataMap.set(metadata.id, metadata);
         await this.persistMetadata();
+        this._onDidChangeMetadata.fire();
     }
 
     async getMetadata(id: string): Promise<CustomNotebookMetadata | undefined> {
@@ -285,5 +288,25 @@ export class NotebookMetadataManager {
         } catch {
             return false;
         }
+    }
+
+    public async handleFileSystemEvent(
+        uri: vscode.Uri,
+        type: "create" | "change" | "delete"
+    ): Promise<void> {
+        if (type === "delete") {
+            // Remove metadata for deleted files
+            for (const [id, metadata] of this.metadataMap.entries()) {
+                if (metadata.sourceFsPath === uri.fsPath || metadata.codexFsPath === uri.fsPath) {
+                    this.metadataMap.delete(id);
+                }
+            }
+        } else {
+            // Update or create metadata for new/changed files
+            await this.loadMetadata();
+        }
+
+        await this.persistMetadata();
+        this._onDidChangeMetadata.fire();
     }
 }

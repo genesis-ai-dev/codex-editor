@@ -10,6 +10,7 @@ import grammar, { ParsedUSFM } from "usfm-grammar";
 import { WebVTTParser } from "webvtt-parser";
 import {
     CodexNotebookAsJSONData,
+    CustomCellMetaData,
     CustomNotebookCellData,
     CustomNotebookMetadata,
 } from "../../types";
@@ -32,13 +33,7 @@ export const NOTEBOOK_TYPE = "codex-type";
  * @property {string} [chapter] - The chapter number or identifier associated with the cell.
  */
 export interface CodexCell extends vscode.NotebookCellData {
-    metadata?: {
-        type: "text" | "paratext";
-        id: string;
-        data: {
-            [key: string]: any | undefined;
-        };
-    };
+    metadata?: CustomCellMetaData;
 }
 
 interface deprecated_CodexCell extends vscode.NotebookCellData {
@@ -50,7 +45,9 @@ interface deprecated_CodexCell extends vscode.NotebookCellData {
     };
 }
 
-export const createCodexNotebook = async (cells: vscode.NotebookCellData[] = []) => {
+export const createCodexNotebook = async (
+    cells: CodexCell[] = []
+): Promise<vscode.NotebookDocument> => {
     /**
      * Creates a Codex notebook with the provided cell data.
      *
@@ -64,7 +61,9 @@ export const createCodexNotebook = async (cells: vscode.NotebookCellData[] = [])
      */
     const cellData =
         cells.length > 0
-            ? cells.map((cell) => new vscode.NotebookCellData(cell.kind, cell.value, "html"))
+            ? cells.map(
+                  (cell) => new vscode.NotebookCellData(cell.kind, cell.value, "html") as CodexCell
+              )
             : [];
     const data = new vscode.NotebookData(cellData);
     const doc = await vscode.workspace.openNotebookDocument(NOTEBOOK_TYPE, data);
@@ -164,7 +163,6 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
                     // @ts-expect-error: type is not defined in the type because it is the old type
                     if (cell.metadata?.type === "chapter-heading") {
                         // This is a chapter heading cell
-                        // @ts-expect-error: type is not defined in the type because it is the old type
                         const chapter = cell.metadata.data?.chapter;
                         if (chapter && book) {
                             const h1Content = `${chapterHeadingText} ${chapter}`;

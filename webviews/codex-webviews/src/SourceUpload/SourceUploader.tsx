@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from "react";
-import { VSCodePanels, VSCodePanelTab, VSCodePanelView } from "@vscode/webview-ui-toolkit/react";
+import { VSCodePanels, VSCodePanelTab, VSCodePanelView, VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { SourceUploadPostMessages } from "../../../../types";
 import { FileDropzone } from "./components/FileDropzone";
 import { WorkflowProgress } from "./components/WorkflowProgress";
@@ -106,6 +106,12 @@ export const SourceUploader: React.FC = () => {
         [workflow.preview, handleClearFile]
     );
 
+    const handleUploadAnother = useCallback(() => {
+        setWorkflow((prev) => ({
+            ...initialWorkflowState,
+        }));
+    }, []);
+
     const renderWorkflowStep = () => {
         switch (workflow.step) {
             case "select":
@@ -155,7 +161,10 @@ export const SourceUploader: React.FC = () => {
                             }}
                         />
                         <h2 style={{ marginBottom: "1rem" }}>Import Complete!</h2>
-                        <p>Your source file has been successfully imported.</p>
+                        <p style={{ marginBottom: "2rem" }}>Your source file has been successfully imported.</p>
+                        <VSCodeButton onClick={handleUploadAnother}>
+                            Upload Another File
+                        </VSCodeButton>
                     </div>
                 );
 

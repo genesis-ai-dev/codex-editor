@@ -383,7 +383,9 @@ type EditHistory = {
     type: import("./enums").EditType;
 };
 
-type CodexData = Timestamps;
+type CodexData = Timestamps & {
+    [key: string]: any;
+};
 
 type CustomCellMetaData = {
     id: string;
@@ -765,4 +767,3 @@ type WorkflowStep = "select" | "preview" | "confirm" | "processing" | "complete"
 
 // Add ProcessingStage type
 type ProcessingStatus = "pending" | "active" | "complete" | "error";
-

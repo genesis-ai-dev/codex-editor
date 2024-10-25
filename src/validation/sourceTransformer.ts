@@ -16,7 +16,7 @@ export class SourceTransformer {
         const fileType = getFileType(fileUri);
         const content = await vscode.workspace.fs.readFile(fileUri);
         const textContent = new TextDecoder().decode(content);
-        
+
         // Get base name without extension for notebook name
         const fileName = path.parse(fileUri.fsPath).name;
 
@@ -39,37 +39,84 @@ export class SourceTransformer {
         const sourceNotebook = this.createNotebookPreview("source", baseName);
         const codexNotebook = this.createNotebookPreview("codex", baseName);
 
+        // Add a chapter heading cell first
+        const chapterHeadingCell = {
+            value: "<h1>Chapter 1</h1>",
+            kind: vscode.NotebookCellKind.Code,
+            languageId: "html",
+            metadata: {
+                type: CodexCellTypes.PARATEXT,
+                id: `${baseName} 1:0`,
+                data: {},
+            },
+        };
+        sourceNotebook.cells.push(chapterHeadingCell);
+        codexNotebook.cells.push({ ...chapterHeadingCell });
+
+        // Add navigation for the chapter heading
+        const navigationCells = [
+            {
+                cellId: `${baseName} 1:0`,
+                children: [],
+                label: "Chapter 1",
+            },
+        ];
+
         for (const cue of parsed.cues) {
-            // Add cells to source notebook
-            sourceNotebook.cells.push({
+            // Generate a unique identifier for the cue that matches the expected format
+            const cueId = `${baseName} 1:cue-${cue.startTime}-${cue.endTime}`;
+
+            // Add cell to source notebook
+            const sourceCell = {
                 value: cue.text,
                 kind: vscode.NotebookCellKind.Code,
-                languageId: "html",
+                languageId: "scripture", // Changed to match expected format
                 metadata: {
-                    id: `cue-${cue.startTime}-${cue.endTime}`,
-                    type: "text",
+                    type: CodexCellTypes.TEXT,
+                    id: cueId,
                     data: {
                         startTime: cue.startTime,
                         endTime: cue.endTime,
+                        timeStamp: `${cue.startTime} --> ${cue.endTime}`,
                     },
+                    edits: [], // Initialize empty edits array
                 },
-            });
+            };
+            sourceNotebook.cells.push(sourceCell);
 
-            // Add empty cells to codex notebook
-            codexNotebook.cells.push({
-                value: "",
-                kind: vscode.NotebookCellKind.Code,
-                languageId: "html",
+            // Add empty cell to codex notebook with same metadata structure
+            const codexCell = {
+                ...sourceCell,
+                value: "", // Empty initial value for codex
                 metadata: {
-                    id: `cue-${cue.startTime}-${cue.endTime}`,
-                    type: "text",
-                    data: {
-                        startTime: cue.startTime,
-                        endTime: cue.endTime,
-                    },
+                    ...sourceCell.metadata,
+                    edits: [], // Initialize empty edits array
                 },
-            });
+            };
+            codexNotebook.cells.push(codexCell);
         }
+
+        // Update metadata for both notebooks
+        const notebookMetadata = {
+            id: baseName,
+            originalName: baseName,
+            sourceFsPath: undefined,
+            codexFsPath: undefined,
+            navigation: navigationCells,
+            sourceCreatedAt: new Date().toISOString(),
+            codexLastModified: new Date().toISOString(),
+            gitStatus: "untracked" as const,
+            corpusMarker: "Video",
+            textDirection: "ltr" as "ltr" | "rtl",
+            data: {},
+            videoUrl: "", // Add empty video URL
+        };
+
+        sourceNotebook.metadata = notebookMetadata;
+        codexNotebook.metadata = {
+            ...notebookMetadata,
+            codexLastModified: new Date().toISOString(),
+        };
 
         return {
             sourceNotebooks: [sourceNotebook],
@@ -84,7 +131,8 @@ export class SourceTransformer {
         const parsed = parser.toJSON() as unknown as ParsedUSFM;
         // FIXME: verify use of usfm grammar as per codexNotebookUtils.ts
 
-        const notebookName = parsed.book || baseName;
+        const notebookName =
+            (typeof parsed.book === "string" ? parsed.book : String(parsed.book)) || baseName;
 
         const sourceNotebook = this.createNotebookPreview("source", notebookName);
         const codexNotebook = this.createNotebookPreview("codex", notebookName);
@@ -101,7 +149,7 @@ export class SourceTransformer {
                     languageId: "html",
                     metadata: {
                         id: verseRef,
-                        type: "text",
+                        type: CodexCellTypes.TEXT,
                         data: {
                             book: parsed.book,
                             chapter: chapter.chapterNumber,
@@ -117,7 +165,7 @@ export class SourceTransformer {
                     languageId: "html",
                     metadata: {
                         id: verseRef,
-                        type: "text",
+                        type: CodexCellTypes.TEXT,
                         data: {
                             book: parsed.book,
                             chapter: chapter.chapterNumber,
@@ -153,7 +201,7 @@ export class SourceTransformer {
                 languageId: "html",
                 metadata: {
                     id: verseRef,
-                    type: "text",
+                    type: CodexCellTypes.TEXT,
                     data: {},
                 },
             });
@@ -165,7 +213,7 @@ export class SourceTransformer {
                 languageId: "html",
                 metadata: {
                     id: verseRef,
-                    type: "text",
+                    type: CodexCellTypes.TEXT,
                     data: {},
                 },
             });
