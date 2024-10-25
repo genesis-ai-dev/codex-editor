@@ -10,9 +10,17 @@ import {
     SourceUploadPostMessages,
     SourceUploadResponseMessages,
     AggregatedMetadata,
+    ValidationResult,
 } from "../../../types/index";
 import path from "path";
 import { SourceFileValidator } from "../../validation/sourceFileValidator";
+import { SourceImportTransaction } from "../../transactions/SourceImportTransaction";
+import { getFileType } from "../../utils/fileTypeUtils";
+import { analyzeSourceContent } from "../../utils/contentAnalyzers";
+import { formatFileSize } from "../../utils/formatters";
+import { validateSourceFile, importSourceFile } from "../../projectManager/sourceTextImporter";
+import { ImportTransaction, ImportTransactionState } from "./ImportTransaction";
+import { SourceAnalyzer } from "../../utils/sourceAnalyzer";
 
 // Add new types for workflow status tracking
 interface ProcessingStatus {
@@ -20,6 +28,25 @@ interface ProcessingStatus {
     folderCreation: boolean;
     metadataSetup: boolean;
     importComplete: boolean;
+}
+
+// Add new interface for source preview
+interface SourcePreview {
+    fileName: string;
+    fileSize: number;
+    fileType: string;
+    expectedBooks: Array<{
+        name: string;
+        versesCount: number;
+        chaptersCount: number;
+    }>;
+    validationResults: ValidationResult[];
+}
+
+interface ImportProgress {
+    stage: string;
+    message: string;
+    percent: number;
 }
 
 function getNonce(): string {
@@ -37,6 +64,8 @@ export class SourceUploadProvider
     public static readonly viewType = "sourceUploadProvider";
     onDidChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
     onDidChange = this.onDidChangeEmitter.event;
+    private currentPreview: SourcePreview | null = null; // Add this property
+    private currentTransaction: ImportTransaction | null = null;
 
     constructor(private readonly context: vscode.ExtensionContext) {
         registerScmCommands(context);
@@ -82,18 +111,33 @@ export class SourceUploadProvider
                         break;
                     case "uploadSourceText":
                         try {
-                            const fileUri = await this.saveUploadedFile(
+                            // Create temporary file and start transaction
+                            const tempUri = await this.saveUploadedFile(
                                 message.fileContent,
                                 message.fileName
                             );
-                            await importSourceText(this.context, fileUri);
-                            vscode.window.showInformationMessage(
-                                "Source text uploaded successfully."
-                            );
-                            await this.updateMetadata(webviewPanel);
+
+                            // Create new import transaction
+                            const transaction = new SourceImportTransaction(tempUri);
+                            this.currentTransaction = transaction;
+
+                            // Generate preview
+                            const preview = await transaction.prepare();
+
+                            // Send preview to webview
+                            webviewPanel.webview.postMessage({
+                                command: "sourcePreview",
+                                preview,
+                            } as SourceUploadResponseMessages);
                         } catch (error) {
-                            console.error(`Error uploading source text: ${error}`);
-                            vscode.window.showErrorMessage(`Error uploading source text: ${error}`);
+                            console.error("Error preparing source import:", error);
+                            webviewPanel.webview.postMessage({
+                                command: "error",
+                                message:
+                                    error instanceof Error
+                                        ? error.message
+                                        : "Unknown error occurred",
+                            } as SourceUploadResponseMessages);
                         }
                         break;
                     case "uploadTranslation":
@@ -241,6 +285,76 @@ export class SourceUploadProvider
                     case "closePanel":
                         webviewPanel.dispose();
                         break;
+                    case "previewSourceText": {
+                        // Create temporary file and start transaction
+                        const tempUri = await this.saveUploadedFile(
+                            message.fileContent,
+                            message.fileName
+                        );
+
+                        // Create new import transaction
+                        this.currentTransaction = new SourceImportTransaction(tempUri);
+
+                        // Generate and send preview
+                        const preview = await this.generateSourcePreview(tempUri);
+                        webviewPanel.webview.postMessage({
+                            command: "sourcePreview",
+                            preview,
+                        });
+                        break;
+                    }
+                    case "confirmSourceImport": {
+                        if (!this.currentTransaction) {
+                            throw new Error("No active import transaction");
+                        }
+
+                        await vscode.window.withProgress(
+                            {
+                                location: vscode.ProgressLocation.Notification,
+                                title: "Importing source text",
+                                cancellable: true,
+                            },
+                            async (progress, token) => {
+                                try {
+                                    const progressCallback = (p: ImportProgress) => {
+                                        webviewPanel.webview.postMessage({
+                                            command: "importProgress",
+                                            progress: p,
+                                        });
+                                        progress.report({
+                                            message: p.message,
+                                            increment: p.percent,
+                                        });
+                                    };
+
+                                    await this.currentTransaction.execute(progressCallback, token);
+
+                                    webviewPanel.webview.postMessage({
+                                        command: "importComplete",
+                                    });
+
+                                    // Update metadata after successful import
+                                    await this.updateMetadata(webviewPanel);
+                                } catch (error) {
+                                    await this.currentTransaction.rollback();
+                                    throw error;
+                                } finally {
+                                    this.currentTransaction = null;
+                                }
+                            }
+                        );
+                        break;
+                    }
+                    case "cancelSourceImport": {
+                        if (this.currentTransaction) {
+                            await this.currentTransaction.rollback();
+                            this.currentTransaction = null;
+                        }
+                        webviewPanel.webview.postMessage({
+                            command: "importCancelled",
+                        });
+                        break;
+                    }
                     default:
                         console.log("Unknown message command", { message });
                         break;
@@ -421,7 +535,7 @@ export class SourceUploadProvider
             sendStatus({ fileValidation: "active" });
 
             // Validate file
-            const sourceUri = vscode.Uri.file(sourcePath);
+            const sourceUri = vscode.Uri.parse(sourcePath);
             const validationResult = await validator.validateSourceFile(sourceUri);
             if (!validationResult.isValid) {
                 throw new Error(
@@ -434,33 +548,9 @@ export class SourceUploadProvider
                 folderCreation: "active",
             });
 
-            // Create source folder structure
-            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-            if (!workspaceFolder) {
-                throw new Error("No workspace folder found");
-            }
-
-            // Create source folder
-            const sourceFolderUri = vscode.Uri.joinPath(workspaceFolder.uri, "source");
-            await vscode.workspace.fs.createDirectory(sourceFolderUri);
-
-            sendStatus({
-                fileValidation: "complete",
-                folderCreation: "complete",
-                metadataSetup: "active",
-            });
-
             // Import the source text
             await importSourceText(this.context, sourceUri);
 
-            sendStatus({
-                fileValidation: "complete",
-                folderCreation: "complete",
-                metadataSetup: "complete",
-                importComplete: "active",
-            });
-
-            // Final success message
             sendStatus({
                 fileValidation: "complete",
                 folderCreation: "complete",
@@ -473,6 +563,9 @@ export class SourceUploadProvider
                 command: "setupComplete",
                 data: { path: sourcePath },
             } as SourceUploadResponseMessages);
+
+            // Update metadata after successful import
+            await this.updateMetadata(webviewPanel);
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
             console.error("Error in source file setup:", error);
@@ -480,6 +573,109 @@ export class SourceUploadProvider
                 command: "error",
                 message: `Failed to setup source file: ${errorMessage}`,
             } as SourceUploadResponseMessages);
+            throw error;
         }
+    }
+
+    // New method to generate preview
+    private async generateSourcePreview(fileUri: vscode.Uri): Promise<SourcePreview> {
+        const validator = new SourceFileValidator();
+        const validation = await validator.validateSourceFile(fileUri);
+
+        const fileStat = await vscode.workspace.fs.stat(fileUri);
+        const fileType = getFileType(fileUri);
+        const content = await vscode.workspace.fs.readFile(fileUri);
+        const textContent = new TextDecoder().decode(content);
+        const expectedBooks = await analyzeSourceContent(fileUri, textContent);
+
+        this.currentPreview = {
+            fileName: path.basename(fileUri.fsPath),
+            fileSize: fileStat.size,
+            fileType,
+            expectedBooks,
+            validationResults: [validation],
+        };
+
+        return this.currentPreview;
+    }
+
+    private async handleSourceImport(
+        webviewPanel: vscode.WebviewPanel,
+        fileUri: vscode.Uri,
+        token: vscode.CancellationToken
+    ): Promise<void> {
+        const transaction = new SourceImportTransaction(fileUri);
+
+        try {
+            // Prepare and show preview
+            const preview = await transaction.prepare();
+            webviewPanel.webview.postMessage({
+                command: "preview",
+                preview,
+            });
+
+            // Wait for user confirmation
+            const confirmed = await this.awaitConfirmation(webviewPanel);
+            if (!confirmed) {
+                await transaction.rollback();
+                return;
+            }
+
+            // Execute with progress
+            await vscode.window.withProgress(
+                {
+                    location: { viewId: "sourceUpload" },
+                    cancellable: true,
+                },
+                async (progress, token) => {
+                    // Forward progress to webview
+                    const progressCallback = (p: { message?: string; increment?: number }) => {
+                        webviewPanel.webview.postMessage({
+                            command: "progress",
+                            progress: p,
+                        });
+                        progress.report(p);
+                    };
+
+                    token.onCancellationRequested(() => {
+                        transaction.rollback();
+                        webviewPanel.webview.postMessage({
+                            command: "error",
+                            error: "Operation cancelled",
+                        });
+                    });
+
+                    await transaction.execute({ report: progressCallback }, token);
+                }
+            );
+
+            webviewPanel.webview.postMessage({ command: "complete" });
+        } catch (error) {
+            await transaction.rollback();
+            webviewPanel.webview.postMessage({
+                command: "error",
+                error: error instanceof Error ? error.message : "Unknown error occurred",
+            });
+            throw error;
+        }
+    }
+
+    private async awaitConfirmation(webviewPanel: vscode.WebviewPanel): Promise<boolean> {
+        return new Promise((resolve) => {
+            const messageHandler = (message: any) => {
+                if (message.command === "confirmSourceSetup") {
+                    webviewPanel.webview.onDidReceiveMessage(messageHandler);
+                    resolve(message.confirmed);
+                }
+            };
+
+            webviewPanel.webview.onDidReceiveMessage(messageHandler);
+
+            // Send message to request confirmation
+            webviewPanel.webview.postMessage({
+                command: "requestConfirmation",
+                preview: this.currentPreview,
+            });
+        });
     }
 }

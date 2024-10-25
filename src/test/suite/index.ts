@@ -39,3 +39,6 @@ export function run(): Promise<void> {
         }
     });
 }
+
+export * from "./sourceImport.test";
+export * from "../testUtils";

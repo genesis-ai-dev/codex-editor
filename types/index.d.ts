@@ -179,11 +179,15 @@ type SourceUploadPostMessages =
     | { command: "createSourceFolder"; data: { sourcePath: string } }
     | { command: "importRemoteTranslation"; data: { sourcePath: string } }
     | { command: "importLocalTranslation"; data: { sourcePath: string } }
-    | { command: "selectSourceFile"; data: { sourcePath: string } };
+    | { command: "selectSourceFile"; data: { sourcePath: string } }
+    | { command: "cancelSourceImport" }
+    | { command: "confirmSourceImport" }
+    | { command: "previewSourceText"; fileContent: string; fileName: string };
 
 export type SourceUploadResponseMessages = {
     command:
         | "updateMetadata"
+        | "sourcePreview"
         | "sourceFileSelected"
         | "updateProcessingStatus"
         | "setupComplete"
@@ -600,12 +604,13 @@ declare function searchParallelCells(
 
 export type SupportedFileExtension = "vtt" | "txt" | "usfm" | "sfm" | "SFM" | "USFM";
 
-export type FileType = "subtitles" | "plaintext" | "usfm";
+export type FileType = "subtitles" | "plaintext" | "usfm" | "usx";
 
 export interface FileTypeMap {
     vtt: "subtitles";
     txt: "plaintext";
     usfm: "usfm";
+    usx: "usx";
     sfm: "usfm";
     SFM: "usfm";
     USFM: "usfm";
@@ -670,4 +675,53 @@ interface Project {
     version: string;
     hasVersionMismatch?: boolean;
     isOutdated?: boolean;
+}
+
+// Add these interfaces
+export interface SourcePreview {
+    fileName: string;
+    fileSize: number;
+    fileType: FileType;
+    expectedBooks: BookPreview[];
+    validationResults: ValidationResult[];
+}
+
+export interface BookPreview {
+    name: string;
+    versesCount: number;
+    chaptersCount: number;
+    previewContent?: string;
+}
+
+export interface ValidationResult {
+    isValid: boolean;
+    errors: ValidationError[];
+    warnings?: ValidationWarning[];
+}
+
+export interface ValidationError {
+    code: ValidationErrorCode;
+    message: string;
+    details?: Record<string, unknown>;
+}
+
+export interface ValidationWarning {
+    code: ValidationWarningCode;
+    message: string;
+    details?: Record<string, unknown>;
+}
+
+// Add to existing enums or create new ones
+export enum ValidationErrorCode {
+    FILE_SIZE_EXCEEDED = "FILE_SIZE_EXCEEDED",
+    UNSUPPORTED_FILE_TYPE = "UNSUPPORTED_FILE_TYPE",
+    INVALID_CONTENT = "INVALID_CONTENT",
+    INSUFFICIENT_SPACE = "INSUFFICIENT_SPACE",
+    SYSTEM_ERROR = "SYSTEM_ERROR",
+}
+
+export enum ValidationWarningCode {
+    LARGE_FILE = "LARGE_FILE",
+    UNUSUAL_STRUCTURE = "UNUSUAL_STRUCTURE",
+    MISSING_METADATA = "MISSING_METADATA",
 }
