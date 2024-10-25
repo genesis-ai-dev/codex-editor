@@ -266,7 +266,7 @@ export class CodexNotebookTreeViewProvider
     implements vscode.TreeDataProvider<CodexNode>, vscode.Disposable
 {
     private disposables: vscode.Disposable[] = [];
-    private readonly model: CodexModel;
+    public readonly model: CodexModel;
     private fileWatcher: vscode.FileSystemWatcher | undefined;
     private _onDidChangeTreeData: vscode.EventEmitter<CodexNode | undefined | null | void> =
         new vscode.EventEmitter<CodexNode | undefined | null | void>();
@@ -363,6 +363,17 @@ export class CodexNotebookTreeViewProvider
                 title: "Open Section",
                 arguments: [resourceUri, element.cellId],
             };
+
+            // Add context value for document items to enable the source file button
+            if (element.type === "document") {
+                treeItem.contextValue = "document";
+                treeItem.iconPath = new vscode.ThemeIcon("book");
+                
+                // Add source file URI to the tree item for the command to use
+                if (element.sourceFileUri) {
+                    treeItem.resourceUri = element.sourceFileUri;
+                }
+            }
         }
 
         return treeItem;

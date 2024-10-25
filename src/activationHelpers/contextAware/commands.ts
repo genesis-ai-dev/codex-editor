@@ -26,6 +26,7 @@ import {
 } from "./sourceData";
 import { exportCodexContent } from "../../commands/exportHandler";
 import * as path from "path";
+import { debounce } from "lodash";
 
 const ROOT_PATH = getWorkSpaceFolder();
 
@@ -33,9 +34,25 @@ export async function registerCommands(context: vscode.ExtensionContext) {
     const navigationTreeViewProvider = new CodexNotebookTreeViewProvider(ROOT_PATH, context);
     vscode.window.registerTreeDataProvider("codexNotebookTreeView", navigationTreeViewProvider);
 
+    // Create a debounced refresh function
+    const debouncedRefresh = debounce(async () => {
+        console.log("Commands: Triggering debounced refresh");
+        try {
+            // Clear the metadata cache before refreshing
+            await navigationTreeViewProvider.model.invalidateCache();
+            navigationTreeViewProvider.refresh();
+        } catch (error) {
+            console.error("Commands: Error during refresh:", error);
+            vscode.window.showErrorMessage("Failed to refresh navigation tree");
+        }
+    }, 500);
+
     const navigationExplorerRefreshCommand = vscode.commands.registerCommand(
         "codexNotebookTreeView.refresh",
-        () => navigationTreeViewProvider.refresh()
+        () => {
+            console.log("Commands: Refresh command triggered");
+            return debouncedRefresh();
+        }
     );
 
     const indexVrefsCommand = vscode.commands.registerCommand(
