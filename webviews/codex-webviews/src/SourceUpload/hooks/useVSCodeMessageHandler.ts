@@ -1,18 +1,73 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { SourceUploadResponseMessages } from "../../../../../types";
+import { WorkflowState } from "../types";
 
-export const useVSCodeMessageHandler = ({ setFile }: { setFile?: (file: File) => void }) => {
-    useEffect(() => {
-        const messageListener = (event: MessageEvent) => {
-            const message = event.data;
-            switch (message.type) {
-                case "fileSelected": {
-                    setFile?.(message.fileName);
-                    break;
-                }
-            }
-        };
-
-        window.addEventListener("message", messageListener);
-        return () => window.removeEventListener("message", messageListener);
-    }, [setFile]);
+const vscode = acquireVsCodeApi();
+const initialWorkflowState: WorkflowState = {
+    step: "select",
+    selectedFile: null,
+    processingStages: {},
 };
+
+export function useVSCodeMessageHandler() {
+    const [workflow, setWorkflow] = useState<WorkflowState>(initialWorkflowState);
+
+    const handleMessage = useCallback(
+        (event: MessageEvent<SourceUploadResponseMessages>) => {
+            const message = event.data;
+
+            switch (message.command) {
+                case "sourcePreview":
+                    if (message.preview) {
+                        setWorkflow((prev) => ({
+                            ...prev,
+                            step: "preview",
+                            preview: message.preview,
+                        }));
+                    }
+                    break;
+
+                case "updateProcessingStatus":
+                    if (message.status) {
+                        setWorkflow((prev: WorkflowState) => ({
+                            ...prev,
+                            step: "processing",
+                            processingStages: Object.entries(message.status || {}).reduce(
+                                (acc, [key, status]) => ({
+                                    ...acc,
+                                    [key]: {
+                                        ...prev.processingStages[key],
+                                        status,
+                                    },
+                                }),
+                                prev.processingStages
+                            ),
+                        }));
+                    }
+                    break;
+
+                case "importComplete":
+                    setWorkflow((prev: WorkflowState) => ({
+                        ...prev,
+                        step: "complete",
+                    }));
+                    break;
+
+                case "error":
+                    setWorkflow((prev: WorkflowState) => ({
+                        ...prev,
+                        error: message.message,
+                    }));
+                    break;
+            }
+        },
+        [setWorkflow]
+    );
+
+    useEffect(() => {
+        window.addEventListener("message", handleMessage);
+        return () => window.removeEventListener("message", handleMessage);
+    }, [handleMessage]);
+
+    return { vscode, workflow, setWorkflow };
+}

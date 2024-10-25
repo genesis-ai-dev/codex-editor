@@ -119,7 +119,6 @@ function App() {
             }
             case "sendProjectsList": {
                 setProjects(message.data);
-                setViewMode("projectList");
                 break;
             }
             case "sendWatchedFolders": {

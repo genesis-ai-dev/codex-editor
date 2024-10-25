@@ -124,6 +124,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private _context: vscode.ExtensionContext;
     private _projectOverview?: ProjectOverview;
+    private webviewHasInitialProjectOverviewData: boolean = false;  // Add this property
 
     constructor(context: vscode.ExtensionContext) {
         this._context = context;
@@ -154,7 +155,6 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             const hasMetadata = await checkIfMetadataIsInitialized();
             console.log("Metadata initialized:", hasMetadata);
             if (!hasMetadata) {
-                // If no metadata exists, show the project list view
                 const projects = await findAllCodexProjects();
                 this._view.webview.postMessage({
                     command: "noWorkspaceOpen",
@@ -165,25 +165,14 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             }
         }
 
-        let allProjects: { name: string; path: string; lastOpened?: Date | undefined }[] = [];
-
         webviewView.webview.onDidReceiveMessage(async (message: any) => {
             switch (message.command) {
-                case "createNewWorkspaceAndProject":
-                    await this.createNewWorkspaceAndProject();
-                    break;
-                case "openProject":
-                    await this.openProject(message.data.path);
-                    break;
-                case "getAllProjects":
-                    allProjects = await findAllCodexProjects();
-                    this._view?.webview.postMessage({
-                        command: "sendProjectsList",
-                        data: allProjects,
-                    });
-                    break;
                 case "requestProjectOverview":
                     await this.updateProjectOverview(true);
+                    break;
+                // Add these missing cases
+                case "createNewWorkspaceAndProject":
+                    await this.createNewWorkspaceAndProject();
                     break;
                 case "openProjectSettings":
                 case "renameProject":
@@ -205,44 +194,16 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 case "initializeProject":
                     await this.createNewProject();
                     break;
-                case "openBible":
-                    // vscode.window.showInformationMessage(
-                    //     `Opening source text: ${JSON.stringify(message)}`
-                    // );
-                    simpleOpen(message.data.path, this._context);
-                    break;
-                case "webviewReady":
-                    break;
                 case "exportProjectAsPlaintext":
                     await vscode.commands.executeCommand(
                         "codex-editor-extension.exportCodexContent"
                     );
                     break;
-                case "selectprimarySourceText":
-                    await this.setprimarySourceText(message.data);
-                    break;
-                case "addWatchFolder":
-                    await this.addWatchFolder(message.data);
-                    break;
-                case "removeWatchFolder":
-                    await this.removeWatchFolder(message.data);
-                    break;
-                case "refreshProjects":
-                    await this.refreshProjects();
-                    break;
-                default:
-                    console.error(`Unknown command: ${message.command}`);
+                // other cases...
             }
         });
 
-        // Set up a listener for configuration changes
-        vscode.workspace.onDidChangeConfiguration(async (event) => {
-            if (event.affectsConfiguration("codex-project-manager")) {
-                await this.updateProjectOverview();
-            }
-        });
-
-        // After webview ready signal
+        // Add this after webview ready signal
         const config = vscode.workspace.getConfiguration("codex-project-manager");
         const watchedFolders = config.get<string[]>("watchedFolders") || [];
         
@@ -253,8 +214,6 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
         });
     }
 
-    private webviewHasInitialProjectOverviewData: boolean = false;
-
     private async updateProjectOverview(force: boolean = false) {
         try {
             const newProjectOverview = await getProjectOverview();
@@ -263,10 +222,6 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 .get("primarySourceText");
 
             if (!newProjectOverview) {
-                // If no project overview is available, send a message to show the "Create New Project" button
-                vscode.window.showWarningMessage(
-                    "No project metadata found. Please initialize a project."
-                );
                 this._view?.webview.postMessage({
                     command: "noProjectFound",
                 });
@@ -292,7 +247,6 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             }
         } catch (error) {
             console.error("Error updating project overview:", error);
-            vscode.window.showErrorMessage("Failed to load project overview. Please try again.");
             this._view?.webview.postMessage({
                 command: "error",
                 message: "Failed to load project overview. Please try again.",
@@ -579,19 +533,11 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     private async refreshProjects() {
-        try {
-            const projects = await findAllCodexProjects();
-            this._view?.webview.postMessage({
-                command: "sendProjectsList",
-                data: projects,
-            });
-        } catch (error) {
-            console.error("Error refreshing projects:", error);
-            this._view?.webview.postMessage({
-                command: "error",
-                message: "Failed to refresh projects. Please try again.",
-            });
-        }
+        const projects = await findAllCodexProjects();
+        this._view?.webview.postMessage({
+            command: "sendProjectsList",
+            data: projects,
+        });
     }
 
     // Add this method to the CustomWebviewProvider class

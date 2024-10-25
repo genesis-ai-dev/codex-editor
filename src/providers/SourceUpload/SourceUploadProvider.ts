@@ -1,15 +1,13 @@
 import * as vscode from "vscode";
 import { importTranslations } from "../../projectManager/translationImporter";
-import { importSourceText } from "../../projectManager/sourceTextImporter";
 import { NotebookMetadataManager } from "../../utils/notebookMetadataManager";
+import { importSourceText } from "../../projectManager/sourceTextImporter";
 import { downloadBible } from "../../projectManager/projectInitializers";
 import { processDownloadedBible } from "../../projectManager/sourceTextImporter";
-import { initProject } from "../scm/git";
 import { registerScmCommands } from "../scm/scmActionHandler";
 import {
     SourceUploadPostMessages,
     SourceUploadResponseMessages,
-    AggregatedMetadata,
     ValidationResult,
 } from "../../../types/index";
 import path from "path";
@@ -17,10 +15,6 @@ import { SourceFileValidator } from "../../validation/sourceFileValidator";
 import { SourceImportTransaction } from "../../transactions/SourceImportTransaction";
 import { getFileType } from "../../utils/fileTypeUtils";
 import { analyzeSourceContent } from "../../utils/contentAnalyzers";
-import { formatFileSize } from "../../utils/formatters";
-import { validateSourceFile, importSourceFile } from "../../projectManager/sourceTextImporter";
-import { ImportTransaction, ImportTransactionState } from "./ImportTransaction";
-import { SourceAnalyzer } from "../../utils/sourceAnalyzer";
 
 // Add new types for workflow status tracking
 interface ProcessingStatus {
@@ -65,7 +59,7 @@ export class SourceUploadProvider
     onDidChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
     onDidChange = this.onDidChangeEmitter.event;
     private currentPreview: SourcePreview | null = null; // Add this property
-    private currentTransaction: ImportTransaction | null = null;
+    private currentTransaction: SourceImportTransaction | null = null;
 
     constructor(private readonly context: vscode.ExtensionContext) {
         registerScmCommands(context);
@@ -118,16 +112,19 @@ export class SourceUploadProvider
                             );
 
                             // Create new import transaction
-                            const transaction = new SourceImportTransaction(tempUri);
+                            const transaction = new SourceImportTransaction(tempUri, this.context);
                             this.currentTransaction = transaction;
 
                             // Generate preview
                             const preview = await transaction.prepare();
 
-                            // Send preview to webview
+                            // Send preview to webview with proper structure
                             webviewPanel.webview.postMessage({
                                 command: "sourcePreview",
-                                preview,
+                                preview: {
+                                    original: preview.originalContent,
+                                    transformed: preview.transformedContent,
+                                },
                             } as SourceUploadResponseMessages);
                         } catch (error) {
                             console.error("Error preparing source import:", error);
@@ -293,7 +290,10 @@ export class SourceUploadProvider
                         );
 
                         // Create new import transaction
-                        this.currentTransaction = new SourceImportTransaction(tempUri);
+                        this.currentTransaction = new SourceImportTransaction(
+                            tempUri,
+                            this.context
+                        );
 
                         // Generate and send preview
                         const preview = await this.generateSourcePreview(tempUri);
@@ -316,27 +316,62 @@ export class SourceUploadProvider
                             },
                             async (progress, token) => {
                                 try {
-                                    const progressCallback = (p: ImportProgress) => {
+                                    const progressCallback = (update: {
+                                        message?: string;
+                                        increment?: number;
+                                    }) => {
+                                        progress.report(update);
+                                        // Send both the stage status and progress update
                                         webviewPanel.webview.postMessage({
-                                            command: "importProgress",
-                                            progress: p,
-                                        });
-                                        progress.report({
-                                            message: p.message,
-                                            increment: p.percent,
-                                        });
+                                            command: "updateProcessingStatus",
+                                            status: {
+                                                [update.message || "processing"]: "active",
+                                            },
+                                            progress: {
+                                                message: update.message || "",
+                                                increment: update.increment || 0,
+                                            },
+                                        } as SourceUploadResponseMessages);
                                     };
 
-                                    await this.currentTransaction.execute(progressCallback, token);
+                                    token.onCancellationRequested(() => {
+                                        if (this.currentTransaction) {
+                                            this.currentTransaction.rollback();
+                                        }
+                                        webviewPanel.webview.postMessage({
+                                            command: "error",
+                                            message: "Operation cancelled",
+                                        } as SourceUploadResponseMessages);
+                                    });
 
+                                    await this.currentTransaction.execute(
+                                        { report: progressCallback },
+                                        token
+                                    );
+
+                                    // Mark all stages as complete
+                                    webviewPanel.webview.postMessage({
+                                        command: "updateProcessingStatus",
+                                        status: {
+                                            fileValidation: "complete",
+                                            transformation: "complete",
+                                            sourceNotebook: "complete",
+                                            targetNotebook: "complete",
+                                            metadataSetup: "complete",
+                                        },
+                                    } as SourceUploadResponseMessages);
+
+                                    // Send completion message
                                     webviewPanel.webview.postMessage({
                                         command: "importComplete",
-                                    });
+                                    } as SourceUploadResponseMessages);
 
                                     // Update metadata after successful import
                                     await this.updateMetadata(webviewPanel);
                                 } catch (error) {
-                                    await this.currentTransaction.rollback();
+                                    if (this.currentTransaction) {
+                                        await this.currentTransaction.rollback();
+                                    }
                                     throw error;
                                 } finally {
                                     this.currentTransaction = null;
@@ -349,10 +384,10 @@ export class SourceUploadProvider
                         if (this.currentTransaction) {
                             await this.currentTransaction.rollback();
                             this.currentTransaction = null;
+                            webviewPanel.webview.postMessage({
+                                command: "importCancelled",
+                            } as SourceUploadResponseMessages);
                         }
-                        webviewPanel.webview.postMessage({
-                            command: "importCancelled",
-                        });
                         break;
                     }
                     default:
@@ -604,7 +639,7 @@ export class SourceUploadProvider
         fileUri: vscode.Uri,
         token: vscode.CancellationToken
     ): Promise<void> {
-        const transaction = new SourceImportTransaction(fileUri);
+        const transaction = new SourceImportTransaction(fileUri, this.context);
 
         try {
             // Prepare and show preview
