@@ -77,18 +77,18 @@ export default function Timeline(props: TimelineProps) {
     const defaultFunction = () => {};
 
     const drawTimeLine = (p: TimelineProps & { endTime: number }) => {
-        timeLine = TimeLine(
-            canvas1.current as unknown as HTMLCanvasElement,
-            canvas2.current as unknown as HTMLCanvasElement,
-            p.data,
-            p.endTime,
-            () => (props.audioRef ? props.audioRef.current : canvasAudio.current),
-            changeAlignment || defaultFunction,
-            changeZoomLevel || defaultFunction,
-            changeInScrollPosition || defaultFunction,
-            changeShift || defaultFunction,
-            changeAreaShow || defaultFunction,
-            {
+        timeLine = TimeLine({
+            canvas: canvas1.current as unknown as HTMLCanvasElement,
+            canvas2: canvas2.current as unknown as HTMLCanvasElement,
+            alignments: p.data,
+            endTime: p.endTime,
+            getPlayer: () => (props.audioRef ? props.audioRef.current : canvasAudio.current),
+            changeAlignment: changeAlignment || defaultFunction,
+            changeZoomLevel: changeZoomLevel || defaultFunction,
+            changeInScrollPosition: changeInScrollPosition || defaultFunction,
+            changeShift: changeShift || defaultFunction,
+            tellAreaChangesToRectComponent: changeAreaShow || defaultFunction,
+            options: {
                 autoScroll: props.autoScroll,
                 currentTime: props.currentTime,
                 initialZoomLevel: props.initialZoomLevel, // Pass the prop through
@@ -108,8 +108,8 @@ export default function Timeline(props: TimelineProps) {
                     scrollBar: props.colors?.scrollBar || "#c2c9d6",
                     scrollBarHover: props.colors?.scrollBarHover || "#8f96a3",
                 },
-            }
-        );
+            },
+        });
     };
 
     const resetTimeline = () => {
@@ -133,11 +133,13 @@ export default function Timeline(props: TimelineProps) {
             if (timeLine) timeLine.cancelAnimate();
         };
     }, [props.data, props.src, props.initialZoomLevel, scrollingIsTracking]); // Add props.resetTimeline to the dependency array
+
     const style = {
         height: "90px",
         paddingLeft: props.paddingLeft,
         width: "100%",
     };
+
     const initialZoomLevel = props.initialZoomLevel || 1;
     return (
         <div style={{ display: "flex", flexDirection: "row" }}>

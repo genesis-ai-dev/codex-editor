@@ -111,6 +111,21 @@ const CellList: React.FC<CellListProps> = ({
             const { cellMarkers, cellContent, cellType, cellLabel, timestamps } =
                 translationUnits[i];
 
+            const checkIfCurrentCellIsChild = () => {
+                const currentCellId = cellMarkers[0];
+                const translationUnitsWithCurrentCellRemoved = translationUnits.filter(
+                    ({ cellMarkers }) => cellMarkers[0] !== currentCellId
+                );
+
+                const currentCellWithLastIdSegmentRemoved = currentCellId
+                    .split(":")
+                    .slice(0, 2)
+                    .join(":");
+                return translationUnitsWithCurrentCellRemoved.some(
+                    ({ cellMarkers }) => cellMarkers[0] === currentCellWithLastIdSegmentRemoved
+                );
+            };
+
             if (
                 !isSourceText &&
                 cellMarkers.join(" ") === contentBeingUpdated.cellMarkers?.join(" ")
@@ -119,12 +134,14 @@ const CellList: React.FC<CellListProps> = ({
                     result.push(renderCellGroup(currentGroup, groupStartIndex));
                     currentGroup = [];
                 }
+                const cellIsChild = checkIfCurrentCellIsChild();
                 result.push(
                     <div
                         key={cellMarkers.join(" ")}
                         style={{ display: "flex", alignItems: "center" }}
                     >
                         <CellEditor
+                            cellIsChild={cellIsChild}
                             cellMarkers={cellMarkers}
                             cellContent={cellContent}
                             cellIndex={i}
@@ -180,7 +197,6 @@ const CellList: React.FC<CellListProps> = ({
         vscode,
     ]);
 
-    const listHeight = windowHeight - headerHeight - 20;
 
     return (
         <div
@@ -188,7 +204,6 @@ const CellList: React.FC<CellListProps> = ({
             style={{
                 direction: textDirection,
                 overflowY: "auto",
-                maxHeight: `${listHeight}px`,
             }}
         >
             {renderCells()}

@@ -9,7 +9,19 @@ export interface TimelineReturn {
     changeCursorViewPort: (beginingTimeShow: number, endTimeShow: number) => void;
 }
 
-export default function TimeLine(
+export default function TimeLine({
+    canvas,
+    canvas2,
+    alignments,
+    endTime,
+    getPlayer,
+    changeAlignment,
+    changeZoomLevel,
+    changeInScrollPosition,
+    changeShift,
+    tellAreaChangesToRectComponent,
+    options,
+}:{
     canvas: HTMLCanvasElement,
     canvas2: HTMLCanvasElement,
     alignments: TimeBlock[],
@@ -48,7 +60,7 @@ export default function TimeLine(
             scrollBarHover: string;
         };
     }
-): TimelineReturn | undefined {
+}): TimelineReturn | undefined {
     // constants
     const LINE_HEIGHT = 40;
     const TRACK_HEIGHT = 40;
