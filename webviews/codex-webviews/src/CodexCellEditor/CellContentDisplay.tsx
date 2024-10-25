@@ -41,67 +41,80 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
 
     useEffect(() => {
         const checkContent = async () => {
+            if (getAlertCode !== -1) return;
             try {
-                if (getAlertCode !== -1) {
-                    return;
-                }
                 const result = await getAlertCodeFunction(cellContent, cellIds[0]);
-                console.log("CCD:  ", result);
                 setgetAlertCode(result.getAlertCode);
             } catch (error) {
                 console.error("Error checking content:", error);
                 setgetAlertCode(0);
             }
         };
-
         checkContent();
     }, [cellContent, cellIds]);
 
     const handleVerseClick = () => {
         if (unsavedChanges || isSourceText) {
-            // FIXME: if you click a source text cell.. maybe we still want to update the shared state store?
             toggleFlashingBorder();
             return;
         }
         setContentBeingUpdated({
             cellMarkers: cellIds,
-            cellContent: cellContent,
+            cellContent,
             cellChanged: unsavedChanges,
-            cellLabel: cellLabel,
-            timestamps: timestamps,
+            cellLabel,
+            timestamps,
         } as EditorCellContent);
         vscode.postMessage({
             command: "setCurrentIdToGlobalState",
             content: { currentLineId: cellIds[0] },
         } as EditorPostMessages);
     };
-    const verseMarkerVerseNumbers = cellIds.map((cellMarker) => {
-        const parts = cellMarker?.split(":");
-        return parts?.[parts.length - 1];
-    });
-    let verseRefForDisplay = "";
-    if (verseMarkerVerseNumbers.length === 1) {
-        verseRefForDisplay = verseMarkerVerseNumbers[0];
-    } else {
-        verseRefForDisplay = `${verseMarkerVerseNumbers[0]}-${
-            verseMarkerVerseNumbers[verseMarkerVerseNumbers.length - 1]
-        }`;
-    }
-    // truncate display vref to just show the last 3 chars max
-    verseRefForDisplay = verseRefForDisplay.slice(-3);
 
-    const displayLabel = cellLabel || verseRefForDisplay;
+    const displayLabel =
+        cellLabel ||
+        (() => {
+            const numbers = cellIds.map((id) => id.split(":").pop());
+            const reference =
+                numbers.length === 1 ? numbers[0] : `${numbers[0]}-${numbers[numbers.length - 1]}`;
+            return reference?.slice(-3) ?? "";
+        })();
 
-    // FIXME: we need to allow for the ref/id to be displayed at the start or end of the cell
+    const AlertDot = ({ color }: { color: string }) => (
+        <span
+            style={{
+                display: "inline-block",
+                width: "5px",
+                height: "5px",
+                borderRadius: "50%",
+                backgroundColor: color,
+                marginLeft: "4px",
+            }}
+        />
+    );
+
+    const getAlertDot = () => {
+        const colors = {
+            "-1": "transparent",
+            "0": "transparent",
+            "1": "#FF6B6B",
+            "2": "purple",
+            "3": "white",
+        } as const;
+        return (
+            <AlertDot
+                color={colors[getAlertCode.toString() as keyof typeof colors] || "transparent"}
+            />
+        );
+    };
+
     return (
         <span
             className={`verse-display ${
                 cellType === CodexCellTypes.TEXT ? "canonical-display" : "paratext-display"
             } cell-content ${hasDuplicateId ? "duplicate-id" : ""}`}
             onClick={handleVerseClick}
-            style={{
-                direction: textDirection,
-            }}
+            style={{ direction: textDirection }}
         >
             {hasDuplicateId && (
                 <span className="duplicate-id-alert">
@@ -111,57 +124,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             {cellType === CodexCellTypes.TEXT && (
                 <sup>
                     {displayLabel}
-                    {(getAlertCode == 0 || getAlertCode == -1) && ( // Claude had the good idea of a transparent one, this will keep the render more consistent I think.
-                        <span
-                            style={{
-                                display: "inline-block",
-                                width: "5px",
-                                height: "5px",
-                                borderRadius: "50%",
-                                backgroundColor: "transparent",
-                                marginLeft: "4px",
-                            }}
-                        />
-                    )}
-                    {getAlertCode == 1 && (
-                        <span
-                            style={{
-                                display: "inline-block",
-                                width: "5px",
-                                height: "5px",
-                                borderRadius: "50%",
-                                backgroundColor: "#FF6B6B",
-                                marginLeft: "4px",
-                            }}
-                        />
-                    )}
-                    {getAlertCode == 2 && (
-                        <span
-                            style={{
-                                display: "inline-block",
-                                width: "5px",
-                                height: "5px",
-                                borderRadius: "50%",
-                                backgroundColor: "purple",
-                                marginLeft: "4px",
-                            }}
-                        />
-                    )}
-                    {getAlertCode == 3 && (
-                        <span
-                            style={{
-                                display: "inline-block",
-                                width: "5px",
-                                height: "5px",
-                                borderRadius: "50%",
-                                backgroundColor: "white",
-                                marginLeft: "4px",
-                            }}
-                        />
-                    )}
+                    {getAlertDot()}
                 </sup>
             )}
-            {/* Display a visual indicator for paratext cells */}
             {cellType === CodexCellTypes.PARATEXT && (
                 <span className="paratext-indicator">[Paratext]</span>
             )}
