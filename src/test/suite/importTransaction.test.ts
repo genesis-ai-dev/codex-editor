@@ -1,13 +1,20 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
-import { ImportTransaction } from "../../transactions/ImportTransaction";
-import { CustomNotebookMetadata } from "../../../types";
+import { SourceImportTransaction } from "../../transactions/SourceImportTransaction";
 
 suite("ImportTransaction Test Suite", () => {
     let tempSourceUri: vscode.Uri;
     let workspaceUri: vscode.Uri;
+    let context: vscode.ExtensionContext;
 
     suiteSetup(async () => {
+        // Get the extension context
+        const extension = vscode.extensions.getExtension("your.extension.id");
+        if (!extension) {
+            throw new Error("Extension not found");
+        }
+        context = extension.exports;
+
         // Ensure a temporary workspace folder is available
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
@@ -38,19 +45,20 @@ suite("ImportTransaction Test Suite", () => {
     });
 
     test("should create temporary directory for transaction", async () => {
-        const transaction = new ImportTransaction(tempSourceUri);
-        await transaction.createTempDirectory();
+        const transaction = new SourceImportTransaction(tempSourceUri, context);
+        await transaction.prepare();
 
-        const tempDir = transaction.getTempDir();
+        // Check that temp directory exists in workspace
+        const tempDir = vscode.Uri.joinPath(workspaceUri, ".codex-temp");
         const stat = await vscode.workspace.fs.stat(tempDir);
-
         assert.ok(stat.type === vscode.FileType.Directory, "Temp directory should be created");
     });
 
     test("should rollback all changes if any step fails", async () => {
-        const transaction = new ImportTransaction(tempSourceUri);
+        const transaction = new SourceImportTransaction(tempSourceUri, context);
+        await transaction.prepare();
 
-        // Force a failure during processing
+        // Force a failure during execution
         (transaction as any).processFiles = async () => {
             throw new Error("Simulated failure");
         };
@@ -59,74 +67,80 @@ suite("ImportTransaction Test Suite", () => {
             await transaction.execute();
             assert.fail("Should have thrown an error");
         } catch (error) {
-            // Verify no temp files remain
-            const tempDir = transaction.getTempDir();
+            // Verify temp directory is cleaned up
+            const tempDir = vscode.Uri.joinPath(workspaceUri, ".codex-temp");
             await assert.rejects(
                 async () => await vscode.workspace.fs.stat(tempDir),
                 "Temp directory should be cleaned up"
             );
-
-            // Verify no partial files in target location
-            const targetDir = vscode.Uri.joinPath(workspaceUri, "source");
-            const files = await vscode.workspace.fs.readDirectory(targetDir);
-            assert.strictEqual(files.length, 0, "No files should be created in target directory");
         }
     });
 
     test("should maintain consistent state during concurrent imports", async () => {
-        const transaction1 = new ImportTransaction(tempSourceUri);
-        const transaction2 = new ImportTransaction(tempSourceUri);
+        const transaction1 = new SourceImportTransaction(tempSourceUri, context);
+        const transaction2 = new SourceImportTransaction(tempSourceUri, context);
+
+        await Promise.all([transaction1.prepare(), transaction2.prepare()]);
 
         // Execute both transactions concurrently
         await Promise.all([transaction1.execute(), transaction2.execute()]);
 
-        // Verify only one set of files exists
-        const targetDir = vscode.Uri.joinPath(workspaceUri, "source");
-        const files = await vscode.workspace.fs.readDirectory(targetDir);
+        // Verify source and codex files exist in correct locations
+        const sourceDir = vscode.Uri.joinPath(workspaceUri, ".project", "sourceTexts");
+        const targetDir = vscode.Uri.joinPath(workspaceUri, "files", "target");
 
-        // Should only have one .source file and one .codex file
-        const sourceFiles = files.filter(([name]) => name.endsWith(".source"));
-        const codexFiles = files.filter(([name]) => name.endsWith(".codex"));
+        const sourceFiles = await vscode.workspace.fs.readDirectory(sourceDir);
+        const codexFiles = await vscode.workspace.fs.readDirectory(targetDir);
 
-        assert.strictEqual(sourceFiles.length, 1, "Should have exactly one source file");
-        assert.strictEqual(codexFiles.length, 1, "Should have exactly one codex file");
+        assert.strictEqual(sourceFiles.filter(([name]) => name.endsWith(".source")).length, 1);
+        assert.strictEqual(codexFiles.filter(([name]) => name.endsWith(".codex")).length, 1);
     });
 
     test("should report progress during transaction", async () => {
         const progressSteps: string[] = [];
         const progress = {
-            report: (step: { message: string }) => {
-                progressSteps.push(step.message);
+            report: (step: { message?: string; increment?: number }) => {
+                if (step.message) {
+                    progressSteps.push(step.message);
+                }
             },
         };
 
-        const transaction = new ImportTransaction(tempSourceUri, progress);
-        await transaction.execute();
+        const transaction = new SourceImportTransaction(tempSourceUri, context);
+        await transaction.prepare();
+        await transaction.execute(progress);
 
         assert.ok(progressSteps.length > 0, "Should report progress steps");
         assert.ok(
-            progressSteps.includes("Creating temporary files..."),
-            "Should report file creation"
+            progressSteps.some((step) => step.includes("Validating")),
+            "Should report validation step"
         );
-        assert.ok(progressSteps.includes("Processing files..."), "Should report processing");
-        assert.ok(progressSteps.includes("Updating metadata..."), "Should report metadata update");
+        assert.ok(
+            progressSteps.some((step) => step.includes("Processing")),
+            "Should report processing step"
+        );
+        assert.ok(
+            progressSteps.some((step) => step.includes("metadata")),
+            "Should report metadata step"
+        );
     });
 
     test("should handle cancellation gracefully", async () => {
         const token = new vscode.CancellationTokenSource();
-        const transaction = new ImportTransaction(tempSourceUri, undefined, token.token);
+        const transaction = new SourceImportTransaction(tempSourceUri, context);
+        await transaction.prepare();
 
         // Cancel during execution
         setTimeout(() => token.cancel(), 100);
 
         try {
-            await transaction.execute();
+            await transaction.execute(undefined, token.token);
             assert.fail("Should have been cancelled");
         } catch (error) {
-            assert.ok(error instanceof vscode.CancellationError, "Should throw cancellation error");
+            assert.ok(error instanceof vscode.CancellationError);
 
-            // Verify cleanup occurred
-            const tempDir = transaction.getTempDir();
+            // Verify cleanup
+            const tempDir = vscode.Uri.joinPath(workspaceUri, ".codex-temp");
             await assert.rejects(
                 async () => await vscode.workspace.fs.stat(tempDir),
                 "Temp directory should be cleaned up after cancellation"

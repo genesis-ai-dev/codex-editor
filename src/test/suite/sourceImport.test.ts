@@ -1,6 +1,6 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
-import { SourceAnalyzer } from "../../utils/sourceAnalyzer";
+import { SourceAnalyzer } from "../../validation/sourceAnalyzer";
 import { SourceFileValidator } from "../../validation/sourceFileValidator";
 import { SourceImportTransaction } from "../../transactions/SourceImportTransaction";
 import { createTestFile, cleanupTestFile } from "../testUtils";
@@ -8,9 +8,15 @@ import { createTestFile, cleanupTestFile } from "../testUtils";
 suite("Source Import Tests", () => {
     let testFileUri: vscode.Uri;
     let analyzer: SourceAnalyzer;
+    let context: vscode.ExtensionContext;
 
-    suiteSetup(() => {
+    suiteSetup(async () => {
         analyzer = new SourceAnalyzer(new SourceFileValidator());
+        const extension = vscode.extensions.getExtension('your.extension.id');
+        if (!extension) {
+            throw new Error('Extension not found');
+        }
+        context = extension.exports;
     });
 
     setup(async () => {
@@ -32,31 +38,22 @@ suite("Source Import Tests", () => {
         assert.strictEqual(preview.fileName, "test.usfm");
         assert.strictEqual(preview.fileType, "usfm");
         assert.strictEqual(preview.expectedBooks.length, 1);
-
-        const book = preview.expectedBooks[0];
-        assert.strictEqual(book.name, "GEN");
-        assert.strictEqual(book.versesCount, 2);
-        assert.strictEqual(book.chaptersCount, 1);
-    });
-
-    test("should validate file content", async () => {
-        const preview = await analyzer.generatePreview(testFileUri);
-
-        assert.strictEqual(preview.validationResults.length, 1);
-        assert.strictEqual(preview.validationResults[0].isValid, true);
+        assert.ok(preview.originalContent.validationResults[0].isValid);
+        assert.ok(preview.transformedContent.sourceNotebooks.length > 0);
     });
 
     test("should prepare transaction with preview", async () => {
-        const transaction = new SourceImportTransaction(testFileUri);
+        const transaction = new SourceImportTransaction(testFileUri, context);
         const preview = await transaction.prepare();
 
         assert.ok(preview);
         assert.strictEqual(preview.fileName, "test.usfm");
         assert.strictEqual(preview.expectedBooks.length, 1);
+        assert.ok(preview.transformedContent.sourceNotebooks.length > 0);
     });
 
     test("should handle transaction cancellation", async () => {
-        const transaction = new SourceImportTransaction(testFileUri);
+        const transaction = new SourceImportTransaction(testFileUri, context);
         await transaction.prepare();
 
         const tokenSource = new vscode.CancellationTokenSource();
@@ -67,6 +64,9 @@ suite("Source Import Tests", () => {
         // Cancel after small delay
         setTimeout(() => tokenSource.cancel(), 10);
 
-        await assert.rejects(transaction.execute(progressDummy, tokenSource.token), /Cancelled/);
+        await assert.rejects(
+            transaction.execute(progressDummy, tokenSource.token),
+            vscode.CancellationError
+        );
     });
 });

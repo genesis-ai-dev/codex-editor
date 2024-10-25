@@ -3,10 +3,21 @@ import * as vscode from "vscode";
 
 import { SourceFileValidator } from "../../validation/sourceFileValidator";
 import { ValidationErrorCode } from "../../../types/enums";
+import { FileTypeMap } from "../../../types";
 
 suite("SourceFileValidator Test Suite", () => {
     let validator: SourceFileValidator;
     let tempUri: vscode.Uri;
+
+    const supportedExtensions: FileTypeMap = {
+        vtt: "subtitles",
+        txt: "plaintext",
+        usfm: "usfm",
+        usx: "usx",
+        sfm: "usfm",
+        SFM: "usfm",
+        USFM: "usfm"
+    };
 
     suiteSetup(async () => {
         // Ensure a temporary workspace folder is available
@@ -21,7 +32,7 @@ suite("SourceFileValidator Test Suite", () => {
     setup(async () => {
         validator = new SourceFileValidator({
             maxFileSizeBytes: 1024, // 1KB for testing
-            supportedExtensions: [".usfm", ".txt"],
+            supportedExtensions,
             minDiskSpaceBytes: 1024 * 1024, // 1MB for testing
         });
     });
