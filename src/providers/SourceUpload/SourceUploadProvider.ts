@@ -344,10 +344,12 @@ export class SourceUploadProvider
                                         } as SourceUploadResponseMessages);
                                     });
 
-                                    await this.currentTransaction.execute(
-                                        { report: progressCallback },
-                                        token
-                                    );
+                                    if (this.currentTransaction) {
+                                        await this.currentTransaction.execute(
+                                            { report: progressCallback },
+                                            token
+                                        );
+                                    }
 
                                     // Mark all stages as complete
                                     webviewPanel.webview.postMessage({
