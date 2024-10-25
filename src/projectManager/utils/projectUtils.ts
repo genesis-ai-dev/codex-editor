@@ -10,6 +10,7 @@ import { ProjectMetadata, ProjectOverview } from "../../../types";
 import { initializeProject } from "../projectInitializers";
 import * as semver from "semver";
 import { getProjectMetadata } from "../../utils";
+import { CodexContentSerializer } from "../../serializer";
 
 export interface ProjectDetails {
     projectName?: string;

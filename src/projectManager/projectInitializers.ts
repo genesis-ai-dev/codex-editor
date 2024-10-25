@@ -20,6 +20,7 @@ import {
     CustomNotebookDocument,
 } from "../../types";
 import { CodexCellTypes } from "../../types/enums";
+import { CodexContentSerializer } from "../serializer";
 
 export async function downloadBible(
     languageType: "source" | "target"
@@ -194,6 +195,24 @@ async function handleBibleDownload(
         }
     });
 
+    const serializer = new CodexContentSerializer();
+    const notebookData = new vscode.NotebookData(bibleData.cells);
+    notebookData.metadata = {
+        id: corpusMetadata.file,
+        originalName: corpusMetadata.file,
+        sourceFsPath: vscode.Uri.file(bibleTextPath).fsPath,
+        codexFsPath: vscode.Uri.file(bibleTextPath).fsPath,
+        corpusMarker: testament || "",
+        navigation: [],
+        sourceCreatedAt: "",
+        gitStatus: "uninitialized",
+    };
+
+    const notebookContent = await serializer.serializeNotebook(
+        notebookData,
+        new vscode.CancellationTokenSource().token
+    );
+
     // Write the new structure to a .source file
     const fileNameWithoutExtension = corpusMetadata.file.includes(".")
         ? corpusMetadata.file.split(".")[0]
@@ -206,10 +225,7 @@ async function handleBibleDownload(
         `${fileNameWithoutExtension}.source`
     );
     const bibleFileUri = vscode.Uri.file(bibleFilePath);
-    await vscode.workspace.fs.writeFile(
-        bibleFileUri,
-        new TextEncoder().encode(JSON.stringify(bibleData, null, 2))
-    );
+    await vscode.workspace.fs.writeFile(bibleFileUri, notebookContent);
 
     vscode.window.showInformationMessage(`.source file created successfully at ${bibleFilePath}`);
 
@@ -607,3 +623,4 @@ async function openWorkspace() {
 //     }
 //   }
 // }
+
