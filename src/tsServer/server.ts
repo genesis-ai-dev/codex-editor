@@ -92,7 +92,7 @@ connection.onRequest(
     "spellcheck/getAlertCode",
     async (params: { text: string; cellId: string }) => {
         debugLog("SERVER: Received spellcheck/getAlertCode request:", { params });
-        const text = params.text //.toLowerCase();
+        const text = params.text;
         const words = tokenizeText({
             method: "whitespace_and_punctuation",
             text: text,
@@ -109,10 +109,10 @@ connection.onRequest(
                 return { code: 1, cellId: params.cellId };
             }
         }
-     
+
         const savedSuggestions = await connection.sendRequest(ExecuteCommandRequest, {
-            command: "codex-smart-edits.getSavedSuggestions",
-            args: [params.cellId],
+            command: "codex-smart-edits.getEdits",
+            args: [text, params.cellId],
         });
         let code = 0;
         if (savedSuggestions && savedSuggestions.suggestions.length > 0) {

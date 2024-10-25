@@ -82,6 +82,7 @@ interface SavedSuggestions {
     cellId: string;
     lastCellValue: string;
     suggestions: SmartSuggestion[];
+    lastUpdatedDate: string;
 }
 
 interface SmartEdit {

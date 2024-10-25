@@ -119,6 +119,7 @@ export class SmartEdits {
         text: string,
         suggestions: SmartSuggestion[]
     ): Promise<void> {
+        if (suggestions.length === 0) return;
         try {
             console.log(`Saving suggestions for cellId: ${cellId}`);
             let savedEdits: { [key: string]: SavedSuggestions } = {};
@@ -134,6 +135,7 @@ export class SmartEdits {
                 cellId,
                 lastCellValue: text,
                 suggestions,
+                lastUpdatedDate: new Date().toISOString(),
             };
 
             const fileUri = vscode.Uri.file(this.smartEditsPath);
