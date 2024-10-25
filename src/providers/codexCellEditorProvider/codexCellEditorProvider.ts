@@ -517,9 +517,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             });
                         } catch (error) {
                             console.error("Error during getAlertCode:", error);
-                            vscode.window.showErrorMessage(
-                                "Failed to check if text is problematic."
-                            );
+                            // vscode.window.showErrorMessage(
+                            //     "Failed to check if text is problematic."
+                            // );
                         }
                         return;
                     }

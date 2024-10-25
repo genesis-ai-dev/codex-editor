@@ -106,17 +106,10 @@ connection.onRequest(
                 spellCheckResult.corrections &&
                 spellCheckResult.corrections.length > 0
             ) {
-                debugLog("SERVER: Spell check result is problematic: ", {
-                    spellCheckResult,
-                    cellId: params.cellId,
-                });
                 return { code: 1, cellId: params.cellId };
             }
         }
-        debugLog("SERVER: Spell check result is not problematic: ", {
-            text,
-            cellId: params.cellId,
-        });
+     
         const savedSuggestions = await connection.sendRequest(ExecuteCommandRequest, {
             command: "codex-smart-edits.getSavedSuggestions",
             args: [params.cellId],
@@ -125,12 +118,6 @@ connection.onRequest(
         if (savedSuggestions && savedSuggestions.suggestions.length > 0) {
             code = 2;
         }
-        debugLog(
-            "SERVER: savedSuggestions: ",
-            savedSuggestions.suggestions,
-            " ID: ",
-            params.cellId
-        );
         return { code, cellId: params.cellId, savedSuggestions };
     }
 );
