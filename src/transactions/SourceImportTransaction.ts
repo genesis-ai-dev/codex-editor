@@ -122,6 +122,11 @@ export class SourceImportTransaction extends ImportTransaction {
             const sourceNotebook = sourceNotebooks[i];
             const codexNotebook = codexNotebooks[i];
 
+            // Ensure notebook has a name
+            if (!sourceNotebook.name || !codexNotebook.name) {
+                throw new Error("Notebook name is required");
+            }
+
             // Create source notebook
             const sourceUri = vscode.Uri.joinPath(
                 this.getTempDir(),
@@ -132,7 +137,7 @@ export class SourceImportTransaction extends ImportTransaction {
             // Create codex notebook
             const codexUri = vscode.Uri.joinPath(
                 this.getTempDir(),
-                `${sourceNotebook.name}.codex`
+                `${codexNotebook.name}.codex`
             );
             await this.writeNotebook(codexUri, codexNotebook);
 

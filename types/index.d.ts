@@ -192,8 +192,22 @@ export type SourceUploadResponseMessages = {
         | "sourceFileSelected"
         | "updateProcessingStatus"
         | "setupComplete"
-        | "error";
+        | "error"
+        | "importComplete"
+        | "importCancelled";
     metadata?: AggregatedMetadata[];
+    preview?: {
+        original: {
+            preview: string;
+            validationResults: ValidationResult[];
+        };
+        transformed: {
+            books: BookPreview[];
+            sourceNotebooks: NotebookPreview[];
+            codexNotebooks: NotebookPreview[];
+            validationResults: ValidationResult[];
+        };
+    };
     data?: {
         path?: string;
     };
@@ -751,3 +765,4 @@ type WorkflowStep = "select" | "preview" | "confirm" | "processing" | "complete"
 
 // Add ProcessingStage type
 type ProcessingStatus = "pending" | "active" | "complete" | "error";
+
