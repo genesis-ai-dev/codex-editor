@@ -92,7 +92,7 @@ connection.onRequest(
     "spellcheck/getAlertCode",
     async (params: { text: string; cellId: string }) => {
         debugLog("SERVER: Received spellcheck/getAlertCode request:", { params });
-        const text = params.text.toLowerCase();
+        const text = params.text //.toLowerCase();
         const words = tokenizeText({
             method: "whitespace_and_punctuation",
             text: text,
@@ -142,7 +142,7 @@ connection.onRequest("spellcheck/check", async (params: { text: string; cellChan
         const spellCheckResult = spellChecker.spellCheck(word);
         if (!spellCheckResult) continue;
 
-        const offset = text.toLowerCase().indexOf(word.toLowerCase(), 0);
+        const offset = text.indexOf(word, 0);
         if (offset === -1) continue;
 
         if (spellCheckResult.corrections && spellCheckResult.corrections.length > 0) {
