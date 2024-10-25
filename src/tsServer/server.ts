@@ -91,34 +91,45 @@ let lastCellChanged: boolean = false;
 connection.onRequest(
     "spellcheck/getAlertCode",
     async (params: { text: string; cellId: string }) => {
-        debugLog("SERVER: Received spellcheck/getAlertCode request:", { params });
-        const text = params.text;
-        const words = tokenizeText({
-            method: "whitespace_and_punctuation",
-            text: text,
-        });
+        try {
+            debugLog("SERVER: Received spellcheck/getAlertCode request:", { params });
+            const text = params.text;
+            const words = tokenizeText({
+                method: "whitespace_and_punctuation",
+                text: text,
+            });
 
-        // spellcheck
-        for (const word of words) {
-            const spellCheckResult = spellChecker.spellCheck(word);
-            if (
-                spellCheckResult &&
-                spellCheckResult.corrections &&
-                spellCheckResult.corrections.length > 0
-            ) {
-                return { code: 1, cellId: params.cellId };
+            // spellcheck
+            for (const word of words) {
+                const spellCheckResult = spellChecker.spellCheck(word);
+                if (spellCheckResult?.corrections?.length > 0) {
+                    return { code: 1, cellId: params.cellId };
+                }
             }
-        }
 
-        const savedSuggestions = await connection.sendRequest(ExecuteCommandRequest, {
-            command: "codex-smart-edits.getEdits",
-            args: [text, params.cellId],
-        });
-        let code = 0;
-        if (savedSuggestions && savedSuggestions.suggestions.length > 0) {
-            code = 2;
+            const savedSuggestions = await connection.sendRequest(ExecuteCommandRequest, {
+                command: "codex-smart-edits.getEdits",
+                args: [text, params.cellId],
+            });
+
+            let code = 0;
+            if (savedSuggestions?.suggestions?.length > 0) {
+                code = 2;
+            }
+
+            return {
+                code,
+                cellId: params.cellId,
+                savedSuggestions: savedSuggestions || { suggestions: [] },
+            };
+        } catch (error) {
+            console.error("Error in getAlertCode:", error);
+            return {
+                code: 0,
+                cellId: params.cellId,
+                savedSuggestions: { suggestions: [] },
+            };
         }
-        return { code, cellId: params.cellId, savedSuggestions };
     }
 );
 
