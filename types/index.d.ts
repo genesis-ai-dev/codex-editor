@@ -1,6 +1,7 @@
 import { Dictionary, LanguageMetadata, Project } from "codex-types";
 import * as vscode from "vscode";
 import { ScriptureTSV } from "./TsvTypes";
+import { CodexCell } from "src/utils/codexNotebookUtils";
 
 interface ChatMessage {
     role: "system" | "user" | "assistant";
@@ -648,7 +649,7 @@ export interface ValidationError {
 
 export interface SourceFileValidationOptions {
     maxFileSizeBytes?: number;
-    supportedExtensions?: string[];
+    supportedExtensions?: FileTypeMap;
     minDiskSpaceBytes?: number;
 }
 
@@ -677,20 +678,39 @@ interface Project {
     isOutdated?: boolean;
 }
 
-// Add these interfaces
+// Update existing SourcePreview interface to support both original and transformed states
 export interface SourcePreview {
     fileName: string;
     fileSize: number;
     fileType: FileType;
+    originalContent: {
+        preview: string;
+        validationResults: ValidationResult[];
+    };
+    transformedContent: {
+        books: BookPreview[];
+        sourceNotebooks: NotebookPreview[];
+        codexNotebooks: NotebookPreview[];
+        validationResults: ValidationResult[];
+    };
     expectedBooks: BookPreview[];
-    validationResults: ValidationResult[];
 }
 
+// Add new interfaces to support the preview structure
+export interface NotebookPreview {
+    name: string;
+    cells: CodexCell[];
+    metadata: CustomNotebookMetadata;
+}
+
+// Update BookPreview to be more specific
 export interface BookPreview {
     name: string;
     versesCount: number;
     chaptersCount: number;
     previewContent?: string;
+    sourceNotebook?: NotebookPreview;
+    codexNotebook?: NotebookPreview;
 }
 
 export interface ValidationResult {
@@ -725,3 +745,9 @@ export enum ValidationWarningCode {
     UNUSUAL_STRUCTURE = "UNUSUAL_STRUCTURE",
     MISSING_METADATA = "MISSING_METADATA",
 }
+
+// Add new types for workflow state tracking
+type WorkflowStep = "select" | "preview" | "confirm" | "processing" | "complete";
+
+// Add ProcessingStage type
+type ProcessingStatus = "pending" | "active" | "complete" | "error";

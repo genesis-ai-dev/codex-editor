@@ -1,9 +1,17 @@
 import * as vscode from "vscode";
-import { ValidationResult, ValidationError, SourceFileValidationOptions } from "../../types";
+import { ValidationResult, ValidationError, SourceFileValidationOptions, FileTypeMap } from "../../types";
 import { ValidationErrorCode } from "../../types/enums";
 const DEFAULT_OPTIONS: SourceFileValidationOptions = {
     maxFileSizeBytes: 50 * 1024 * 1024, // 50MB
-    supportedExtensions: [".txt", ".usfm", ".usx", ".xml"],
+    supportedExtensions: {
+        vtt: "subtitles",
+        txt: "plaintext", 
+        usfm: "usfm",
+        usx: "usx",
+        sfm: "usfm",
+        SFM: "usfm",
+        USFM: "usfm"
+    },
     minDiskSpaceBytes: 100 * 1024 * 1024, // 100MB
 };
 
@@ -25,15 +33,15 @@ export class SourceFileValidator {
             }
 
             // File type validation
-            const fileExtension = fileUri.path.toLowerCase().split(".").pop();
+            const fileExtension = fileUri.path.toLowerCase().split(".").pop() as keyof FileTypeMap;
             if (
                 this.options.supportedExtensions &&
-                !this.options.supportedExtensions.includes(`.${fileExtension}`)
+                !(fileExtension in this.options.supportedExtensions)
             ) {
                 errors.push({
                     code: ValidationErrorCode.UNSUPPORTED_FILE_TYPE,
                     message: `Unsupported file type: ${fileExtension}`,
-                    details: { supportedTypes: this.options.supportedExtensions },
+                    details: { supportedTypes: Object.keys(this.options.supportedExtensions) },
                 });
             }
 

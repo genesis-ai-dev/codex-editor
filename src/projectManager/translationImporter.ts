@@ -32,6 +32,7 @@ export const fileTypeMap: FileTypeMap = {
     vtt: "subtitles",
     txt: "plaintext",
     usfm: "usfm",
+    usx: "usx",
     sfm: "usfm",
     SFM: "usfm",
     USFM: "usfm",

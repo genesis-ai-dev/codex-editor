@@ -1,5 +1,4 @@
 import * as vscode from "vscode";
-import { CustomNotebookMetadata } from "../../types";
 
 export interface ImportTransactionState {
     sourceFile: vscode.Uri;
@@ -17,7 +16,7 @@ export abstract class ImportTransaction {
             sourceFile,
             tempFiles: [],
             metadata: null,
-            status: "pending"
+            status: "pending",
         };
     }
 
@@ -57,6 +56,24 @@ export abstract class ImportTransaction {
             }
         }
         this.state.status = "rolledback";
+    }
+
+    abstract prepare(): Promise<any>;
+
+    async execute(
+        progress?: vscode.Progress<{ message?: string; increment?: number }>,
+        token?: vscode.CancellationToken
+    ): Promise<void> {
+        try {
+            this.checkCancellation(token);
+            await this.processFiles();
+            await this.updateMetadata();
+            await this.commitChanges();
+            this.state.status = "committed";
+        } catch (error) {
+            await this.rollback();
+            throw error;
+        }
     }
 
     protected abstract processFiles(): Promise<void>;
