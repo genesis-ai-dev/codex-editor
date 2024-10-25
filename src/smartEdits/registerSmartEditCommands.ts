@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { SmartEdits } from "./smartEdits";
+import { SmartAdvice } from "./smartAdvice";
 import { getWorkSpaceFolder } from "../utils";
 
 export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
@@ -10,6 +11,7 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
     }
 
     const smartEdits = new SmartEdits(vscode.Uri.file(workspaceFolder));
+    const smartAdvice = new SmartAdvice(vscode.Uri.file(workspaceFolder));
 
     context.subscriptions.push(
         vscode.commands.registerCommand(
@@ -44,6 +46,39 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
                 }
             }
         )
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-smart-edits.applyAdvice",
+            async (text: string, advicePrompt: string, cellId: string) => {
+                try {
+                    const modifiedText = await smartAdvice.applyAdvice(text, advicePrompt, cellId);
+                    return modifiedText;
+                } catch (error) {
+                    console.error("Error applying advice:", error);
+                    vscode.window.showErrorMessage(
+                        "Failed to apply advice. Please check the console for more details."
+                    );
+                    return text;
+                }
+            }
+        )
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-smart-edits.getAdvice", async (cellId: string) => {
+            try {
+                const advice = await smartAdvice.getAdvice(cellId);
+                return advice;
+            } catch (error) {
+                console.error("Error getting advice:", error);
+                vscode.window.showErrorMessage(
+                    "Failed to get advice. Please check the console for more details."
+                );
+                return null;
+            }
+        })
     );
 
     console.log("Smart Edit commands registered");

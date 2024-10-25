@@ -67,7 +67,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     }, [showFlashingBorder]);
 
     const [editableLabel, setEditableLabel] = useState(cellLabel || "");
-    const [feedback, setFeedback] = useState("");
+    const [advice, setAdvice] = useState("");
 
     useEffect(() => {
         setEditableLabel(cellLabel || "");
@@ -99,14 +99,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
         handleLabelBlur();
     };
 
-    const handleFeedbackChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-        setFeedback(e.target.value);
+    const handleAdviceChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        setAdvice(e.target.value);
     };
 
-    const handleFeedbackSend = () => {
-        // TODO: Implement feedback sending logic
-        console.log("Feedback sent:", feedback);
-        setFeedback("");
+    const handleAdviceSend = () => {
+        // TODO: Implement advice sending logic
+        console.log("Advice sent:", advice);
+        setAdvice("");
     };
 
     const makeChild = () => {
@@ -221,19 +221,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         <i className="codicon codicon-save"></i>
                     </VSCodeButton>
                 </div>
-                <div className="feedback-container">
+                <div className="advice-container">
                     <textarea
-                        value={feedback}
-                        onChange={handleFeedbackChange}
-                        placeholder="Enter feedback"
+                        value={advice}
+                        onChange={handleAdviceChange}
+                        placeholder="Enter advice"
                         rows={1}
                         style={{ resize: "vertical", minHeight: "24px", maxHeight: "100px" }}
                     />
-                    <VSCodeButton
-                        onClick={handleFeedbackSend}
-                        appearance="icon"
-                        title="Send Feedback"
-                    >
+                    <VSCodeButton onClick={handleAdviceSend} appearance="icon" title="Send Advice">
                         <i className="codicon codicon-send"></i>
                     </VSCodeButton>
                 </div>
