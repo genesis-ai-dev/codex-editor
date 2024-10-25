@@ -38,20 +38,6 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         () => navigationTreeViewProvider.refresh()
     );
 
-    const navigationExplorerOpenChapterCommand = vscode.commands.registerCommand(
-        "codexNotebookTreeView.openSection",
-        async (notebookPath: vscode.Uri, cellIdToJumpTo: string) => {
-            try {
-                const uri = notebookPath;
-                await vscode.commands.executeCommand("vscode.openWith", uri, "codex.cellEditor");
-                // After opening, jump to the specific cell
-                await jumpToCellInNotebook(context, uri.fsPath, cellIdToJumpTo);
-            } catch (error) {
-                vscode.window.showErrorMessage(`Failed to open section: ${error}`);
-            }
-        }
-    );
-
     const indexVrefsCommand = vscode.commands.registerCommand(
         "codex-editor-extension.indexVrefs",
         indexVerseRefsInSourceText
@@ -221,10 +207,24 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
+    const navigationExplorerOpenChapterCommand = vscode.commands.registerCommand(
+        "codexNotebookTreeView.openSection",
+        async (resource: vscode.Uri, cellId?: string) => {
+            try {
+                await navigationTreeViewProvider.openSection(resource, cellId);
+            } catch (error) {
+                if (error instanceof Error) {
+                    vscode.window.showErrorMessage(`Failed to open notebook: ${error.message}`);
+                } else {
+                    vscode.window.showErrorMessage("Failed to open notebook: Unknown error");
+                }
+            }
+        }
+    );
+
     context.subscriptions.push(
         navigationTreeViewProvider,
         navigationExplorerRefreshCommand,
-        navigationExplorerOpenChapterCommand,
         indexVrefsCommand,
         openTnAcademyCommand,
         searchIndexCommand,
@@ -240,7 +240,8 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         updateProjectNotebooksToUseCellsForVerseContentCommand,
         openSourceUploadCommand,
         uploadSourceFolderCommand,
-        uploadTranslationFolderCommand
+        uploadTranslationFolderCommand,
+        navigationExplorerOpenChapterCommand
     );
 
     ensureBibleDownload();

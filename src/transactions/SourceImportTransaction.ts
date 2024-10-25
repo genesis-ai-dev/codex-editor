@@ -139,6 +139,11 @@ export class SourceImportTransaction extends ImportTransaction {
             codexUri: vscode.Uri;
             notebook: NotebookPreview;
         }> = [];
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        
+        if (!workspaceFolder) {
+            throw new Error("No workspace folder found");
+        }
 
         for (let i = 0; i < sourceNotebooks.length; i++) {
             this.checkCancellation(token);
@@ -146,24 +151,39 @@ export class SourceImportTransaction extends ImportTransaction {
             const sourceNotebook = sourceNotebooks[i];
             const codexNotebook = codexNotebooks[i];
 
-            // Ensure notebook has a name
             if (!sourceNotebook.name || !codexNotebook.name) {
                 throw new Error("Notebook name is required");
             }
 
-            // Create source notebook
+            // Create temp URIs for initial file creation
             const sourceUri = vscode.Uri.joinPath(
                 this.getTempDir(),
                 `${sourceNotebook.name}.source`
             );
+            const codexUri = vscode.Uri.joinPath(
+                this.getTempDir(),
+                `${codexNotebook.name}.codex`
+            );
 
-            // Create codex notebook
-            const codexUri = vscode.Uri.joinPath(this.getTempDir(), `${codexNotebook.name}.codex`);
+            // Create final URIs for metadata
+            const finalSourceUri = vscode.Uri.joinPath(
+                workspaceFolder.uri,
+                ".project",
+                "sourceTexts",
+                `${sourceNotebook.name}.source`
+            );
+            const finalCodexUri = vscode.Uri.joinPath(
+                workspaceFolder.uri,
+                "files",
+                "target",
+                `${codexNotebook.name}.codex`
+            );
 
-            // Update paths in metadata before writing
-            sourceNotebook.metadata.sourceFsPath = sourceUri.fsPath;
-            codexNotebook.metadata.codexFsPath = codexUri.fsPath;
-            codexNotebook.metadata.sourceFsPath = sourceUri.fsPath;
+            // Update metadata with final paths
+            sourceNotebook.metadata.sourceFsPath = finalSourceUri.fsPath;
+            sourceNotebook.metadata.codexFsPath = finalCodexUri.fsPath;
+            codexNotebook.metadata.sourceFsPath = finalSourceUri.fsPath;
+            codexNotebook.metadata.codexFsPath = finalCodexUri.fsPath;
 
             await this.writeNotebook(sourceUri, sourceNotebook);
             await this.writeNotebook(codexUri, codexNotebook);
@@ -176,16 +196,17 @@ export class SourceImportTransaction extends ImportTransaction {
     }
 
     private async writeNotebook(uri: vscode.Uri, notebook: NotebookPreview): Promise<void> {
-        // Map the cells to preserve all metadata
-        const cells = notebook.cells.map((cell: CodexCell, index: number) => ({
+        // Don't use createCodexNotebook since it opens the document
+        // Instead, directly serialize the notebook data
+        const cells = notebook.cells.map((cell) => ({
             kind: cell.kind,
             value: cell.value,
-            languageId: cell.languageId || "html", // Ensure we use the correct languageId
+            languageId: cell.languageId || "scripture",
             metadata: {
                 type: cell.metadata?.type || CodexCellTypes.TEXT,
                 id: cell.metadata?.id,
                 data: cell.metadata?.data || {},
-                edits: cell.metadata?.edits || [], // Preserve edit history if it exists
+                edits: cell.metadata?.edits || [],
             },
         }));
 
@@ -197,12 +218,14 @@ export class SourceImportTransaction extends ImportTransaction {
                     textDirection: notebook.metadata.textDirection || "ltr",
                     navigation: notebook.metadata.navigation || [],
                     videoUrl: notebook.metadata.videoUrl || "",
+                    data: notebook.metadata.data || {},
                 },
             },
             null,
             2
         );
 
+        // Write the file directly without opening it
         await vscode.workspace.fs.writeFile(uri, Buffer.from(serializedData));
     }
 
@@ -218,7 +241,7 @@ export class SourceImportTransaction extends ImportTransaction {
             throw new Error("No workspace folder found");
         }
 
-        // Move files from temp to their proper locations
+        // Move files from temp to their proper locations and update metadata
         for (const tempFile of this.state.tempFiles) {
             const fileName = path.basename(tempFile.fsPath);
             let targetLocation: vscode.Uri;
@@ -241,10 +264,26 @@ export class SourceImportTransaction extends ImportTransaction {
                 continue;
             }
 
+            // Create directory if it doesn't exist
             await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(targetLocation, ".."));
+            
+            // Copy file to final location
             await vscode.workspace.fs.copy(tempFile, targetLocation, { overwrite: true });
+
+            // Update metadata with final paths
+            const baseName = path.parse(fileName).name;
+            const metadata = await this.metadataManager.getMetadataById(baseName);
+            if (metadata) {
+                if (fileName.endsWith(".source")) {
+                    metadata.sourceFsPath = targetLocation.fsPath;
+                } else if (fileName.endsWith(".codex")) {
+                    metadata.codexFsPath = targetLocation.fsPath;
+                }
+                await this.metadataManager.addOrUpdateMetadata(metadata);
+            }
         }
 
+        // Clean up temp files after successful move
         await this.cleanupTempFiles();
     }
 
