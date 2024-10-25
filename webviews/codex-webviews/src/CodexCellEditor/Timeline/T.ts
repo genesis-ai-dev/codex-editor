@@ -21,12 +21,12 @@ export default function TimeLine({
     changeShift,
     tellAreaChangesToRectComponent,
     options,
-}:{
-    canvas: HTMLCanvasElement,
-    canvas2: HTMLCanvasElement,
-    alignments: TimeBlock[],
-    endTime: number,
-    getPlayer: () => void,
+}: {
+    canvas: HTMLCanvasElement;
+    canvas2: HTMLCanvasElement;
+    alignments: TimeBlock[];
+    endTime: number;
+    getPlayer: () => { currentTime: number; play: (currentTime: number) => void };
     changeAlignment: (
         alignments: {
             begin: number;
@@ -34,14 +34,13 @@ export default function TimeLine({
             text: string;
             id: string;
         }[]
-    ) => void,
-    changeZoomLevel: (zoomLevel: number) => void,
-    changeInScrollPosition: (position: number) => void,
-    changeShift: (shift: number) => void,
-    tellAreaChangesToRectComponent: (beginingTimeShow: number, endTimeShow: number) => void,
+    ) => void;
+    changeZoomLevel: (zoomLevel: number) => void;
+    changeInScrollPosition: (position: number) => void;
+    changeShift: (shift: number) => void;
+    tellAreaChangesToRectComponent: (beginingTimeShow: number, endTimeShow: number) => void;
     options: {
         autoScroll: boolean;
-        currentTime: number;
         initialZoomLevel?: number; // Add this to options
         scrollingIsTracking: boolean;
         scrollPosition: number;
@@ -59,7 +58,7 @@ export default function TimeLine({
             scrollBar: string;
             scrollBarHover: string;
         };
-    }
+    };
 }): TimelineReturn | undefined {
     // constants
     const LINE_HEIGHT = 40;
@@ -121,7 +120,7 @@ export default function TimeLine({
     let rightResize = false;
     let leftResize = false;
     let globalRatio = 1;
-    let currentTime = options.currentTime;
+    let currentTime = 0;
     let beginingTimeShow = 0;
     let endTimeShow = Math.abs(w + shift) / zoomLevel;
     let moveIndex: number;
@@ -500,7 +499,7 @@ export default function TimeLine({
                 currentPrtcl.selected = true;
                 currentPrtcl.offset = getOffsetCoords(mouse, currentPrtcl);
                 player.currentTime = currentPrtcl.x / zoomLevel;
-                player.play();
+                player.play(player.currentTime);
             } else {
                 currentPrtcl.selected = false;
             }
@@ -949,7 +948,6 @@ export default function TimeLine({
         if (rat > 1) rat = 1;
         const ratio = beginingTimeShow / endTime;
         scrollPosition = ratio * w;
-
         changeInScrollPosition(scrollPosition);
         const padding = 1;
         context.fillRect(
@@ -997,10 +995,8 @@ export default function TimeLine({
     }
 
     function animate() {
-        let _player;
-
         if (!player) player = getPlayer();
-        currentTime = options.currentTime || 0;
+        currentTime = player.currentTime || 0;
         calculateViewPortTimes();
         if (player) handleCursorOutOfViewPort(currentTime); //clear paper
 

@@ -3,8 +3,10 @@ import TimeLine, { TimelineReturn } from "./T";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import "./index.css";
 import { TimeBlock } from "../../../../../types";
+import ReactPlayer from "react-player";
 
 export interface TimelineProps {
+    playerRef?: React.RefObject<ReactPlayer>;
     changeAreaShow: (beginingTimeShow: number, endTimeShow: number) => void;
     changeZoomLevel: (zoomLevel: number) => void;
     changeShift: (shift: number) => void;
@@ -32,7 +34,6 @@ export interface TimelineProps {
     disableSaveButton?: boolean;
     onSave: () => void;
     onReset: () => void;
-    currentTime: number;
     initialZoomLevel?: number; // Add this new prop
 }
 
@@ -82,7 +83,13 @@ export default function Timeline(props: TimelineProps) {
             canvas2: canvas2.current as unknown as HTMLCanvasElement,
             alignments: p.data,
             endTime: p.endTime,
-            getPlayer: () => (props.audioRef ? props.audioRef.current : canvasAudio.current),
+            getPlayer: () => ({
+                currentTime: props.playerRef?.current?.getCurrentTime() || 0,
+                play: (currentTime: number) => {
+                    props.playerRef?.current?.seekTo(currentTime);
+                    // props.playerRef?.current?.forceUpdate();
+                },
+            }),
             changeAlignment: changeAlignment || defaultFunction,
             changeZoomLevel: changeZoomLevel || defaultFunction,
             changeInScrollPosition: changeInScrollPosition || defaultFunction,
@@ -90,7 +97,6 @@ export default function Timeline(props: TimelineProps) {
             tellAreaChangesToRectComponent: changeAreaShow || defaultFunction,
             options: {
                 autoScroll: props.autoScroll,
-                currentTime: props.currentTime,
                 initialZoomLevel: props.initialZoomLevel, // Pass the prop through
                 scrollingIsTracking: scrollingIsTracking,
                 scrollPosition: scrollPosition,
@@ -113,17 +119,8 @@ export default function Timeline(props: TimelineProps) {
     };
 
     const resetTimeline = () => {
-        let endTime;
         if (props.data.length > 0 && props.src) {
-            endTime = props.data[props.data.length - 1]
-                ? props.data[props.data.length - 1].end * 1.2
-                : 60;
-            if (props.data[props.data.length - 1].end > endTime) {
-                endTime = props.data[props.data.length - 1].end;
-                console.log("Video time is less than the alignments end time");
-            }
-
-            drawTimeLine({ ...props, endTime });
+            drawTimeLine({ ...props, endTime: props.playerRef?.current?.getDuration() || 0 });
         }
     };
 

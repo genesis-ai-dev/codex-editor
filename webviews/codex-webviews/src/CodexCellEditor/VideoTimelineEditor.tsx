@@ -50,7 +50,12 @@ const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
                 translationUnitsForSection={translationUnitsForSection}
                 onTimeUpdate={handleTimeUpdate}
             />
-            <TimelineEditor data={data} vscode={vscode} currentTime={currentTime} />
+            <TimelineEditor
+                playerRef={playerRef}
+                data={data}
+                vscode={vscode}
+                currentTime={currentTime}
+            />
         </div>
     );
 };

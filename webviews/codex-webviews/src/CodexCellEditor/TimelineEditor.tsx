@@ -4,6 +4,7 @@ import { EditorPostMessages, TimeBlock } from "../../../../types";
 import ReactPlayer from "react-player";
 
 interface TimelineEditorProps {
+    playerRef: React.RefObject<ReactPlayer>;
     data: TimeBlock[];
     vscode: any;
     currentTime: number;
@@ -30,7 +31,12 @@ const getListOfTimeBlocksWithUpdatedTimes = (
     return timeBlocksWithUpdates;
 };
 
-const TimelineEditor: React.FC<TimelineEditorProps> = ({ data, vscode, currentTime }) => {
+const TimelineEditor: React.FC<TimelineEditorProps> = ({
+    playerRef,
+    data,
+    vscode,
+    currentTime,
+}) => {
     const [timeBlocksWithUpdates, setTimeBlocksWithUpdates] = useState<TimeBlock[]>([]);
     const [zoomLevel, setZoomLevel] = useState(1);
     return (
@@ -62,8 +68,8 @@ const TimelineEditor: React.FC<TimelineEditorProps> = ({ data, vscode, currentTi
                     );
                     setTimeBlocksWithUpdates(timeBlocksWithUpdates);
                 }}
+                playerRef={playerRef}
                 // audioRef={playerRef}
-                currentTime={currentTime}
                 src={"..."}
                 data={data}
                 autoScroll
