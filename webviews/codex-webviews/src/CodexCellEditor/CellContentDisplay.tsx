@@ -20,7 +20,7 @@ interface CellContentDisplayProps {
     getAlertCodeFunction: (
         text: string,
         cellId: string
-    ) => Promise<{ code: number; cellId: string }>;
+    ) => Promise<{ getAlertCode: number; cellId: string }>;
 }
 
 const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
