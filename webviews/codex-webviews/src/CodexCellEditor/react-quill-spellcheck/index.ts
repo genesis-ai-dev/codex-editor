@@ -69,9 +69,6 @@ export class QuillSpellChecker {
                 this.quill.setText(content.replace(specialCharacters, ""));
             }
             this.onTextChange();
-        } else if (source === "silent") {
-            // Skip spell checking for silent operations (like accepting suggestions)
-            return;
         } else if (this.matches.length > 0 && this.quill.getText().trim()) {
             this.boxes.addSuggestionBoxes();
         }
@@ -100,17 +97,17 @@ export class QuillSpellChecker {
     public acceptMatch(id: MatchesEntity["id"], replacementIndex: number = 0) {
         debug("acceptMatch", { id, replacementIndex });
         const match = this.matches.find((m) => m.id === id);
+        const mode = "silent";
         if (match?.replacements?.length && replacementIndex < match.replacements.length) {
-            this.quill.setSelection(match.offset, match.length, "silent");
-            this.quill.deleteText(match.offset, match.length, "silent");
-            this.quill.insertText(
-                match.offset,
-                match.replacements[replacementIndex].value,
-                "silent"
-            );
+            // Remove just the specific underline by setting the text without the format
+            this.quill.formatText(match.offset, match.length, "spck-match", false, mode);
+
+            // Replace the text
+            this.quill.deleteText(match.offset, match.length, mode);
+            this.quill.insertText(match.offset, match.replacements[replacementIndex].value, mode);
             this.quill.setSelection(
                 match.offset + match.replacements[replacementIndex].value.length,
-                "silent"
+                mode
             );
 
             // Remove just this match from the matches array
