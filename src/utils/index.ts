@@ -115,3 +115,8 @@ export const getFullListOfOrgVerseRefs = (): string[] => {
 
     return orgVerseRefs;
 };
+
+// Re-export utilities
+export * from './fileTypeUtils';
+export * from './contentAnalyzers';
+export * from './sourceAnalyzer';
