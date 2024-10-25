@@ -24,12 +24,15 @@ export default function TimeLine(
         }[]
     ) => void,
     changeZoomLevel: (zoomLevel: number) => void,
+    changeInScrollPosition: (position: number) => void,
     changeShift: (shift: number) => void,
     tellAreaChangesToRectComponent: (beginingTimeShow: number, endTimeShow: number) => void,
     options: {
         autoScroll: boolean;
         currentTime: number;
         initialZoomLevel?: number; // Add this to options
+        scrollingIsTracking: boolean;
+        scrollPosition: number;
         colors: {
             background: string;
             box: string;
@@ -73,7 +76,7 @@ export default function TimeLine(
     let animationID: number;
     let w = (canvas.width = canvas2.width = canvas.parentElement?.parentElement?.clientWidth || 0);
     let h = (canvas.height = canvas2.height = TIMELINE_HEIGHT);
-    let scrollPosition = 0;
+    let scrollPosition = options.scrollPosition;
     let scrollSize = w;
     const minimumZoomLevel = w / endTime;
     const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
@@ -192,7 +195,6 @@ export default function TimeLine(
             context.beginPath();
             context.strokeStyle = "#888888";
             context.lineWidth = 1;
-            // console.log("this.x shift this.edge", this.x, shift, this.edge);
             context.moveTo(this.x + shift - 1 + this.edge, this.y + 1);
             context.lineTo(this.x + shift - 1 + this.edge, this.y + TRACK_HEIGHT);
             context.closePath();
@@ -266,7 +268,7 @@ export default function TimeLine(
         try {
             e.preventDefault();
         } catch (error) {
-            // console.log(error);
+            console.log(error);
         }
 
         if (resizing) return;
@@ -750,7 +752,7 @@ export default function TimeLine(
     }
 
     function handleCursorOutOfViewPort(time: number) {
-        if (!autoScroll || scrolling) return;
+        if (!autoScroll || scrolling || !options.scrollingIsTracking) return;
 
         const viewportWidth = endTimeShow - beginingTimeShow;
         const margin = viewportWidth * 0.2; // 20% margin
@@ -915,15 +917,14 @@ export default function TimeLine(
     }
 
     function drawScroll() {
+        if (options.scrollingIsTracking) return;
         const cursorInScroll = cursorInScrollBar();
         scrolling = cursorInScroll && isMouseDown && !resizing;
-
         if (cursorInScroll || scrolling) {
             canvas.classList.add("e-resize");
         } else {
             canvas.classList.remove("e-resize");
         }
-
         const context = ctx;
         context.save();
         context.fillStyle = options.colors.scrollBarBackground;
@@ -936,6 +937,8 @@ export default function TimeLine(
         if (rat > 1) rat = 1;
         const ratio = beginingTimeShow / endTime;
         scrollPosition = ratio * w;
+
+        changeInScrollPosition(scrollPosition);
         const padding = 1;
         context.fillRect(
             scrollPosition,

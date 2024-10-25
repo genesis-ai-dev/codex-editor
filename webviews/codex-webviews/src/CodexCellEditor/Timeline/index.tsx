@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import TimeLine, { TimelineReturn } from "./T";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import "./index.css";
@@ -37,6 +37,8 @@ export interface TimelineProps {
 }
 
 export default function Timeline(props: TimelineProps) {
+    const [scrollingIsTracking, setScrollingIsTracking] = useState(true);
+    const [scrollPosition, setScrollPosition] = useState(0);
     let timeLine: TimelineReturn | undefined;
     let shift: number;
     let zoomLevel: number;
@@ -51,11 +53,12 @@ export default function Timeline(props: TimelineProps) {
         data = z;
         props.setAligns(z);
     };
+
     const changeZoomLevel = (z: number) => {
-        console.log("changeZoomLevel", z);
         props.changeZoomLevel(z);
         zoomLevel = z;
     };
+
     const changeShift = (s: number) => {
         props.changeShift(s);
         shift = s;
@@ -67,7 +70,12 @@ export default function Timeline(props: TimelineProps) {
         endTimeShow = e;
     };
 
+    const changeInScrollPosition = (position: number) => {
+        setScrollPosition(position);
+    };
+
     const defaultFunction = () => {};
+
     const drawTimeLine = (p: TimelineProps & { endTime: number }) => {
         timeLine = TimeLine(
             canvas1.current as unknown as HTMLCanvasElement,
@@ -77,12 +85,15 @@ export default function Timeline(props: TimelineProps) {
             () => (props.audioRef ? props.audioRef.current : canvasAudio.current),
             changeAlignment || defaultFunction,
             changeZoomLevel || defaultFunction,
+            changeInScrollPosition || defaultFunction,
             changeShift || defaultFunction,
             changeAreaShow || defaultFunction,
             {
                 autoScroll: props.autoScroll,
                 currentTime: props.currentTime,
                 initialZoomLevel: props.initialZoomLevel, // Pass the prop through
+                scrollingIsTracking: scrollingIsTracking,
+                scrollPosition: scrollPosition,
                 colors: {
                     background: props.colors?.background || "transparent",
                     box: props.colors?.box || "#a9a9a9",
@@ -121,8 +132,7 @@ export default function Timeline(props: TimelineProps) {
         return () => {
             if (timeLine) timeLine.cancelAnimate();
         };
-    }, [props.data, props.src]); // Add props.resetTimeline to the dependency array
-
+    }, [props.data, props.src, props.initialZoomLevel, scrollingIsTracking]); // Add props.resetTimeline to the dependency array
     const style = {
         height: "90px",
         paddingLeft: props.paddingLeft,
@@ -149,6 +159,24 @@ export default function Timeline(props: TimelineProps) {
                         borderRadius: 0,
                     }}
                     onClick={() => {
+                        setScrollingIsTracking(!scrollingIsTracking);
+                        resetTimeline();
+                    }}
+                >
+                    <i
+                        className={`codicon codicon-${
+                            scrollingIsTracking ? "pinned-dirty" : "pinned"
+                        }`}
+                    ></i>
+                </VSCodeButton>
+                <VSCodeButton
+                    style={{
+                        display: "flex",
+                        flex: 1,
+                        borderRadius: 0,
+                    }}
+                    appearance="secondary"
+                    onClick={() => {
                         changeZoomLevel(initialZoomLevel + 1);
                     }}
                 >
@@ -161,6 +189,7 @@ export default function Timeline(props: TimelineProps) {
                         flex: 1,
                         borderRadius: 0,
                     }}
+                    appearance="secondary"
                     onClick={() => {
                         changeZoomLevel(initialZoomLevel - 1);
                     }}
