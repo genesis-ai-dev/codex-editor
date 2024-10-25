@@ -385,13 +385,10 @@ const CodexCellEditor: React.FC = () => {
                                 const handlegetAlertCodeResponse = (event: MessageEvent) => {
                                     const message = event.data;
                                     if (message.type === "providerSendsgetAlertCodeResponse") {
-                                        // window.removeEventListener(
-                                        //     "message",
-                                        //     handlegetAlertCodeResponse
-                                        // );
                                         console.log("Message CCE: ", message);
                                         // Make sure we only resolve for the cell we requested
                                         if (message.content.cellId === cellId) {
+                                            window.removeEventListener("message", handlegetAlertCodeResponse); // Remove listener
                                             resolve({
                                                 getAlertCode: message.content.code,
                                                 cellId: message.content.cellId,
