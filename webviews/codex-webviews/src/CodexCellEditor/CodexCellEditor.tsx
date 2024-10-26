@@ -374,6 +374,13 @@ const CodexCellEditor: React.FC = () => {
                         windowHeight={windowHeight}
                         headerHeight={headerHeight}
                         getAlertCodeFunction={(cellContent: string, cellId: string) => {
+                            if (isSourceText) {
+                                return Promise.resolve({
+                                    getAlertCode: false,
+                                    cellId: cellId,
+                                });
+                            }
+
                             vscode.postMessage({
                                 command: "getAlertCode",
                                 content: {

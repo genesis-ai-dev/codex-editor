@@ -197,7 +197,6 @@ const CellList: React.FC<CellListProps> = ({
         vscode,
     ]);
 
-
     return (
         <div
             className="verse-list ql-editor"
