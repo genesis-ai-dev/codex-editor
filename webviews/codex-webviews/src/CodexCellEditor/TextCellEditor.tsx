@@ -48,10 +48,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const { sourceCellMap } = useContext(SourceCellContext);
     const cellEditorRef = useRef<HTMLDivElement>(null);
     const sourceCellContent = sourceCellMap?.[cellMarkers[0]];
+    const [editorContent, setEditorContent] = useState(cellContent);
 
     const unsavedChangesState = !!(
         contentBeingUpdated.cellContent &&
-        getCleanedHtml(contentBeingUpdated.cellContent) &&
         getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !==
             cellContent.replace(/\s/g, "")
     );
@@ -103,10 +103,26 @@ const CellEditor: React.FC<CellEditorProps> = ({
         setAdvice(e.target.value);
     };
 
-    const handleAdviceSend = () => {
-        // TODO: Implement advice sending logic
-        console.log("Advice sent:", advice);
-        setAdvice("");
+    const handleAdviceSend = async () => {
+        if (!advice.trim()) return;
+
+        try {
+            const messageContent: EditorPostMessages = {
+                command: "applyAdvice",
+                content: {
+                    text: editorContent,
+                    advicePrompt: advice,
+                    cellId: cellMarkers[0],
+                },
+            };
+
+            window.vscodeApi.postMessage(messageContent);
+
+            // Clear the advice input
+            setAdvice("");
+        } catch (error) {
+            console.error("Error sending advice:", error);
+        }
     };
 
     const makeChild = () => {
@@ -206,64 +222,92 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const cellHasContent =
         getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !== "";
 
+    useEffect(() => {
+        const handleAdviceResponse = (event: MessageEvent) => {
+            const message = event.data;
+            if (message.type === "providerSendsAdviceResponse") {
+                setEditorContent(message.content);
+            }
+        };
+
+        window.addEventListener("message", handleAdviceResponse);
+        return () => window.removeEventListener("message", handleAdviceResponse);
+    }, []);
     return (
         <div ref={cellEditorRef} className="cell-editor" style={{ direction: textDirection }}>
             <div className="cell-header">
-                <div className="label-input-container">
-                    <input
-                        type="text"
-                        value={editableLabel}
-                        onChange={handleLabelChange}
-                        onBlur={handleLabelBlur}
-                        placeholder="Enter cell label"
-                    />
-                    <VSCodeButton onClick={handleLabelSave} appearance="icon" title="Save Label">
-                        <i className="codicon codicon-save"></i>
-                    </VSCodeButton>
-                </div>
-                <div className="advice-container">
-                    <textarea
-                        value={advice}
-                        onChange={handleAdviceChange}
-                        placeholder="Enter advice"
-                        rows={1}
-                        style={{ resize: "vertical", minHeight: "24px", maxHeight: "100px" }}
-                    />
-                    <VSCodeButton onClick={handleAdviceSend} appearance="icon" title="Send Advice">
-                        <i className="codicon codicon-send"></i>
-                    </VSCodeButton>
-                </div>
-                {unsavedChanges ? (
-                    <div
-                        style={{
-                            display: "flex",
-                            flexDirection: "row",
-                            flexWrap: "nowrap",
-                            gap: "0.5rem",
-                        }}
-                    >
-                        <VSCodeButton
-                            onClick={handleSaveHtml}
-                            appearance="primary"
-                            className={`${showFlashingBorder ? "flashing-border" : ""}`}
-                        >
-                            <i className="codicon codicon-save"></i>
-                        </VSCodeButton>
-                        <CloseButtonWithConfirmation handleDeleteButtonClick={handleCloseEditor} />
+                <div className="header-controls">
+                    <div className="input-group">
+                        <div className="label-container">
+                            <input
+                                type="text"
+                                value={editableLabel}
+                                onChange={handleLabelChange}
+                                onBlur={handleLabelBlur}
+                                placeholder="Label"
+                                className="label-input"
+                            />
+                            <VSCodeButton
+                                onClick={handleLabelSave}
+                                appearance="icon"
+                                title="Save Label"
+                            >
+                                <i className="codicon codicon-save"></i>
+                            </VSCodeButton>
+                        </div>
+                        <div className="advice-container">
+                            <textarea
+                                value={advice}
+                                onChange={handleAdviceChange}
+                                placeholder="Prompt"
+                                rows={1}
+                                className="advice-input"
+                            />
+                            <VSCodeButton
+                                onClick={handleAdviceSend}
+                                appearance="icon"
+                                title="Send Advice"
+                            >
+                                <i className="codicon codicon-send"></i>
+                            </VSCodeButton>
+                        </div>
                     </div>
-                ) : (
-                    <VSCodeButton onClick={handleCloseEditor} appearance="icon">
-                        <i className="codicon codicon-close"></i>
-                    </VSCodeButton>
-                )}
+                    <div className="action-buttons">
+                        {unsavedChanges ? (
+                            <>
+                                <VSCodeButton
+                                    onClick={handleSaveHtml}
+                                    appearance="primary"
+                                    className={`save-button ${
+                                        showFlashingBorder ? "flashing-border" : ""
+                                    }`}
+                                >
+                                    <i className="codicon codicon-save"></i>
+                                </VSCodeButton>
+                                <CloseButtonWithConfirmation
+                                    handleDeleteButtonClick={handleCloseEditor}
+                                />
+                            </>
+                        ) : (
+                            <VSCodeButton
+                                onClick={handleCloseEditor}
+                                appearance="icon"
+                                className="close-button"
+                            >
+                                <i className="codicon codicon-close"></i>
+                            </VSCodeButton>
+                        )}
+                    </div>
+                </div>
             </div>
             <div className={`text-editor ${showFlashingBorder ? "flashing-border" : ""}`}>
                 <Editor
                     currentLineId={cellMarkers[0]}
                     key={`${cellIndex}-quill`}
-                    initialValue={cellContent}
+                    initialValue={editorContent}
                     spellCheckResponse={spellCheckResponse}
                     onChange={({ html }) => {
+                        setEditorContent(html);
                         setContentBeingUpdated({
                             cellMarkers,
                             cellContent: html,
@@ -274,32 +318,82 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     textDirection={textDirection}
                 />
             </div>
-            <div
-                style={{
-                    display: "flex",
-                    flexDirection: "row",
-                    justifyContent: "flex-end",
-                    width: "100%",
-                    paddingTop: "1em",
-                    gap: "0.5rem",
-                }}
-            >
-                <VSCodeButton onClick={addParatextCell} appearance="icon" title="Add Paratext Cell">
-                    <i className="codicon codicon-diff-added"></i>
-                </VSCodeButton>
-                {cellType !== CodexCellTypes.PARATEXT && !cellIsChild && (
-                    <VSCodeButton onClick={makeChild} appearance="icon" title="Add Child Cell">
-                        <i className="codicon codicon-type-hierarchy-sub"></i>
+            <div className="cell-footer">
+                <div className="footer-buttons">
+                    <VSCodeButton
+                        onClick={addParatextCell}
+                        appearance="icon"
+                        title="Add Paratext Cell"
+                    >
+                        <i className="codicon codicon-diff-added"></i>
                     </VSCodeButton>
-                )}
-                {!sourceCellContent && (
-                    <ConfirmationButton
-                        icon="trash"
-                        onClick={deleteCell}
-                        disabled={cellHasContent}
-                    />
-                )}
+                    {cellType !== CodexCellTypes.PARATEXT && !cellIsChild && (
+                        <VSCodeButton onClick={makeChild} appearance="icon" title="Add Child Cell">
+                            <i className="codicon codicon-type-hierarchy-sub"></i>
+                        </VSCodeButton>
+                    )}
+                    {!sourceCellContent && (
+                        <ConfirmationButton
+                            icon="trash"
+                            onClick={deleteCell}
+                            disabled={cellHasContent}
+                        />
+                    )}
+                </div>
             </div>
+            <style>{`
+                .cell-editor {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 1rem;
+                }
+                
+                .header-controls {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    gap: 1rem;
+                }
+
+                .input-group {
+                    display: flex;
+                    gap: 1rem;
+                    flex-grow: 1;
+                }
+
+                .label-container, .advice-container {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                    background: var(--vscode-input-background);
+                    border: 1px solid var(--vscode-input-border);
+                    padding: 2px;
+                }
+
+                .label-input {
+                    width: 200px;
+                }
+
+                .advice-input {
+                    width: 250px;
+                    resize: none;
+                }
+
+                .label-input, .advice-input {
+                    background: transparent;
+                    border: none;
+                    color: var(--vscode-input-foreground);
+                }
+
+                .action-buttons, .footer-buttons {
+                    display: flex;
+                    gap: 0.5rem;
+                }
+
+                @keyframes flash {
+                    50% { border-color: var(--vscode-button-background); }
+                }
+            `}</style>
         </div>
     );
 };

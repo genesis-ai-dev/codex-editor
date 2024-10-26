@@ -54,6 +54,7 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
             async (text: string, advicePrompt: string, cellId: string) => {
                 try {
                     const modifiedText = await smartAdvice.applyAdvice(text, advicePrompt, cellId);
+                    console.log("Modified text: ", modifiedText);
                     return modifiedText;
                 } catch (error) {
                     console.error("Error applying advice:", error);

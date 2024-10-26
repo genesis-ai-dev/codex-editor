@@ -112,10 +112,22 @@ connection.onRequest(
                 args: [text, params.cellId],
             });
 
-            let code = 0;
+            // Check for smart edits
             if (savedSuggestions?.suggestions?.length > 0) {
-                code = 2;
+                return {
+                    code: 2,
+                    cellId: params.cellId,
+                    savedSuggestions: savedSuggestions,
+                };
             }
+
+            // If no spelling errors or smart edits, check for applicable advice
+            const advice = await connection.sendRequest(ExecuteCommandRequest, {
+                command: "codex-smart-edits.getAdvice",
+                args: [params.cellId],
+            });
+
+            const code = advice ? 3 : 0;
 
             return {
                 code,
@@ -215,6 +227,24 @@ connection.onRequest("spellcheck/check", async (params: { text: string; cellChan
     debugLog(`Returning matches: ${JSON.stringify(matches)}`);
     return matches;
 });
+
+connection.onRequest(
+    "spellcheck/applyAdvice",
+    async (params: { text: string; advicePrompt: string; cellId: string }) => {
+        debugLog("Received spellcheck/applyAdvice request:", { params });
+        try {
+            const modifiedText = await connection.sendRequest(ExecuteCommandRequest, {
+                command: "codex-smart-edits.applyAdvice",
+                args: [params.text, params.advicePrompt, params.cellId],
+            });
+            debugLog("Modified text from advice:", modifiedText);
+            return modifiedText;
+        } catch (error) {
+            console.error("Error applying advice:", error);
+            return null; // Return original text if there's an error
+        }
+    }
+);
 
 connection.onRequest("spellcheck/addWord", async (params: { words: string[] }) => {
     debugLog("Received spellcheck/addWord request:", { params });

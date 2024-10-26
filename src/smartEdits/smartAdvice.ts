@@ -10,7 +10,7 @@ interface SavedAdvice {
 }
 
 const SYSTEM_MESSAGE = `You are a helpful assistant that modifies text according to given advice/instructions.
-Your response should follow this format:
+Your response should follow this json format:
     {
         "modifiedText": "The modified text that follows the advice"
     }
@@ -42,11 +42,19 @@ export class SmartAdvice {
         // Save the advice
         await this.saveAdvice(cellId, advicePrompt, topSimilarCells);
 
-        // Apply the advice using chatbot
-        const message = `Advice: ${advicePrompt}\n\nModify this text according to the advice:\n${text}`;
-        const response = await this.chatbot.getJsonCompletion(message);
+        try {
+            // Apply the advice using chatbot
+            const message = `Advice: ${advicePrompt}\n\nModify this text according to this prompt:\n\n${text} \n\nPlease return the modified text in the json format specified, do not include any HTML in your response or in the text.`;
+            const response = await this.chatbot.getJsonCompletion(message);
 
-        return response.modifiedText || text;
+            if (response && response.modifiedText) {
+                return response.modifiedText;
+            }
+            return text;
+        } catch (error) {
+            console.error("Error applying advice:", error);
+            return text;
+        }
     }
 
     async getAdvice(cellId: string): Promise<string | null> {

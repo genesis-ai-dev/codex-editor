@@ -353,7 +353,8 @@ export type EditorPostMessages =
     | { command: "updateTextDirection"; direction: "ltr" | "rtl" }
     | { command: "openSourceText"; content: { chapterNumber: number } }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string } }
-    | { command: "pickVideoFile" };
+    | { command: "pickVideoFile" }
+    | { command: "applyAdvice"; content: { text: string; advicePrompt: string; cellId: string } };
 
 type EditorReceiveMessages =
     | {
@@ -376,7 +377,8 @@ type EditorReceiveMessages =
     | { type: "providerSendsLLMCompletionResponse"; content: { completion: string } }
     | { type: "jumpToSection"; content: string }
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata }
-    | { type: "updateVideoUrlInWebview"; content: string };
+    | { type: "updateVideoUrlInWebview"; content: string }
+    | { type: "providerSendsAdviceResponse"; content: string };
 
 type EditHistory = {
     cellValue: string;

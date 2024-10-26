@@ -746,6 +746,25 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         }
                         return;
                     }
+                    case "applyAdvice": {
+                        try {
+                            const result = await vscode.commands.executeCommand(
+                                "codex-smart-edits.applyAdvice",
+                                e.content.text,
+                                e.content.advicePrompt,
+                                e.content.cellId
+                            );
+                            console.log("providerSendsAdviceResponse", { result });
+                            this.postMessageToWebview(webviewPanel, {
+                                type: "providerSendsAdviceResponse",
+                                content: result as string,
+                            });
+                        } catch (error) {
+                            console.error("Error applying advice:", error);
+                            vscode.window.showErrorMessage("Failed to apply advice.");
+                        }
+                        return;
+                    }
                 }
             } catch (error) {
                 console.error("Unexpected error in message handler:", error);
