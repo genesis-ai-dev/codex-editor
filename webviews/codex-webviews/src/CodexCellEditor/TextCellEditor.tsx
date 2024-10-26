@@ -8,6 +8,7 @@ import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import { CodexCellTypes } from "../../../../types/enums";
 import SourceCellContext from "./contextProviders/SourceCellContext";
 import ConfirmationButton from "./ConfirmationButton";
+import { debounce } from "lodash";
 
 interface CellEditorProps {
     cellMarkers: string[];
@@ -48,7 +49,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const { sourceCellMap } = useContext(SourceCellContext);
     const cellEditorRef = useRef<HTMLDivElement>(null);
     const sourceCellContent = sourceCellMap?.[cellMarkers[0]];
-    const [editorContent, setEditorContent] = useState(cellContent);
 
     const unsavedChangesState = !!(
         contentBeingUpdated.cellContent &&
@@ -304,17 +304,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 <Editor
                     currentLineId={cellMarkers[0]}
                     key={`${cellIndex}-quill`}
-                    initialValue={editorContent}
+                    initialValue={cellContent}
                     spellCheckResponse={spellCheckResponse}
-                    onChange={({ html }) => {
-                        setEditorContent(html);
+                    onChange={debounce(({ html }) => {
                         setContentBeingUpdated({
                             cellMarkers,
                             cellContent: html,
                             cellChanged: true,
                             cellLabel: editableLabel,
                         });
-                    }}
+                    }, 300)}
                     textDirection={textDirection}
                 />
             </div>
