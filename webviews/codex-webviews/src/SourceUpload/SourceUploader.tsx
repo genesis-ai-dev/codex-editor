@@ -1,5 +1,12 @@
 import React, { useState, useCallback } from "react";
-import { VSCodePanels, VSCodePanelTab, VSCodePanelView, VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import {
+    VSCodePanels,
+    VSCodePanelTab,
+    VSCodePanelView,
+    VSCodeButton,
+    VSCodeDropdown,
+    VSCodeOption,
+} from "@vscode/webview-ui-toolkit/react";
 import { SourceUploadPostMessages } from "../../../../types";
 import { FileDropzone } from "./components/FileDropzone";
 import { WorkflowProgress } from "./components/WorkflowProgress";
@@ -7,10 +14,12 @@ import { SourcePreview } from "./components/SourcePreview";
 import { ProcessingStages } from "./components/ProcessingStages";
 import { ProgressDisplay } from "./components/ProgressDisplay";
 import { useVSCodeMessageHandler } from "./hooks/useVSCodeMessageHandler";
-import { WorkflowState, WorkflowStep } from "./types";
+import { WorkflowState, WorkflowStep, ImportType } from "./types";
+import { ImportTypeSelector } from "./components/ImportTypeSelector";
 
 const initialWorkflowState: WorkflowState = {
-    step: "select",
+    step: "type-select",
+    importType: null,
     selectedFile: null,
     processingStages: {
         fileValidation: {
@@ -112,12 +121,59 @@ export const SourceUploader: React.FC = () => {
         }));
     }, []);
 
+    const handleImportTypeSelect = useCallback(
+        (type: ImportType) => {
+            if (type === "translation") {
+                // Request available source files from extension
+                vscode.postMessage({
+                    command: "getAvailableSourceFiles",
+                } as SourceUploadPostMessages);
+            }
+
+            setWorkflow((prev) => ({
+                ...prev,
+                importType: type,
+                step: "select",
+            }));
+        },
+        [vscode]
+    );
+
     const renderWorkflowStep = () => {
         switch (workflow.step) {
+            case "type-select":
+                return <ImportTypeSelector onSelect={handleImportTypeSelect} />;
+
             case "select":
                 return (
                     <div style={{ padding: "2rem" }}>
-                        <h2 style={{ marginBottom: "1rem" }}>Select Your Source Text</h2>
+                        <h2 style={{ marginBottom: "1rem" }}>
+                            {workflow.importType === "source"
+                                ? "Select Your Source Text"
+                                : "Select Translation File"}
+                        </h2>
+                        {workflow.importType === "translation" && workflow.availableSourceFiles && (
+                            <div style={{ marginBottom: "2rem" }}>
+                                <label>Source Text:</label>
+                                <VSCodeDropdown
+                                    style={{ width: "100%", marginTop: "0.5rem" }}
+                                    onChange={(e: any) => {
+                                        vscode.postMessage({
+                                            command: "selectSourceFile",
+                                            data: {
+                                                sourcePath: e.target?.value || "",
+                                            },
+                                        } as SourceUploadPostMessages);
+                                    }}
+                                >
+                                    {workflow.availableSourceFiles.map((file) => (
+                                        <VSCodeOption key={file.id} value={file.id}>
+                                            {file.name}
+                                        </VSCodeOption>
+                                    ))}
+                                </VSCodeDropdown>
+                            </div>
+                        )}
                         <FileDropzone
                             onDrop={handleFileDrop}
                             selectedFile={workflow.selectedFile}
@@ -161,7 +217,9 @@ export const SourceUploader: React.FC = () => {
                             }}
                         />
                         <h2 style={{ marginBottom: "1rem" }}>Import Complete!</h2>
-                        <p style={{ marginBottom: "2rem" }}>Your source file has been successfully imported.</p>
+                        <p style={{ marginBottom: "2rem" }}>
+                            Your source file has been successfully imported.
+                        </p>
                         <VSCodeButton onClick={handleUploadAnother}>
                             Upload Another File
                         </VSCodeButton>
@@ -179,7 +237,7 @@ export const SourceUploader: React.FC = () => {
             <VSCodePanelView id="setup-view">
                 <div
                     style={{
-                        maxWidth: "800px",
+                        maxWidth: "100dvw",
                         margin: "0 auto",
                         padding: "2rem",
                         display: "flex",

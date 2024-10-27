@@ -14,6 +14,8 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
 }) => {
     const getStepLabel = (step: WorkflowStep): string => {
         switch (step) {
+            case "type-select":
+                return "Import Type";
             case "select":
                 return "Select File";
             case "preview":

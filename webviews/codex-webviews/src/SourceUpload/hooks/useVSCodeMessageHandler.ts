@@ -4,9 +4,10 @@ import { WorkflowState } from "../types";
 
 const vscode = acquireVsCodeApi();
 const initialWorkflowState: WorkflowState = {
-    step: "select",
+    step: "type-select",
     selectedFile: null,
     processingStages: {},
+    importType: null,
 };
 
 export function useVSCodeMessageHandler() {
