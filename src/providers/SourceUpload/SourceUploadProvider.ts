@@ -172,14 +172,18 @@ export class SourceUploadProvider
                                 preview: {
                                     original: {
                                         preview: rawPreview.originalContent.preview,
-                                        validationResults: rawPreview.originalContent.validationResults
+                                        validationResults:
+                                            rawPreview.originalContent.validationResults,
                                     },
                                     transformed: {
-                                        sourceNotebooks: rawPreview.transformedContent.sourceNotebooks,
-                                        codexNotebooks: rawPreview.transformedContent.codexNotebooks,
-                                        validationResults: rawPreview.transformedContent.validationResults
-                                    }
-                                }
+                                        sourceNotebooks:
+                                            rawPreview.transformedContent.sourceNotebooks,
+                                        codexNotebooks:
+                                            rawPreview.transformedContent.codexNotebooks,
+                                        validationResults:
+                                            rawPreview.transformedContent.validationResults,
+                                    },
+                                },
                             };
 
                             // Store the preview
@@ -188,7 +192,7 @@ export class SourceUploadProvider
                             // Send preview to webview
                             webviewPanel.webview.postMessage({
                                 command: "sourcePreview",
-                                preview
+                                preview,
                             } as SourceUploadResponseMessages);
                         } catch (error) {
                             console.error("Error preparing source import:", error);
@@ -217,12 +221,27 @@ export class SourceUploadProvider
                             this.currentTranslationTransaction = transaction;
 
                             // Generate preview
-                            const preview = await transaction.prepare();
+                            const rawPreview = await transaction.prepare();
+
+                            // Transform to PreviewState format
+                            const preview: PreviewState = {
+                                type: "translation",
+                                preview: {
+                                    original: {
+                                        preview: rawPreview.original.preview,
+                                        validationResults: rawPreview.original.validationResults,
+                                    },
+                                    transformed: rawPreview.transformed,
+                                },
+                            };
+
+                            // Store the preview
+                            this.currentPreview = preview;
 
                             // Send preview to webview
                             webviewPanel.webview.postMessage({
-                                command: "transformationPreview",
-                                preview: preview,
+                                command: "translationPreview",
+                                preview,
                             } as SourceUploadResponseMessages);
                         } catch (error) {
                             console.error("Error preparing translation import:", error);

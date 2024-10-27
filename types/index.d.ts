@@ -199,7 +199,7 @@ export type SourceUploadResponseMessages = {
         | "importComplete"
         | "importCancelled"
         | "availableSourceFiles"
-        | "transformationPreview";
+        | "translationPreview";
     metadata?: AggregatedMetadata[];
     preview?: PreviewState;
     data?: {

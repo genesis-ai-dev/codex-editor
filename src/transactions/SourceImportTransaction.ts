@@ -50,7 +50,7 @@ export class SourceImportTransaction extends ImportTransaction {
 
             // Transform into expected format
             this.preview = {
-                fileName: rawPreview.original.preview,
+                fileName: path.basename(this.state.sourceFile.fsPath), // Use actual filename
                 originalContent: {
                     preview: rawPreview.original.preview,
                     validationResults: rawPreview.original.validationResults,
@@ -131,7 +131,7 @@ export class SourceImportTransaction extends ImportTransaction {
     private async createTransformedFile(): Promise<vscode.Uri> {
         const transformedFile = vscode.Uri.joinPath(
             this.getTempDir(),
-            `transformed_${this.preview!.originalContent.preview}`
+            `transformed_${path.basename(this.state.sourceFile.fsPath)}`
         );
 
         await vscode.workspace.fs.writeFile(

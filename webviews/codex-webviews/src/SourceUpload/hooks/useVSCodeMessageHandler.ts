@@ -42,7 +42,7 @@ export function useVSCodeMessageHandler() {
                     }
                     break;
 
-                case "transformationPreview":
+                case "translationPreview":
                     if (message.preview) {
                         setWorkflow((prev) => ({
                             ...prev,
