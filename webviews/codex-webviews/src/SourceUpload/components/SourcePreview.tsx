@@ -9,45 +9,7 @@ import { SourcePreview as ISourcePreview } from "../../../../../types";
 import { formatFileSize } from "../../../../../src/utils/formatters";
 
 interface SourcePreviewProps {
-    preview: {
-        original: {
-            preview: string;
-            validationResults: Array<{
-                isValid: boolean;
-                errors: Array<{ message: string }>;
-            }>;
-        };
-        transformed: {
-            books: Array<{
-                name: string;
-                versesCount: number;
-                chaptersCount: number;
-            }>;
-            sourceNotebooks: Array<{
-                name: string;
-                cells: Array<{
-                    value: string;
-                    metadata: {
-                        id: string;
-                        type: string;
-                    };
-                }>;
-            }>;
-            codexNotebooks: Array<{
-                name: string;
-                cells: Array<{
-                    metadata: {
-                        id: string;
-                        type: string;
-                    };
-                }>;
-            }>;
-            validationResults: Array<{
-                isValid: boolean;
-                errors: Array<{ message: string }>;
-            }>;
-        };
-    };
+    preview: ISourcePreview;
     onConfirm: () => void;
     onCancel: () => void;
 }

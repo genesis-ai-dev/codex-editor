@@ -167,12 +167,13 @@ type ChatPostMessages =
 
 type SourceUploadPostMessages =
     | { command: "uploadSourceText"; fileContent: string; fileName: string }
-    | {
-          command: "uploadTranslation";
-          fileContent: string;
-          fileName: string;
-          sourceFileName: string;
-      }
+    | { command: "uploadTranslation"; fileContent: string; fileName: string; sourceId: string }
+    | { command: "getAvailableSourceFiles" }
+    | { command: "selectSourceFile"; data: { sourcePath: string } }
+    | { command: "confirmSourceImport" }
+    | { command: "confirmTranslationImport" }
+    | { command: "cancelSourceImport" }
+    | { command: "cancelTranslationImport" }
     | { command: "getMetadata" }
     | { command: "downloadBible" }
     | { command: "syncAction"; status: string; fileUri: string }
@@ -184,7 +185,8 @@ type SourceUploadPostMessages =
     | { command: "selectSourceFile"; data: { sourcePath: string } }
     | { command: "cancelSourceImport" }
     | { command: "confirmSourceImport" }
-    | { command: "previewSourceText"; fileContent: string; fileName: string };
+    | { command: "previewSourceText"; fileContent: string; fileName: string }
+    | { command: "error"; errorMessage: string };
 
 export type SourceUploadResponseMessages = {
     command:
@@ -195,25 +197,18 @@ export type SourceUploadResponseMessages = {
         | "setupComplete"
         | "error"
         | "importComplete"
-        | "importCancelled";
+        | "importCancelled"
+        | "availableSourceFiles"
+        | "translationPreview";
     metadata?: AggregatedMetadata[];
-    preview?: {
-        original: {
-            preview: string;
-            validationResults: ValidationResult[];
-        };
-        transformed: {
-            books: BookPreview[];
-            sourceNotebooks: NotebookPreview[];
-            codexNotebooks: NotebookPreview[];
-            validationResults: ValidationResult[];
-        };
-    };
+    sourcePreview?: PreviewState;
+    translationPreview?: PreviewState;
     data?: {
         path?: string;
     };
     status?: Record<string, "pending" | "active" | "complete" | "error">;
-    message?: string;
+    files?: { id: string; name: string; path: string }[];
+    errorMessage?: string;
 };
 
 type DictionaryPostMessages =
@@ -697,23 +692,52 @@ interface Project {
     isOutdated?: boolean;
 }
 
-// Update existing SourcePreview interface to support both original and transformed states
-export interface SourcePreview {
-    fileName: string;
-    fileSize: number;
-    fileType: FileType;
-    originalContent: {
+interface BasePreview {
+    original: {
         preview: string;
         validationResults: ValidationResult[];
     };
-    transformedContent: {
-        books: BookPreview[];
-        sourceNotebooks: NotebookPreview[];
-        codexNotebooks: NotebookPreview[];
+}
+
+export interface SourcePreview extends BasePreview {
+    type: "source";
+    transformed: {
+        books: Array<{
+            name: string;
+            versesCount: number;
+            chaptersCount: number;
+        }>;
+        sourceNotebooks: Array<NotebookPreview>;
+        codexNotebooks: Array<NotebookPreview>;
         validationResults: ValidationResult[];
     };
-    expectedBooks: BookPreview[];
 }
+
+export interface TranslationPreview extends BasePreview {
+    type: "translation";
+    transformed: {
+        sourceNotebook: {
+            name: string;
+            cells: Array<{
+                value: string;
+                metadata: { id: string; type: string };
+            }>;
+        };
+        targetNotebook: {
+            name: string;
+            cells: Array<{
+                value: string;
+                metadata: { id: string; type: string };
+            }>;
+        };
+        matchedCells: number;
+        unmatchedContent: number;
+        paratextItems: number;
+        validationResults: ValidationResult[];
+    };
+}
+
+export type PreviewContent = SourcePreview | TranslationPreview;
 
 // Add new interfaces to support the preview structure
 export interface NotebookPreview {

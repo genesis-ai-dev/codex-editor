@@ -9,8 +9,21 @@ import { ProgressManager, ProgressStep } from "../utils/progressManager";
 import { CodexCell, createCodexNotebook } from "../utils/codexNotebookUtils";
 import { CodexCellTypes } from "../../types/enums";
 
+// Update the preview type to match the structure
+interface RawSourcePreview {
+    originalContent: {
+        preview: string;
+        validationResults: ValidationResult[];
+    };
+    transformedContent: {
+        sourceNotebooks: Array<NotebookPreview>;
+        codexNotebooks: Array<NotebookPreview>;
+        validationResults: ValidationResult[];
+    };
+}
+
 export class SourceImportTransaction extends ImportTransaction {
-    private preview: SourcePreview | null = null;
+    private preview: RawSourcePreview | null = null;
     private analyzer: SourceAnalyzer;
     private metadataManager: NotebookMetadataManager;
     private readonly context: vscode.ExtensionContext;
@@ -31,7 +44,7 @@ export class SourceImportTransaction extends ImportTransaction {
         this.metadataManager = new NotebookMetadataManager();
     }
 
-    async prepare(): Promise<SourcePreview> {
+    async prepare(): Promise<RawSourcePreview> {
         try {
             await this.metadataManager.initialize();
 
@@ -47,7 +60,20 @@ export class SourceImportTransaction extends ImportTransaction {
             this.state.tempFiles.push(tempSourceFile);
 
             // Generate preview using analyzer
-            this.preview = await this.analyzer.generatePreview(tempSourceFile);
+            const rawPreview = await this.analyzer.generatePreview(tempSourceFile);
+            
+            // Transform into expected format
+            this.preview = {
+                originalContent: {
+                    preview: rawPreview.content,
+                    validationResults: rawPreview.validationResults
+                },
+                transformedContent: {
+                    sourceNotebooks: rawPreview.sourceNotebooks,
+                    codexNotebooks: rawPreview.codexNotebooks,
+                    validationResults: rawPreview.validationResults
+                }
+            };
 
             return this.preview;
         } catch (error) {
@@ -140,7 +166,7 @@ export class SourceImportTransaction extends ImportTransaction {
             notebook: NotebookPreview;
         }> = [];
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        
+
         if (!workspaceFolder) {
             throw new Error("No workspace folder found");
         }
@@ -160,10 +186,7 @@ export class SourceImportTransaction extends ImportTransaction {
                 this.getTempDir(),
                 `${sourceNotebook.name}.source`
             );
-            const codexUri = vscode.Uri.joinPath(
-                this.getTempDir(),
-                `${codexNotebook.name}.codex`
-            );
+            const codexUri = vscode.Uri.joinPath(this.getTempDir(), `${codexNotebook.name}.codex`);
 
             // Create final URIs for metadata
             const finalSourceUri = vscode.Uri.joinPath(
@@ -218,7 +241,6 @@ export class SourceImportTransaction extends ImportTransaction {
                     textDirection: notebook.metadata.textDirection || "ltr",
                     navigation: notebook.metadata.navigation || [],
                     videoUrl: notebook.metadata.videoUrl || "",
-                    data: notebook.metadata.data || {},
                 },
             },
             null,
@@ -266,7 +288,7 @@ export class SourceImportTransaction extends ImportTransaction {
 
             // Create directory if it doesn't exist
             await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(targetLocation, ".."));
-            
+
             // Copy file to final location
             await vscode.workspace.fs.copy(tempFile, targetLocation, { overwrite: true });
 
