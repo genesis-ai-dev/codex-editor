@@ -371,7 +371,7 @@ type EditorReceiveMessages =
     | { type: "providerSendsSpellCheckResponse"; content: SpellCheckResponse }
     | {
           type: "providerSendsgetAlertCodeResponse";
-          content: { getAlertCode: number; cellId: string };
+          content: { code: number; cellId: string };
       }
     | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl" }
     | { type: "providerSendsLLMCompletionResponse"; content: { completion: string } }
