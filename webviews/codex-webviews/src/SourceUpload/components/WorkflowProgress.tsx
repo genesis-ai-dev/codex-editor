@@ -33,9 +33,9 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
         const currentIndex = steps.indexOf(currentStep);
         const stepIndex = steps.indexOf(step);
         
-        // Can only go back to previous steps, and never during processing
+        // Allow going back to any previous step except during processing
         return currentStep !== 'processing' && 
-               stepIndex < currentIndex && 
+               (step === 'type-select' || stepIndex < currentIndex) && // Allow type-select always
                step !== 'processing' && 
                step !== 'complete';
     };

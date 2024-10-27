@@ -23,14 +23,45 @@ export function useVSCodeMessageHandler() {
                         setWorkflow((prev) => ({
                             ...prev,
                             step: "preview",
-                            preview: message.preview,
+                            preview: {
+                                type: "source",
+                                fileName: message.preview.fileName,
+                                fileSize: message.preview.fileSize,
+                                fileType: message.preview.fileType,
+                                original: message.preview.preview.original,
+                                transformed: {
+                                    sourceNotebooks:
+                                        message.preview.preview.transformed.sourceNotebooks,
+                                    codexNotebooks:
+                                        message.preview.preview.transformed.codexNotebooks,
+                                    validationResults:
+                                        message.preview.preview.transformed.validationResults,
+                                },
+                            },
+                        }));
+                    }
+                    break;
+
+                case "transformationPreview":
+                    if (message.preview) {
+                        setWorkflow((prev) => ({
+                            ...prev,
+                            step: "preview",
+                            preview: {
+                                type: "translation",
+                                fileName: message.preview.fileName,
+                                fileSize: message.preview.fileSize,
+                                fileType: message.preview.fileType,
+                                original: message.preview.preview.original,
+                                transformed: message.preview.preview.transformed,
+                            },
                         }));
                     }
                     break;
 
                 case "updateProcessingStatus":
                     if (message.status) {
-                        setWorkflow((prev: WorkflowState) => ({
+                        setWorkflow((prev) => ({
                             ...prev,
                             step: "processing",
                             processingStages: Object.entries(message.status || {}).reduce(
@@ -48,17 +79,19 @@ export function useVSCodeMessageHandler() {
                     break;
 
                 case "importComplete":
-                    setWorkflow((prev: WorkflowState) => ({
+                    setWorkflow((prev) => ({
                         ...prev,
                         step: "complete",
                     }));
                     break;
 
                 case "error":
-                    setWorkflow((prev: WorkflowState) => ({
-                        ...prev,
-                        error: message.message,
-                    }));
+                    if (message.errorMessage) {
+                        setWorkflow((prev) => ({
+                            ...prev,
+                            error: message.errorMessage,
+                        }));
+                    }
                     break;
             }
         },

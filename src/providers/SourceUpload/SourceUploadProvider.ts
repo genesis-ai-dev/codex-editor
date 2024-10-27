@@ -6,6 +6,7 @@ import { downloadBible } from "../../projectManager/projectInitializers";
 import { processDownloadedBible } from "../../projectManager/sourceTextImporter";
 import { registerScmCommands } from "../scm/scmActionHandler";
 import {
+    NotebookPreview,
     SourceUploadPostMessages,
     SourceUploadResponseMessages,
     ValidationResult,
@@ -15,6 +16,7 @@ import { SourceFileValidator } from "../../validation/sourceFileValidator";
 import { SourceImportTransaction } from "../../transactions/SourceImportTransaction";
 import { getFileType } from "../../utils/fileTypeUtils";
 import { analyzeSourceContent } from "../../utils/contentAnalyzers";
+import { TranslationImportTransaction } from "../../transactions/TranslationImportTransaction";
 
 // Add new types for workflow status tracking
 interface ProcessingStatus {
@@ -43,6 +45,52 @@ interface ImportProgress {
     percent: number;
 }
 
+// Add new type for combined preview states
+type PreviewState =
+    | {
+          type: "source";
+          preview: {
+              original: {
+                  preview: string;
+                  validationResults: ValidationResult[];
+              };
+              transformed: {
+                  sourceNotebooks: Array<NotebookPreview>;
+                  codexNotebooks: Array<NotebookPreview>;
+                  validationResults: ValidationResult[];
+              };
+          };
+      }
+    | {
+          type: "translation";
+          preview: {
+              original: {
+                  preview: string;
+                  validationResults: ValidationResult[];
+              };
+              transformed: {
+                  sourceNotebook: {
+                      name: string;
+                      cells: Array<{
+                          value: string;
+                          metadata: { id: string; type: string };
+                      }>;
+                  };
+                  targetNotebook: {
+                      name: string;
+                      cells: Array<{
+                          value: string;
+                          metadata: { id: string; type: string };
+                      }>;
+                  };
+                  matchedCells: number;
+                  unmatchedContent: number;
+                  paratextItems: number;
+                  validationResults: ValidationResult[];
+              };
+          };
+      };
+
 function getNonce(): string {
     let text = "";
     const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -58,8 +106,10 @@ export class SourceUploadProvider
     public static readonly viewType = "sourceUploadProvider";
     onDidChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
     onDidChange = this.onDidChangeEmitter.event;
-    private currentPreview: SourcePreview | null = null; // Add this property
+    private currentPreview: PreviewState | null = null; // Add this property
     private currentTransaction: SourceImportTransaction | null = null;
+    private currentSourceTransaction: SourceImportTransaction | null = null;
+    private currentTranslationTransaction: TranslationImportTransaction | null = null;
 
     constructor(private readonly context: vscode.ExtensionContext) {
         registerScmCommands(context);
@@ -105,26 +155,40 @@ export class SourceUploadProvider
                         break;
                     case "uploadSourceText":
                         try {
-                            // Create temporary file and start transaction
                             const tempUri = await this.saveUploadedFile(
                                 message.fileContent,
                                 message.fileName
                             );
 
-                            // Create new import transaction
                             const transaction = new SourceImportTransaction(tempUri, this.context);
                             this.currentTransaction = transaction;
 
-                            // Generate preview
-                            const preview = await transaction.prepare();
+                            // Get the raw preview from transaction
+                            const rawPreview = await transaction.prepare();
 
-                            // Send preview to webview with proper structure
+                            // Transform it into our PreviewState format
+                            const preview: PreviewState = {
+                                type: "source",
+                                preview: {
+                                    original: {
+                                        preview: rawPreview.originalContent.preview,
+                                        validationResults: rawPreview.originalContent.validationResults
+                                    },
+                                    transformed: {
+                                        sourceNotebooks: rawPreview.transformedContent.sourceNotebooks,
+                                        codexNotebooks: rawPreview.transformedContent.codexNotebooks,
+                                        validationResults: rawPreview.transformedContent.validationResults
+                                    }
+                                }
+                            };
+
+                            // Store the preview
+                            this.currentPreview = preview;
+
+                            // Send preview to webview
                             webviewPanel.webview.postMessage({
                                 command: "sourcePreview",
-                                preview: {
-                                    original: preview.originalContent,
-                                    transformed: preview.transformedContent,
-                                },
+                                preview
                             } as SourceUploadResponseMessages);
                         } catch (error) {
                             console.error("Error preparing source import:", error);
@@ -138,29 +202,34 @@ export class SourceUploadProvider
                         }
                         break;
                     case "uploadTranslation":
-                        console.log("uploadTranslation message in provider", message);
                         try {
-                            const fileUri = await this.saveUploadedFile(
+                            const tempUri = await this.saveUploadedFile(
                                 message.fileContent,
                                 message.fileName
                             );
-                            const metadataManager = new NotebookMetadataManager();
-                            await metadataManager.initialize();
-                            await metadataManager.loadMetadata();
-                            const sourceMetadata = metadataManager.getMetadataBySourceFileName(
-                                message.sourceFileName
+
+                            // Create new translation import transaction
+                            const transaction = new TranslationImportTransaction(
+                                tempUri,
+                                message.sourceId,
+                                this.context
                             );
-                            if (!sourceMetadata) {
-                                throw new Error("Source notebook metadata not found");
-                            }
-                            await importTranslations(this.context, fileUri, sourceMetadata.id);
-                            vscode.window.showInformationMessage(
-                                "Translation uploaded successfully."
-                            );
-                            await this.updateMetadata(webviewPanel);
+                            this.currentTranslationTransaction = transaction;
+
+                            // Generate preview
+                            const preview = await transaction.prepare();
+
+                            // Send preview to webview
+                            webviewPanel.webview.postMessage({
+                                command: "transformationPreview",
+                                preview: preview,
+                            } as SourceUploadResponseMessages);
                         } catch (error) {
-                            console.error(`Error uploading translation: ${error}`);
-                            vscode.window.showErrorMessage(`Error uploading translation: ${error}`);
+                            console.error("Error preparing translation import:", error);
+                            webviewPanel.webview.postMessage({
+                                command: "error",
+                                message: error instanceof Error ? error.message : "Unknown error",
+                            } as SourceUploadResponseMessages);
                         }
                         break;
                     case "downloadBible":
@@ -392,6 +461,84 @@ export class SourceUploadProvider
                         }
                         break;
                     }
+                    case "getAvailableSourceFiles": {
+                        const metadataManager = new NotebookMetadataManager();
+                        await metadataManager.initialize();
+                        const sourceFiles = metadataManager
+                            .getAllMetadata()
+                            .filter((meta) => meta.sourceFsPath)
+                            .map((meta) => ({
+                                id: meta.id,
+                                name: meta.originalName || path.basename(meta.sourceFsPath!),
+                                path: meta.sourceFsPath!,
+                            }));
+
+                        webviewPanel.webview.postMessage({
+                            command: "availableSourceFiles",
+                            files: sourceFiles,
+                        } as SourceUploadResponseMessages);
+                        break;
+                    }
+
+                    case "confirmTranslationImport":
+                        if (!this.currentTranslationTransaction) {
+                            throw new Error("No active translation import transaction");
+                        }
+
+                        await vscode.window.withProgress(
+                            {
+                                location: vscode.ProgressLocation.Notification,
+                                title: "Importing translation",
+                                cancellable: true,
+                            },
+                            async (progress, token) => {
+                                try {
+                                    const progressCallback = (update: {
+                                        message?: string;
+                                        increment?: number;
+                                    }) => {
+                                        progress.report(update);
+                                        webviewPanel.webview.postMessage({
+                                            command: "updateProcessingStatus",
+                                            status: {
+                                                [update.message || "processing"]: "active",
+                                            },
+                                            progress: {
+                                                message: update.message || "",
+                                                increment: update.increment || 0,
+                                            },
+                                        } as SourceUploadResponseMessages);
+                                    };
+
+                                    await this.currentTranslationTransaction?.execute(
+                                        { report: progressCallback },
+                                        token
+                                    );
+
+                                    webviewPanel.webview.postMessage({
+                                        command: "importComplete",
+                                    } as SourceUploadResponseMessages);
+
+                                    await this.updateMetadata(webviewPanel);
+                                } catch (error) {
+                                    if (this.currentTranslationTransaction) {
+                                        await this.currentTranslationTransaction.rollback();
+                                    }
+                                    throw error;
+                                } finally {
+                                    this.currentTranslationTransaction = null;
+                                }
+                            }
+                        );
+                        break;
+
+                    case "cancelTranslationImport":
+                        if (this.currentTranslationTransaction) {
+                            await this.currentTranslationTransaction.rollback();
+                            this.currentTranslationTransaction = null;
+                        }
+                        break;
+
                     default:
                         console.log("Unknown message command", { message });
                         break;
@@ -615,7 +762,7 @@ export class SourceUploadProvider
     }
 
     // New method to generate preview
-    private async generateSourcePreview(fileUri: vscode.Uri): Promise<SourcePreview> {
+    private async generateSourcePreview(fileUri: vscode.Uri): Promise<PreviewState> {
         const validator = new SourceFileValidator();
         const validation = await validator.validateSourceFile(fileUri);
 
@@ -626,11 +773,18 @@ export class SourceUploadProvider
         const expectedBooks = await analyzeSourceContent(fileUri, textContent);
 
         this.currentPreview = {
-            fileName: path.basename(fileUri.fsPath),
-            fileSize: fileStat.size,
-            fileType,
-            expectedBooks,
-            validationResults: [validation],
+            type: "source",
+            preview: {
+                original: {
+                    preview: textContent,
+                    validationResults: [validation],
+                },
+                transformed: {
+                    sourceNotebooks: [],
+                    codexNotebooks: [],
+                    validationResults: [validation],
+                },
+            },
         };
 
         return this.currentPreview;

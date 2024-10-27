@@ -16,6 +16,8 @@ import { ProgressDisplay } from "./components/ProgressDisplay";
 import { useVSCodeMessageHandler } from "./hooks/useVSCodeMessageHandler";
 import { WorkflowState, WorkflowStep, ImportType } from "./types";
 import { ImportTypeSelector } from "./components/ImportTypeSelector";
+import { TranslationPreview } from "./components/TranslationPreview";
+import { PreviewContent } from "../../../../types";
 
 const initialWorkflowState: WorkflowState = {
     step: "type-select",
@@ -50,6 +52,55 @@ const initialWorkflowState: WorkflowState = {
     },
 };
 
+const getInitialProcessingStages = (importType: ImportType) => ({
+    fileValidation: {
+        label: "Validating File",
+        description:
+            importType === "source"
+                ? "Checking source file format and content"
+                : "Validating translation file",
+        status: "pending",
+    },
+    transformation: {
+        label: "Transforming Content",
+        description:
+            importType === "source"
+                ? "Converting to notebook format"
+                : "Processing translation content",
+        status: "pending",
+    },
+    ...(importType === "source"
+        ? {
+              sourceNotebook: {
+                  label: "Creating Source Notebook",
+                  description: "Processing source content",
+                  status: "pending",
+              },
+              targetNotebook: {
+                  label: "Preparing Translation Notebook",
+                  description: "Creating corresponding translation file",
+                  status: "pending",
+              },
+          }
+        : {
+              alignment: {
+                  label: "Aligning Content",
+                  description: "Matching translations with source text",
+                  status: "pending",
+              },
+              merging: {
+                  label: "Merging Translations",
+                  description: "Updating translation notebook",
+                  status: "pending",
+              },
+          }),
+    metadataSetup: {
+        label: "Finalizing Setup",
+        description: "Setting up project metadata",
+        status: "pending",
+    },
+});
+
 export const SourceUploader: React.FC = () => {
     const { vscode, workflow, setWorkflow } = useVSCodeMessageHandler();
 
@@ -64,16 +115,33 @@ export const SourceUploader: React.FC = () => {
 
                 const reader = new FileReader();
                 reader.onload = (e) => {
-                    vscode.postMessage({
-                        command: "uploadSourceText",
-                        fileContent: e.target?.result?.toString() || "",
-                        fileName: file.name,
-                    } as SourceUploadPostMessages);
+                    if (workflow.importType === "translation") {
+                        if (!workflow.selectedSourceId) {
+                            vscode.postMessage({
+                                command: "error",
+                                errorMessage: "Please select a source file first",
+                            } as SourceUploadPostMessages);
+                            return;
+                        }
+
+                        vscode.postMessage({
+                            command: "uploadTranslation",
+                            fileContent: e.target?.result?.toString() || "",
+                            fileName: file.name,
+                            sourceId: workflow.selectedSourceId,
+                        } as SourceUploadPostMessages);
+                    } else {
+                        vscode.postMessage({
+                            command: "uploadSourceText",
+                            fileContent: e.target?.result?.toString() || "",
+                            fileName: file.name,
+                        } as SourceUploadPostMessages);
+                    }
                 };
                 reader.readAsText(file);
             }
         },
-        [setWorkflow, vscode]
+        [setWorkflow, vscode, workflow.importType, workflow.selectedSourceId]
     );
 
     const handleClearFile = useCallback(() => {
@@ -103,17 +171,77 @@ export const SourceUploader: React.FC = () => {
 
     const handleStepClick = useCallback(
         (step: WorkflowStep) => {
-            if (step === "select") {
-                handleClearFile();
-            } else if (step === "preview" && workflow.preview) {
-                setWorkflow((prev) => ({
-                    ...prev,
-                    step: "preview",
-                }));
+            // Don't allow navigation during processing
+            if (workflow.step === "processing") {
+                return;
+            }
+
+            switch (step) {
+                case "type-select":
+                    setWorkflow((prev) => ({
+                        ...initialWorkflowState,
+                    }));
+                    break;
+                case "select":
+                    setWorkflow((prev) => ({
+                        ...prev,
+                        step: "select",
+                        selectedFile: null,
+                    }));
+                    break;
+                case "preview":
+                    if (workflow.preview) {
+                        setWorkflow((prev) => ({
+                            ...prev,
+                            step: "preview",
+                        }));
+                    }
+                    break;
             }
         },
-        [workflow.preview, handleClearFile]
+        [workflow.preview, workflow.step]
     );
+
+    const handleBack = useCallback(() => {
+        setWorkflow((prev) => {
+            const currentStepIndex = [
+                "type-select",
+                "select",
+                "preview",
+                "processing",
+                "complete",
+            ].indexOf(prev.step);
+            if (currentStepIndex <= 0) {
+                return prev;
+            }
+
+            const previousStep = ["type-select", "select", "preview", "processing", "complete"][
+                currentStepIndex - 1
+            ] as WorkflowStep;
+
+            switch (previousStep) {
+                case "type-select":
+                    return {
+                        ...initialWorkflowState,
+                    };
+                case "select":
+                    return {
+                        ...prev,
+                        step: "select",
+                        selectedFile: null,
+                    };
+                case "preview":
+                    return prev.preview
+                        ? {
+                              ...prev,
+                              step: "preview",
+                          }
+                        : prev;
+                default:
+                    return prev;
+            }
+        });
+    }, []);
 
     const handleUploadAnother = useCallback(() => {
         setWorkflow((prev) => ({
@@ -138,6 +266,28 @@ export const SourceUploader: React.FC = () => {
         },
         [vscode]
     );
+
+    const renderPreview = () => {
+        if (!workflow.preview) return null;
+
+        if (workflow.preview.type === "translation") {
+            return (
+                <TranslationPreview
+                    preview={workflow.preview}
+                    onConfirm={handlePreviewConfirm}
+                    onCancel={handlePreviewCancel}
+                />
+            );
+        }
+
+        return (
+            <SourcePreview
+                preview={workflow.preview}
+                onConfirm={handlePreviewConfirm}
+                onCancel={handlePreviewCancel}
+            />
+        );
+    };
 
     const renderWorkflowStep = () => {
         switch (workflow.step) {
@@ -178,27 +328,26 @@ export const SourceUploader: React.FC = () => {
                             onDrop={handleFileDrop}
                             selectedFile={workflow.selectedFile}
                             onClearFile={handleClearFile}
+                            type={workflow.importType}
                         />
                     </div>
                 );
 
             case "preview":
-                return workflow.preview ? (
-                    <SourcePreview
-                        preview={workflow.preview}
-                        onConfirm={handlePreviewConfirm}
-                        onCancel={handlePreviewCancel}
-                    />
-                ) : null;
+                return renderPreview();
 
             case "processing":
                 return (
                     <div style={{ padding: "2rem" }}>
-                        <ProcessingStages stages={workflow.processingStages} />
+                        <ProcessingStages
+                            stages={workflow.processingStages}
+                            importType={workflow.importType || "source"}
+                        />
                         {workflow.progress && (
                             <ProgressDisplay
                                 progress={workflow.progress}
                                 stages={workflow.processingStages}
+                                importType={workflow.importType || "source"}
                             />
                         )}
                     </div>
@@ -245,9 +394,25 @@ export const SourceUploader: React.FC = () => {
                         gap: "2rem",
                     }}
                 >
+                    {/* <div style={{ 
+                        display: "flex", 
+                        justifyContent: "space-between", 
+                        alignItems: "center" 
+                    }}>
+                        {workflow.step !== "type-select" && (
+                            <VSCodeButton 
+                                appearance="secondary" 
+                                onClick={handleBack}
+                            >
+                                <i className="codicon codicon-arrow-left" style={{ marginRight: "0.5rem" }} />
+                                Back
+                            </VSCodeButton>
+                        )}
+                    </div> */}
+
                     <WorkflowProgress
                         currentStep={workflow.step}
-                        steps={["select", "preview", "processing", "complete"]}
+                        steps={["type-select", "select", "preview", "processing", "complete"]}
                         onStepClick={handleStepClick}
                     />
                     {workflow.error && (

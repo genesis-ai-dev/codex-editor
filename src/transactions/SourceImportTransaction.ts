@@ -1,26 +1,12 @@
 import * as vscode from "vscode";
 import { ImportTransaction } from "./ImportTransaction";
-import { CustomNotebookMetadata, NotebookPreview, SourcePreview } from "../../types";
+import { CustomNotebookMetadata, NotebookPreview, RawSourcePreview } from "../../types";
 import { SourceAnalyzer } from "../validation/sourceAnalyzer";
 import { SourceFileValidator } from "../validation/sourceFileValidator";
 import { NotebookMetadataManager } from "../utils/notebookMetadataManager";
 import path from "path";
 import { ProgressManager, ProgressStep } from "../utils/progressManager";
-import { CodexCell, createCodexNotebook } from "../utils/codexNotebookUtils";
 import { CodexCellTypes } from "../../types/enums";
-
-// Update the preview type to match the structure
-interface RawSourcePreview {
-    originalContent: {
-        preview: string;
-        validationResults: ValidationResult[];
-    };
-    transformedContent: {
-        sourceNotebooks: Array<NotebookPreview>;
-        codexNotebooks: Array<NotebookPreview>;
-        validationResults: ValidationResult[];
-    };
-}
 
 export class SourceImportTransaction extends ImportTransaction {
     private preview: RawSourcePreview | null = null;
@@ -61,18 +47,19 @@ export class SourceImportTransaction extends ImportTransaction {
 
             // Generate preview using analyzer
             const rawPreview = await this.analyzer.generatePreview(tempSourceFile);
-            
+
             // Transform into expected format
             this.preview = {
+                fileName: rawPreview.original.preview,
                 originalContent: {
-                    preview: rawPreview.content,
-                    validationResults: rawPreview.validationResults
+                    preview: rawPreview.original.preview,
+                    validationResults: rawPreview.original.validationResults,
                 },
                 transformedContent: {
-                    sourceNotebooks: rawPreview.sourceNotebooks,
-                    codexNotebooks: rawPreview.codexNotebooks,
-                    validationResults: rawPreview.validationResults
-                }
+                    sourceNotebooks: rawPreview.transformed.sourceNotebooks,
+                    codexNotebooks: rawPreview.transformed.codexNotebooks,
+                    validationResults: rawPreview.transformed.validationResults,
+                },
             };
 
             return this.preview;
@@ -144,7 +131,7 @@ export class SourceImportTransaction extends ImportTransaction {
     private async createTransformedFile(): Promise<vscode.Uri> {
         const transformedFile = vscode.Uri.joinPath(
             this.getTempDir(),
-            `transformed_${this.preview!.fileName}`
+            `transformed_${this.preview!.originalContent.preview}`
         );
 
         await vscode.workspace.fs.writeFile(

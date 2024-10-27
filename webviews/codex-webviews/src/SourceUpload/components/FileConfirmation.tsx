@@ -1,4 +1,6 @@
-// Add proper type checking for file size formatting
+import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { formatFileSize } from "../../../../../src/utils/formatters";
+
 interface FileConfirmationProps {
     file: File;
     importType: "source" | "translation";
@@ -6,14 +8,14 @@ interface FileConfirmationProps {
     onCancel: () => void;
 }
 
-export const FileConfirmation: React.FC<FileConfirmationProps> = ({ 
-    file, 
-    importType, 
-    onConfirm, 
-    onCancel 
+export const FileConfirmation: React.FC<FileConfirmationProps> = ({
+    file,
+    importType,
+    onConfirm,
+    onCancel,
 }) => {
     // Ensure we have a valid number for the file size
-    const fileSize = typeof file.size === 'number' ? formatFileSize(file.size) : 'Unknown size';
+    const fileSize = typeof file.size === "number" ? formatFileSize(file.size) : "Unknown size";
 
     return (
         <div style={{ padding: "2rem", textAlign: "center" }}>

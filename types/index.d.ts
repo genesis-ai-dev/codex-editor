@@ -199,10 +199,9 @@ export type SourceUploadResponseMessages = {
         | "importComplete"
         | "importCancelled"
         | "availableSourceFiles"
-        | "translationPreview";
+        | "transformationPreview";
     metadata?: AggregatedMetadata[];
-    sourcePreview?: PreviewState;
-    translationPreview?: PreviewState;
+    preview?: PreviewState;
     data?: {
         path?: string;
     };
@@ -693,6 +692,9 @@ interface Project {
 }
 
 interface BasePreview {
+    fileName: string;
+    fileSize: number;
+    fileType: FileType;
     original: {
         preview: string;
         validationResults: ValidationResult[];
@@ -702,11 +704,24 @@ interface BasePreview {
 export interface SourcePreview extends BasePreview {
     type: "source";
     transformed: {
-        books: Array<{
+        books?: Array<{
             name: string;
             versesCount: number;
             chaptersCount: number;
         }>;
+        sourceNotebooks: Array<NotebookPreview>;
+        codexNotebooks: Array<NotebookPreview>;
+        validationResults: ValidationResult[];
+    };
+}
+
+interface RawSourcePreview {
+    fileName: string;
+    originalContent: {
+        preview: string;
+        validationResults: ValidationResult[];
+    };
+    transformedContent: {
         sourceNotebooks: Array<NotebookPreview>;
         codexNotebooks: Array<NotebookPreview>;
         validationResults: ValidationResult[];

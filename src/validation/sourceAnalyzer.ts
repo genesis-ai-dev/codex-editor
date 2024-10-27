@@ -48,17 +48,17 @@ export class SourceAnalyzer {
             fileName: vscode.workspace.asRelativePath(fileUri),
             fileSize: fileStat.size,
             fileType,
-            originalContent: {
+            type: "source",
+            original: {
                 preview: textContent.slice(0, 1000), // First 1000 chars as preview
-                validationResults: [validationResult]
+                validationResults: [validationResult],
             },
-            transformedContent: {
+            transformed: {
                 books: expectedBooks,
                 sourceNotebooks: transformedContent.sourceNotebooks,
                 codexNotebooks: transformedContent.codexNotebooks,
-                validationResults: transformedContent.validationResults
+                validationResults: transformedContent.validationResults,
             },
-            expectedBooks // Keep this for backward compatibility
         };
     }
 }

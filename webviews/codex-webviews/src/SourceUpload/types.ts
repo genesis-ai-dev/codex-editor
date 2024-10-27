@@ -1,4 +1,4 @@
-import { PreviewContent } from "../../../../types";
+import { PreviewContent, ProcessingStatus } from "../../../../types";
 
 // Add ImportType type
 export type ImportType = "source" | "translation";
@@ -10,8 +10,6 @@ export type WorkflowStep =
     | "preview"
     | "processing"
     | "complete";
-
-export type ProcessingStatus = "pending" | "active" | "complete" | "error";
 
 export interface WorkflowState {
     step: WorkflowStep;

@@ -1,9 +1,10 @@
 import React from "react";
 import { VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
-import { ImportProgress } from "../types";
+import { ImportProgress, ImportType } from "../types";
 
 interface ProgressDisplayProps {
     progress?: ImportProgress;
+    importType: ImportType;
     stages: {
         [key: string]: {
             label: string;
@@ -13,7 +14,7 @@ interface ProgressDisplayProps {
     };
 }
 
-export const ProgressDisplay: React.FC<ProgressDisplayProps> = ({ progress, stages }) => {
+export const ProgressDisplay: React.FC<ProgressDisplayProps> = ({ progress, stages, importType }) => {
     const activeStage = Object.entries(stages).find(([_, stage]) => stage.status === "active");
 
     if (!activeStage) return null;
@@ -31,6 +32,15 @@ export const ProgressDisplay: React.FC<ProgressDisplayProps> = ({ progress, stag
                 borderRadius: "4px",
             }}
         >
+            <div style={{ marginBottom: "1rem" }}>
+                <span style={{ 
+                    color: "var(--vscode-descriptionForeground)",
+                    fontSize: "0.9em" 
+                }}>
+                    {importType === "source" ? "Source Text Import" : "Translation Import"}
+                </span>
+            </div>
+
             <div
                 style={{
                     display: "flex",
