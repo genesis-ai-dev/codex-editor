@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo } from "react";
+import { useRef, useEffect, useMemo, useState } from "react";
 import Quill from "quill";
 import "quill/dist/quill.snow.css";
 import registerQuillSpellChecker, { getCleanedHtml } from "./react-quill-spellcheck";
@@ -13,6 +13,7 @@ const vscode: any = (window as any).vscodeApi;
 registerQuillSpellChecker(Quill, vscode);
 // Use VSCode icon for autocomplete
 icons["autocomplete"] = `<i class="codicon codicon-sparkle quill-toolbar-icon"></i>`;
+icons["openLibrary"] = `<i class="codicon codicon-book quill-toolbar-icon"></i>`; // Add new icon
 
 export interface EditorContentChanged {
     html: string;
@@ -32,10 +33,13 @@ const TOOLBAR_OPTIONS = [
     [{ list: "ordered" }, { list: "bullet" }],
     [{ indent: "-1" }, { indent: "+1" }],
     ["clean"],
-    ["autocomplete"],
+    ["autocomplete", "openLibrary"], // Add openLibrary button
 ];
 
 export default function Editor(props: EditorProps) {
+    const [showModal, setShowModal] = useState(false);
+    const [wordsToAdd, setWordsToAdd] = useState<string[]>([]); // Add state for words
+
     function isQuillEmpty(quill: Quill | null) {
         if (!quill) return true;
         const delta = quill.getContents();
@@ -68,6 +72,17 @@ export default function Editor(props: EditorProps) {
                         container: TOOLBAR_OPTIONS,
                         handlers: {
                             autocomplete: llmCompletion,
+                            openLibrary: () => {
+                                // Get all words from the current content
+                                const content = quill.getText();
+                                const words = content
+                                    .split(/[\s\n.,!?]+/) // Split by whitespace and punctuation
+                                    .filter((word) => word.length > 0) // Remove empty strings
+                                    .map((word) => word) // Convert to lowercase (actually don't)
+                                    .filter((word, index, self) => self.indexOf(word) === index); // Remove duplicates
+                                setWordsToAdd(words);
+                                setShowModal(true);
+                            },
                         },
                     },
                     spellChecker: {},
@@ -179,9 +194,54 @@ export default function Editor(props: EditorProps) {
         }
     };
 
+    const handleAddWords = () => {
+        if (wordsToAdd.length > 0) {
+            window.vscodeApi.postMessage({
+                command: "addWord",
+                words: wordsToAdd,
+            });
+        }
+        setShowModal(false);
+    };
+
     return (
         <>
             <div ref={editorRef}></div>
+            {showModal && (
+                <div
+                    style={{
+                        position: "fixed",
+                        top: "50%",
+                        left: "50%",
+                        transform: "translate(-50%, -50%)",
+                        backgroundColor: "var(--vscode-editor-background)",
+                        padding: "20px",
+                        border: "1px solid var(--vscode-editor-foreground)",
+                        borderRadius: "4px",
+                        zIndex: 1000,
+                    }}
+                >
+                    <h3>Add Words to Dictionary</h3>
+                    <p style={{ margin: "10px 0" }}>
+                        {wordsToAdd.length > 0
+                            ? `Add all words to the dictionary?`
+                            : "No words found in the content."}
+                    </p>
+                    <div
+                        style={{
+                            display: "flex",
+                            gap: "10px",
+                            justifyContent: "flex-end",
+                            marginTop: "20px",
+                        }}
+                    >
+                        <button onClick={() => setShowModal(false)}>Cancel</button>
+                        {wordsToAdd.length > 0 && (
+                            <button onClick={handleAddWords}>Add Words</button>
+                        )}
+                    </div>
+                </div>
+            )}
         </>
     );
 }
