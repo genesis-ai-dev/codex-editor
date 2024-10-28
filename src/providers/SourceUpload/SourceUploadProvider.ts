@@ -107,7 +107,6 @@ export class SourceUploadProvider
     onDidChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
     onDidChange = this.onDidChangeEmitter.event;
     private currentPreview: PreviewState | null = null; // Add this property
-    private currentTransaction: SourceImportTransaction | null = null;
     private currentSourceTransaction: SourceImportTransaction | null = null;
     private currentTranslationTransaction: TranslationImportTransaction | null = null;
 
@@ -161,7 +160,7 @@ export class SourceUploadProvider
                             );
 
                             const transaction = new SourceImportTransaction(tempUri, this.context);
-                            this.currentTransaction = transaction;
+                            this.currentSourceTransaction = transaction;
 
                             // Get the raw preview from transaction
                             const rawPreview = await transaction.prepare();
@@ -212,13 +211,12 @@ export class SourceUploadProvider
                                 message.fileName
                             );
 
-                            // Create new translation import transaction
                             const transaction = new TranslationImportTransaction(
                                 tempUri,
                                 message.sourceId,
                                 this.context
                             );
-                            this.currentTranslationTransaction = transaction;
+                            this.currentTranslationTransaction = transaction; // Ensure this is set
 
                             // Generate preview
                             const rawPreview = await transaction.prepare();
@@ -378,7 +376,7 @@ export class SourceUploadProvider
                         );
 
                         // Create new import transaction
-                        this.currentTransaction = new SourceImportTransaction(
+                        this.currentSourceTransaction = new SourceImportTransaction(
                             tempUri,
                             this.context
                         );
@@ -392,8 +390,8 @@ export class SourceUploadProvider
                         break;
                     }
                     case "confirmSourceImport": {
-                        if (!this.currentTransaction) {
-                            throw new Error("No active import transaction");
+                        if (!this.currentSourceTransaction) {
+                            throw new Error("No active source import transaction");
                         }
 
                         await vscode.window.withProgress(
@@ -423,8 +421,8 @@ export class SourceUploadProvider
                                     };
 
                                     token.onCancellationRequested(() => {
-                                        if (this.currentTransaction) {
-                                            this.currentTransaction.rollback();
+                                        if (this.currentSourceTransaction) {
+                                            this.currentSourceTransaction.rollback();
                                         }
                                         webviewPanel.webview.postMessage({
                                             command: "error",
@@ -432,8 +430,8 @@ export class SourceUploadProvider
                                         } as SourceUploadResponseMessages);
                                     });
 
-                                    if (this.currentTransaction) {
-                                        await this.currentTransaction.execute(
+                                    if (this.currentSourceTransaction) {
+                                        await this.currentSourceTransaction.execute(
                                             { report: progressCallback },
                                             token
                                         );
@@ -459,21 +457,21 @@ export class SourceUploadProvider
                                     // Update metadata after successful import
                                     await this.updateMetadata(webviewPanel);
                                 } catch (error) {
-                                    if (this.currentTransaction) {
-                                        await this.currentTransaction.rollback();
+                                    if (this.currentSourceTransaction) {
+                                        await this.currentSourceTransaction.rollback();
                                     }
                                     throw error;
                                 } finally {
-                                    this.currentTransaction = null;
+                                    this.currentSourceTransaction = null;
                                 }
                             }
                         );
                         break;
                     }
                     case "cancelSourceImport": {
-                        if (this.currentTransaction) {
-                            await this.currentTransaction.rollback();
-                            this.currentTransaction = null;
+                        if (this.currentSourceTransaction) {
+                            await this.currentSourceTransaction.rollback();
+                            this.currentSourceTransaction = null;
                             webviewPanel.webview.postMessage({
                                 command: "importCancelled",
                             } as SourceUploadResponseMessages);

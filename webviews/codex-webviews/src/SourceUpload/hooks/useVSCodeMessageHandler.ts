@@ -18,6 +18,15 @@ export function useVSCodeMessageHandler() {
             const message = event.data;
 
             switch (message.command) {
+                case "availableSourceFiles":
+                    if (message.files) {
+                        setWorkflow((prev) => ({
+                            ...prev,
+                            availableSourceFiles: message.files
+                        }));
+                    }
+                    break;
+
                 case "sourcePreview":
                     if (message.preview) {
                         setWorkflow((prev) => ({

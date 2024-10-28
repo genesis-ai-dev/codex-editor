@@ -206,7 +206,11 @@ export type SourceUploadResponseMessages = {
         path?: string;
     };
     status?: Record<string, "pending" | "active" | "complete" | "error">;
-    files?: { id: string; name: string; path: string }[];
+    files?: Array<{
+        id: string;
+        name: string;
+        path: string;
+    }>;
     errorMessage?: string;
 };
 
@@ -809,3 +813,4 @@ type WorkflowStep = "select" | "preview" | "confirm" | "processing" | "complete"
 
 // Add ProcessingStage type
 type ProcessingStatus = "pending" | "active" | "complete" | "error";
+

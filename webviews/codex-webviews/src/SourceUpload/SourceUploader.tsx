@@ -152,10 +152,16 @@ export const SourceUploader: React.FC = () => {
         }));
     }, []);
 
-    const handlePreviewConfirm = useCallback(() => {
-        vscode.postMessage({
-            command: "confirmSourceImport",
-        } as SourceUploadPostMessages);
+    const handlePreviewConfirm = useCallback((type: "source" | "translation") => {
+        if (type === "source") {
+            vscode.postMessage({
+                command: "confirmSourceImport",
+            } as SourceUploadPostMessages);
+        } else {
+            vscode.postMessage({
+                command: "confirmTranslationImport",
+            } as SourceUploadPostMessages);
+        }
         setWorkflow((prev) => ({
             ...prev,
             step: "processing",
@@ -274,7 +280,7 @@ export const SourceUploader: React.FC = () => {
             return (
                 <TranslationPreview
                     preview={workflow.preview}
-                    onConfirm={handlePreviewConfirm}
+                    onConfirm={() => handlePreviewConfirm("translation")}
                     onCancel={handlePreviewCancel}
                 />
             );
@@ -283,7 +289,7 @@ export const SourceUploader: React.FC = () => {
         return (
             <SourcePreview
                 preview={workflow.preview}
-                onConfirm={handlePreviewConfirm}
+                onConfirm={() => handlePreviewConfirm("source")}
                 onCancel={handlePreviewCancel}
             />
         );
@@ -302,21 +308,21 @@ export const SourceUploader: React.FC = () => {
                                 ? "Select Your Source Text"
                                 : "Select Translation File"}
                         </h2>
-                        {workflow.importType === "translation" && workflow.availableSourceFiles && (
+                        {workflow.importType === "translation" && (
                             <div style={{ marginBottom: "2rem" }}>
                                 <label>Source Text:</label>
                                 <VSCodeDropdown
                                     style={{ width: "100%", marginTop: "0.5rem" }}
                                     onChange={(e: any) => {
-                                        vscode.postMessage({
-                                            command: "selectSourceFile",
-                                            data: {
-                                                sourcePath: e.target?.value || "",
-                                            },
-                                        } as SourceUploadPostMessages);
+                                        setWorkflow((prev) => ({
+                                            ...prev,
+                                            selectedSourceId: e.target.value,
+                                            error: null, // Clear any previous errors
+                                        }));
                                     }}
                                 >
-                                    {workflow.availableSourceFiles.map((file) => (
+                                    <VSCodeOption value="">Select a source text...</VSCodeOption>
+                                    {workflow.availableSourceFiles?.map((file) => (
                                         <VSCodeOption key={file.id} value={file.id}>
                                             {file.name}
                                         </VSCodeOption>
@@ -330,6 +336,20 @@ export const SourceUploader: React.FC = () => {
                             onClearFile={handleClearFile}
                             type={workflow.importType}
                         />
+                        {workflow.error && (
+                            <div
+                                style={{
+                                    marginTop: "1rem",
+                                    padding: "0.5rem",
+                                    color: "var(--vscode-inputValidation-errorForeground)",
+                                    background: "var(--vscode-inputValidation-errorBackground)",
+                                    border: "1px solid var(--vscode-inputValidation-errorBorder)",
+                                    borderRadius: "4px",
+                                }}
+                            >
+                                {workflow.error}
+                            </div>
+                        )}
                     </div>
                 );
 
