@@ -17,10 +17,10 @@ interface CellContentDisplayProps {
     isSourceText: boolean;
     hasDuplicateId: boolean;
     timestamps: Timestamps | undefined;
-    getAlertCodeFunction: (
+    getAlertCodeFunction?: (
         text: string,
         cellId: string
-    ) => Promise<{ getAlertCode: number; cellId: string }>;
+    ) => Promise<{ alertColorCode: number; cellId: string }>;
 }
 
 const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
@@ -37,17 +37,19 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     getAlertCodeFunction,
 }) => {
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
-    const [getAlertCode, setgetAlertCode] = useState<number>(-1);
+    const [alertColorCode, setAlertColorCode] = useState<number>(-1);
 
     useEffect(() => {
         const checkContent = async () => {
-            if (getAlertCode !== -1) return;
+            if (alertColorCode !== -1) return;
             try {
-                const result = await getAlertCodeFunction(cellContent, cellIds[0]);
-                setgetAlertCode(result.getAlertCode);
+                if (getAlertCodeFunction) {
+                    const result = await getAlertCodeFunction(cellContent, cellIds[0]);
+                    setAlertColorCode(result.alertColorCode);
+                }
             } catch (error) {
                 console.error("Error checking content:", error);
-                setgetAlertCode(0);
+                setAlertColorCode(0);
             }
         };
         checkContent();
@@ -103,7 +105,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         } as const;
         return (
             <AlertDot
-                color={colors[getAlertCode.toString() as keyof typeof colors] || "transparent"}
+                color={colors[alertColorCode.toString() as keyof typeof colors] || "transparent"}
             />
         );
     };

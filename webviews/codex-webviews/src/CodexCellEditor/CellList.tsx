@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useCallback, useRef, useEffect } from "react";
-import { EditorCellContent, QuillCellContent } from "../../../../types";
+import { EditorCellContent, QuillCellContent, SpellCheckResponse } from "../../../../types";
 import CellEditor from "./TextCellEditor";
 import CellContentDisplay from "./CellContentDisplay";
 import EmptyCellDisplay from "./EmptyCellDisplay";
@@ -22,7 +22,8 @@ interface CellListProps {
     getAlertCodeFunction: (
         text: string,
         cellId: string
-    ) => Promise<{ getAlertCode: boolean; cellId: string }>;
+    ) => Promise<{ alertColorCode: number; cellId: string }>;
+    spellCheckResponse: SpellCheckResponse | null;
 }
 
 const CellList: React.FC<CellListProps> = ({
@@ -38,6 +39,7 @@ const CellList: React.FC<CellListProps> = ({
     windowHeight,
     headerHeight,
     getAlertCodeFunction,
+    spellCheckResponse,
 }) => {
     const duplicateCellIds = useMemo(() => {
         const idCounts = new Map<string, number>();
@@ -141,6 +143,7 @@ const CellList: React.FC<CellListProps> = ({
                         style={{ display: "flex", alignItems: "center" }}
                     >
                         <CellEditor
+                            spellCheckResponse={spellCheckResponse}
                             cellIsChild={cellIsChild}
                             cellMarkers={cellMarkers}
                             cellContent={cellContent}

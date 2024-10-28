@@ -1,5 +1,10 @@
 import React, { useContext, useEffect, useRef, useState } from "react";
-import { EditorCellContent, EditorPostMessages, Timestamps } from "../../../../types";
+import {
+    EditorCellContent,
+    EditorPostMessages,
+    SpellCheckResponse,
+    Timestamps,
+} from "../../../../types";
 import Editor from "./Editor";
 import CloseButtonWithConfirmation from "../components/CloseButtonWithConfirmation";
 import { getCleanedHtml } from "./react-quill-spellcheck";
@@ -16,10 +21,11 @@ interface CellEditorProps {
     cellContent: string;
     cellIndex: number;
     cellType: CodexCellTypes;
+    spellCheckResponse: SpellCheckResponse | null;
     getAlertCode: (
         text: string,
         cellId: string
-    ) => Promise<{ getAlertCode: boolean; cellId: string }>;
+    ) => Promise<{ alertColorCode: number; cellId: string }>;
     contentBeingUpdated: EditorCellContent;
     setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorCellContent>>;
     handleCloseEditor: () => void;
@@ -50,6 +56,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const { sourceCellMap } = useContext(SourceCellContext);
     const cellEditorRef = useRef<HTMLDivElement>(null);
     const sourceCellContent = sourceCellMap?.[cellMarkers[0]];
+    const [editorContent, setEditorContent] = useState(cellContent);
 
     const unsavedChangesState = !!(
         contentBeingUpdated.cellContent &&

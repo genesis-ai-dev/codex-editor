@@ -2,7 +2,7 @@ import { useRef, useEffect, useMemo, useState } from "react";
 import Quill from "quill";
 import "quill/dist/quill.snow.css";
 import registerQuillSpellChecker, { getCleanedHtml } from "./react-quill-spellcheck";
-import { EditorPostMessages } from "../../../../types";
+import { EditorPostMessages, SpellCheckResponse } from "../../../../types";
 import "./TextEditor.css"; // over write the default quill styles so spans flow
 
 const icons: any = Quill.import("ui/icons");
@@ -24,7 +24,7 @@ export interface EditorProps {
     currentLineId: string;
     initialValue?: string;
     onChange?: (changes: EditorContentChanged) => void;
-    spellCheckResponse?: any;
+    spellCheckResponse?: SpellCheckResponse | null;
     textDirection: "ltr" | "rtl";
 }
 

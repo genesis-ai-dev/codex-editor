@@ -103,7 +103,11 @@ interface ScriptureContent extends vscode.NotebookData {
     };
 }
 type NotebookCellKind = vscode.NotebookCellKind;
-
+type VerseRefGlobalState = {
+    verseRef: string;
+    cellId: string;
+    uri: string;
+};
 type CommentPostMessages =
     | { command: "commentsFromWorkspace"; content: string }
     | { command: "reload"; data: VerseRefGlobalState }
@@ -814,4 +818,3 @@ type WorkflowStep = "select" | "preview" | "confirm" | "processing" | "complete"
 
 // Add ProcessingStage type
 type ProcessingStatus = "pending" | "active" | "complete" | "error";
-
