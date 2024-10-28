@@ -69,6 +69,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     const [editableLabel, setEditableLabel] = useState(cellLabel || "");
     const [advice, setAdvice] = useState("");
+    const [editorContent, setEditorContent] = useState(cellContent);
 
     useEffect(() => {
         setEditableLabel(cellLabel || "");
@@ -111,7 +112,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
             const messageContent: EditorPostMessages = {
                 command: "applyAdvice",
                 content: {
-                    text: editorContent,
+                    text: contentBeingUpdated.cellContent,
                     advicePrompt: advice,
                     cellId: cellMarkers[0],
                 },
@@ -225,6 +226,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
         const handleAdviceResponse = (event: MessageEvent) => {
             const message = event.data;
             if (message.type === "providerSendsAdviceResponse") {
+                setContentBeingUpdated((prev) => ({
+                    ...prev,
+                    cellContent: message.content,
+                }));
+                // Update the editor content as well
                 setEditorContent(message.content);
             }
         };
@@ -232,6 +238,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
         window.addEventListener("message", handleAdviceResponse);
         return () => window.removeEventListener("message", handleAdviceResponse);
     }, []);
+
     return (
         <div ref={cellEditorRef} className="cell-editor" style={{ direction: textDirection }}>
             <div className="cell-header">
@@ -303,9 +310,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 <Editor
                     currentLineId={cellMarkers[0]}
                     key={`${cellIndex}-quill`}
-                    initialValue={cellContent}
+                    initialValue={editorContent}
                     spellCheckResponse={spellCheckResponse}
                     onChange={debounce(({ html }) => {
+                        setEditorContent(html);
                         setContentBeingUpdated({
                             cellMarkers,
                             cellContent: html,

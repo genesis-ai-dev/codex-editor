@@ -352,7 +352,8 @@ export type EditorPostMessages =
     | { command: "openSourceText"; content: { chapterNumber: number } }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string } }
     | { command: "pickVideoFile" }
-    | { command: "applyAdvice"; content: { text: string; advicePrompt: string; cellId: string } };
+    | { command: "applyAdvice"; content: { text: string; advicePrompt: string; cellId: string } }
+    | { command: "getAndApplyAdvice"; content: { text: string; cellId: string } };
 
 type EditorReceiveMessages =
     | {

@@ -82,6 +82,45 @@ export class SmartAdvice {
             return null;
         }
     }
+    async getAndApplyTopAdvice(cellId: string, text: string): Promise<string> {
+        console.log(`Getting and applying top advice for cellId: ${cellId}`);
+
+        // Find similar cells to get relevant advice
+        const similarCells = await this.findSimilarCells(text);
+        const topSimilarCells = similarCells.slice(0, 10).map((entry) => entry.cellId);
+        console.log(`Found ${topSimilarCells.length} similar cells`);
+
+        // Get advice for current cell and similar cells
+        const advicePromises = [cellId, ...topSimilarCells].map((id) => this.getAdvice(id));
+        const allAdvice = await Promise.all(advicePromises);
+        console.log(`Retrieved ${allAdvice.length} pieces of advice`);
+
+        // Filter out null values and get most recent valid advice
+        const validAdvice = allAdvice.filter((advice) => advice !== null)[0];
+        console.log(`Found valid advice: ${validAdvice ? "yes" : "no"}`);
+
+        if (!validAdvice) {
+            console.log("No valid advice found, returning original text");
+            return text;
+        }
+
+        try {
+            console.log("Applying advice using chatbot");
+            // Apply the advice using chatbot
+            const message = `Advice: ${validAdvice}\n\nModify this text according to this prompt:\n\n${text} \n\nPlease return the modified text in the json format specified, do not include any HTML in your response or in the text.`;
+            const response = await this.chatbot.getJsonCompletion(message);
+
+            if (response && response.modifiedText) {
+                console.log("Successfully modified text with advice");
+                return response.modifiedText;
+            }
+            console.log("No modified text in response, returning original");
+            return text;
+        } catch (error) {
+            console.error("Error applying advice:", error);
+            return text;
+        }
+    }
 
     private async saveAdvice(
         cellId: string,

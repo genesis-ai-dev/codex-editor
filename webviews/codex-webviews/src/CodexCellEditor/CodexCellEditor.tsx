@@ -45,7 +45,7 @@ const CodexCellEditor: React.FC = () => {
     );
     const [isSourceText, setIsSourceText] = useState<boolean>(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState<boolean>(false);
-    console.log({ isMetadataModalOpen });
+
     const [metadata, setMetadata] = useState<CustomNotebookMetadata>({
         videoUrl: "", // FIXME: use attachments instead of videoUrl
     } as CustomNotebookMetadata);

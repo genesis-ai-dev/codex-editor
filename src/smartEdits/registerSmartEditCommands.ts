@@ -81,6 +81,22 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
             }
         })
     );
-
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-smart-edits.getAndApplyAdvice",
+            async (cellId: string, text: string) => {
+                try {
+                    const modifiedText = await smartAdvice.getAndApplyTopAdvice(cellId, text);
+                    return modifiedText;
+                } catch (error) {
+                    console.error("Error getting and applying advice:", error);
+                    vscode.window.showErrorMessage(
+                        "Failed to get and apply advice. Please check the console for more details."
+                    );
+                    return null;
+                }
+            }
+        )
+    );
     console.log("Smart Edit commands registered");
 };
