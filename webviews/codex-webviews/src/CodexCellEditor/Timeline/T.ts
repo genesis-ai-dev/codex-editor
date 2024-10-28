@@ -554,6 +554,8 @@ export default function TimeLine({
             } else if (mouse.y > TIME_BAR_MARGIN && mouse.y < TIMELINE_HEIGHT - SCROLL_BAR_HEIGHT) {
                 swaping = true;
             }
+
+            player.play(player.currentTime);
         }
     }
 
@@ -944,12 +946,18 @@ export default function TimeLine({
             cursorInScroll || scrolling ? options.colors.scrollBarHover : options.colors.scrollBar;
         const d = endTimeShow - beginingTimeShow;
         let rat = d / endTime;
-        scrollSize = w * rat;
-        if (rat > 1) rat = 1;
+        if (rat > 1) rat = 10;
+        scrollSize = Math.max(w * rat, 10);
         const ratio = beginingTimeShow / endTime;
         scrollPosition = ratio * w;
         changeInScrollPosition(scrollPosition);
         const padding = 1;
+        // console.log({
+        //     scrollSize,
+        //     scrollPosition,
+        //     2: TIMELINE_HEIGHT - SCROLL_BAR_HEIGHT + padding,
+        //     4: SCROLL_BAR_HEIGHT - 2 - 2 * padding,
+        // });
         context.fillRect(
             scrollPosition,
             TIMELINE_HEIGHT - SCROLL_BAR_HEIGHT + padding,
@@ -962,8 +970,8 @@ export default function TimeLine({
     function addListenerHandlers(canvas: HTMLCanvasElement) {
         window.removeEventListener("resize", resize);
         window.addEventListener("resize", resize);
-        canvas.removeEventListener("wheel", handleZoom);
-        canvas.addEventListener("wheel", handleZoom);
+        // canvas.removeEventListener("wheel", handleZoom);
+        // canvas.addEventListener("wheel", handleZoom);
         canvas.removeEventListener("mousemove", mousemoveGeneral);
         canvas.addEventListener("mousemove", mousemoveGeneral);
         canvas.removeEventListener("mousemove", handleMouseMove);

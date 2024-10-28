@@ -9,6 +9,7 @@ interface VideoPlayerProps {
     translationUnitsForSection: QuillCellContent[];
     showSubtitles?: boolean;
     onTimeUpdate?: (time: number) => void;
+    autoPlay: boolean;
 }
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -17,6 +18,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     translationUnitsForSection,
     showSubtitles = true,
     onTimeUpdate,
+    autoPlay,
 }) => {
     const { subtitleUrl } = useSubtitleData(translationUnitsForSection);
     let file: Config["file"] = undefined;
@@ -73,7 +75,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     key={subtitleUrl}
                     ref={playerRef}
                     url={videoUrl}
-                    playing={true}
+                    playing={autoPlay}
+                    volume={0}
                     controls={true}
                     width="100%"
                     onError={handleError}

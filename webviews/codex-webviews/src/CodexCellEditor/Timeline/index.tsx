@@ -4,8 +4,11 @@ import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import "./index.css";
 import { TimeBlock } from "../../../../../types";
 import ReactPlayer from "react-player";
+import ZoomButton from "./ZoomButton";
 
 export interface TimelineProps {
+    setAutoPlay: (autoPlay: boolean) => void;
+    autoPlay: boolean;
     playerRef?: React.RefObject<ReactPlayer>;
     changeAreaShow: (beginingTimeShow: number, endTimeShow: number) => void;
     changeZoomLevel: (zoomLevel: number) => void;
@@ -38,7 +41,7 @@ export interface TimelineProps {
 }
 
 export default function Timeline(props: TimelineProps) {
-    const [scrollingIsTracking, setScrollingIsTracking] = useState(true);
+    // const [scrollingIsTracking, setScrollingIsTracking] = useState(true);
     const [scrollPosition, setScrollPosition] = useState(0);
     let timeLine: TimelineReturn | undefined;
     let shift: number;
@@ -98,7 +101,7 @@ export default function Timeline(props: TimelineProps) {
             options: {
                 autoScroll: props.autoScroll,
                 initialZoomLevel: props.initialZoomLevel, // Pass the prop through
-                scrollingIsTracking: scrollingIsTracking,
+                scrollingIsTracking: true,
                 scrollPosition: scrollPosition,
                 colors: {
                     background: props.colors?.background || "transparent",
@@ -129,7 +132,7 @@ export default function Timeline(props: TimelineProps) {
         return () => {
             if (timeLine) timeLine.cancelAnimate();
         };
-    }, [props.data, props.src, props.initialZoomLevel, scrollingIsTracking]); // Add props.resetTimeline to the dependency array
+    }, [props.data, props.src, props.initialZoomLevel]); // Add props.resetTimeline to the dependency array
 
     const style = {
         height: "90px",
@@ -158,43 +161,22 @@ export default function Timeline(props: TimelineProps) {
                         borderRadius: 0,
                     }}
                     onClick={() => {
-                        setScrollingIsTracking(!scrollingIsTracking);
-                        resetTimeline();
+                        props.setAutoPlay(!props.autoPlay);
                     }}
                 >
-                    <i
-                        className={`codicon codicon-${
-                            scrollingIsTracking ? "pinned-dirty" : "pinned"
-                        }`}
-                    ></i>
+                    <i className={`codicon codicon-${props.autoPlay ? "debug-pause" : "play"}`}></i>
                 </VSCodeButton>
-                <VSCodeButton
-                    style={{
-                        display: "flex",
-                        flex: 1,
-                        borderRadius: 0,
-                    }}
-                    appearance="secondary"
-                    onClick={() => {
-                        changeZoomLevel(initialZoomLevel + 1);
-                    }}
-                >
-                    <i className="codicon codicon-zoom-in"></i>
-                </VSCodeButton>
+                <ZoomButton
+                    initialZoomLevel={initialZoomLevel}
+                    changeZoomLevel={changeZoomLevel}
+                    zoomIn={true}
+                />
 
-                <VSCodeButton
-                    style={{
-                        display: "flex",
-                        flex: 1,
-                        borderRadius: 0,
-                    }}
-                    appearance="secondary"
-                    onClick={() => {
-                        changeZoomLevel(initialZoomLevel - 1);
-                    }}
-                >
-                    <i className="codicon codicon-zoom-out"></i>
-                </VSCodeButton>
+                <ZoomButton
+                    initialZoomLevel={initialZoomLevel}
+                    changeZoomLevel={changeZoomLevel}
+                    zoomIn={false}
+                />
             </div>
             <div style={style} className="timeline-editor">
                 <div hidden>

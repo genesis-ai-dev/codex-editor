@@ -18,6 +18,7 @@ const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
     playerRef,
 }) => {
     // const playerRef = useRef<ReactPlayer>(null);
+    const [autoPlay, setAutoPlay] = useState(true);
     const [currentTime, setCurrentTime] = useState(0);
 
     // Add this function to handle seeking
@@ -48,12 +49,15 @@ const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
                 playerRef={playerRef}
                 videoUrl={videoUrl}
                 translationUnitsForSection={translationUnitsForSection}
+                autoPlay={autoPlay}
                 onTimeUpdate={handleTimeUpdate}
             />
             <TimelineEditor
+                autoPlay={autoPlay}
                 playerRef={playerRef}
                 data={data}
                 vscode={vscode}
+                setAutoPlay={setAutoPlay}
                 currentTime={currentTime}
             />
         </div>
