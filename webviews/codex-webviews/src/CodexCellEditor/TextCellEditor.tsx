@@ -75,7 +75,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     }, [showFlashingBorder]);
 
     const [editableLabel, setEditableLabel] = useState(cellLabel || "");
-    const [advice, setAdvice] = useState("");
+    const [prompt, setPrompt] = useState("");
 
     useEffect(() => {
         setEditableLabel(cellLabel || "");
@@ -107,29 +107,29 @@ const CellEditor: React.FC<CellEditorProps> = ({
         handleLabelBlur();
     };
 
-    const handleAdviceChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-        setAdvice(e.target.value);
+    const handlePromptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        setPrompt(e.target.value);
     };
 
-    const handleAdviceSend = async () => {
-        if (!advice.trim()) return;
+    const handlePromptSend = async () => {
+        if (!prompt.trim()) return;
 
         try {
             const messageContent: EditorPostMessages = {
-                command: "applyAdvice",
+                command: "applyPromptedEdit",
                 content: {
                     text: contentBeingUpdated.cellContent,
-                    advicePrompt: advice,
+                    prompt: prompt,
                     cellId: cellMarkers[0],
                 },
             };
 
             window.vscodeApi.postMessage(messageContent);
 
-            // Clear the advice input
-            setAdvice("");
+            // Clear the prompt input
+            setPrompt("");
         } catch (error) {
-            console.error("Error sending advice:", error);
+            console.error("Error sending prompt:", error);
         }
     };
 
@@ -229,9 +229,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
         getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !== "";
 
     useEffect(() => {
-        const handleAdviceResponse = (event: MessageEvent) => {
+        const handlePromptedEditResponse = (event: MessageEvent) => {
             const message = event.data;
-            if (message.type === "providerSendsAdviceResponse") {
+            if (message.type === "providerSendsPromptedEditResponse") {
                 setContentBeingUpdated((prev) => ({
                     ...prev,
                     cellContent: message.content,
@@ -241,8 +241,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
             }
         };
 
-        window.addEventListener("message", handleAdviceResponse);
-        return () => window.removeEventListener("message", handleAdviceResponse);
+        window.addEventListener("message", handlePromptedEditResponse);
+        return () => window.removeEventListener("message", handlePromptedEditResponse);
     }, []);
 
     return (
@@ -267,18 +267,18 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 <i className="codicon codicon-save"></i>
                             </VSCodeButton>
                         </div>
-                        <div className="advice-container">
+                        <div className="prompt-container">
                             <textarea
-                                value={advice}
-                                onChange={handleAdviceChange}
+                                value={prompt}
+                                onChange={handlePromptChange}
                                 placeholder="Prompt"
                                 rows={1}
-                                className="advice-input"
+                                className="prompt-input"
                             />
                             <VSCodeButton
-                                onClick={handleAdviceSend}
+                                onClick={handlePromptSend}
                                 appearance="icon"
-                                title="Send Advice"
+                                title="Send Prompt"
                             >
                                 <i className="codicon codicon-send"></i>
                             </VSCodeButton>
@@ -373,7 +373,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     flex-grow: 1;
                 }
 
-                .label-container, .advice-container {
+                .label-container, .prompt-container {
                     display: flex;
                     align-items: center;
                     gap: 0.5rem;
@@ -386,12 +386,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     width: 200px;
                 }
 
-                .advice-input {
+                .prompt-input {
                     width: 250px;
                     resize: none;
                 }
 
-                .label-input, .advice-input {
+                .label-input, .prompt-input {
                     background: transparent;
                     border: none;
                     color: var(--vscode-input-foreground);

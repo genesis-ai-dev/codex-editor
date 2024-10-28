@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { SmartEdits } from "./smartEdits";
-import { SmartAdvice } from "./smartAdvice";
+import { PromptedSmartEdits } from "./smartPrompts";
 import { getWorkSpaceFolder } from "../utils";
 
 export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
@@ -11,7 +11,7 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
     }
 
     const smartEdits = new SmartEdits(vscode.Uri.file(workspaceFolder));
-    const smartAdvice = new SmartAdvice(vscode.Uri.file(workspaceFolder));
+    const promptedSmartEdits = new PromptedSmartEdits(vscode.Uri.file(workspaceFolder));
 
     context.subscriptions.push(
         vscode.commands.registerCommand(
@@ -50,16 +50,20 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
 
     context.subscriptions.push(
         vscode.commands.registerCommand(
-            "codex-smart-edits.applyAdvice",
-            async (text: string, advicePrompt: string, cellId: string) => {
+            "codex-smart-edits.applyPromptedEdit",
+            async (text: string, prompt: string, cellId: string) => {
                 try {
-                    const modifiedText = await smartAdvice.applyAdvice(text, advicePrompt, cellId);
+                    const modifiedText = await promptedSmartEdits.applyPromptedEdit(
+                        text,
+                        prompt,
+                        cellId
+                    );
                     console.log("Modified text: ", modifiedText);
                     return modifiedText;
                 } catch (error) {
-                    console.error("Error applying advice:", error);
+                    console.error("Error applying prompted edit:", error);
                     vscode.window.showErrorMessage(
-                        "Failed to apply advice. Please check the console for more details."
+                        "Failed to apply prompted edit. Please check the console for more details."
                     );
                     return text;
                 }
@@ -68,30 +72,36 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand("codex-smart-edits.getAdvice", async (cellId: string) => {
-            try {
-                const advice = await smartAdvice.getAdvice(cellId);
-                return advice;
-            } catch (error) {
-                console.error("Error getting advice:", error);
-                vscode.window.showErrorMessage(
-                    "Failed to get advice. Please check the console for more details."
-                );
-                return null;
+        vscode.commands.registerCommand(
+            "codex-smart-edits.getPromptFromCellId",
+            async (cellId: string) => {
+                try {
+                    const prompt = await promptedSmartEdits.getPromptFromCellId(cellId);
+                    return prompt;
+                } catch (error) {
+                    console.error("Error getting prompt:", error);
+                    vscode.window.showErrorMessage(
+                        "Failed to get prompt. Please check the console for more details."
+                    );
+                    return null;
+                }
             }
-        })
+        )
     );
     context.subscriptions.push(
         vscode.commands.registerCommand(
-            "codex-smart-edits.getAndApplyAdvice",
+            "codex-smart-edits.getAndApplyTopPrompts",
             async (cellId: string, text: string) => {
                 try {
-                    const modifiedText = await smartAdvice.getAndApplyTopAdvice(cellId, text);
+                    const modifiedText = await promptedSmartEdits.getAndApplyTopPrompts(
+                        cellId,
+                        text
+                    );
                     return modifiedText;
                 } catch (error) {
-                    console.error("Error getting and applying advice:", error);
+                    console.error("Error getting and applying prompted edit:", error);
                     vscode.window.showErrorMessage(
-                        "Failed to get and apply advice. Please check the console for more details."
+                        "Failed to get and apply prompted edit. Please check the console for more details."
                     );
                     return null;
                 }

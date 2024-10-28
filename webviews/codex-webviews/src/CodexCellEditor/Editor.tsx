@@ -4,6 +4,7 @@ import "quill/dist/quill.snow.css";
 import registerQuillSpellChecker, { getCleanedHtml } from "./react-quill-spellcheck";
 import { EditorPostMessages, SpellCheckResponse } from "../../../../types";
 import "./TextEditor.css"; // over write the default quill styles so spans flow
+import { applyStyles } from "@popperjs/core";
 
 const icons: any = Quill.import("ui/icons");
 // Assuming you have access to the VSCode API here
@@ -14,7 +15,7 @@ registerQuillSpellChecker(Quill, vscode);
 // Use VSCode icon for autocomplete
 icons["autocomplete"] = `<i class="codicon codicon-sparkle quill-toolbar-icon"></i>`;
 icons["openLibrary"] = `<i class="codicon codicon-book quill-toolbar-icon"></i>`;
-icons["applyAdvice"] = `<i class="codicon codicon-symbol-event quill-toolbar-icon"></i>`; // Add new icon
+icons["applyTopPrompts"] = `<i class="codicon codicon-symbol-event quill-toolbar-icon"></i>`; // Add new icon
 
 export interface EditorContentChanged {
     html: string;
@@ -36,7 +37,7 @@ const TOOLBAR_OPTIONS = [
     [{ indent: "-1" }, { indent: "+1" }],
     ["clean"],
     ["openLibrary"], // Library button
-    ["autocomplete", "applyAdvice"], // Add both dynamic buttons here
+    ["autocomplete", "applyTopPrompts"], // Add both dynamic buttons here
 ];
 
 export default function Editor(props: EditorProps) {
@@ -89,10 +90,10 @@ export default function Editor(props: EditorProps) {
                                 setWordsToAdd(words);
                                 setShowModal(true);
                             },
-                            applyAdvice: async () => {
+                            applyTopPrompts: async () => {
                                 const content = quill.getText();
                                 window.vscodeApi.postMessage({
-                                    command: "getAndApplyAdvice",
+                                    command: "getAndApplyTopPrompts",
                                     content: {
                                         text: content,
                                         cellId: props.currentLineId,
@@ -115,15 +116,15 @@ export default function Editor(props: EditorProps) {
 
                 // Get the buttons
                 const autocompleteButton = document.querySelector(".ql-autocomplete");
-                const applyAdviceButton = document.querySelector(".ql-applyAdvice");
+                const applyPromptButton = document.querySelector(".ql-applyTopPrompts");
 
-                if (autocompleteButton && applyAdviceButton) {
+                if (autocompleteButton && applyPromptButton) {
                     if (empty) {
                         (autocompleteButton as HTMLElement).style.display = "";
-                        (applyAdviceButton as HTMLElement).style.display = "none";
+                        (applyPromptButton as HTMLElement).style.display = "none";
                     } else {
                         (autocompleteButton as HTMLElement).style.display = "none";
-                        (applyAdviceButton as HTMLElement).style.display = "";
+                        (applyPromptButton as HTMLElement).style.display = "";
                     }
                 }
             };
@@ -212,12 +213,12 @@ export default function Editor(props: EditorProps) {
         setShowModal(false);
     };
 
-    // Add message listener for advice response
+    // Add message listener for prompt response
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             if (quillRef.current) {
                 const quill = quillRef.current;
-                if (event.data.type === "providerSendsAdviceResponse") {
+                if (event.data.type === "providerSendsPromptedEditResponse") {
                     quill.setText(event.data.content);
                     quill.update();
                 } else if (event.data.type === "providerSendsLLMCompletionResponse") {

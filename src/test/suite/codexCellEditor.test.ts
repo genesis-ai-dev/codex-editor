@@ -545,15 +545,15 @@ suite("CodexCellEditorProvider Test Suite", () => {
         const originalExecuteCommand = vscode.commands.executeCommand;
         // @ts-expect-error: Mocking executeCommand for testing purposes
         vscode.commands.executeCommand = async (command: string, ...args: any[]) => {
-            if (command === "codex-smart-edits.getAndApplyAdvice") {
+            if (command === "codex-smart-edits.getAndApplyTopPrompts") {
                 return smartEditResult;
             }
             return originalExecuteCommand(command, ...args);
         };
 
-        // Simulate receiving a getAndApplyAdvice message from the webview
+        // Simulate receiving a getAndApplyTopPrompts message from the webview
         onDidReceiveMessageCallback!({
-            command: "getAndApplyAdvice",
+            command: "getAndApplyTopPrompts",
             content: {
                 text: originalContent,
                 cellId: cellId,
@@ -567,8 +567,8 @@ suite("CodexCellEditorProvider Test Suite", () => {
         assert.ok(receivedMessage, "Provider should send a response message");
         assert.strictEqual(
             receivedMessage.type,
-            "providerSendsAdviceResponse",
-            "Response should be of type providerSendsAdviceResponse"
+            "providerSendsPromptedEditResponse",
+            "Response should be of type providerSendsPromptedEditResponse"
         );
         assert.strictEqual(
             receivedMessage.content,
