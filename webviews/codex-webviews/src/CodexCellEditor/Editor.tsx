@@ -91,7 +91,6 @@ export default function Editor(props: EditorProps) {
                             },
                             applyAdvice: async () => {
                                 const content = quill.getText();
-                                console.log("getAndApplyAdvice Editor: ", content);
                                 window.vscodeApi.postMessage({
                                     command: "getAndApplyAdvice",
                                     content: {
@@ -216,18 +215,12 @@ export default function Editor(props: EditorProps) {
     // Add message listener for advice response
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
-            console.log("Editor 1: ", event.data.type);
             if (quillRef.current) {
-                console.log("Editor 2: ", event.data.type);
-
                 const quill = quillRef.current;
-
                 if (event.data.type === "providerSendsAdviceResponse") {
-                    console.log("Advice response:", event.data.content);
                     quill.setText(event.data.content);
                     quill.update();
                 } else if (event.data.type === "providerSendsLLMCompletionResponse") {
-                    console.log("LLM completion response:", event.data.content);
                     const completionText = event.data.content.completion;
                     quill.root.innerHTML = completionText; // Clear existing content
                 }
