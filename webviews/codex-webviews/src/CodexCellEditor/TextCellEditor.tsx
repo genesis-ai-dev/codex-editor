@@ -76,7 +76,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     const [editableLabel, setEditableLabel] = useState(cellLabel || "");
     const [advice, setAdvice] = useState("");
-    const [editorContent, setEditorContent] = useState(cellContent);
 
     useEffect(() => {
         setEditableLabel(cellLabel || "");

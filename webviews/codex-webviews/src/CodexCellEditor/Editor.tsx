@@ -119,11 +119,11 @@ export default function Editor(props: EditorProps) {
 
                 if (autocompleteButton && applyAdviceButton) {
                     if (empty) {
-                        autocompleteButton.style.display = "";
-                        applyAdviceButton.style.display = "none";
+                        (autocompleteButton as HTMLElement).style.display = "";
+                        (applyAdviceButton as HTMLElement).style.display = "none";
                     } else {
-                        autocompleteButton.style.display = "none";
-                        applyAdviceButton.style.display = "";
+                        (autocompleteButton as HTMLElement).style.display = "none";
+                        (applyAdviceButton as HTMLElement).style.display = "";
                     }
                 }
             };
