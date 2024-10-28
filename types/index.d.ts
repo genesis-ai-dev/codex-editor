@@ -168,7 +168,7 @@ type ChatPostMessages =
 type SourceUploadPostMessages =
     | { command: "uploadSourceText"; fileContent: string; fileName: string }
     | { command: "uploadTranslation"; fileContent: string; fileName: string; sourceId: string }
-    | { command: "getAvailableSourceFiles" }
+    | { command: "getAvailableCodexFiles" }
     | { command: "selectSourceFile"; data: { sourcePath: string } }
     | { command: "confirmSourceImport" }
     | { command: "confirmTranslationImport" }
@@ -198,7 +198,7 @@ export type SourceUploadResponseMessages = {
         | "error"
         | "importComplete"
         | "importCancelled"
-        | "availableSourceFiles"
+        | "availableCodexFiles"
         | "translationPreview";
     metadata?: AggregatedMetadata[];
     preview?: PreviewState;

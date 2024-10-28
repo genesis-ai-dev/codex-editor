@@ -18,11 +18,11 @@ export function useVSCodeMessageHandler() {
             const message = event.data;
 
             switch (message.command) {
-                case "availableSourceFiles":
+                case "availableCodexFiles":
                     if (message.files) {
                         setWorkflow((prev) => ({
                             ...prev,
-                            availableSourceFiles: message.files
+                            availableCodexFiles: message.files
                         }));
                     }
                     break;

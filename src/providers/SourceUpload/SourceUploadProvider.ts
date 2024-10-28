@@ -478,21 +478,22 @@ export class SourceUploadProvider
                         }
                         break;
                     }
-                    case "getAvailableSourceFiles": {
+                    case "getAvailableCodexFiles": {
                         const metadataManager = new NotebookMetadataManager();
                         await metadataManager.initialize();
-                        const sourceFiles = metadataManager
+                        const codexFiles = metadataManager
                             .getAllMetadata()
-                            .filter((meta) => meta.sourceFsPath)
+                            .filter((meta) => meta.codexFsPath)
+                            // .sort((a, b) => a.codexLastModified - b.codexLastModified) // FIXME:
                             .map((meta) => ({
                                 id: meta.id,
-                                name: meta.originalName || path.basename(meta.sourceFsPath!),
-                                path: meta.sourceFsPath!,
+                                name: meta.originalName || path.basename(meta.codexFsPath!),
+                                path: meta.codexFsPath!,
                             }));
 
                         webviewPanel.webview.postMessage({
-                            command: "availableSourceFiles",
-                            files: sourceFiles,
+                            command: "availableCodexFiles",
+                            files: codexFiles,
                         } as SourceUploadResponseMessages);
                         break;
                     }

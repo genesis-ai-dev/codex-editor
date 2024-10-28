@@ -4,12 +4,7 @@ import { PreviewContent, ProcessingStatus } from "../../../../types";
 export type ImportType = "source" | "translation";
 
 // Update WorkflowStep to include the new initial step
-export type WorkflowStep = 
-    | "type-select"
-    | "select"
-    | "preview"
-    | "processing"
-    | "complete";
+export type WorkflowStep = "type-select" | "select" | "preview" | "processing" | "complete";
 
 export interface WorkflowState {
     step: WorkflowStep;
@@ -20,7 +15,7 @@ export interface WorkflowState {
     error?: string | null;
     processingStages: ProcessingStages;
     progress?: ImportProgress;
-    availableSourceFiles?: Array<{
+    availableCodexFiles?: Array<{
         id: string;
         name: string;
         path: string;

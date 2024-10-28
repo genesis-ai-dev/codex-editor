@@ -260,7 +260,7 @@ export const SourceUploader: React.FC = () => {
             if (type === "translation") {
                 // Request available source files from extension
                 vscode.postMessage({
-                    command: "getAvailableSourceFiles",
+                    command: "getAvailableCodexFiles",
                 } as SourceUploadPostMessages);
             }
 
@@ -305,12 +305,12 @@ export const SourceUploader: React.FC = () => {
                     <div style={{ padding: "2rem" }}>
                         <h2 style={{ marginBottom: "1rem" }}>
                             {workflow.importType === "source"
-                                ? "Select Your Source Text"
+                                ? "Select Your Source File"
                                 : "Select Translation File"}
                         </h2>
                         {workflow.importType === "translation" && (
                             <div style={{ marginBottom: "2rem" }}>
-                                <label>Source Text:</label>
+                                <label>Codex File:</label>
                                 <VSCodeDropdown
                                     style={{ width: "100%", marginTop: "0.5rem" }}
                                     onChange={(e: any) => {
@@ -321,8 +321,8 @@ export const SourceUploader: React.FC = () => {
                                         }));
                                     }}
                                 >
-                                    <VSCodeOption value="">Select a source text...</VSCodeOption>
-                                    {workflow.availableSourceFiles?.map((file) => (
+                                    <VSCodeOption value="">Select a Codex file...</VSCodeOption>
+                                    {workflow.availableCodexFiles?.map((file) => (
                                         <VSCodeOption key={file.id} value={file.id}>
                                             {file.name}
                                         </VSCodeOption>
