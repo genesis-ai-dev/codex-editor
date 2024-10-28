@@ -3,10 +3,15 @@ import * as path from "path";
 import Chatbot from "./chat";
 import { TranslationPair } from "../../types";
 
+// Update the interface to support multiple advice entries with timestamps
+interface AdviceEntry {
+    advicePrompt: string;
+    timestamp: number;
+}
+
 interface SavedAdvice {
     cellId: string;
-    advicePrompt: string;
-    similarCells: string[];
+    adviceHistory: AdviceEntry[];
 }
 
 const SYSTEM_MESSAGE = `You are a helpful assistant that modifies text according to given advice/instructions.
@@ -35,16 +40,15 @@ export class SmartAdvice {
     async applyAdvice(text: string, advicePrompt: string, cellId: string): Promise<string> {
         console.log(`Applying advice for cellId: ${cellId}`);
 
-        // Find similar cells
-        const similarCells = await this.findSimilarCells(text);
-        const topSimilarCells = similarCells.slice(0, 10).map((entry) => entry.cellId);
+        // Process any cell references in the advice
+        const processedAdvice = await this.processCellReferences(advicePrompt);
 
-        // Save the advice
-        await this.saveAdvice(cellId, advicePrompt, topSimilarCells);
+        // Save the original advice (with references)
+        await this.saveAdvice(cellId, advicePrompt);
 
         try {
-            // Apply the advice using chatbot
-            const message = `Advice: ${advicePrompt}\n\nModify this text according to this prompt:\n\n${text} \n\nPlease return the modified text in the json format specified, do not include any HTML in your response or in the text.`;
+            // Apply the processed advice using chatbot
+            const message = `Advice: ${processedAdvice}\n\nModify this text according to this prompt:\n\n${text} \n\nPlease return the modified text in the json format specified, do not include any HTML in your response or in the text.`;
             const response = await this.chatbot.getJsonCompletion(message);
 
             if (response && response.modifiedText) {
@@ -64,16 +68,12 @@ export class SmartAdvice {
             const fileContent = await vscode.workspace.fs.readFile(fileUri);
             const savedAdvice: { [key: string]: SavedAdvice } = JSON.parse(fileContent.toString());
 
-            // First check direct match
-            if (savedAdvice[cellId]) {
-                return savedAdvice[cellId].advicePrompt;
-            }
-
-            // Then check similar cells lists
-            for (const advice of Object.values(savedAdvice)) {
-                if (advice.similarCells.includes(cellId)) {
-                    return advice.advicePrompt;
-                }
+            if (savedAdvice[cellId] && savedAdvice[cellId].adviceHistory.length > 0) {
+                // Return the most recent advice
+                const sortedAdvice = savedAdvice[cellId].adviceHistory.sort(
+                    (a, b) => b.timestamp - a.timestamp
+                );
+                return sortedAdvice[0].advicePrompt;
             }
 
             return null;
@@ -82,16 +82,17 @@ export class SmartAdvice {
             return null;
         }
     }
+
     async getAndApplyTopAdvice(cellId: string, text: string): Promise<string> {
         console.log(`Getting and applying top advice for cellId: ${cellId}`);
 
-        // Find similar cells to get relevant advice
+        // Find similar cells
         const similarCells = await this.findSimilarCells(text);
-        const topSimilarCells = similarCells.slice(0, 10).map((entry) => entry.cellId);
-        console.log(`Found ${topSimilarCells.length} similar cells`);
+        const cellIds = [cellId, ...similarCells.map((cell) => cell.cellId)];
+        console.log(`Found ${similarCells.length} similar cells`);
 
         // Get advice for current cell and similar cells
-        const advicePromises = [cellId, ...topSimilarCells].map((id) => this.getAdvice(id));
+        const advicePromises = cellIds.map((id) => this.getAdvice(id));
         const allAdvice = await Promise.all(advicePromises);
         console.log(`Retrieved ${allAdvice.length} pieces of advice`);
 
@@ -122,11 +123,7 @@ export class SmartAdvice {
         }
     }
 
-    private async saveAdvice(
-        cellId: string,
-        advicePrompt: string,
-        similarCells: string[]
-    ): Promise<void> {
+    private async saveAdvice(cellId: string, advicePrompt: string): Promise<void> {
         try {
             console.log(`Saving advice for cellId: ${cellId}`);
             let savedAdvice: { [key: string]: SavedAdvice } = {};
@@ -139,11 +136,19 @@ export class SmartAdvice {
                 console.log("No existing saved advice found, starting with empty object");
             }
 
-            savedAdvice[cellId] = {
-                cellId,
+            // Initialize or update advice history for the cell
+            if (!savedAdvice[cellId]) {
+                savedAdvice[cellId] = {
+                    cellId,
+                    adviceHistory: [],
+                };
+            }
+
+            // Add new advice with timestamp
+            savedAdvice[cellId].adviceHistory.push({
                 advicePrompt,
-                similarCells,
-            };
+                timestamp: Date.now(),
+            });
 
             const fileUri = vscode.Uri.file(this.smartAdvicePath);
             await vscode.workspace.fs.writeFile(
@@ -169,5 +174,38 @@ export class SmartAdvice {
             console.error("Error searching parallel cells:", error);
             return [];
         }
+    }
+
+    // Add helper function to extract and process cell references
+    private async processCellReferences(advicePrompt: string): Promise<string> {
+        // Match cellIds in format <BOOK C:V> or similar patterns
+        const cellIdPattern = /<([^>]+)>/g;
+        const matches = advicePrompt.match(cellIdPattern);
+
+        if (!matches) return advicePrompt;
+
+        let processedPrompt = advicePrompt;
+
+        for (const match of matches) {
+            const cellId = match.slice(1, -1); // Remove < >
+            try {
+                const translationPair = await vscode.commands.executeCommand<TranslationPair>(
+                    "translators-copilot.getTranslationPairFromProject",
+                    cellId
+                );
+
+                if (translationPair) {
+                    // Replace the cell reference with its actual content
+                    processedPrompt = processedPrompt.replace(
+                        match,
+                        `"${translationPair.targetCell.content}"`
+                    );
+                }
+            } catch (error) {
+                console.error(`Error processing cell reference ${cellId}:`, error);
+            }
+        }
+
+        return processedPrompt;
     }
 }
