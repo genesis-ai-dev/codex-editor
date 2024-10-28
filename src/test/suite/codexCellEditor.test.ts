@@ -497,4 +497,104 @@ suite("CodexCellEditorProvider Test Suite", () => {
             "Child cell should be added to the cells"
         );
     });
+
+    test("smart edit functionality updates cell content correctly", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        let receivedMessage: any = null;
+        let onDidReceiveMessageCallback: any = null;
+
+        // Mock webview panel
+        const webviewPanel = {
+            webview: {
+                html: "",
+                options: {
+                    enableScripts: true,
+                },
+                asWebviewUri: (uri: vscode.Uri) => uri,
+                cspSource: "https://example.com",
+                onDidReceiveMessage: (callback: (message: any) => void) => {
+                    onDidReceiveMessageCallback = callback;
+                    return { dispose: () => {} };
+                },
+                postMessage: (message: any) => {
+                    receivedMessage = message;
+                    return Promise.resolve();
+                },
+            },
+            onDidDispose: () => ({ dispose: () => {} }),
+        } as any as vscode.WebviewPanel;
+
+        await provider.resolveCustomEditor(
+            document,
+            webviewPanel,
+            new vscode.CancellationTokenSource().token
+        );
+
+        // Mock cell content and edit history
+        const cellId = "test-cell-1";
+        const originalContent = "This is the original content.";
+        const smartEditResult = "This is the improved content after smart edit.";
+
+        // Mock vscode.commands.executeCommand for the smart edit
+        const originalExecuteCommand = vscode.commands.executeCommand;
+        // @ts-expect-error: Mocking executeCommand for testing purposes
+        vscode.commands.executeCommand = async (command: string, ...args: any[]) => {
+            if (command === "codex-smart-edits.getAndApplyAdvice") {
+                return smartEditResult;
+            }
+            return originalExecuteCommand(command, ...args);
+        };
+
+        // Simulate receiving a getAndApplyAdvice message from the webview
+        onDidReceiveMessageCallback!({
+            command: "getAndApplyAdvice",
+            content: {
+                text: originalContent,
+                cellId: cellId,
+            },
+        });
+
+        // Wait for the message to be processed
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
+        // Verify that the provider sent the correct response
+        assert.ok(receivedMessage, "Provider should send a response message");
+        assert.strictEqual(
+            receivedMessage.type,
+            "providerSendsAdviceResponse",
+            "Response should be of type providerSendsAdviceResponse"
+        );
+        assert.strictEqual(
+            receivedMessage.content,
+            smartEditResult,
+            "Response should contain the smart edit result"
+        );
+
+        // Simulate saving the updated content
+        onDidReceiveMessageCallback!({
+            command: "saveHtml",
+            content: {
+                cellMarkers: [cellId],
+                cellContent: smartEditResult,
+            },
+        });
+
+        // Wait for the save to be processed
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
+        // Verify that the document content was updated
+        const updatedContent = JSON.parse(document.getText());
+        const updatedCell = updatedContent.cells.find((c: any) => c.metadata.id === cellId);
+        assert.strictEqual(
+            updatedCell.value,
+            smartEditResult,
+            "Cell content should be updated after smart edit"
+        );
+    });
 });
