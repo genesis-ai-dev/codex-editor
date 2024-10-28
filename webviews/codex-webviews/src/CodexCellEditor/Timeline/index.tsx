@@ -164,7 +164,11 @@ export default function Timeline(props: TimelineProps) {
                         props.setAutoPlay(!props.autoPlay);
                     }}
                 >
-                    <i className={`codicon codicon-${props.autoPlay ? "debug-pause" : "play"}`}></i>
+                    <i
+                        className={`codicon codicon-${
+                            props.autoPlay ? "run-errors" : "run-all-coverage"
+                        }`}
+                    ></i>
                 </VSCodeButton>
                 <ZoomButton
                     initialZoomLevel={initialZoomLevel}
