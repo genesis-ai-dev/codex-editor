@@ -13,6 +13,7 @@ import { CodexCellTypes } from "../../types/enums";
 import { fileTypeMap } from "../projectManager/translationImporter";
 import { WebVTTParser } from "webvtt-parser";
 import * as path from "path";
+import { generateChildCellId } from "../providers/codexCellEditorProvider/utils/cellUtils";
 
 // Add the interfaces at the top of the file
 interface AlignedCell {
@@ -295,12 +296,28 @@ export class TranslationImportTransaction extends ImportTransaction {
     private parseVTT(content: string): ImportedContent[] {
         const parser = new WebVTTParser();
         const vttData = parser.parse(content);
-        return vttData.cues.map((cue) => ({
-            id: cue.id,
-            content: cue.text,
-            startTime: cue.startTime,
-            endTime: cue.endTime,
-        }));
+
+        // Keep track of used timestamps to handle duplicates
+        const usedTimestamps = new Set<string>();
+
+        return vttData.cues.map((cue) => {
+            // Create a base timestamp ID
+            let timestampId = `cue-${cue.startTime}-${cue.endTime}`;
+
+            // If this timestamp is already used, generate a unique child ID
+            if (usedTimestamps.has(timestampId)) {
+                timestampId = generateChildCellId(timestampId);
+            } else {
+                usedTimestamps.add(timestampId);
+            }
+
+            return {
+                id: timestampId,
+                content: cue.text,
+                startTime: cue.startTime,
+                endTime: cue.endTime,
+            };
+        });
     }
 
     private parsePlaintext(content: string): ImportedContent[] {
@@ -347,12 +364,16 @@ export class TranslationImportTransaction extends ImportTransaction {
         let insertedCount = 0;
         let skippedCount = 0;
         let paratextCount = 0;
+        let childCellCount = 0;
 
         // Track current context for paratext
         let currentBook = "";
         let currentChapter: string | number = 0;
 
         const newCells: CustomNotebookCellData[] = [];
+
+        // Keep track of cells that have been processed to handle multiple alignments
+        const processedSourceCells = new Set<string>();
 
         for (const alignedCell of alignedCells) {
             this.checkCancellation(token);
@@ -384,11 +405,15 @@ export class TranslationImportTransaction extends ImportTransaction {
                 });
                 paratextCount++;
             } else if (alignedCell.notebookCell) {
-                // Update to use value instead of document.getText()
+                const sourceId = alignedCell.notebookCell.metadata.id;
                 const cellContent = alignedCell.notebookCell.value.trim();
 
                 if (cellContent === "") {
-                    // Insert content into empty cell
+                    // For empty cells, use the source cell's ID directly
+                    const cellId = processedSourceCells.has(sourceId)
+                        ? generateChildCellId(sourceId)
+                        : sourceId;
+
                     newCells.push({
                         kind: vscode.NotebookCellKind.Code,
                         languageId: "html",
@@ -396,7 +421,7 @@ export class TranslationImportTransaction extends ImportTransaction {
                         metadata: {
                             ...alignedCell.notebookCell.metadata,
                             type: CodexCellTypes.TEXT,
-                            id: alignedCell.notebookCell.metadata.id,
+                            id: cellId,
                             data: {
                                 ...alignedCell.notebookCell.metadata.data,
                                 startTime: alignedCell.importedContent.startTime,
@@ -404,12 +429,18 @@ export class TranslationImportTransaction extends ImportTransaction {
                             },
                         },
                     });
-                    insertedCount++;
+
+                    if (processedSourceCells.has(sourceId)) {
+                        childCellCount++;
+                    } else {
+                        insertedCount++;
+                        processedSourceCells.add(sourceId);
+                    }
                 } else {
                     // Keep existing cell content
                     newCells.push({
                         kind: alignedCell.notebookCell.kind,
-                        languageId: alignedCell.notebookCell.metadata.languageId, // TODO: Check if this is the correct property path
+                        languageId: alignedCell.notebookCell.metadata.languageId,
                         value: cellContent,
                         metadata: alignedCell.notebookCell.metadata as CustomCellMetaData,
                     } as CustomNotebookCellData);
@@ -426,7 +457,7 @@ export class TranslationImportTransaction extends ImportTransaction {
 
         // Report statistics
         vscode.window.showInformationMessage(
-            `Merged ${insertedCount} translations, added ${paratextCount} paratext cells, skipped ${skippedCount} cells.`
+            `Merged ${insertedCount} translations, added ${paratextCount} paratext cells, created ${childCellCount} child cells, skipped ${skippedCount} cells.`
         );
 
         return updatedNotebook;
@@ -570,9 +601,7 @@ export class TranslationImportTransaction extends ImportTransaction {
                         notebookCell: sourceCell,
                         importedContent: {
                             ...importedItem,
-                            id: `${sourceId}:${Date.now()}-${Math.random()
-                                .toString(36)
-                                .substr(2, 9)}`,
+                            id: generateChildCellId(sourceId),
                         },
                         isAdditionalOverlap: true,
                     });

@@ -9,6 +9,7 @@ import { CodexCellTypes } from "../../../../types/enums";
 import SourceCellContext from "./contextProviders/SourceCellContext";
 import ConfirmationButton from "./ConfirmationButton";
 import { debounce } from "lodash";
+import { generateChildCellId } from "../../../../src/providers/codexCellEditorProvider/utils/cellUtils";
 
 interface CellEditorProps {
     cellMarkers: string[];
@@ -127,9 +128,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     const makeChild = () => {
         const parentCellId = cellMarkers[0];
-        const newChildId = `${parentCellId}:${Date.now()}-${Math.random()
-            .toString(36)
-            .substr(2, 9)}`;
+        const newChildId = generateChildCellId(parentCellId);
 
         const startTime = cellTimestamps?.startTime;
         const endTime = cellTimestamps?.endTime;
