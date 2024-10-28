@@ -175,7 +175,8 @@ type SourceUploadPostMessages =
     | { command: "cancelSourceImport" }
     | { command: "cancelTranslationImport" }
     | { command: "getMetadata" }
-    | { command: "downloadBible" }
+    | { command: "downloadBible"; ebibleMetadata: ExtendedMetadata }
+    | { command: "downloadBibleProgress"; progress: { message?: string; increment?: number } }
     | { command: "syncAction"; status: string; fileUri: string }
     | { command: "openFile"; fileUri: string }
     | { command: "closePanel" }
@@ -199,7 +200,10 @@ export type SourceUploadResponseMessages = {
         | "importComplete"
         | "importCancelled"
         | "availableCodexFiles"
-        | "translationPreview";
+        | "translationPreview"
+        | "bibleDownloadProgress"
+        | "bibleDownloadComplete"
+        | "bibleDownloadError";
     metadata?: AggregatedMetadata[];
     preview?: PreviewState;
     data?: {
@@ -212,6 +216,12 @@ export type SourceUploadResponseMessages = {
         path: string;
     }>;
     errorMessage?: string;
+    progress?: {
+        message?: string;
+        increment?: number;
+        status?: Record<string, "pending" | "active" | "complete" | "error">;
+    };
+    error?: string;
 };
 
 type DictionaryPostMessages =
@@ -813,4 +823,5 @@ type WorkflowStep = "select" | "preview" | "confirm" | "processing" | "complete"
 
 // Add ProcessingStage type
 type ProcessingStatus = "pending" | "active" | "complete" | "error";
+
 

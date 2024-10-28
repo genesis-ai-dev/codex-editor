@@ -46,7 +46,10 @@ export class NotebookMetadataManager {
         } else {
             const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
             if (workspaceFolder) {
-                this.storageUri = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
+                this.storageUri = vscode.Uri.joinPath(
+                    workspaceFolder.uri,
+                    "notebook_metadata.json"
+                );
             } else {
                 // Use a temporary directory for testing if no workspace is available
                 this.storageUri = vscode.Uri.file(path.join(__dirname, "test-metadata.json"));

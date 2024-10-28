@@ -15,6 +15,7 @@ export const ImportTypeSelector: React.FC<ImportTypeSelectorProps> = ({ onSelect
                     display: "flex",
                     gap: "1.5rem",
                     justifyContent: "center",
+                    flexWrap: "wrap"
                 }}
             >
                 <div
@@ -76,6 +77,37 @@ export const ImportTypeSelector: React.FC<ImportTypeSelectorProps> = ({ onSelect
                         }}
                     >
                         Import a translation for an existing source text
+                    </p>
+                </div>
+
+                <div
+                    className="import-option"
+                    onClick={() => onSelect("bible-download")}
+                    style={{
+                        padding: "1.5rem",
+                        border: "2px solid var(--vscode-button-background)",
+                        borderRadius: "6px",
+                        cursor: "pointer",
+                        width: "180px",
+                        transition: "background-color 0.2s",
+                    }}
+                >
+                    <i
+                        className="codicon codicon-cloud-download"
+                        style={{
+                            fontSize: "1.5rem",
+                            marginBottom: "0.5rem",
+                            display: "block",
+                        }}
+                    />
+                    <h3 style={{ marginBottom: "0.5rem" }}>Download Bible</h3>
+                    <p
+                        style={{
+                            color: "var(--vscode-descriptionForeground)",
+                            fontSize: "0.9em",
+                        }}
+                    >
+                        Download a Bible translation from online sources
                     </p>
                 </div>
             </div>

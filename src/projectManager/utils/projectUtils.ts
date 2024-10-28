@@ -347,7 +347,7 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
         }
 
         const sourceTextsPath = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts");
-        const targetTextsPath = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "targetTexts");
+        const targetTextsPath = vscode.Uri.joinPath(workspaceFolder.uri, "files", "target");
 
         const sourceTexts: vscode.Uri[] = [];
         const targetTexts: vscode.Uri[] = [];
@@ -366,7 +366,7 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
         try {
             const targetEntries = await vscode.workspace.fs.readDirectory(targetTextsPath);
             for (const [name] of targetEntries) {
-                if (name.endsWith("source")) {
+                if (name.endsWith("target")) {
                     targetTexts.push(vscode.Uri.joinPath(targetTextsPath, name));
                 }
             }

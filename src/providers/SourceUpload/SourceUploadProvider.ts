@@ -17,6 +17,7 @@ import { SourceImportTransaction } from "../../transactions/SourceImportTransact
 import { getFileType } from "../../utils/fileTypeUtils";
 import { analyzeSourceContent } from "../../utils/contentAnalyzers";
 import { TranslationImportTransaction } from "../../transactions/TranslationImportTransaction";
+import { DownloadBibleTransaction } from "../../transactions/DownloadBibleTransaction";
 
 // Add new types for workflow status tracking
 interface ProcessingStatus {
@@ -251,17 +252,55 @@ export class SourceUploadProvider
                         break;
                     case "downloadBible":
                         try {
-                            const downloadedBibleFile = await downloadBible("source");
-                            if (downloadedBibleFile) {
-                                await processDownloadedBible(downloadedBibleFile);
-                                await this.updateCodexFiles(webviewPanel);
-                                vscode.window.showInformationMessage(
-                                    "Bible downloaded and processed successfully."
-                                );
-                            }
+                            const transaction = new DownloadBibleTransaction({
+                                ebibleMetadata: message.ebibleMetadata
+                            });
+                            await transaction.prepare();
+
+                            await vscode.window.withProgress(
+                                {
+                                    location: vscode.ProgressLocation.Notification,
+                                    title: "Downloading Bible",
+                                    cancellable: true
+                                },
+                                async (progress, token) => {
+                                    try {
+                                        const progressCallback = (update: { message?: string; increment?: number }) => {
+                                            progress.report(update);
+                                            webviewPanel.webview.postMessage({
+                                                command: "bibleDownloadProgress",
+                                                progress: {
+                                                    ...update,
+                                                    status: {
+                                                        [update.message || "processing"]: "active"
+                                                    }
+                                                }
+                                            } as SourceUploadResponseMessages);
+                                        };
+
+                                        await transaction.execute({ report: progressCallback }, token);
+
+                                        webviewPanel.webview.postMessage({
+                                            command: "bibleDownloadComplete"
+                                        } as SourceUploadResponseMessages);
+
+                                        await this.updateCodexFiles(webviewPanel);
+                                    } catch (error) {
+                                        console.error("Bible download error:", error);
+                                        webviewPanel.webview.postMessage({
+                                            command: "bibleDownloadError",
+                                            error: error instanceof Error ? error.message : "Unknown error"
+                                        } as SourceUploadResponseMessages);
+                                        throw error;
+                                    }
+                                }
+                            );
                         } catch (error) {
-                            console.error(`Error downloading Bible: ${error}`);
-                            vscode.window.showErrorMessage(`Error downloading Bible: ${error}`);
+                            console.error("Bible download error:", error);
+                            webviewPanel.webview.postMessage({
+                                command: "error",
+                                message: error instanceof Error ? error.message : "Unknown error"
+                            } as SourceUploadResponseMessages);
                         }
                         break;
                     case "syncAction":

@@ -639,67 +639,64 @@ export async function createProjectNotebooks({
     await Promise.all(notebookCreationPromises);
 }
 
+// Update the splitSourceFileByBook function to handle transformed content better
+
 export async function splitSourceFileByBook(
-    sourceFileUri: vscode.Uri,
-    workspaceRoot: string,
-    languageType: string
+    sourceUri: vscode.Uri,
+    workspacePath: string,
+    language: string
 ): Promise<vscode.Uri[]> {
-    const createdBookFiles: vscode.Uri[] = [];
-    try {
-        const sourceFileContent = await vscode.workspace.fs.readFile(sourceFileUri);
-        const sourceData = JSON.parse(sourceFileContent.toString());
+    const content = await vscode.workspace.fs.readFile(sourceUri);
+    const textContent = Buffer.from(content).toString('utf-8');
+    const lines = textContent.split('\n').filter(line => line.trim());
 
-        const bookData: { [book: string]: any } = {};
-
-        for (const cell of sourceData.cells) {
-            if (cell.metadata && cell.metadata.id) {
-                const [book] = cell.metadata.id.split(" ");
-                if (!bookData[book]) {
-                    bookData[book] = {
-                        cells: [],
-                        metadata: {
-                            data: { ...sourceData.metadata.data },
-                            navigation: [],
-                        },
-                    };
-                }
-                bookData[book].cells.push(cell);
-
-                // Update navigation for chapter headings
-                if (cell.metadata.type === "paratext") {
-                    bookData[book].metadata.navigation.push({
-                        cellId: cell.metadata.id,
-                        children: [],
-                        label: cell.value.replace(/<\/?h1>/g, ""),
-                    });
-                }
+    // Group verses by book
+    const bookGroups = new Map<string, string[]>();
+    
+    lines.forEach(line => {
+        const match = line.match(/^([\w\s]+)\s+\d+:\d+\s+.+$/);
+        if (match) {
+            const book = match[1].trim();
+            if (!bookGroups.has(book)) {
+                bookGroups.set(book, []);
             }
+            bookGroups.get(book)!.push(line);
         }
+    });
 
-        const writePromises = Object.entries(bookData).map(async ([book, data]) => {
-            const bookFileName = `${book}.source`;
-            const bookFilePath = vscode.Uri.joinPath(
-                getWorkSpaceUri()!,
-                ".project",
-                languageType === "source" ? "sourceTexts" : "targetTexts",
-                bookFileName
-            );
-            await vscode.workspace.fs.writeFile(
-                bookFilePath,
-                new TextEncoder().encode(JSON.stringify(data, null, 2))
-            );
-            createdBookFiles.push(bookFilePath);
-        });
+    const createdFiles: vscode.Uri[] = [];
 
-        await Promise.all(writePromises);
-
-        vscode.window.showInformationMessage(`Source file split into individual book files.`);
-        return createdBookFiles;
+    // Create source directory if it doesn't exist
+    const sourceTextDir = vscode.Uri.joinPath(
+        vscode.Uri.file(workspacePath),
+        'files',
+        'source',
+        `${language}Texts`
+    );
+    
+    try {
+        await vscode.workspace.fs.createDirectory(sourceTextDir);
     } catch (error) {
-        console.error(`Error splitting source file: ${error}`);
-        vscode.window.showErrorMessage(`Failed to split source file: ${error}`);
-        return [];
+        // Directory might already exist
     }
+
+    // Create a file for each book
+    for (const [book, verses] of bookGroups) {
+        const safeBookName = book.replace(/[^a-zA-Z0-9]/g, '');
+        const sourceFilePath = vscode.Uri.joinPath(
+            sourceTextDir,
+            `${safeBookName}.source`
+        );
+
+        await vscode.workspace.fs.writeFile(
+            sourceFilePath,
+            Buffer.from(verses.join('\n'), 'utf-8')
+        );
+
+        createdFiles.push(sourceFilePath);
+    }
+
+    return createdFiles;
 }
 
 export async function migrateSourceFiles() {
@@ -909,3 +906,4 @@ export async function splitSourceFile(uri: vscode.Uri): Promise<void> {
         throw error;
     }
 }
+

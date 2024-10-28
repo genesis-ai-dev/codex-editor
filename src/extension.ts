@@ -50,14 +50,16 @@ export async function activate(context: vscode.ExtensionContext) {
     if (workspaceFolders && workspaceFolders.length > 0) {
         if (!vscode.workspace.isTrusted) {
             console.log("Workspace not trusted. Waiting for trust...");
-            vscode.window.showWarningMessage(
-                "This workspace needs to be trusted before Codex Editor can fully activate.",
-                "Trust Workspace"
-            ).then(selection => {
-                if (selection === "Trust Workspace") {
-                    vscode.commands.executeCommand("workbench.action.trustWorkspace");
-                }
-            });
+            vscode.window
+                .showWarningMessage(
+                    "This workspace needs to be trusted before Codex Editor can fully activate.",
+                    "Trust Workspace"
+                )
+                .then((selection) => {
+                    if (selection === "Trust Workspace") {
+                        vscode.commands.executeCommand("workbench.action.trustWorkspace");
+                    }
+                });
             return;
         }
 

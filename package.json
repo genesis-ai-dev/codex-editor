@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.0.58",
+    "version": "0.0.59",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -513,8 +513,8 @@
                 "command": "codex-editor-extension.initializeNewProject"
             },
             {
-                "command": "codex-project-manager.downloadSourceText",
-                "title": "Download Source Text Bible"
+                "command": "codex-editor-extension.downloadSourceBible",
+                "title": "Download Source Bible"
             },
             {
                 "command": "codex-notebook-extension.openFile",

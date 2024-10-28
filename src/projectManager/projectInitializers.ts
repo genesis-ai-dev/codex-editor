@@ -9,10 +9,9 @@ import {
 } from "../utils/codexNotebookUtils";
 import {
     EbibleCorpusMetadata,
-    downloadEBibleText,
-    ensureVrefList,
     getEBCorpusMetadataByLanguageCode,
-} from "../utils/ebibleCorpusUtils";
+} from "../utils/ebible/ebibleCorpusUtils";
+import { downloadEBibleText, ensureVrefList } from "../utils/ebible/ebibleClientOnlyUtils";
 import { vrefData } from "../utils/verseRefUtils/verseData";
 import {
     CodexNotebookAsJSONData,
@@ -21,23 +20,28 @@ import {
 } from "../../types";
 import { CodexCellTypes } from "../../types/enums";
 import { CodexContentSerializer } from "../serializer";
+import { ExtendedMetadata } from "../utils/ebible/ebibleCorpusUtils";
 
 export async function downloadBible(
-    languageType: "source" | "target"
+    ebibleMetadata?: ExtendedMetadata
 ): Promise<vscode.Uri | undefined> {
+    // If metadata is provided directly, use it
+    if (ebibleMetadata) {
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+        if (workspaceRoot) {
+            return await handleBibleDownload(ebibleMetadata, workspaceRoot, "source");
+        }
+        return undefined;
+    }
+
+    // Otherwise, show quick pick UI for manual selection
     const projectMetadata = await getProjectMetadata();
     let languageCode = projectMetadata?.languages?.find(
-        (language) =>
-            language.projectStatus ===
-            (languageType === "source"
-                ? LanguageProjectStatus.SOURCE
-                : LanguageProjectStatus.TARGET)
+        (language) => language.projectStatus === LanguageProjectStatus.SOURCE
     )?.tag;
 
     if (!languageCode) {
-        vscode.window.showErrorMessage(
-            `No ${languageType} language specified in project metadata.`
-        );
+        vscode.window.showErrorMessage(`No source language specified in project metadata.`);
         languageCode = "";
     }
 
@@ -55,7 +59,12 @@ export async function downloadBible(
         ...ebibleCorpusMetadata.map((corpus) => ({
             label: corpus.file,
             description: `Download ${corpus.file}`,
-            corpus: corpus, // Add the full corpus metadata to the item
+            corpus: {
+                languageCode: corpus.code,
+                translationId: corpus.file.split("-")[1],
+                languageName: corpus.lang,
+                file: corpus.file,
+            } as ExtendedMetadata, // Convert to ExtendedMetadata
         })),
         {
             label: "See more languages",
@@ -64,13 +73,13 @@ export async function downloadBible(
         },
     ];
 
-    let selectedItem: (vscode.QuickPickItem & { corpus: EbibleCorpusMetadata | null }) | undefined;
+    let selectedItem: (vscode.QuickPickItem & { corpus: ExtendedMetadata | null }) | undefined;
     let items = getQuickPickItems(ebibleCorpusMetadata);
 
     let shouldContinue = true;
     while (shouldContinue) {
         selectedItem = await vscode.window.showQuickPick(items, {
-            placeHolder: `Select a ${languageType} text bible to download`,
+            placeHolder: `Select a source text bible to download`,
         });
 
         if (!selectedItem) {
@@ -95,7 +104,7 @@ export async function downloadBible(
             const downloadedFileUri = await handleBibleDownload(
                 selectedItem.corpus,
                 workspaceRoot,
-                languageType
+                "source"
             );
             return downloadedFileUri;
         }
@@ -105,28 +114,40 @@ export async function downloadBible(
 }
 
 async function handleBibleDownload(
-    corpusMetadata: EbibleCorpusMetadata,
+    selectedBibleMetadata: ExtendedMetadata,
     workspaceRoot: string,
     languageType: string
 ): Promise<vscode.Uri> {
-    // FIXME: this has not been
     const vrefPath = await ensureVrefList(workspaceRoot);
 
-    const bibleTextPath = path.join(
-        workspaceRoot,
-        ".project",
-        languageType === "source" ? "sourceTexts" : "targetTexts",
-        corpusMetadata.file
-    );
+    // Instead of looking up metadata again, use the provided metadata directly
+    const simpleMetadata = {
+        code: selectedBibleMetadata.languageCode || "",
+        file: `${selectedBibleMetadata.languageCode}-${selectedBibleMetadata.translationId}`,
+        lang: selectedBibleMetadata.languageName || "",
+        family: "",
+        country: "",
+        Total: 0,
+        Books: 0,
+        OT: 0,
+        NT: 0,
+        DT: 0,
+    };
+
+    const bibleTextPath =
+        languageType === "source"
+            ? path.join(workspaceRoot, ".project", "sourceTexts", simpleMetadata.file)
+            : path.join(workspaceRoot, "files", "target", simpleMetadata.file);
+
     const bibleTextPathUri = vscode.Uri.file(bibleTextPath);
     try {
         console.log("Checking if bible text exists");
         await vscode.workspace.fs.stat(bibleTextPathUri);
-        vscode.window.showInformationMessage(`Bible text ${corpusMetadata.file} already exists.`);
+        vscode.window.showInformationMessage(`Bible text ${simpleMetadata.file} already exists.`);
     } catch {
-        await downloadEBibleText(corpusMetadata, workspaceRoot);
+        await downloadEBibleText(simpleMetadata, workspaceRoot);
         vscode.window.showInformationMessage(
-            `Bible text for ${corpusMetadata.lang} downloaded successfully.`
+            `Bible text for ${selectedBibleMetadata.languageCode} downloaded successfully.`
         );
     }
 
@@ -143,8 +164,8 @@ async function handleBibleDownload(
     const bibleData: CodexNotebookAsJSONData = {
         cells: [],
         metadata: {
-            id: corpusMetadata.file,
-            originalName: corpusMetadata.file,
+            id: simpleMetadata.file,
+            originalName: simpleMetadata.file,
             sourceFsPath: vscode.Uri.file(bibleTextPath).fsPath,
             codexFsPath: vscode.Uri.file(bibleTextPath).fsPath,
             corpusMarker: "",
@@ -198,8 +219,8 @@ async function handleBibleDownload(
     const serializer = new CodexContentSerializer();
     const notebookData = new vscode.NotebookData(bibleData.cells);
     notebookData.metadata = {
-        id: corpusMetadata.file,
-        originalName: corpusMetadata.file,
+        id: simpleMetadata.file,
+        originalName: simpleMetadata.file,
         sourceFsPath: vscode.Uri.file(bibleTextPath).fsPath,
         codexFsPath: vscode.Uri.file(bibleTextPath).fsPath,
         corpusMarker: testament || "",
@@ -214,16 +235,19 @@ async function handleBibleDownload(
     );
 
     // Write the new structure to a .source file
-    const fileNameWithoutExtension = corpusMetadata.file.includes(".")
-        ? corpusMetadata.file.split(".")[0]
-        : corpusMetadata.file;
+    const fileNameWithoutExtension = simpleMetadata.file.includes(".")
+        ? simpleMetadata.file.split(".")[0]
+        : simpleMetadata.file;
 
-    const bibleFilePath = path.join(
-        workspaceRoot,
-        ".project",
-        languageType === "source" ? "sourceTexts" : "targetTexts",
-        `${fileNameWithoutExtension}.source`
-    );
+    const bibleFilePath =
+        languageType === "source"
+            ? path.join(
+                  workspaceRoot,
+                  ".project",
+                  "sourceTexts",
+                  `${fileNameWithoutExtension}.source`
+              )
+            : path.join(workspaceRoot, "files", "target", `${fileNameWithoutExtension}.source`);
     const bibleFileUri = vscode.Uri.file(bibleFilePath);
     await vscode.workspace.fs.writeFile(bibleFileUri, notebookContent);
 
@@ -623,4 +647,3 @@ async function openWorkspace() {
 //     }
 //   }
 // }
-

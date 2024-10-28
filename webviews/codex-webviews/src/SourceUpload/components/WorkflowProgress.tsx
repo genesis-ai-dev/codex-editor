@@ -1,14 +1,16 @@
 import React from 'react';
-import { WorkflowStep } from '../types';
+import { WorkflowStep, ImportType } from '../types';
 
 interface WorkflowProgressProps {
     currentStep: WorkflowStep;
+    importType: ImportType | null;
     steps: WorkflowStep[];
     onStepClick?: (step: WorkflowStep) => void;
 }
 
 export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({ 
     currentStep, 
+    importType,
     steps,
     onStepClick 
 }) => {
@@ -17,7 +19,7 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
             case "type-select":
                 return "Import Type";
             case "select":
-                return "Select File";
+                return importType === "bible-download" ? "Select Language" : "Select File";
             case "preview":
                 return "Review";
             case "processing":
@@ -29,13 +31,33 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
         }
     };
 
+    const getStepIcon = (step: WorkflowStep, isActive: boolean, isComplete: boolean): string => {
+        if (isComplete) return "codicon-check";
+        if (isActive && step === "processing") return "codicon-sync codicon-modifier-spin";
+        
+        switch (step) {
+            case "type-select":
+                return "codicon-list-selection";
+            case "select":
+                return importType === "bible-download" ? "codicon-globe" : "codicon-file-add";
+            case "preview":
+                return "codicon-preview";
+            case "processing":
+                return "codicon-loading";
+            case "complete":
+                return "codicon-pass";
+            default:
+                return "codicon-circle-outline";
+        }
+    };
+
     const isStepClickable = (step: WorkflowStep): boolean => {
         const currentIndex = steps.indexOf(currentStep);
         const stepIndex = steps.indexOf(step);
         
         // Allow going back to any previous step except during processing
         return currentStep !== 'processing' && 
-               (step === 'type-select' || stepIndex < currentIndex) && // Allow type-select always
+               (step === 'type-select' || stepIndex < currentIndex) && 
                step !== 'processing' && 
                step !== 'complete';
     };
@@ -75,6 +97,7 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
                 const isActive = step === currentStep;
                 const isComplete = steps.indexOf(currentStep) > index;
                 const clickable = isStepClickable(step);
+                const icon = getStepIcon(step, isActive, isComplete);
                 
                 return (
                     <div 
@@ -108,18 +131,13 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
                                 : "var(--vscode-foreground)",
                             transition: "all 0.3s ease"
                         }}>
-                            {isComplete ? (
-                                <i className="codicon codicon-check" />
-                            ) : isActive && step === 'processing' ? (
-                                <i className="codicon codicon-sync codicon-modifier-spin" />
-                            ) : (
-                                index + 1
-                            )}
+                            <i className={`codicon ${icon}`} />
                         </div>
                         <span style={{
                             color: isActive 
                                 ? "var(--vscode-button-background)" 
-                                : "var(--vscode-foreground)"
+                                : "var(--vscode-foreground)",
+                            fontSize: "0.9em"
                         }}>
                             {getStepLabel(step)}
                         </span>

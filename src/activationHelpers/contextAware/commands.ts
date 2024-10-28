@@ -27,6 +27,8 @@ import {
 import { exportCodexContent } from "../../commands/exportHandler";
 import * as path from "path";
 import { debounce } from "lodash";
+import { DownloadBibleTransaction } from "../../transactions/DownloadBibleTransaction";
+import { getExtendedEbibleMetadataByLanguageNameOrCode } from "../../utils/ebible/ebibleCorpusUtils";
 
 const ROOT_PATH = getWorkSpaceFolder();
 
@@ -239,6 +241,62 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
+    // Add to your command registration
+    const downloadSourceBibleCommand = vscode.commands.registerCommand(
+        "codex-editor-extension.downloadSourceBible",
+        async () => {
+            // Show quick pick UI only when called directly from command palette
+            const allEbibleBibles = getExtendedEbibleMetadataByLanguageNameOrCode();
+            const languages = Array.from(
+                new Set(allEbibleBibles.map((b) => b.languageName))
+            ).filter(Boolean) as string[];
+
+            const selectedLanguage = await vscode.window.showQuickPick(languages, {
+                placeHolder: "Select a language",
+            });
+
+            if (selectedLanguage) {
+                const biblesForLanguage = allEbibleBibles.filter(
+                    (b) => b.languageName === selectedLanguage
+                );
+                const bibleItems = biblesForLanguage.map((b) => ({
+                    label: b.shortTitle || b.title,
+                    description: `${(b.OTbooks || 0) + (b.NTbooks || 0)} books`,
+                    id: b.translationId,
+                }));
+
+                const selectedBible = await vscode.window.showQuickPick(
+                    bibleItems as vscode.QuickPickItem[],
+                    { placeHolder: "Select a Bible translation" }
+                );
+
+                if (selectedBible && "id" in selectedBible) {
+                    const transaction = new DownloadBibleTransaction({
+                        ebibleMetadata: biblesForLanguage.find(
+                            (b) => b.translationId === selectedBible.id
+                        ),
+                    });
+
+                    try {
+                        await transaction.prepare();
+                        await vscode.window.withProgress(
+                            {
+                                location: vscode.ProgressLocation.Notification,
+                                title: "Downloading Bible",
+                                cancellable: true,
+                            },
+                            async (progress, token) => {
+                                await transaction.execute(progress, token);
+                            }
+                        );
+                    } catch (error) {
+                        vscode.window.showErrorMessage(`Failed to download Bible: ${error}`);
+                    }
+                }
+            }
+        }
+    );
+
     context.subscriptions.push(
         navigationTreeViewProvider,
         navigationExplorerRefreshCommand,
@@ -258,32 +316,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         openSourceUploadCommand,
         uploadSourceFolderCommand,
         uploadTranslationFolderCommand,
-        navigationExplorerOpenChapterCommand
+        navigationExplorerOpenChapterCommand,
+        downloadSourceBibleCommand
     );
-
-    ensureBibleDownload();
-}
-
-async function ensureBibleDownload() {
-    // We use a source Bible for various functions, so we need to ensure at least one is downloaded.
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (workspaceFolders) {
-        const workspaceRoot = workspaceFolders[0].uri.fsPath;
-        const bibleFiles = await vscode.workspace.findFiles(
-            new vscode.RelativePattern(
-                workspaceRoot,
-                vscode.Uri.joinPath(
-                    vscode.Uri.file(workspaceRoot),
-                    ".project",
-                    "**",
-                    "*.source"
-                ).fsPath
-            ),
-            "**/node_modules/**",
-            1
-        );
-        if (bibleFiles.length === 0) {
-            vscode.commands.executeCommand("codex-editor-extension.downloadSourceText");
-        }
-    }
 }

@@ -22,7 +22,7 @@ export function useVSCodeMessageHandler() {
                     if (message.files) {
                         setWorkflow((prev) => ({
                             ...prev,
-                            availableCodexFiles: message.files
+                            availableCodexFiles: message.files,
                         }));
                     }
                     break;
@@ -46,6 +46,47 @@ export function useVSCodeMessageHandler() {
                                     validationResults:
                                         message.preview.preview.transformed.validationResults,
                                 },
+                            },
+                        }));
+                    }
+                    break;
+
+                case "bibleDownloadProgress":
+                    if (message.progress) {
+                        setWorkflow((prev) => ({
+                            ...prev,
+                            step: "processing",
+                            bibleDownload: {
+                                ...prev.bibleDownload!,
+                                status: "downloading",
+                                progress: {
+                                    message: message.progress?.message || "",
+                                    increment: message.progress?.increment || 0,
+                                },
+                            },
+                        }));
+                    }
+                    break;
+
+                case "bibleDownloadComplete":
+                    setWorkflow((prev) => ({
+                        ...prev,
+                        step: "complete",
+                        bibleDownload: {
+                            ...prev.bibleDownload!,
+                            status: "complete",
+                        },
+                    }));
+                    break;
+
+                case "bibleDownloadError":
+                    if (message.error) {
+                        setWorkflow((prev) => ({
+                            ...prev,
+                            error: message.error,
+                            bibleDownload: {
+                                ...prev.bibleDownload!,
+                                status: "error",
                             },
                         }));
                     }
