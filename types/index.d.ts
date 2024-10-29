@@ -182,8 +182,13 @@ export type SourceUploadPostMessages =
     | { command: "cancelTranslationImport" }
     | { command: "downloadBible"; ebibleMetadata: ExtendedMetadata }
     | { command: "confirmBibleDownload"; transaction: DownloadBibleTransaction }
-    | { command: "cancelBibleDownload"; transaction: DownloadBibleTransaction };
-// ... other existing message types ...
+    | { command: "cancelBibleDownload"; transaction: DownloadBibleTransaction }
+    | { command: "getMetadata" }
+    | { command: "createSourceFolder"; data: { sourcePath: string } }
+    | { command: "importRemoteTranslation" }
+    | { command: "importLocalTranslation" }
+    | { command: "closePanel" }
+    | { command: "previewSourceText"; fileContent: string; fileName: string };
 
 export type SourceUploadResponseMessages =
     | { command: "updateMetadata"; metadata: any[] }
