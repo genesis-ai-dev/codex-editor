@@ -4,8 +4,11 @@ import { EditorPostMessages, TimeBlock } from "../../../../types";
 import ReactPlayer from "react-player";
 
 interface TimelineEditorProps {
+    playerRef: React.RefObject<ReactPlayer>;
     data: TimeBlock[];
     vscode: any;
+    setAutoPlay: (autoPlay: boolean) => void;
+    autoPlay: boolean;
     currentTime: number;
 }
 
@@ -30,9 +33,17 @@ const getListOfTimeBlocksWithUpdatedTimes = (
     return timeBlocksWithUpdates;
 };
 
-const TimelineEditor: React.FC<TimelineEditorProps> = ({ data, vscode, currentTime }) => {
+const TimelineEditor: React.FC<TimelineEditorProps> = ({
+    playerRef,
+    data,
+    vscode,
+
+    setAutoPlay,
+    autoPlay,
+    currentTime,
+}) => {
     const [timeBlocksWithUpdates, setTimeBlocksWithUpdates] = useState<TimeBlock[]>([]);
-    const [zoomLevel, setZoomLevel] = useState(1);
+    const [zoomLevel, setZoomLevel] = useState(90);
     return (
         <div
             style={{
@@ -44,6 +55,8 @@ const TimelineEditor: React.FC<TimelineEditorProps> = ({ data, vscode, currentTi
             }}
         >
             <Timeline
+                autoPlay={autoPlay}
+                setAutoPlay={setAutoPlay}
                 initialZoomLevel={zoomLevel}
                 changeAreaShow={(start: number, end: number) => {
                     // console.log({ start, end });
@@ -62,8 +75,8 @@ const TimelineEditor: React.FC<TimelineEditorProps> = ({ data, vscode, currentTi
                     );
                     setTimeBlocksWithUpdates(timeBlocksWithUpdates);
                 }}
+                playerRef={playerRef}
                 // audioRef={playerRef}
-                currentTime={currentTime}
                 src={"..."}
                 data={data}
                 autoScroll

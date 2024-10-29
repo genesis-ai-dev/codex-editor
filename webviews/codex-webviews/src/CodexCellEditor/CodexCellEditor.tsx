@@ -45,7 +45,7 @@ const CodexCellEditor: React.FC = () => {
     );
     const [isSourceText, setIsSourceText] = useState<boolean>(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState<boolean>(false);
-    console.log({ isMetadataModalOpen });
+
     const [metadata, setMetadata] = useState<CustomNotebookMetadata>({
         videoUrl: "", // FIXME: use attachments instead of videoUrl
     } as CustomNotebookMetadata);
@@ -361,7 +361,7 @@ const CodexCellEditor: React.FC = () => {
                         </div>
                     )}
                     <CellList
-                        // spellCheckResponse={spellCheckResponse}
+                        spellCheckResponse={spellCheckResponse}
                         translationUnits={translationUnitsForSection}
                         contentBeingUpdated={contentBeingUpdated}
                         setContentBeingUpdated={setContentBeingUpdated}
@@ -376,7 +376,7 @@ const CodexCellEditor: React.FC = () => {
                         getAlertCodeFunction={(cellContent: string, cellId: string) => {
                             if (isSourceText) {
                                 return Promise.resolve({
-                                    getAlertCode: false,
+                                    alertColorCode: -1,
                                     cellId: cellId,
                                 });
                             }
@@ -399,7 +399,7 @@ const CodexCellEditor: React.FC = () => {
                                                 handlegetAlertCodeResponse
                                             ); // Remove listener
                                             resolve({
-                                                getAlertCode: message.content.code,
+                                                alertColorCode: message.content.code,
                                                 cellId: message.content.cellId,
                                             });
                                         }

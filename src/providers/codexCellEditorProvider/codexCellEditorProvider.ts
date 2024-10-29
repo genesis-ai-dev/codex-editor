@@ -746,22 +746,43 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         }
                         return;
                     }
-                    case "applyAdvice": {
+                    case "applyPromptedEdit": {
                         try {
                             const result = await vscode.commands.executeCommand(
-                                "codex-smart-edits.applyAdvice",
+                                "codex-smart-edits.applyPromptedEdit",
                                 e.content.text,
-                                e.content.advicePrompt,
+                                e.content.prompt,
                                 e.content.cellId
                             );
-                            console.log("providerSendsAdviceResponse", { result });
+                            console.log("providerSendsPromptedEditResponse", { result });
                             this.postMessageToWebview(webviewPanel, {
-                                type: "providerSendsAdviceResponse",
+                                type: "providerSendsPromptedEditResponse",
                                 content: result as string,
                             });
                         } catch (error) {
-                            console.error("Error applying advice:", error);
-                            vscode.window.showErrorMessage("Failed to apply advice.");
+                            console.error("Error applying prompted edit:", error);
+                            vscode.window.showErrorMessage("Failed to apply prompted edit.");
+                        }
+                        return;
+                    }
+                    case "getAndApplyTopPrompts": {
+                        console.log("getAndApplyTopPrompts message received", { e });
+                        try {
+                            const result = await vscode.commands.executeCommand(
+                                "codex-smart-edits.getAndApplyTopPrompts",
+                                e.content.cellId,
+                                e.content.text
+                            );
+                            console.log("providerSendsPromptedEditResponse", { result });
+                            this.postMessageToWebview(webviewPanel, {
+                                type: "providerSendsPromptedEditResponse",
+                                content: result as string,
+                            });
+                        } catch (error) {
+                            console.error("Error getting and applying prompted edit:", error);
+                            vscode.window.showErrorMessage(
+                                "Failed to get and apply prompted edit."
+                            );
                         }
                         return;
                     }

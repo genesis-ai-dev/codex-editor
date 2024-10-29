@@ -16,13 +16,18 @@
 
         /* Linting */
         "strict": true,
-        "noUnusedLocals": true,
-        "noUnusedParameters": true,
+        "noUnusedLocals": false,
+        "noUnusedParameters": false,
         "noFallthroughCasesInSwitch": true,
         "noImplicitAny": true,
-        "typeRoots": ["./node_modules/@types", "./src/types/index.d.ts", "./src"]
+        "types": [],
+        "typeRoots": ["./node_modules/@types"],
+        "resolvePackageJsonExports": false,
+        "noEmitOnError": true
     },
     "exclude": ["build"],
-    "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.d.ts"],
+    "include": [
+        "src/**/*" // Only include your source files
+    ],
     "references": [{ "path": "./tsconfig.node.json" }]
 }

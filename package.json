@@ -1158,7 +1158,7 @@
     "dependencies": {
         "@types/better-sqlite3": "^7.6.11",
         "@types/webpack-env": "^1.18.5",
-        "@vscode/codicons": "^0.0.35",
+        "@vscode/codicons": "^0.0.36",
         "@vscode/python-extension": "^1.0.5",
         "@vscode/webview-ui-toolkit": "^1.4.0",
         "bible-reference-range": "^1.1.1",

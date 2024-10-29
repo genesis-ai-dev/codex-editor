@@ -104,7 +104,11 @@ interface ScriptureContent extends vscode.NotebookData {
     };
 }
 type NotebookCellKind = vscode.NotebookCellKind;
-
+type VerseRefGlobalState = {
+    verseRef: string;
+    cellId: string;
+    uri: string;
+};
 type CommentPostMessages =
     | { command: "commentsFromWorkspace"; content: string }
     | { command: "reload"; data: VerseRefGlobalState }
@@ -348,7 +352,8 @@ export type EditorPostMessages =
     | { command: "openSourceText"; content: { chapterNumber: number } }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string } }
     | { command: "pickVideoFile" }
-    | { command: "applyAdvice"; content: { text: string; advicePrompt: string; cellId: string } };
+    | { command: "applyPromptedEdit"; content: { text: string; prompt: string; cellId: string } }
+    | { command: "getAndApplyTopPrompts"; content: { text: string; cellId: string } };
 
 type EditorReceiveMessages =
     | {
@@ -372,7 +377,7 @@ type EditorReceiveMessages =
     | { type: "jumpToSection"; content: string }
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata }
     | { type: "updateVideoUrlInWebview"; content: string }
-    | { type: "providerSendsAdviceResponse"; content: string };
+    | { type: "providerSendsPromptedEditResponse"; content: string };
 
 type EditHistory = {
     cellValue: string;

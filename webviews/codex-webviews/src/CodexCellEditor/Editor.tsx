@@ -2,8 +2,9 @@ import { useRef, useEffect, useMemo, useState } from "react";
 import Quill from "quill";
 import "quill/dist/quill.snow.css";
 import registerQuillSpellChecker, { getCleanedHtml } from "./react-quill-spellcheck";
-import { EditorPostMessages } from "../../../../types";
+import { EditorPostMessages, SpellCheckResponse } from "../../../../types";
 import "./TextEditor.css"; // over write the default quill styles so spans flow
+import { applyStyles } from "@popperjs/core";
 
 const icons: any = Quill.import("ui/icons");
 // Assuming you have access to the VSCode API here
@@ -13,7 +14,8 @@ const vscode: any = (window as any).vscodeApi;
 registerQuillSpellChecker(Quill, vscode);
 // Use VSCode icon for autocomplete
 icons["autocomplete"] = `<i class="codicon codicon-sparkle quill-toolbar-icon"></i>`;
-icons["openLibrary"] = `<i class="codicon codicon-book quill-toolbar-icon"></i>`; // Add new icon
+icons["openLibrary"] = `<i class="codicon codicon-book quill-toolbar-icon"></i>`;
+icons["applyTopPrompts"] = `<i class="codicon codicon-symbol-event quill-toolbar-icon"></i>`; // Add new icon
 
 export interface EditorContentChanged {
     html: string;
@@ -23,22 +25,26 @@ export interface EditorProps {
     currentLineId: string;
     initialValue?: string;
     onChange?: (changes: EditorContentChanged) => void;
-    spellCheckResponse?: any;
+    spellCheckResponse?: SpellCheckResponse | null;
     textDirection: "ltr" | "rtl";
 }
 
+// Update the TOOLBAR_OPTIONS to include both dynamic buttons
 const TOOLBAR_OPTIONS = [
     [{ header: [1, 2, 3, false] }],
     ["bold", "italic", "underline", "strike", "blockquote", "link"],
     [{ list: "ordered" }, { list: "bullet" }],
     [{ indent: "-1" }, { indent: "+1" }],
     ["clean"],
-    ["autocomplete", "openLibrary"], // Add openLibrary button
+    ["openLibrary"], // Library button
+    ["autocomplete", "applyTopPrompts"], // Add both dynamic buttons here
 ];
 
 export default function Editor(props: EditorProps) {
     const [showModal, setShowModal] = useState(false);
     const [wordsToAdd, setWordsToAdd] = useState<string[]>([]); // Add state for words
+    // Add state to track if editor is empty
+    const [isEditorEmpty, setIsEditorEmpty] = useState(true);
 
     function isQuillEmpty(quill: Quill | null) {
         if (!quill) return true;
@@ -64,12 +70,13 @@ export default function Editor(props: EditorProps) {
 
     useEffect(() => {
         if (editorRef.current && !quillRef.current) {
+            const baseToolbar = [...TOOLBAR_OPTIONS];
             const quill = new Quill(editorRef.current, {
                 theme: "snow",
                 placeholder: "Start writing...",
                 modules: {
                     toolbar: {
-                        container: TOOLBAR_OPTIONS,
+                        container: baseToolbar,
                         handlers: {
                             autocomplete: llmCompletion,
                             openLibrary: () => {
@@ -83,19 +90,51 @@ export default function Editor(props: EditorProps) {
                                 setWordsToAdd(words);
                                 setShowModal(true);
                             },
+                            applyTopPrompts: async () => {
+                                const content = quill.getText();
+                                window.vscodeApi.postMessage({
+                                    command: "getAndApplyTopPrompts",
+                                    content: {
+                                        text: content,
+                                        cellId: props.currentLineId,
+                                    },
+                                });
+                            },
                         },
                     },
                     spellChecker: {},
                 },
             });
 
-            // Set text direction after initialization
-            quill.format("direction", props.textDirection);
-            quill.format("text-align", props.textDirection === "rtl" ? "right" : "left");
-
+            // Store the quill instance in the ref
             quillRef.current = quill;
 
+            // Update visibility of buttons based on content
+            const updateToolbar = () => {
+                const empty = isQuillEmpty(quill);
+                setIsEditorEmpty(empty);
+
+                // Get the buttons
+                const autocompleteButton = document.querySelector(".ql-autocomplete");
+                const applyPromptButton = document.querySelector(".ql-applyTopPrompts");
+
+                if (autocompleteButton && applyPromptButton) {
+                    if (empty) {
+                        (autocompleteButton as HTMLElement).style.display = "";
+                        (applyPromptButton as HTMLElement).style.display = "none";
+                    } else {
+                        (autocompleteButton as HTMLElement).style.display = "none";
+                        (applyPromptButton as HTMLElement).style.display = "";
+                    }
+                }
+            };
+
+            // Initial toolbar update
+            updateToolbar();
+
+            // Update toolbar on text change
             quill.on("text-change", () => {
+                updateToolbar();
                 const content = quill.root.innerHTML;
                 if (props.onChange) {
                     const cleanedContents = getCleanedHtml(content);
@@ -146,8 +185,8 @@ export default function Editor(props: EditorProps) {
     useEffect(() => {
         if (quillRef.current && revertedValue !== undefined) {
             const quill = quillRef.current;
-            // Only update if the content has actually changed
-            if (quill.root.innerHTML !== revertedValue) {
+            // Only update if the content is empty or if revertedValue is non-empty
+            if (isQuillEmpty(quill) && revertedValue) {
                 quill.root.innerHTML = revertedValue;
                 // Move the cursor to the end
                 quill.setSelection(quill.getLength(), 0);
@@ -162,36 +201,6 @@ export default function Editor(props: EditorProps) {
                 currentLineId: props.currentLineId,
             },
         } as EditorPostMessages);
-
-        const newTextContentFromLLM: string = await new Promise((resolve) => {
-            const messageListener = (event: MessageEvent) => {
-                if (event.data.type === "llmCompletionResponse") {
-                    resolve(event.data.content.completion);
-                    window.removeEventListener("message", messageListener);
-                }
-            };
-            window.addEventListener("message", messageListener);
-        });
-
-        // console.log("Received text from LLM completion:", newTextContentFromLLM);
-        if (quillRef.current && newTextContentFromLLM) {
-            const quill = quillRef.current;
-            const length = quill.getLength();
-            const trimmedContent = newTextContentFromLLM.trim();
-
-            // If the editor is empty, just set the content
-            if (isQuillEmpty(quill)) {
-                quill.setText(trimmedContent);
-            } else {
-                // If there's existing content, add a space before inserting
-                quill.insertText(length, " " + trimmedContent);
-            }
-
-            // Trigger the text-change event manually
-            quill.update();
-        } else {
-            console.error("Quill editor not initialized or empty text received");
-        }
     };
 
     const handleAddWords = () => {
@@ -203,6 +212,25 @@ export default function Editor(props: EditorProps) {
         }
         setShowModal(false);
     };
+
+    // Add message listener for prompt response
+    useEffect(() => {
+        const handleMessage = (event: MessageEvent) => {
+            if (quillRef.current) {
+                const quill = quillRef.current;
+                if (event.data.type === "providerSendsPromptedEditResponse") {
+                    quill.setText(event.data.content);
+                    quill.update();
+                } else if (event.data.type === "providerSendsLLMCompletionResponse") {
+                    const completionText = event.data.content.completion;
+                    quill.root.innerHTML = completionText; // Clear existing content
+                }
+            }
+        };
+
+        window.addEventListener("message", handleMessage);
+        return () => window.removeEventListener("message", handleMessage);
+    }, []);
 
     return (
         <>

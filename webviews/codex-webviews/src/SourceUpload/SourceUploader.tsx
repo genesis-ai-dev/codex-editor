@@ -135,8 +135,7 @@ export const SourceUploader: React.FC = () => {
 
             switch (step) {
                 case "type-select":
-                    setWorkflow((prev) => ({
-                        ...prev,
+                    setWorkflow((_prev) => ({
                         ...initialWorkflowState,
                     }));
                     break;
@@ -161,8 +160,7 @@ export const SourceUploader: React.FC = () => {
     );
 
     const handleUploadAnother = useCallback(() => {
-        setWorkflow((prev) => ({
-            ...prev,
+        setWorkflow((_prev) => ({
             ...initialWorkflowState,
         }));
     }, [setWorkflow]);
