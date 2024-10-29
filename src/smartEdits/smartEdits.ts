@@ -1,5 +1,11 @@
 import Chatbot from "./chat";
-import { TranslationPair, SmartEditContext, SmartSuggestion, SavedSuggestions } from "../../types";
+import {
+    TranslationPair,
+    SmartEditContext,
+    SmartSuggestion,
+    SavedSuggestions,
+    EditHistoryEntry,
+} from "../../types";
 import * as vscode from "vscode";
 import * as path from "path";
 import { diffWords } from "diff";
@@ -34,6 +40,7 @@ export class SmartEdits {
     private smartEditsPath: string;
     private lastProcessedCellId: string | null = null;
     private lastSuggestions: SmartSuggestion[] = [];
+    private editHistory: { [key: string]: EditHistoryEntry[] } = {};
 
     constructor(workspaceUri: vscode.Uri) {
         this.chatbot = new Chatbot(SYSTEM_MESSAGE);
@@ -42,8 +49,8 @@ export class SmartEdits {
     }
 
     async getEdits(text: string, cellId: string): Promise<SmartSuggestion[]> {
-
         const similarEntries = await this.findSimilarEntries(text);
+        const cellHistory = this.editHistory[cellId] || [];
 
         if (similarEntries.length === 0) {
             this.lastProcessedCellId = cellId;
@@ -68,7 +75,7 @@ export class SmartEdits {
         const similarTexts = await this.getSimilarTexts(similarEntries);
 
         const similarTextsString = this.formatSimilarTexts(similarTexts);
-        const message = this.createEditMessage(similarTextsString, text);
+        const message = this.createEditMessage(similarTextsString, text, cellHistory);
 
         const jsonResponse = await this.chatbot.getJsonCompletion(message);
 
@@ -243,10 +250,26 @@ export class SmartEdits {
             .join("");
     }
 
-    private createEditMessage(similarTextsString: string, text: string): string {
-        console.log("Creating edit message");
-        const message = `Similar Texts:\n${similarTextsString}\n\nEdit the following text based on the patterns you've seen in similar texts, always return the json format specified. Do not suggest edits that are merely HTML changes. Focus on meaningful content modifications.\nText: ${text}`;
-        // console.log("Edit message created: ", message);
-        return message;
+    private createEditMessage(
+        similarTextsString: string,
+        text: string,
+        history: EditHistoryEntry[]
+    ): string {
+        const historyString =
+            history.length > 0
+                ? `\nRecent edit history for this cell:\n${history
+                      .map(
+                          (entry) =>
+                              `Before: ${entry.before}\nAfter: ${entry.after}\nTimestamp: ${new Date(entry.timestamp).toISOString()}`
+                      )
+                      .join("\n\n")}`
+                : "";
+
+        return `Similar Texts:\n${similarTextsString}\n${historyString}\n\nEdit the following text based on the patterns you've seen in similar texts and recent edits, always return the json format specified. Do not suggest edits that are merely HTML changes. Focus on meaningful content modifications.\nText: ${text}`;
+    }
+
+    async updateEditHistory(cellId: string, history: EditHistoryEntry[]): Promise<void> {
+        this.editHistory[cellId] = history;
+        console.log(`Updated edit history for cellId: ${cellId}`);
     }
 }

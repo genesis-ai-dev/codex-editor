@@ -21,6 +21,13 @@ export interface EditorContentChanged {
     html: string;
 }
 
+// Add interface for edit history
+interface EditHistoryEntry {
+    before: string;
+    after: string;
+    timestamp: number;
+}
+
 export interface EditorProps {
     currentLineId: string;
     initialValue?: string;
@@ -45,6 +52,33 @@ export default function Editor(props: EditorProps) {
     const [wordsToAdd, setWordsToAdd] = useState<string[]>([]); // Add state for words
     // Add state to track if editor is empty
     const [isEditorEmpty, setIsEditorEmpty] = useState(true);
+    const [editHistory, setEditHistory] = useState<EditHistoryEntry[]>([]);
+    const initialContentRef = useRef<string>("");
+
+    useEffect(() => {
+        // Store initial content when editor is mounted
+        if (quillRef.current) {
+            initialContentRef.current = quillRef.current.root.innerHTML;
+        }
+
+        // Cleanup function to save edit when component unmounts
+        return () => {
+            if (quillRef.current) {
+                const finalContent = quillRef.current.root.innerHTML;
+                if (finalContent !== initialContentRef.current) {
+                    setEditHistory((prev) => {
+                        const newEntry = {
+                            before: initialContentRef.current,
+                            after: finalContent,
+                            timestamp: Date.now(),
+                        };
+                        // Keep only the last 7 entries
+                        return [...prev, newEntry].slice(-7);
+                    });
+                }
+            }
+        };
+    }, []); // Empty dependency array since we only want this to run once
 
     function isQuillEmpty(quill: Quill | null) {
         if (!quill) return true;
