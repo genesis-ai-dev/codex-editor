@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { nonCanonicalBookRefs, vrefData } from "./verseRefUtils/verseData";
 import { Project } from "codex-types";
 import { updateWorkspaceState } from "./workspaceEventListener";
-import { ProjectOverview } from "@types";
+import { ProjectOverview } from "../../types";
 
 export const getWorkSpaceFolder = (): string | undefined => {
     /**

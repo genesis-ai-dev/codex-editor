@@ -130,7 +130,7 @@ export default function TimeLine({
     let prtcls: Square[] = [];
     setData(alignments); //tooltip
 
-    let tooltipTimeout: number;
+    let tooltipTimeout: ReturnType<typeof setTimeout>;
     let visibleTooltip = false;
     let visitedPrtcl: number; // BEGIN ...
 
