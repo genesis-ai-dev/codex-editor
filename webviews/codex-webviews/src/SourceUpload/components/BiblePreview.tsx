@@ -7,6 +7,7 @@ import {
     VSCodePanelView,
 } from "@vscode/webview-ui-toolkit/react";
 import { BiblePreviewData } from "../../../../../types";
+import ValidationResult from "./ValidationResult";
 
 interface BiblePreviewProps {
     preview: BiblePreviewData;
@@ -20,7 +21,7 @@ export const BiblePreview: React.FC<BiblePreviewProps> = ({ preview, onConfirm, 
 
     return (
         <div style={{ padding: "2rem", maxWidth: "800px", margin: "0 auto" }}>
-            <h2>Preview Downloaded Bible Content</h2>
+            <h2>Preview Bible Content</h2>
 
             <VSCodePanels>
                 <VSCodePanelTab id="tab-1">Original Content</VSCodePanelTab>
@@ -42,23 +43,24 @@ export const BiblePreview: React.FC<BiblePreviewProps> = ({ preview, onConfirm, 
                         >
                             {preview.original.preview}
                         </pre>
-                    </div>
 
-                    {preview.original.validationResults.map((result, index) => (
-                        <ValidationResult key={index} result={result} />
-                    ))}
+                        {preview.original.validationResults.map((result, index) => (
+                            <ValidationResult key={index} result={result} />
+                        ))}
+                    </div>
                 </VSCodePanelView>
 
                 <VSCodePanelView id="view-2">
                     <div className="preview-section">
-                        <h3>Details</h3>
+                        <h3>Bible Details</h3>
                         <ul style={{ marginBottom: "1rem" }}>
                             <li>Translation ID: {metadata.id}</li>
                             <li>Language: {metadata.originalName}</li>
-                            <li>Total Cells: {notebook.cells.length}</li>
+                            <li>Total Books: {preview.transformed.sourceNotebooks.length}</li>
+                            <li>Total Verses: {notebook.cells.length}</li>
                         </ul>
 
-                        <h4>Sample Transformed Content</h4>
+                        <h4>Sample Content</h4>
                         <div
                             style={{
                                 maxHeight: "300px",
@@ -67,7 +69,7 @@ export const BiblePreview: React.FC<BiblePreviewProps> = ({ preview, onConfirm, 
                                 borderRadius: "4px",
                             }}
                         >
-                            {notebook.cells.map((cell, index) => (
+                            {notebook.cells.slice(0, 10).map((cell, index) => (
                                 <div
                                     key={index}
                                     style={{
@@ -81,7 +83,7 @@ export const BiblePreview: React.FC<BiblePreviewProps> = ({ preview, onConfirm, 
                                             fontSize: "0.8em",
                                         }}
                                     >
-                                        {cell.metadata.type} - {cell.metadata.id}
+                                        {cell.metadata.id}
                                     </div>
                                     <div>{cell.value}</div>
                                 </div>
@@ -101,8 +103,6 @@ export const BiblePreview: React.FC<BiblePreviewProps> = ({ preview, onConfirm, 
                     gap: "1rem",
                     justifyContent: "flex-end",
                     marginTop: "1rem",
-                    paddingTop: "1rem",
-                    borderTop: "1px solid var(--vscode-widget-border)",
                 }}
             >
                 <VSCodeButton appearance="secondary" onClick={onCancel}>
@@ -110,62 +110,6 @@ export const BiblePreview: React.FC<BiblePreviewProps> = ({ preview, onConfirm, 
                 </VSCodeButton>
                 <VSCodeButton onClick={onConfirm}>Confirm Download</VSCodeButton>
             </div>
-        </div>
-    );
-};
-
-interface ValidationResultProps {
-    result: {
-        isValid: boolean;
-        errors: Array<{ message: string }>;
-    };
-}
-
-const ValidationResult: React.FC<ValidationResultProps> = ({ result }) => {
-    if (result.isValid) {
-        return (
-            <div
-                style={{
-                    padding: "0.5rem 1rem",
-                    marginTop: "1rem",
-                    background: "var(--vscode-testing-iconPassed)15",
-                    border: "1px solid var(--vscode-testing-iconPassed)",
-                    borderRadius: "4px",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "0.5rem",
-                }}
-            >
-                <i className="codicon codicon-check" />
-                <span>Content validation passed</span>
-            </div>
-        );
-    }
-
-    return (
-        <div
-            style={{
-                padding: "0.5rem 1rem",
-                marginTop: "1rem",
-                background: "var(--vscode-inputValidation-errorBackground)",
-                border: "1px solid var(--vscode-inputValidation-errorBorder)",
-                borderRadius: "4px",
-            }}
-        >
-            {result.errors.map((error, index) => (
-                <div
-                    key={index}
-                    style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "0.5rem",
-                        color: "var(--vscode-inputValidation-errorForeground)",
-                    }}
-                >
-                    <i className="codicon codicon-error" />
-                    <span>{error.message}</span>
-                </div>
-            ))}
         </div>
     );
 };
