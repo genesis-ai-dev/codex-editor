@@ -15,6 +15,7 @@ import SourceCellContext from "./contextProviders/SourceCellContext";
 import ConfirmationButton from "./ConfirmationButton";
 import { debounce } from "lodash";
 import { generateChildCellId } from "../../../../src/providers/codexCellEditorProvider/utils/cellUtils";
+import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 
 interface CellEditorProps {
     cellMarkers: string[];
@@ -53,6 +54,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 }) => {
     const { unsavedChanges, setUnsavedChanges, showFlashingBorder } =
         useContext(UnsavedChangesContext);
+    const { contentToScrollTo } = useContext(ScrollToContentContext);
     const { sourceCellMap } = useContext(SourceCellContext);
     const cellEditorRef = useRef<HTMLDivElement>(null);
     const sourceCellContent = sourceCellMap?.[cellMarkers[0]];
@@ -73,6 +75,17 @@ const CellEditor: React.FC<CellEditorProps> = ({
             cellEditorRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
         }
     }, [showFlashingBorder]);
+
+    useEffect(() => {
+        if (
+            contentToScrollTo &&
+            contentToScrollTo === cellMarkers[0] &&
+            cellEditorRef.current &&
+            !unsavedChanges
+        ) {
+            cellEditorRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+    }, [contentToScrollTo]);
 
     const [editableLabel, setEditableLabel] = useState(cellLabel || "");
     const [prompt, setPrompt] = useState("");

@@ -5,12 +5,13 @@
         "lib": ["ES2020", "DOM", "DOM.Iterable"],
         "module": "ESNext",
         "skipLibCheck": true,
+        "types": ["node", "vscode-webview"],
 
         /* Bundler mode */
         "moduleResolution": "bundler",
         "allowImportingTsExtensions": true,
         "resolveJsonModule": true,
-        "isolatedModules": true,
+        "isolatedModules": false,
         "noEmit": true,
         "jsx": "react-jsx",
 
@@ -20,14 +21,11 @@
         "noUnusedParameters": false,
         "noFallthroughCasesInSwitch": true,
         "noImplicitAny": true,
-        "types": [],
-        "typeRoots": ["./node_modules/@types"],
         "resolvePackageJsonExports": false,
-        "noEmitOnError": true
+        "noEmitOnError": true,
+        "typeRoots": ["./node_modules/@types", "../../types", "./types", "../../src/types"]
     },
     "exclude": ["build"],
-    "include": [
-        "src/**/*" // Only include your source files
-    ],
+    "include": ["src/**/*", "../../types/**/*"],
     "references": [{ "path": "./tsconfig.node.json" }]
 }

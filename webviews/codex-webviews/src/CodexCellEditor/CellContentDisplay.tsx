@@ -1,9 +1,10 @@
-import React, { useContext, useEffect, useState } from "react";
+import React, { useContext, useEffect, useRef, useState } from "react";
 import { EditorCellContent, EditorPostMessages, Timestamps } from "../../../../types";
 import { HACKY_removeContiguousSpans } from "./utils";
 import { CodexCellTypes } from "../../../../types/enums";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import { WebviewApi } from "vscode-webview";
+import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 
 interface CellContentDisplayProps {
     cellIds: string[];
@@ -38,6 +39,20 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
 }) => {
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
     const [alertColorCode, setAlertColorCode] = useState<number>(-1);
+
+    const cellRef = useRef<HTMLDivElement>(null);
+    const { contentToScrollTo } = useContext(ScrollToContentContext);
+
+    useEffect(() => {
+        if (
+            contentToScrollTo &&
+            contentToScrollTo === cellIds[0] &&
+            cellRef.current &&
+            !unsavedChanges
+        ) {
+            cellRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+    }, [contentToScrollTo]);
 
     useEffect(() => {
         const checkContent = async () => {
@@ -112,6 +127,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
 
     return (
         <span
+            ref={cellRef}
             className={`verse-display ${
                 cellType === CodexCellTypes.TEXT ? "canonical-display" : "paratext-display"
             } cell-content ${hasDuplicateId ? "duplicate-id" : ""}`}

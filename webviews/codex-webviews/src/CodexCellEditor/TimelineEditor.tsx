@@ -63,7 +63,6 @@ const TimelineEditor: React.FC<TimelineEditorProps> = ({
                 }}
                 changeZoomLevel={(zoomLevel: number) => {
                     setZoomLevel(zoomLevel);
-                    console.log({ zoomLevel });
                 }}
                 changeShift={(shift: number) => {
                     // console.log({ shift });

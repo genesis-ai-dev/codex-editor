@@ -69,11 +69,24 @@ export class PromptedSmartEdits {
         try {
             console.log(`Getting prompt for cellId: ${cellId}`);
             const fileUri = vscode.Uri.file(this.smartPromptPath);
-            const fileContent = await vscode.workspace.fs.readFile(fileUri);
-            const savedPrompts: { [key: string]: SavedPrompt } = JSON.parse(fileContent.toString());
 
-            if (savedPrompts[cellId]) {
-                return savedPrompts[cellId].prompt;
+            try {
+                const fileContent = await vscode.workspace.fs.readFile(fileUri);
+                const savedPrompts: { [key: string]: SavedPrompt } = JSON.parse(
+                    fileContent.toString()
+                );
+
+                if (savedPrompts[cellId]) {
+                    return savedPrompts[cellId].prompt;
+                }
+            } catch (error: any) {
+                // If file doesn't exist, create it with empty content
+                if (error.code === "FileNotFound" || error.code === "ENOENT") {
+                    await vscode.workspace.fs.writeFile(
+                        fileUri,
+                        Buffer.from(JSON.stringify({}, null, 2))
+                    );
+                }
             }
 
             return null;

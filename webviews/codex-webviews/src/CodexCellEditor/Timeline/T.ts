@@ -14,6 +14,7 @@ export default function TimeLine({
     canvas2,
     alignments,
     endTime,
+    setContentToScrollTo,
     getPlayer,
     changeAlignment,
     changeZoomLevel,
@@ -25,6 +26,7 @@ export default function TimeLine({
     canvas: HTMLCanvasElement;
     canvas2: HTMLCanvasElement;
     alignments: TimeBlock[];
+    setContentToScrollTo: React.Dispatch<React.SetStateAction<string | null>>;
     endTime: number;
     getPlayer: () => { currentTime: number; play: (currentTime: number) => void };
     changeAlignment: (
@@ -125,10 +127,10 @@ export default function TimeLine({
     let endTimeShow = Math.abs(w + shift) / zoomLevel;
     let moveIndex: number;
     let newTime: number;
-    let prtcls: any[] = [];
+    let prtcls: Square[] = [];
     setData(alignments); //tooltip
 
-    let tooltipTimeout: number;
+    let tooltipTimeout: ReturnType<typeof setTimeout>;
     let visibleTooltip = false;
     let visitedPrtcl: number; // BEGIN ...
 
@@ -500,6 +502,7 @@ export default function TimeLine({
                 currentPrtcl.offset = getOffsetCoords(mouse, currentPrtcl);
                 player.currentTime = currentPrtcl.x / zoomLevel;
                 player.play(player.currentTime);
+                setContentToScrollTo(currentPrtcl.id);
             } else {
                 currentPrtcl.selected = false;
             }
@@ -1006,22 +1009,22 @@ export default function TimeLine({
         if (!player) player = getPlayer();
         currentTime = player.currentTime || 0;
         calculateViewPortTimes();
-        if (player) handleCursorOutOfViewPort(currentTime); //clear paper
+        if (player) handleCursorOutOfViewPort(currentTime);
 
-        ctx.clearRect(0, 0, w, ctx.canvas.height); //draw boxes
+        ctx.clearRect(0, 0, w, ctx.canvas.height);
 
         if (!moving) currentPrtclsIndex = -1;
         currentHoveredIndex = -1;
         prtcls.filter((e, i) => {
             const isHoveredPrtcl = cursorInRect(mouse.x, mouse.y, e.x, e.y, e.edge, e.edge);
-            const position = currentTime * zoomLevel + shift; //player on box
+            const position = currentTime * zoomLevel + shift;
 
             if (position - shift >= e.x && position - shift <= e.x + e.edge) {
                 currentHoveredIndex = i;
-            } //mouse on box
+            }
 
             if (isHoveredPrtcl && !resizing && !moving) currentPrtclsIndex = i;
-            e.active = !!isHoveredPrtcl; //check prtcls is in viewport
+            e.active = !!isHoveredPrtcl;
 
             const condition =
                 (e.x >= -1 * shift && e.x + e.edge < -1 * shift + w) ||
