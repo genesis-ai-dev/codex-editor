@@ -90,7 +90,6 @@ export class SourceImportTransaction extends ImportTransaction {
 
             // Preparation step
             await progressManager?.nextStep(token);
-            const tempTransformedFile = await this.createTransformedFile();
 
             // Transformation step
             await progressManager?.nextStep(token);
@@ -126,21 +125,6 @@ export class SourceImportTransaction extends ImportTransaction {
             await this.rollback();
             throw error;
         }
-    }
-
-    private async createTransformedFile(): Promise<vscode.Uri> {
-        const transformedFile = vscode.Uri.joinPath(
-            this.getTempDir(),
-            `transformed_${path.basename(this.state.sourceFile.fsPath)}`
-        );
-
-        await vscode.workspace.fs.writeFile(
-            transformedFile,
-            Buffer.from(JSON.stringify(this.preview!.transformedContent, null, 2))
-        );
-
-        this.state.tempFiles.push(transformedFile);
-        return transformedFile;
     }
 
     private async processNotebooks(

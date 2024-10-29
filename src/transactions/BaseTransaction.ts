@@ -83,4 +83,8 @@ export abstract class BaseTransaction {
         progress?: { report: (update: { message?: string; increment?: number }) => void },
         token?: vscode.CancellationToken
     ): Promise<void>;
+
+    abstract commit(): Promise<void>;
+
+    abstract awaitConfirmation(): Promise<void>;
 }

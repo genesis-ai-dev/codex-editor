@@ -9,7 +9,7 @@ import {
     accessMetadataFile,
     reopenWalkthrough,
 } from "./utils/projectUtils";
-import { downloadBible, setTargetFont } from "./projectInitializers";
+import { setTargetFont } from "./projectInitializers";
 import { migration_changeDraftFolderToFilesFolder } from "./utils/migrationUtils";
 import { importLocalUsfmSourceBible } from "../utils/codexNotebookUtils";
 import {
@@ -67,11 +67,6 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
                 "@files.autoSave"
             );
         })
-    );
-
-    const downloadSourceTextCommand = vscode.commands.registerCommand(
-        "codex-project-manager.downloadSourceText",
-        () => downloadBible("source")
     );
 
     const editAbbreviationCommand = vscode.commands.registerCommand(
@@ -467,7 +462,6 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
     // Register commands and event listeners
     context.subscriptions.push(
         openAutoSaveSettingsCommand,
-        downloadSourceTextCommand,
         editAbbreviationCommand,
         selectCategoryCommand,
         setEditorFontToTargetLanguageCommand,
