@@ -192,7 +192,6 @@ export function searchParallelCells(
         })
         .filter((pair): pair is NonNullable<TranslationPair> => pair !== null);
 
-    console.log("Processed translation pairs:", JSON.stringify(translationPairs, null, 2));
 
     return translationPairs;
 }

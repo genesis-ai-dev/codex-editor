@@ -219,8 +219,7 @@ export default function Editor(props: EditorProps) {
             if (quillRef.current) {
                 const quill = quillRef.current;
                 if (event.data.type === "providerSendsPromptedEditResponse") {
-                    quill.setText(event.data.content);
-                    quill.update();
+                    quill.root.innerHTML = event.data.content;
                 } else if (event.data.type === "providerSendsLLMCompletionResponse") {
                     const completionText = event.data.content.completion;
                     quill.root.innerHTML = completionText; // Clear existing content
