@@ -25,12 +25,109 @@ import { VideoEditorProvider } from "./providers/VideoEditor/VideoEditorProvider
 import { registerVideoPlayerCommands } from "./providers/VideoPlayer/registerCommands";
 import { SourceUploadProvider } from "./providers/SourceUpload/SourceUploadProvider";
 import { StatusBarItem } from "vscode";
+import initSqlJs, { Database, SqlJsStatic } from "sql.js";
+import path from "path";
 
 let client: LanguageClient | undefined;
 let clientCommandsDisposable: vscode.Disposable;
 let autoCompleteStatusBarItem: StatusBarItem;
+let db: Database;
 
+function getDefinitions(db: Database, word: string): string[] {
+    const stmt = db.prepare("SELECT definition FROM entries WHERE word = ?");
+    stmt.bind([word]);
+
+    const results: string[] = [];
+    while (stmt.step()) {
+        const row = stmt.getAsObject();
+        results.push(row["definition"] as string);
+    }
+    stmt.free();
+    return results;
+}
+
+async function lookupWord() {
+    try {
+        const word = await vscode.window.showInputBox({ prompt: "Enter a word to look up" });
+        if (word) {
+            const definitions = getDefinitions(db, word);
+            if (definitions.length > 0) {
+                await vscode.window.showQuickPick(definitions, {
+                    placeHolder: `Definitions for "${word}"`,
+                });
+            } else {
+                vscode.window.showInformationMessage(`No definitions found for "${word}".`);
+            }
+        }
+    } catch (error) {
+        vscode.window.showErrorMessage(`An error occurred: ${(error as Error).message}`);
+    }
+}
 export async function activate(context: vscode.ExtensionContext) {
+    // Initialize sql.js
+
+    console.log("Activating extension");
+    let SQL: SqlJsStatic | undefined;
+    try {
+        const sqlWasmPath = vscode.Uri.joinPath(context.extensionUri, "out", "sql-wasm.wasm");
+        console.log("SQL WASM Path:", sqlWasmPath.fsPath);
+
+        SQL = await initSqlJs({
+            locateFile: (file: string) => {
+                console.log("Locating file:", file);
+                return sqlWasmPath.fsPath;
+            },
+            // Add this to ensure proper module loading
+            wasmBinary: await vscode.workspace.fs.readFile(sqlWasmPath),
+        });
+
+        if (!SQL) {
+            throw new Error("Failed to initialize SQL.js");
+        }
+
+        console.log("SQL.js initialized successfully");
+    } catch (error) {
+        console.error("Error initializing sql.js:", error);
+        vscode.window.showErrorMessage(`Failed to initialize SQL.js: ${error}`);
+        return;
+    }
+
+    // Load or create the database file
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+        vscode.window.showErrorMessage("No workspace folder found");
+        return;
+    }
+    const dbPath = vscode.Uri.joinPath(workspaceFolder.uri, "data", "dictionary.sqlite");
+
+    let fileBuffer: Uint8Array;
+    try {
+        // Try to read existing database
+        fileBuffer = await vscode.workspace.fs.readFile(dbPath);
+    } catch {
+        // If file doesn't exist, create new database
+        const newDb = new SQL.Database();
+        // Create your table structure
+        newDb.run(`
+            CREATE TABLE entries (
+                word TEXT PRIMARY KEY,
+                definition TEXT NOT NULL
+            );
+        `);
+        // Save the new database to file
+        fileBuffer = newDb.export();
+        // Ensure data directory exists
+        await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(workspaceFolder.uri, "data"));
+        await vscode.workspace.fs.writeFile(dbPath, fileBuffer);
+    }
+
+    // Create/load the database
+    db = new SQL.Database(fileBuffer);
+    // Register commands
+
+    const disposable = vscode.commands.registerCommand("extension.lookupWord", lookupWord);
+    context.subscriptions.push(disposable);
+
     vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
 
     // Register trust change listener
@@ -194,6 +291,9 @@ export function deactivate() {
     }
     if (client) {
         return client.stop();
+    }
+    if (db) {
+        db.close();
     }
 }
 

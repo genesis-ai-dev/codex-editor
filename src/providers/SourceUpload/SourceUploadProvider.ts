@@ -244,7 +244,7 @@ export class SourceUploadProvider
                                 command: "translationPreview",
                                 preview,
                             } as SourceUploadResponseMessages);
-                        } catch (error) {
+                        } catch (error: any) {
                             console.error("Error preparing translation import:", error);
                             webviewPanel.webview.postMessage({
                                 command: "error",
