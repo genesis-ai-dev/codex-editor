@@ -1,10 +1,11 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useContext, useEffect, useRef, useState } from "react";
 import TimeLine, { TimelineReturn } from "./T";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import "./index.css";
 import { TimeBlock } from "../../../../../types";
 import ReactPlayer from "react-player";
 import ZoomButton from "./ZoomButton";
+import ScrollToContentContext from "../contextProviders/ScrollToContentContext";
 
 export interface TimelineProps {
     setAutoPlay: (autoPlay: boolean) => void;
@@ -53,6 +54,7 @@ export default function Timeline(props: TimelineProps) {
     const canvasAudio = useRef(null);
     const canvas2 = useRef(null);
 
+    const { setContentToScrollTo, contentToScrollTo } = useContext(ScrollToContentContext);
     const changeAlignment = (z: TimeBlock[]) => {
         data = z;
         props.setAligns(z);
@@ -86,6 +88,11 @@ export default function Timeline(props: TimelineProps) {
             canvas2: canvas2.current as unknown as HTMLCanvasElement,
             alignments: p.data,
             endTime: p.endTime,
+            setContentToScrollTo: (id) => {
+                if (id && id !== contentToScrollTo) {
+                    setContentToScrollTo(id);
+                }
+            },
             getPlayer: () => ({
                 currentTime: props.playerRef?.current?.getCurrentTime() || 0,
                 play: (currentTime: number) => {

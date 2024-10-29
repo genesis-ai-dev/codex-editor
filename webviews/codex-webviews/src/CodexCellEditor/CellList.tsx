@@ -1,5 +1,5 @@
-import React, { useMemo, useState, useCallback, useRef, useEffect } from "react";
 import { EditorCellContent, QuillCellContent, SpellCheckResponse } from "../../../../types";
+import React, { useMemo, useCallback } from "react";
 import CellEditor from "./TextCellEditor";
 import CellContentDisplay from "./CellContentDisplay";
 import EmptyCellDisplay from "./EmptyCellDisplay";
