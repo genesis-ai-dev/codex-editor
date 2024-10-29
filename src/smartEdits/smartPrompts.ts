@@ -189,8 +189,8 @@ export class PromptedSmartEdits {
 
     // Add helper function to extract and process cell references
     private async processCellReferences(prompt: string): Promise<string> {
-        // Match cellIds in format <BOOK C:V> or similar patterns
-        const cellIdPattern = /<([^>]+)>/g;
+        // Match cellIds with or without angle brackets (e.g., "BOOK C:V" or "<BOOK C:V>")
+        const cellIdPattern = /(?:<?(BOOK\s+\d+:\d+)>?)/g;
         const matches = prompt.match(cellIdPattern);
 
         if (!matches) return prompt;
@@ -198,7 +198,8 @@ export class PromptedSmartEdits {
         let processedPrompt = prompt;
 
         for (const match of matches) {
-            const cellId = match.slice(1, -1); // Remove < >
+            // Remove angle brackets if they exist
+            const cellId = match.replace(/[<>]/g, "").trim();
             try {
                 const translationPair = await vscode.commands.executeCommand<TranslationPair>(
                     "translators-copilot.getTranslationPairFromProject",
