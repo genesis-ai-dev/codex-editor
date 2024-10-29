@@ -1,4 +1,5 @@
-import { PreviewContent } from "../../../../types";
+import { BiblePreviewData, PreviewContent } from "../../../../types";
+import { DownloadBibleTransaction } from "../../../../src/transactions/DownloadBibleTransaction";
 
 // Add ImportType type
 export type ImportType = "source" | "translation" | "bible-download";
@@ -21,12 +22,15 @@ export interface ProcessingStages {
 export interface WorkflowState {
     step: WorkflowStep;
     importType: ImportType | null;
-    selectedFile: File | null;
+    selectedFile: string | null;
     selectedSourceId?: string;
-    preview?: PreviewContent;
+    preview?: PreviewContent | BiblePreviewData;
     error?: string | null;
     processingStages: ProcessingStages;
-    progress?: ImportProgress;
+    progress?: {
+        message: string;
+        increment: number;
+    };
     availableCodexFiles?: Array<{
         id: string;
         name: string;
@@ -34,12 +38,9 @@ export interface WorkflowState {
     }>;
     bibleDownload?: {
         language: string;
-        status: "pending" | "downloading" | "complete" | "error";
-        progress?: {
-            message: string;
-            increment: number;
-        };
+        status: "downloading" | "complete" | "error";
     };
+    currentTransaction?: DownloadBibleTransaction;
 }
 
 export interface ImportProgress {

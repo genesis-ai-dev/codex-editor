@@ -1,3 +1,4 @@
+import { PreviewContent } from "./index.d";
 import { Dictionary, LanguageMetadata, Project } from "codex-types";
 import * as vscode from "vscode";
 import { ScriptureTSV } from "./TsvTypes";
@@ -165,64 +166,49 @@ type ChatPostMessages =
           sourceCellMap: { [k: string]: { content: string; versions: string[] } };
       };
 
-type SourceUploadPostMessages =
+export type SourceUploadPostMessages =
+    | { command: "error"; errorMessage: string }
     | { command: "uploadSourceText"; fileContent: string; fileName: string }
     | { command: "uploadTranslation"; fileContent: string; fileName: string; sourceId: string }
     | { command: "getAvailableCodexFiles" }
-    | { command: "selectSourceFile"; data: { sourcePath: string } }
+    | { command: "selectSourceFile" }
     | { command: "confirmSourceImport" }
     | { command: "confirmTranslationImport" }
     | { command: "cancelSourceImport" }
     | { command: "cancelTranslationImport" }
-    | { command: "getMetadata" }
     | { command: "downloadBible"; ebibleMetadata: ExtendedMetadata }
-    | { command: "downloadBibleProgress"; progress: { message?: string; increment?: number } }
-    | { command: "syncAction"; status: string; fileUri: string }
-    | { command: "openFile"; fileUri: string }
-    | { command: "closePanel" }
-    | { command: "createSourceFolder"; data: { sourcePath: string } }
-    | { command: "importRemoteTranslation"; data: { sourcePath: string } }
-    | { command: "importLocalTranslation"; data: { sourcePath: string } }
-    | { command: "selectSourceFile"; data: { sourcePath: string } }
-    | { command: "cancelSourceImport" }
-    | { command: "confirmSourceImport" }
-    | { command: "previewSourceText"; fileContent: string; fileName: string }
-    | { command: "error"; errorMessage: string };
+    | { command: "confirmBibleDownload"; transaction: DownloadBibleTransaction }
+    | { command: "cancelBibleDownload"; transaction: DownloadBibleTransaction };
+// ... other existing message types ...
 
-export type SourceUploadResponseMessages = {
-    command:
-        | "updateMetadata"
-        | "sourcePreview"
-        | "sourceFileSelected"
-        | "updateProcessingStatus"
-        | "setupComplete"
-        | "error"
-        | "importComplete"
-        | "importCancelled"
-        | "availableCodexFiles"
-        | "translationPreview"
-        | "bibleDownloadProgress"
-        | "bibleDownloadComplete"
-        | "bibleDownloadError";
-    metadata?: AggregatedMetadata[];
-    preview?: PreviewState;
-    data?: {
-        path?: string;
-    };
-    status?: Record<string, "pending" | "active" | "complete" | "error">;
-    files?: Array<{
-        id: string;
-        name: string;
-        path: string;
-    }>;
-    errorMessage?: string;
-    progress?: {
-        message?: string;
-        increment?: number;
-        status?: Record<string, "pending" | "active" | "complete" | "error">;
-    };
-    error?: string;
-};
+export type SourceUploadResponseMessages =
+    | { command: "updateMetadata"; metadata: any[] }
+    | { command: "error"; message: string }
+    | { command: "importComplete" }
+    | { command: "setupComplete"; data: { path: string } }
+    | { command: "sourcePreview"; preview: any }
+    | { command: "sourceFileSelected"; data: { path: string } }
+    | {
+          command: "updateProcessingStatus";
+          status: Record<string, ProcessingStatus>;
+          progress?: { message: string; increment: number };
+      }
+    | { command: "importCancelled" }
+    | { command: "availableCodexFiles"; files: Array<{ id: string; name: string; path: string }> }
+    | { command: "translationPreview"; preview: any }
+    | {
+          command: "bibleDownloadProgress";
+          progress: {
+              message?: string;
+              increment?: number;
+              status: Record<string, ProcessingStatus>;
+          };
+      }
+    | { command: "bibleDownloadComplete" }
+    | { command: "bibleDownloadError"; error: string }
+    | { command: "biblePreview"; preview: BiblePreviewData; transaction: DownloadBibleTransaction }
+    | { command: "bibleDownloadCancelled" };
+// ... other existing message types ...
 
 type DictionaryPostMessages =
     | { command: "sendData"; data: Dictionary }
@@ -824,4 +810,44 @@ type WorkflowStep = "select" | "preview" | "confirm" | "processing" | "complete"
 // Add ProcessingStage type
 type ProcessingStatus = "pending" | "active" | "complete" | "error";
 
+export interface CustomNotebookPreviewWithMetadata {
+    translationId: string;
+    languageCode: string;
+    verseCount: number;
+    preview: PreviewContent;
+}
 
+export interface BiblePreviewData {
+    original: {
+        preview: string;
+        validationResults: {
+            isValid: boolean;
+            errors: Array<{ message: string }>;
+        }[];
+    };
+    transformed: {
+        sourceNotebooks: NotebookPreview[];
+        validationResults: {
+            isValid: boolean;
+            errors: Array<{ message: string }>;
+        }[];
+    };
+}
+
+export interface WorkflowState {
+    step: WorkflowStep;
+    importType: ImportType | null;
+    selectedFile: string | null;
+    processingStages: Record<string, ProcessingStage>;
+    preview?: BiblePreviewData;
+    progress?: {
+        message: string;
+        increment: number;
+    };
+    error?: string;
+    bibleDownload?: {
+        language: string;
+        status: "downloading" | "complete" | "error";
+    };
+    currentTransaction?: any; // We'll type this properly in a moment
+}

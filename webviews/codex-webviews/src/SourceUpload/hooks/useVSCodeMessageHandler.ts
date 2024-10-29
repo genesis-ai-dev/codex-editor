@@ -136,10 +136,10 @@ export function useVSCodeMessageHandler() {
                     break;
 
                 case "error":
-                    if (message.errorMessage) {
+                    if (message) {
                         setWorkflow((prev) => ({
                             ...prev,
-                            error: message.errorMessage,
+                            error: message.message,
                         }));
                     }
                     break;

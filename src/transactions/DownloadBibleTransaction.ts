@@ -1,64 +1,104 @@
 import * as vscode from "vscode";
-import { BaseTransaction } from "./BaseTransaction";
+import { BaseTransaction, TransactionState } from "./BaseTransaction";
 import { ProgressManager, ProgressStep } from "../utils/progressManager";
-import { downloadBible } from "../projectManager/projectInitializers";
-import { NotebookMetadataManager } from "../utils/notebookMetadataManager";
+import { ExtendedMetadata, EbibleCorpusMetadata } from "../utils/ebible/ebibleCorpusUtils";
+import {
+    downloadEBibleText,
+    ensureVrefList,
+    zipBibleFiles,
+} from "../utils/ebible/ebibleClientOnlyUtils";
+import { BibleContentValidator } from "../validators/BibleContentValidator";
+import { BibleContentTransformer } from "../transformers/BibleContentTransformer";
+import {
+    BiblePreviewData,
+    NotebookPreview,
+    CustomNotebookPreviewWithMetadata,
+    CustomNotebookMetadata,
+} from "../../types";
+import { CodexNotebookAsJSONData, CustomNotebookCellData } from "../../types";
+import { CodexCellTypes } from "../../types/enums";
 import { CodexContentSerializer } from "../serializer";
 import { splitSourceFileByBook } from "../utils/codexNotebookUtils";
-import { CustomNotebookMetadata } from "../../types";
-import { BibleContentValidator } from "../validators/BibleContentValidator";
-import { BibleContentAnalyzer } from "../analyzers/BibleContentAnalyzer";
-import { BibleContentTransformer } from "../transformers/BibleContentTransformer";
-import * as path from "path";
+import { NotebookMetadataManager } from "../utils/notebookMetadataManager";
 import { vrefData } from "../utils/verseRefUtils/verseData";
-import { ExtendedMetadata } from "../utils/ebible/ebibleCorpusUtils";
+import * as path from "path";
+import { v4 as uuidv4 } from "uuid";
 
-export interface DownloadBibleTransactionOptions {
-    sourceLanguage: string;
-    workspaceRoot?: vscode.Uri;
-    translationId?: string; // The specific Bible translation ID to download
+interface DownloadBibleTransactionState extends TransactionState {
+    tempDirectory?: vscode.Uri;
+    downloadedFile?: vscode.Uri;
+    validatedContent?: {
+        validLines: string[];
+        validLineIndices: number[];
+    };
+    vrefPath?: vscode.Uri;
+    zippedFile?: vscode.Uri;
+    preview?: BiblePreviewData;
+    isPreviewConfirmed?: boolean;
+    transformedContent?: {
+        verses: Array<{
+            book: string;
+            chapter: number;
+            verse: number;
+            text: string;
+        }>;
+        statistics: {
+            totalVerses: number;
+            processedBooks: string[];
+        };
+    };
+    notebookUri?: vscode.Uri;
 }
 
 export class DownloadBibleTransaction extends BaseTransaction {
-    private readonly ebibleMetadata: ExtendedMetadata | undefined;
-    private readonly sourceLanguage: string;
-    private readonly translationId?: string;
-    private readonly workspaceRoot: vscode.Uri | undefined;
-    private metadataManager: NotebookMetadataManager;
-    private downloadedSourceUri?: vscode.Uri;
+    private readonly ebibleMetadata: ExtendedMetadata;
+    protected state: DownloadBibleTransactionState = {
+        status: "prepared",
+        tempFiles: [],
+    };
     private validator: BibleContentValidator;
-    private analyzer: BibleContentAnalyzer;
     private transformer: BibleContentTransformer;
-    private tempDirectory?: vscode.Uri;
+
     private readonly importSteps: ProgressStep[] = [
-        { name: "validation", message: "Validating Bible content...", weight: 1 },
-        { name: "preview", message: "Generating preview...", weight: 1 },
         { name: "download", message: "Downloading Bible text...", weight: 2 },
+        { name: "validation", message: "Validating content...", weight: 1 },
+        { name: "preview", message: "Generating preview...", weight: 1 },
         { name: "transform", message: "Transforming content...", weight: 2 },
-        { name: "splitting", message: "Splitting into sections...", weight: 2 },
         { name: "notebooks", message: "Creating notebooks...", weight: 2 },
         { name: "metadata", message: "Updating metadata...", weight: 1 },
         { name: "commit", message: "Committing changes...", weight: 1 },
     ];
-    constructor(options: { ebibleMetadata?: ExtendedMetadata }) {
+
+    constructor(options: { ebibleMetadata: ExtendedMetadata }) {
         super();
         this.ebibleMetadata = options.ebibleMetadata;
-        this.sourceLanguage = options.ebibleMetadata?.languageCode || "";
-        this.translationId = options.ebibleMetadata?.translationId || undefined;
-        this.workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
-        this.metadataManager = new NotebookMetadataManager();
         this.validator = new BibleContentValidator();
-        this.analyzer = new BibleContentAnalyzer();
         this.transformer = new BibleContentTransformer();
-        this.tempDirectory = this.workspaceRoot
-            ? vscode.Uri.joinPath(this.workspaceRoot, ".codex_temp")
-            : undefined;
     }
 
     async prepare(): Promise<void> {
         try {
-            await this.metadataManager.initialize();
-            await this.createTempDirectory();
+            // Create temp directory with timestamp
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
+            if (!workspaceRoot) {
+                throw new Error("No workspace folder found");
+            }
+
+            // Create base temp directory if it doesn't exist
+            const baseTempDir = vscode.Uri.joinPath(workspaceRoot, ".codex-temp");
+            await vscode.workspace.fs.createDirectory(baseTempDir);
+
+            // Create timestamped subdirectory
+            const timestamp = new Date();
+            this.state.tempDirectory = vscode.Uri.joinPath(baseTempDir, timestamp.toISOString());
+            await vscode.workspace.fs.createDirectory(this.state.tempDirectory);
+
+            // Ensure vref.txt exists in the temp directory
+            const vrefUri = await ensureVrefList(this.state.tempDirectory);
+            this.state.vrefPath = vrefUri;
+            this.state.tempFiles.push(vrefUri);
+
+            this.state.status = "prepared";
         } catch (error) {
             await this.rollback();
             throw error;
@@ -69,302 +109,400 @@ export class DownloadBibleTransaction extends BaseTransaction {
         progress?: { report: (update: { message?: string; increment?: number }) => void },
         token?: vscode.CancellationToken
     ): Promise<void> {
+        if (this.state.status !== "prepared") {
+            throw new Error("Transaction not prepared");
+        }
+
+        const progressManager = progress
+            ? new ProgressManager(progress, this.importSteps)
+            : undefined;
+
         try {
-            const progressManager = progress
-                ? new ProgressManager(progress, this.importSteps)
-                : undefined;
-
-            // Download step
+            // Step 1: Download
             await progressManager?.nextStep(token);
-            if (!this.ebibleMetadata) {
-                throw new Error("No Bible metadata was selected for download");
-            }
-            this.downloadedSourceUri = await downloadBible(this.ebibleMetadata);
-            if (!this.downloadedSourceUri) {
-                throw new Error("No Bible text was selected for download");
-            }
+            await this.downloadBibleText();
 
-            // Validation step
+            // Step 2: Validate
             await progressManager?.nextStep(token);
-            const validationResult = await this.validator.validateContent(this.downloadedSourceUri);
-            if (!validationResult.isValid) {
-                throw new Error(
-                    `Invalid Bible content: ${validationResult.errors
-                        .map((e) => e.message)
-                        .join(", ")}`
-                );
+            await this.validateContent();
+
+            // Step 3: Generate Preview
+            await progressManager?.nextStep(token);
+            await this.generatePreview();
+
+            // Wait for preview confirmation
+            if (!this.state.isPreviewConfirmed) {
+                this.state.status = "awaiting_confirmation";
+                return;
             }
 
-            // Preview step
-            await progressManager?.nextStep(token);
-            const preview = await this.analyzer.generatePreview(
-                this.downloadedSourceUri,
-                this.sourceLanguage
-            );
-            const shouldProceed = await this.analyzer.showPreviewDialog(preview);
-            if (!shouldProceed) {
-                throw new Error("Operation cancelled by user");
-            }
-
-            // Transform step
-            await progressManager?.nextStep(token);
-            const transformedContentUri = vscode.Uri.joinPath(
-                this.tempDirectory!,
-                new Date().toISOString(),
-                "transformed-bible.txt"
-            );
-            const transformResult = await this.transformer.transformContent(
-                this.downloadedSourceUri!
-            );
-            await this.transformer.writeTransformedContent(transformResult, transformedContentUri);
-
-            // Update downloadedSourceUri to use the transformed content
-            this.downloadedSourceUri = transformedContentUri;
-            this.state.tempFiles.push(transformedContentUri);
-
-            // Splitting step (now uses transformed content)
-            await progressManager?.nextStep(token);
-            const workspaceFolder = await this.getWorkspaceFolder();
-            await splitSourceFileByBook(
-                this.downloadedSourceUri,
-                workspaceFolder.uri.fsPath,
-                this.sourceLanguage
-            );
-
-            // Create notebooks step
-            await progressManager?.nextStep(token);
-            await this.createEmptyNotebooks();
-
-            // Metadata step
-            await progressManager?.nextStep(token);
-            await this.updateMetadata();
-
-            // Commit step
-            await progressManager?.nextStep(token);
-            await this.commitChanges();
-
-            this.state.status = "committed";
-
-            vscode.window.showInformationMessage(
-                `Successfully downloaded and processed Bible text for ${this.sourceLanguage} language`
-            );
+            // Continue with remaining steps only after confirmation
+            await this.continueExecution(progressManager, token);
         } catch (error) {
             await this.rollback();
             throw error;
         }
     }
 
-    private async createEmptyNotebooks(): Promise<void> {
-        const serializer = new CodexContentSerializer();
-        const workspaceFolder = await this.getWorkspaceFolder();
+    private async generatePreview(): Promise<BiblePreviewData> {
+        if (!this.state.zippedFile || !this.state.validatedContent) {
+            throw new Error("Cannot generate preview: missing required data");
+        }
 
-        // Find all .source files created by splitSourceFileByBook
-        const sourceFiles = await vscode.workspace.findFiles(
-            new vscode.RelativePattern(
-                workspaceFolder,
-                `files/source/${this.sourceLanguage}Texts/**/*.source`
-            )
-        );
+        // Generate preview of first few verses with their verse references
+        const previewLines = this.state.validatedContent.validLines.slice(0, 10);
+        const preview = previewLines.join("\n");
 
-        // Create target directory if it doesn't exist
-        const targetDir = this.workspaceRoot
-            ? vscode.Uri.joinPath(
-                  this.workspaceRoot,
-                  "files",
-                  "target",
-                  `${this.sourceLanguage}Texts`
-              )
-            : undefined;
+        const notebookPreviewMetadata: CustomNotebookMetadata = {
+            id: `${this.ebibleMetadata.languageCode}-${this.ebibleMetadata.translationId}`,
+            originalName: `${this.ebibleMetadata.languageCode}-${this.ebibleMetadata.translationId}`,
+            sourceFsPath: this.state.zippedFile?.fsPath || "",
+            codexFsPath: "",
+            navigation: [],
+            sourceCreatedAt: new Date().toISOString(),
+            gitStatus: "uninitialized",
+            corpusMarker: "",
+            textDirection: "ltr",
+        };
 
-        if (!targetDir) {
-            throw new Error("No workspace folder found");
+        // Create a sample notebook preview
+        const notebookPreview: NotebookPreview = {
+            name: `${this.ebibleMetadata.languageCode}-${this.ebibleMetadata.translationId}`,
+            cells: previewLines.map((line, index) => ({
+                kind: 2,
+                languageId: "html",
+                value: line,
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: `preview-${index}`,
+                    data: {},
+                },
+            })),
+            metadata: notebookPreviewMetadata,
+        };
+
+        // Create preview data
+        // Log validation info
+        console.log("Valid lines:", this.state.validatedContent.validLines);
+
+        const previewData: BiblePreviewData = {
+            original: {
+                preview,
+                validationResults: [
+                    {
+                        isValid: true,
+                        errors: [],
+                    },
+                ],
+            },
+            transformed: {
+                sourceNotebooks: [
+                    {
+                        ...notebookPreview,
+                        metadata: notebookPreviewMetadata,
+                    },
+                ],
+                validationResults: [
+                    {
+                        isValid: true,
+                        errors: [],
+                    },
+                ],
+            },
+        };
+
+        this.state.preview = previewData;
+        return previewData;
+    }
+
+    async confirmPreview(): Promise<void> {
+        if (this.state.status !== "awaiting_confirmation") {
+            throw new Error("Transaction is not awaiting preview confirmation");
+        }
+        this.state.isPreviewConfirmed = true;
+        this.state.status = "prepared";
+    }
+
+    async continueExecution(
+        progressManager?: ProgressManager,
+        token?: vscode.CancellationToken
+    ): Promise<void> {
+        if (!this.state.isPreviewConfirmed) {
+            throw new Error("Preview must be confirmed before continuing");
         }
 
         try {
-            await vscode.workspace.fs.createDirectory(targetDir);
+            // Step 4: Transform
+            await progressManager?.nextStep(token);
+            await this.transformContent();
+
+            // Step 5: Create notebooks
+            await progressManager?.nextStep(token);
+            await this.createNotebooks();
+
+            // Step 6: Update metadata
+            await progressManager?.nextStep(token);
+            await this.updateMetadata();
+
+            // Step 7: Commit changes
+            await progressManager?.nextStep(token);
+            await this.commitChanges();
+
+            this.state.status = "committed";
         } catch (error) {
-            // Directory might already exist
+            await this.rollback();
+            throw error;
+        }
+    }
+
+    private async transformContent(): Promise<void> {
+        if (!this.state.zippedFile || !this.state.validatedContent) {
+            throw new Error("Missing required data for transformation");
         }
 
-        for (const sourceFile of sourceFiles) {
-            // Create matching .codex file path in target directory
-            const fileName = path.basename(sourceFile.fsPath).replace(/\.source$/, ".codex");
-            const codexUri = vscode.Uri.joinPath(targetDir, fileName);
+        const result = await this.transformer.transformContent(this.state.zippedFile);
+        this.state.transformedContent = result;
+    }
 
-            try {
-                // Read the source file
-                const sourceContent = await vscode.workspace.fs.readFile(sourceFile);
-                const notebook = await serializer.deserializeNotebook(
-                    sourceContent,
-                    new vscode.CancellationTokenSource().token
-                );
+    private async createNotebooks(): Promise<void> {
+        if (!this.state.transformedContent || !this.state.tempDirectory) {
+            throw new Error("Missing transformed content or temp directory");
+        }
 
-                // Create empty notebook with same structure
-                const emptyNotebook = {
-                    ...notebook,
-                    cells: notebook.cells.map((cell) => ({
-                        ...cell,
-                        value: "", // Empty the content
-                    })),
-                };
+        const notebookData: CodexNotebookAsJSONData = {
+            cells: [],
+            metadata: {
+                id: `${this.ebibleMetadata.languageCode}-${this.ebibleMetadata.translationId}`,
+                originalName: `${this.ebibleMetadata.languageCode}-${this.ebibleMetadata.translationId}`,
+                sourceFsPath: this.state.downloadedFile?.fsPath || "",
+                codexFsPath: "",
+                corpusMarker: "",
+                navigation: [],
+                sourceCreatedAt: new Date().toISOString(),
+                gitStatus: "uninitialized",
+            },
+        };
 
-                // Serialize and save the empty notebook
-                const serializedContent = await serializer.serializeNotebook(
-                    emptyNotebook,
-                    new vscode.CancellationTokenSource().token
-                );
+        let currentChapter = "";
+        let chapterCellId = "";
+        let testament: "OT" | "NT" | undefined;
 
-                await vscode.workspace.fs.writeFile(codexUri, serializedContent);
-                this.state.tempFiles.push(codexUri);
-            } catch (error) {
-                console.error(`Error creating notebook for ${sourceFile.fsPath}:`, error);
-                throw error;
+        // Create cells from transformed verses
+        this.state.transformedContent.verses.forEach((verse) => {
+            if (!testament && vrefData[verse.book]) {
+                testament = vrefData[verse.book].testament as "OT" | "NT";
             }
-        }
+
+            if (`${verse.chapter}` !== currentChapter) {
+                currentChapter = `${verse.chapter}`;
+                chapterCellId = `${verse.book} ${verse.chapter}:1:${Math.random()
+                    .toString(36)
+                    .substr(2, 11)}`;
+
+                // Add chapter header cell
+                notebookData.cells.push({
+                    kind: 2,
+                    languageId: "html",
+                    value: `<h1>Chapter ${verse.chapter}</h1>`,
+                    metadata: {
+                        type: CodexCellTypes.PARATEXT,
+                        id: chapterCellId,
+                    },
+                });
+            }
+
+            // Add verse cell
+            notebookData.cells.push({
+                kind: 2,
+                languageId: "html",
+                value: verse.text,
+                metadata: {
+                    type: CodexCellTypes.TEXT,
+                    id: `${verse.book} ${verse.chapter}:${verse.verse}`,
+                    data: {},
+                },
+            });
+        });
+
+        // Update notebook metadata
+        notebookData.metadata.corpusMarker = testament || "";
+
+        // Serialize notebook
+        const serializer = new CodexContentSerializer();
+        const notebookContent = await serializer.serializeNotebook(
+            new vscode.NotebookData(
+                notebookData.cells.map((cell) => new vscode.NotebookCellData(2, cell.value, "html"))
+            ),
+            new vscode.CancellationTokenSource().token
+        );
+
+        // Write to temp location
+        const notebookUri = vscode.Uri.joinPath(
+            this.state.tempDirectory,
+            `${this.ebibleMetadata.languageCode}-${this.ebibleMetadata.translationId}.source`
+        );
+        await vscode.workspace.fs.writeFile(notebookUri, notebookContent);
+
+        this.state.notebookUri = notebookUri;
+        this.state.tempFiles.push(notebookUri);
     }
 
     private async updateMetadata(): Promise<void> {
-        const workspaceFolder = await this.getWorkspaceFolder();
-
-        // Find all source files
-        const sourceFiles = await vscode.workspace.findFiles(
-            new vscode.RelativePattern(
-                workspaceFolder,
-                `files/source/${this.sourceLanguage}Texts/**/*.source`
-            )
-        );
-
-        for (const sourceFile of sourceFiles) {
-            const bookName = path.basename(sourceFile.fsPath, ".source");
-            const codexPath = this.workspaceRoot
-                ? vscode.Uri.joinPath(
-                      this.workspaceRoot,
-                      "files",
-                      "target",
-                      `${this.sourceLanguage}Texts`,
-                      `${bookName}.codex`
-                  )
-                : undefined;
-
-            if (!codexPath) {
-                throw new Error("No workspace folder found");
-            }
-
-            // Get testament information for corpus marker
-            const canonicalOrder = Object.keys(vrefData);
-            const corpora = {
-                "Old Testament": canonicalOrder.slice(0, 39),
-                "New Testament": canonicalOrder.slice(39),
-            };
-
-            let corpusMarker = "Other";
-            if (corpora["Old Testament"].includes(bookName)) {
-                corpusMarker = "Old Testament";
-            } else if (corpora["New Testament"].includes(bookName)) {
-                corpusMarker = "New Testament";
-            }
-
-            const metadata: CustomNotebookMetadata = {
-                id: bookName,
-                originalName: vscode.workspace.asRelativePath(sourceFile),
-                sourceFsPath: sourceFile.fsPath,
-                codexFsPath: codexPath.fsPath,
-                navigation: [], // Navigation will be populated when notebooks are created
-                sourceCreatedAt: new Date().toISOString(),
-                gitStatus: "uninitialized",
-                corpusMarker,
-                textDirection: "ltr", // Default to left-to-right
-            };
-
-            await this.metadataManager.addOrUpdateMetadata(metadata);
+        if (!this.state.notebookUri) {
+            throw new Error("No notebook URI available");
         }
+
+        const metadataManager = new NotebookMetadataManager();
+        await metadataManager.initialize();
+
+        const metadata = {
+            id: `${this.ebibleMetadata.languageCode}-${this.ebibleMetadata.translationId}`,
+            originalName: `${this.ebibleMetadata.languageCode}-${this.ebibleMetadata.translationId}`,
+            sourceFsPath: this.state.notebookUri.fsPath,
+            codexFsPath: this.state.notebookUri.fsPath,
+            sourceCreatedAt: new Date().toISOString(),
+            gitStatus: "uninitialized",
+            corpusMarker: this.state.transformedContent?.verses[0]
+                ? vrefData[this.state.transformedContent.verses[0].book]?.testament || ""
+                : "",
+        };
+
+        // @ts-expect-error - Not sure how to define optional types now
+        await metadataManager.addOrUpdateMetadata(metadata);
     }
 
-    protected async commitChanges(): Promise<void> {
-        try {
-            // Move files from temp to permanent locations if needed
-            const workspaceFolder = await this.getWorkspaceFolder();
-
-            // Ensure source and target directories exist
-            const sourceDir = this.workspaceRoot
-                ? vscode.Uri.joinPath(
-                      this.workspaceRoot,
-                      "files",
-                      "source",
-                      `${this.sourceLanguage}Texts`
-                  )
-                : undefined;
-
-            const targetDir = this.workspaceRoot
-                ? vscode.Uri.joinPath(
-                      this.workspaceRoot,
-                      "files",
-                      "target",
-                      `${this.sourceLanguage}Texts`
-                  )
-                : undefined;
-
-            if (!sourceDir || !targetDir) {
-                throw new Error("No workspace folder found");
-            }
-
-            try {
-                await vscode.workspace.fs.createDirectory(sourceDir);
-                await vscode.workspace.fs.createDirectory(targetDir);
-            } catch (error) {
-                // Directories might already exist
-            }
-
-            // Move any remaining temp files to their final locations
-            for (const tempFile of this.state.tempFiles) {
-                const fileName = path.basename(tempFile.fsPath);
-                const isSource = fileName.endsWith(".source");
-                const destDir = isSource ? sourceDir : targetDir;
-                const destUri = vscode.Uri.joinPath(destDir, fileName);
-
-                try {
-                    await vscode.workspace.fs.rename(tempFile, destUri, { overwrite: true });
-                } catch (error) {
-                    console.error(`Error moving file ${fileName}:`, error);
-                    throw error;
-                }
-            }
-
-            // Clear the temp files array since we've moved them
-            this.state.tempFiles = [];
-
-            // Update transaction state
-            this.state.status = "committed";
-
-            // Cleanup any remaining temporary resources
-            await this.cleanupTempFiles();
-            if (this.tempDirectory) {
-                try {
-                    await vscode.workspace.fs.delete(this.tempDirectory, { recursive: true });
-                    this.tempDirectory = undefined;
-                } catch (error) {
-                    console.warn("Error cleaning up temp directory:", error);
-                }
-            }
-
-            // Refresh the VS Code explorer
-            await vscode.commands.executeCommand("workbench.files.action.refreshFilesExplorer");
-        } catch (error) {
-            console.error("Error during commit:", error);
-            await this.rollback();
-            throw new Error(
-                `Failed to commit changes: ${
-                    error instanceof Error ? error.message : String(error)
-                }`
-            );
+    private async commitChanges(): Promise<void> {
+        if (!this.state.notebookUri) {
+            throw new Error("No notebook to commit");
         }
-    }
 
-    private async getWorkspaceFolder(): Promise<vscode.WorkspaceFolder> {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceRoot) {
             throw new Error("No workspace folder found");
         }
-        return workspaceFolder;
+
+        // Move notebook to final location
+        const finalPath = vscode.Uri.joinPath(
+            workspaceRoot,
+            "files",
+            "source",
+            `${this.ebibleMetadata.languageCode}Texts`,
+            path.basename(this.state.notebookUri.fsPath)
+        );
+
+        // Ensure directory exists
+        await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(finalPath, ".."));
+
+        // Move file
+        await vscode.workspace.fs.rename(this.state.notebookUri, finalPath, { overwrite: true });
+
+        // Split the source file by book
+        await splitSourceFileByBook(finalPath, workspaceRoot.fsPath, "source");
+
+        // Clean up temp directory
+        if (this.state.tempDirectory) {
+            try {
+                await vscode.workspace.fs.delete(this.state.tempDirectory, { recursive: true });
+            } catch (error) {
+                console.warn("Failed to delete temp directory:", error);
+            }
+        }
+
+        this.state.tempFiles = [];
+    }
+
+    getPreview(): BiblePreviewData | undefined {
+        return this.state.preview;
+    }
+
+    private async downloadBibleText(): Promise<void> {
+        if (!this.state.tempDirectory) {
+            throw new Error("Temp directory not initialized");
+        }
+
+        const simpleMetadata: EbibleCorpusMetadata = {
+            code: this.ebibleMetadata.languageCode,
+            file: `${this.ebibleMetadata.languageCode}-${this.ebibleMetadata.translationId}`,
+            lang: this.ebibleMetadata.languageName || "",
+            family: "",
+            country: "",
+            Total: 0,
+            Books: 0,
+            OT: 0,
+            NT: 0,
+            DT: 0,
+        };
+
+        // Download to temp directory
+        this.state.downloadedFile = await downloadEBibleText(
+            simpleMetadata,
+            this.state.tempDirectory
+        );
+        this.state.tempFiles.push(this.state.downloadedFile);
+
+        // Also ensure vref.txt is in temp directory
+        const vrefUri = await ensureVrefList(this.state.tempDirectory);
+        this.state.vrefPath = vrefUri;
+        this.state.tempFiles.push(vrefUri);
+
+        const zippedFile = await zipBibleFiles(
+            this.state.vrefPath,
+            this.state.downloadedFile,
+            this.state.tempDirectory
+        );
+        this.state.tempFiles.push(zippedFile);
+        this.state.zippedFile = zippedFile;
+    }
+
+    private async validateContent(): Promise<void> {
+        if (!this.state.zippedFile) {
+            throw new Error("No zipped file to validate");
+        }
+
+        const validationResult = await this.validator.validateContent(this.state.zippedFile);
+        if (!validationResult.isValid) {
+            throw new Error(
+                `Bible content validation failed: ${validationResult.errors
+                    .map((e) => e.message)
+                    .join(", ")}`
+            );
+        }
+
+        this.state.validatedContent = {
+            validLines: validationResult.validLines,
+            validLineIndices: validationResult.validLineIndices,
+        };
+    }
+
+    async rollback(): Promise<void> {
+        try {
+            // Clean up temp files
+            for (const tempFile of this.state.tempFiles) {
+                try {
+                    await vscode.workspace.fs.delete(tempFile);
+                } catch (error) {
+                    console.warn(`Failed to delete temp file ${tempFile.fsPath}:`, error);
+                }
+            }
+
+            // Clean up temp directory if it exists
+            if (this.state.tempDirectory) {
+                try {
+                    await vscode.workspace.fs.delete(this.state.tempDirectory, { recursive: true });
+                } catch (error) {
+                    console.warn(
+                        `Failed to delete temp directory ${this.state.tempDirectory.fsPath}:`,
+                        error
+                    );
+                }
+            }
+
+            this.state = {
+                status: "rolledback",
+                tempFiles: [],
+            };
+        } catch (error) {
+            console.error("Error during rollback:", error);
+        }
     }
 }

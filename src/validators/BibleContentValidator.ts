@@ -1,11 +1,10 @@
-import { verseRefRegex } from "src/utils/verseRefUtils";
+import { verseRefRegex } from "../utils/verseRefUtils";
 import * as vscode from "vscode";
 
 export enum BibleValidationErrorCode {
     INVALID_FORMAT = "INVALID_FORMAT",
     EMPTY_CONTENT = "EMPTY_CONTENT",
     MISSING_VERSES = "MISSING_VERSES",
-    INVALID_STRUCTURE = "INVALID_STRUCTURE",
 }
 
 export interface BibleValidationError {
@@ -17,43 +16,54 @@ export interface BibleValidationError {
 export interface BibleValidationResult {
     isValid: boolean;
     errors: BibleValidationError[];
+    validLines: string[];
+    validLineIndices: number[];
 }
 
 export class BibleContentValidator {
     async validateContent(fileUri: vscode.Uri): Promise<BibleValidationResult> {
         try {
+            console.log("Validating file:", fileUri.fsPath);
             const content = await vscode.workspace.fs.readFile(fileUri);
             const textContent = Buffer.from(content).toString("utf-8");
+            const lines = textContent.split(/\r?\n/);
 
+            console.log("Found lines:", lines.length);
             const errors: BibleValidationError[] = [];
+            const validLines: string[] = [];
+            const validLineIndices: number[] = [];
 
-            // Check for empty content
-            if (!textContent.trim()) {
+            // Check for completely empty content
+            if (lines.length === 0) {
                 errors.push({
                     code: BibleValidationErrorCode.EMPTY_CONTENT,
                     message: "The Bible content is empty",
                 });
+                return { isValid: false, errors, validLines: [], validLineIndices: [] };
             }
 
-            // Basic structure validation
-            if (!this.hasValidStructure(textContent)) {
-                errors.push({
-                    code: BibleValidationErrorCode.INVALID_STRUCTURE,
-                    message: "The Bible content does not follow the required structure",
-                });
-            }
+            // Filter and collect valid lines
+            lines.forEach((line, index) => {
+                if (this.isValidVerseLine(line)) {
+                    validLines.push(line);
+                    validLineIndices.push(index);
+                }
+            });
 
-            // Check for verse content
-            if (!this.hasVerseContent(textContent)) {
+            // Check if we have any valid content
+            if (validLines.length === 0) {
                 errors.push({
                     code: BibleValidationErrorCode.MISSING_VERSES,
-                    message: "No valid verse content found in the Bible text",
+                    message: "No valid verse content found",
+                    details: "The Bible text should contain at least some valid verses",
                 });
             }
 
             return {
-                isValid: errors.length === 0,
+                isValid: validLines.length > 0,
                 errors,
+                validLines,
+                validLineIndices,
             };
         } catch (error) {
             return {
@@ -65,25 +75,27 @@ export class BibleContentValidator {
                         details: error instanceof Error ? error.message : "Unknown error",
                     },
                 ],
+                validLines: [],
+                validLineIndices: [],
             };
         }
     }
 
-    private hasValidStructure(content: string): boolean {
-        // Expected format: Each line should be "BookName Chapter:Verse Text"
-        const lines = content.split("\n").filter((line) => line.trim());
-        const structureRegex = /^[\w\s]+\s+\d+:\d+\s+.+$/;
+    private isValidVerseLine(line: string): boolean {
+        const trimmedLine = line.trim();
 
-        return lines.some((line) => structureRegex.test(line.trim()));
-    }
+        // Totallympty lines are considered an error
+        if (trimmedLine.length === 0) {
+            return false;
+        }
 
-    private hasVerseContent(content: string): boolean {
-        const lines = content.split("\n").filter((line) => line.trim());
-        const verseRefRegex = /^[\w\s]+\s+\d+:\d+\s*/;
+        // verseRefRegex should be in line
+        const match = trimmedLine.match(verseRefRegex);
+        if (!match) {
+            return false;
+        }
 
-        return lines.some((line) => {
-            const verseContent = line.trim().replace(verseRefRegex, "");
-            return verseContent.length > 0;
-        });
+        // Basic checks for valid text content
+        return trimmedLine.length >= 2; // At least 2 characters
     }
 }

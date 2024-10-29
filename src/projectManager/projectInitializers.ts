@@ -21,243 +21,96 @@ import {
 import { CodexCellTypes } from "../../types/enums";
 import { CodexContentSerializer } from "../serializer";
 import { ExtendedMetadata } from "../utils/ebible/ebibleCorpusUtils";
+import { DownloadBibleTransaction } from "../transactions/DownloadBibleTransaction";
 
-export async function downloadBible(
-    ebibleMetadata?: ExtendedMetadata
-): Promise<vscode.Uri | undefined> {
-    // If metadata is provided directly, use it
-    if (ebibleMetadata) {
-        const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
-        if (workspaceRoot) {
-            return await handleBibleDownload(ebibleMetadata, workspaceRoot, "source");
-        }
-        return undefined;
-    }
+// export async function downloadBible(
+//     ebibleMetadata?: ExtendedMetadata
+// ): Promise<vscode.Uri | undefined> {
+//     if (!ebibleMetadata) {
+//         // If metadata is provided directly, use it
+//         const projectMetadata = await getProjectMetadata();
+//         let languageCode = projectMetadata?.languages?.find(
+//             (language) => language.projectStatus === LanguageProjectStatus.SOURCE
+//         )?.tag;
 
-    // Otherwise, show quick pick UI for manual selection
-    const projectMetadata = await getProjectMetadata();
-    let languageCode = projectMetadata?.languages?.find(
-        (language) => language.projectStatus === LanguageProjectStatus.SOURCE
-    )?.tag;
+//         if (!languageCode) {
+//             vscode.window.showErrorMessage(`No source language specified in project metadata.`);
+//             languageCode = "";
+//         }
 
-    if (!languageCode) {
-        vscode.window.showErrorMessage(`No source language specified in project metadata.`);
-        languageCode = "";
-    }
+//         let ebibleCorpusMetadata: EbibleCorpusMetadata[] =
+//             getEBCorpusMetadataByLanguageCode(languageCode);
+//         if (ebibleCorpusMetadata.length === 0) {
+//             vscode.window.showInformationMessage(
+//                 `No text bibles found for ${languageCode} in the eBible corpus.`
+//             );
+//             ebibleCorpusMetadata = getEBCorpusMetadataByLanguageCode(""); // Get all bibles if no language is specified
+//         }
 
-    let ebibleCorpusMetadata: EbibleCorpusMetadata[] =
-        getEBCorpusMetadataByLanguageCode(languageCode);
-    if (ebibleCorpusMetadata.length === 0) {
-        vscode.window.showInformationMessage(
-            `No text bibles found for ${languageCode} in the eBible corpus.`
-        );
-        ebibleCorpusMetadata = getEBCorpusMetadataByLanguageCode(""); // Get all bibles if no language is specified
-    }
+//         // Create quick pick items with a 'See more languages' option
+//         const getQuickPickItems = (ebibleCorpusMetadata: EbibleCorpusMetadata[]) => [
+//             ...ebibleCorpusMetadata.map((corpus) => ({
+//                 label: corpus.file,
+//                 description: `Download ${corpus.file}`,
+//                 corpus: {
+//                     languageCode: corpus.code,
+//                     translationId: corpus.file.split("-")[1],
+//                     languageName: corpus.lang,
+//                     file: corpus.file,
+//                 } as ExtendedMetadata, // Convert to ExtendedMetadata
+//             })),
+//             {
+//                 label: "See more languages",
+//                 description: "Reload eBible metadata for all languages",
+//                 corpus: null, // No corpus for this option
+//             },
+//         ];
 
-    // Create quick pick items with a 'See more languages' option
-    const getQuickPickItems = (ebibleCorpusMetadata: EbibleCorpusMetadata[]) => [
-        ...ebibleCorpusMetadata.map((corpus) => ({
-            label: corpus.file,
-            description: `Download ${corpus.file}`,
-            corpus: {
-                languageCode: corpus.code,
-                translationId: corpus.file.split("-")[1],
-                languageName: corpus.lang,
-                file: corpus.file,
-            } as ExtendedMetadata, // Convert to ExtendedMetadata
-        })),
-        {
-            label: "See more languages",
-            description: "Reload eBible metadata for all languages",
-            corpus: null, // No corpus for this option
-        },
-    ];
+//         let selectedItem: (vscode.QuickPickItem & { corpus: ExtendedMetadata | null }) | undefined;
+//         let items = getQuickPickItems(ebibleCorpusMetadata);
 
-    let selectedItem: (vscode.QuickPickItem & { corpus: ExtendedMetadata | null }) | undefined;
-    let items = getQuickPickItems(ebibleCorpusMetadata);
+//         let shouldContinue = true;
+//         while (shouldContinue) {
+//             selectedItem = await vscode.window.showQuickPick(items, {
+//                 placeHolder: `Select a source text bible to download`,
+//             });
 
-    let shouldContinue = true;
-    while (shouldContinue) {
-        selectedItem = await vscode.window.showQuickPick(items, {
-            placeHolder: `Select a source text bible to download`,
-        });
+//             if (!selectedItem) {
+//                 vscode.window.showErrorMessage("No text bible selected.");
+//                 return;
+//             }
 
-        if (!selectedItem) {
-            vscode.window.showErrorMessage("No text bible selected.");
-            return;
-        }
+//             if (selectedItem.label === "See more languages") {
+//                 // Reload eBible metadata for all languages
+//                 ebibleCorpusMetadata = getEBCorpusMetadataByLanguageCode(""); // Get all bibles
+//                 items = getQuickPickItems(ebibleCorpusMetadata);
+//                 vscode.window.showInformationMessage("Reloaded eBible metadata for all languages.");
+//             } else {
+//                 // If we reach here, a bible was selected
+//                 shouldContinue = false;
+//             }
+//         }
 
-        if (selectedItem.label === "See more languages") {
-            // Reload eBible metadata for all languages
-            ebibleCorpusMetadata = getEBCorpusMetadataByLanguageCode(""); // Get all bibles
-            items = getQuickPickItems(ebibleCorpusMetadata);
-            vscode.window.showInformationMessage("Reloaded eBible metadata for all languages.");
-        } else {
-            // If we reach here, a bible was selected
-            shouldContinue = false;
-        }
-    }
+//         if (selectedItem && selectedItem.corpus) {
+//             const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+//             if (workspaceRoot) {
+//                 const downloadedFileUri = await handleBibleDownload(
+//                     selectedItem.corpus,
+//                     workspaceRoot,
+//                     "source"
+//                 );
+//                 return downloadedFileUri;
+//             }
+//         }
 
-    if (selectedItem && selectedItem.corpus) {
-        const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
-        if (workspaceRoot) {
-            const downloadedFileUri = await handleBibleDownload(
-                selectedItem.corpus,
-                workspaceRoot,
-                "source"
-            );
-            return downloadedFileUri;
-        }
-    }
+//         return undefined;
+//     }
 
-    return undefined;
-}
-
-async function handleBibleDownload(
-    selectedBibleMetadata: ExtendedMetadata,
-    workspaceRoot: string,
-    languageType: string
-): Promise<vscode.Uri> {
-    const vrefPath = await ensureVrefList(workspaceRoot);
-
-    // Instead of looking up metadata again, use the provided metadata directly
-    const simpleMetadata = {
-        code: selectedBibleMetadata.languageCode || "",
-        file: `${selectedBibleMetadata.languageCode}-${selectedBibleMetadata.translationId}`,
-        lang: selectedBibleMetadata.languageName || "",
-        family: "",
-        country: "",
-        Total: 0,
-        Books: 0,
-        OT: 0,
-        NT: 0,
-        DT: 0,
-    };
-
-    const bibleTextPath =
-        languageType === "source"
-            ? path.join(workspaceRoot, ".project", "sourceTexts", simpleMetadata.file)
-            : path.join(workspaceRoot, "files", "target", simpleMetadata.file);
-
-    const bibleTextPathUri = vscode.Uri.file(bibleTextPath);
-    try {
-        console.log("Checking if bible text exists");
-        await vscode.workspace.fs.stat(bibleTextPathUri);
-        vscode.window.showInformationMessage(`Bible text ${simpleMetadata.file} already exists.`);
-    } catch {
-        await downloadEBibleText(simpleMetadata, workspaceRoot);
-        vscode.window.showInformationMessage(
-            `Bible text for ${selectedBibleMetadata.languageCode} downloaded successfully.`
-        );
-    }
-
-    // Read the vref.txt file and the newly downloaded bible text file
-    const vrefFilePath = vscode.Uri.file(vrefPath);
-    const vrefFileData = await vscode.workspace.fs.readFile(vrefFilePath);
-    const vrefLines = new TextDecoder("utf-8").decode(vrefFileData).split(/\r?\n/);
-
-    const bibleTextData = await vscode.workspace.fs.readFile(bibleTextPathUri);
-    const bibleLines = new TextDecoder("utf-8").decode(bibleTextData).split(/\r?\n/);
-
-    // Instead of zipping, we'll create a new structure
-    //FIXME: add types
-    const bibleData: CodexNotebookAsJSONData = {
-        cells: [],
-        metadata: {
-            id: simpleMetadata.file,
-            originalName: simpleMetadata.file,
-            sourceFsPath: vscode.Uri.file(bibleTextPath).fsPath,
-            codexFsPath: vscode.Uri.file(bibleTextPath).fsPath,
-            corpusMarker: "",
-            navigation: [],
-            sourceCreatedAt: "",
-            gitStatus: "uninitialized",
-        },
-    };
-
-    let currentChapter = "";
-    let chapterCellId = "";
-    let testament: "OT" | "NT" | undefined;
-
-    vrefLines.forEach((vrefLine, index) => {
-        const bibleText = bibleLines[index] || "";
-        if (bibleText.trim() !== "") {
-            const [book, chapterVerse] = vrefLine.split(" ");
-            const [chapter, verse] = chapterVerse.split(":");
-
-            if (!testament && vrefData[book]) {
-                testament = vrefData[book].testament as "OT" | "NT";
-            }
-
-            if (chapter !== currentChapter) {
-                currentChapter = chapter;
-                chapterCellId = `${book} ${chapter}:1:${Math.random().toString(36).substr(2, 11)}`;
-                bibleData.cells.push({
-                    kind: 2,
-                    languageId: "html",
-                    value: `<h1>Chapter ${chapter}</h1>`,
-                    metadata: {
-                        type: CodexCellTypes.PARATEXT,
-                        id: chapterCellId,
-                    },
-                });
-            }
-
-            bibleData.cells.push({
-                kind: 2,
-                languageId: "html",
-                value: bibleText,
-                metadata: {
-                    type: CodexCellTypes.TEXT,
-                    id: vrefLine,
-                    data: {},
-                },
-            });
-        }
-    });
-
-    const serializer = new CodexContentSerializer();
-    const notebookData = new vscode.NotebookData(bibleData.cells);
-    notebookData.metadata = {
-        id: simpleMetadata.file,
-        originalName: simpleMetadata.file,
-        sourceFsPath: vscode.Uri.file(bibleTextPath).fsPath,
-        codexFsPath: vscode.Uri.file(bibleTextPath).fsPath,
-        corpusMarker: testament || "",
-        navigation: [],
-        sourceCreatedAt: "",
-        gitStatus: "uninitialized",
-    };
-
-    const notebookContent = await serializer.serializeNotebook(
-        notebookData,
-        new vscode.CancellationTokenSource().token
-    );
-
-    // Write the new structure to a .source file
-    const fileNameWithoutExtension = simpleMetadata.file.includes(".")
-        ? simpleMetadata.file.split(".")[0]
-        : simpleMetadata.file;
-
-    const bibleFilePath =
-        languageType === "source"
-            ? path.join(
-                  workspaceRoot,
-                  ".project",
-                  "sourceTexts",
-                  `${fileNameWithoutExtension}.source`
-              )
-            : path.join(workspaceRoot, "files", "target", `${fileNameWithoutExtension}.source`);
-    const bibleFileUri = vscode.Uri.file(bibleFilePath);
-    await vscode.workspace.fs.writeFile(bibleFileUri, notebookContent);
-
-    vscode.window.showInformationMessage(`.source file created successfully at ${bibleFilePath}`);
-
-    // Split the source file by book
-    await splitSourceFileByBook(bibleFileUri, workspaceRoot, languageType);
-
-    return bibleFileUri;
-}
+//     const transaction = new DownloadBibleTransaction({ ebibleMetadata });
+//     await transaction.prepare();
+//     await transaction.execute();
+//     return transaction.getNotebookUri();
+// }
 
 export async function setTargetFont() {
     const projectMetadata = await getProjectMetadata();

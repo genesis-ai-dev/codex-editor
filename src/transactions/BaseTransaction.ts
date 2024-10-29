@@ -2,7 +2,13 @@ import * as vscode from "vscode";
 
 export interface TransactionState {
     tempFiles: vscode.Uri[];
-    status: "pending" | "processing" | "committed" | "rolledback";
+    status:
+        | "pending"
+        | "executing"
+        | "prepared"
+        | "awaiting_confirmation"
+        | "committed"
+        | "rolledback";
 }
 
 export abstract class BaseTransaction {

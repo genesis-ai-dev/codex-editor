@@ -5,7 +5,12 @@ import {
     VSCodePanelView,
     VSCodeButton,
 } from "@vscode/webview-ui-toolkit/react";
-import { SourceUploadPostMessages, SourceUploadResponseMessages } from "../../../../types";
+import {
+    BiblePreviewData,
+    PreviewContent,
+    SourceUploadPostMessages,
+    SourceUploadResponseMessages,
+} from "../../../../types";
 import { WorkflowProgress } from "./components/WorkflowProgress";
 import { SourcePreview } from "./components/SourcePreview";
 import { ProcessingStages } from "./components/ProcessingStages";
@@ -16,6 +21,7 @@ import { ImportTypeSelector } from "./components/ImportTypeSelector";
 import { TranslationPreview } from "./components/TranslationPreview";
 import { BibleDownloadForm } from "./components/BibleDownloadForm";
 import { ExtendedMetadata } from "../../../../src/utils/ebible/ebibleCorpusUtils";
+import { BiblePreview } from "./components/BiblePreview";
 
 const initialWorkflowState: WorkflowState = {
     step: "type-select",
@@ -211,23 +217,73 @@ export const SourceUploader: React.FC = () => {
     const renderPreview = () => {
         if (!workflow.preview) return null;
 
-        if (workflow.preview.type === "translation") {
+        // Type guard for BiblePreviewData
+        const isBiblePreview = (preview: any): preview is BiblePreviewData => {
+            return (
+                Object.prototype.hasOwnProperty.call(preview, "original") &&
+                Object.prototype.hasOwnProperty.call(preview, "transformed") &&
+                Array.isArray(preview.transformed.sourceNotebooks)
+            );
+        };
+
+        // Type guard for TranslationPreview
+        const isTranslationPreview = (preview: any): preview is typeof TranslationPreview => {
+            return preview.type === "translation";
+        };
+
+        // Type guard for SourcePreview
+        const isSourcePreview = (preview: any): preview is typeof SourcePreview => {
+            return preview.type === "source";
+        };
+
+        if (workflow.importType === "bible-download" && isBiblePreview(workflow.preview)) {
+            return (
+                <BiblePreview
+                    preview={workflow.preview}
+                    onConfirm={() => {
+                        vscode.postMessage({
+                            command: "confirmBibleDownload",
+                            transaction: workflow.currentTransaction,
+                        } as SourceUploadPostMessages);
+                        setWorkflow((prev) => ({
+                            ...prev,
+                            step: "processing",
+                        }));
+                    }}
+                    onCancel={() => {
+                        vscode.postMessage({
+                            command: "cancelBibleDownload",
+                            transaction: workflow.currentTransaction,
+                        } as SourceUploadPostMessages);
+                        handleCancel();
+                    }}
+                />
+            );
+        }
+
+        if (isTranslationPreview(workflow.preview)) {
+            const preview = workflow.preview as PreviewContent & { type: "translation" };
             return (
                 <TranslationPreview
-                    preview={workflow.preview}
+                    preview={preview}
                     onConfirm={() => handlePreviewConfirm("translation")}
                     onCancel={handlePreviewCancel}
                 />
             );
         }
 
-        return (
-            <SourcePreview
-                preview={workflow.preview}
-                onConfirm={() => handlePreviewConfirm("source")}
-                onCancel={handlePreviewCancel}
-            />
-        );
+        if (isSourcePreview(workflow.preview)) {
+            const preview = workflow.preview as PreviewContent & { type: "source" };
+            return (
+                <SourcePreview
+                    preview={preview}
+                    onConfirm={() => handlePreviewConfirm("source")}
+                    onCancel={handlePreviewCancel}
+                />
+            );
+        }
+
+        return null;
     };
 
     const renderWorkflowStep = () => {
@@ -248,6 +304,30 @@ export const SourceUploader: React.FC = () => {
                 break;
 
             case "preview":
+                if (workflow.importType === "bible-download") {
+                    return (
+                        <BiblePreview
+                            preview={workflow.preview as BiblePreviewData}
+                            onConfirm={() => {
+                                vscode.postMessage({
+                                    command: "confirmBibleDownload",
+                                    transaction: workflow.currentTransaction,
+                                } as SourceUploadPostMessages);
+                                setWorkflow((prev) => ({
+                                    ...prev,
+                                    step: "processing",
+                                }));
+                            }}
+                            onCancel={() => {
+                                vscode.postMessage({
+                                    command: "cancelBibleDownload",
+                                    transaction: workflow.currentTransaction,
+                                } as SourceUploadPostMessages);
+                                handleCancel();
+                            }}
+                        />
+                    );
+                }
                 return renderPreview();
 
             case "processing":
@@ -343,6 +423,15 @@ export const SourceUploader: React.FC = () => {
                     setWorkflow((prev) => ({
                         ...prev,
                         error: message.error || "Failed to download Bible",
+                    }));
+                    break;
+
+                case "biblePreview":
+                    setWorkflow((prev) => ({
+                        ...prev,
+                        step: "preview",
+                        preview: message.preview,
+                        currentTransaction: message.transaction,
                     }));
                     break;
 

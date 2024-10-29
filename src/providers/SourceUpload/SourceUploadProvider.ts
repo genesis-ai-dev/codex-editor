@@ -253,43 +253,57 @@ export class SourceUploadProvider
                     case "downloadBible":
                         try {
                             const transaction = new DownloadBibleTransaction({
-                                ebibleMetadata: message.ebibleMetadata
+                                ebibleMetadata: message.ebibleMetadata,
                             });
                             await transaction.prepare();
 
+                            // First phase: Download and generate preview
                             await vscode.window.withProgress(
                                 {
                                     location: vscode.ProgressLocation.Notification,
-                                    title: "Downloading Bible",
-                                    cancellable: true
+                                    title: "Preparing Bible Download",
+                                    cancellable: true,
                                 },
                                 async (progress, token) => {
                                     try {
-                                        const progressCallback = (update: { message?: string; increment?: number }) => {
+                                        const progressCallback = (update: {
+                                            message?: string;
+                                            increment?: number;
+                                        }) => {
                                             progress.report(update);
                                             webviewPanel.webview.postMessage({
                                                 command: "bibleDownloadProgress",
                                                 progress: {
                                                     ...update,
                                                     status: {
-                                                        [update.message || "processing"]: "active"
-                                                    }
-                                                }
+                                                        [update.message || "processing"]: "active",
+                                                    },
+                                                },
                                             } as SourceUploadResponseMessages);
                                         };
 
-                                        await transaction.execute({ report: progressCallback }, token);
+                                        await transaction.execute(
+                                            { report: progressCallback },
+                                            token
+                                        );
 
-                                        webviewPanel.webview.postMessage({
-                                            command: "bibleDownloadComplete"
-                                        } as SourceUploadResponseMessages);
-
-                                        await this.updateCodexFiles(webviewPanel);
+                                        // If we have a preview, send it to the webview
+                                        const preview = transaction.getPreview();
+                                        if (preview) {
+                                            webviewPanel.webview.postMessage({
+                                                command: "biblePreview",
+                                                preview,
+                                                transaction,
+                                            } as SourceUploadResponseMessages);
+                                        }
                                     } catch (error) {
                                         console.error("Bible download error:", error);
                                         webviewPanel.webview.postMessage({
                                             command: "bibleDownloadError",
-                                            error: error instanceof Error ? error.message : "Unknown error"
+                                            error:
+                                                error instanceof Error
+                                                    ? error.message
+                                                    : "Unknown error",
                                         } as SourceUploadResponseMessages);
                                         throw error;
                                     }
@@ -299,7 +313,82 @@ export class SourceUploadProvider
                             console.error("Bible download error:", error);
                             webviewPanel.webview.postMessage({
                                 command: "error",
-                                message: error instanceof Error ? error.message : "Unknown error"
+                                message: error instanceof Error ? error.message : "Unknown error",
+                            } as SourceUploadResponseMessages);
+                        }
+                        break;
+                    case "confirmBibleDownload":
+                        try {
+                            const transaction = message.transaction as DownloadBibleTransaction;
+                            await transaction.confirmPreview();
+
+                            await vscode.window.withProgress(
+                                {
+                                    location: vscode.ProgressLocation.Notification,
+                                    title: "Completing Bible Download",
+                                    cancellable: true,
+                                },
+                                async (progress, token) => {
+                                    try {
+                                        const progressCallback = (update: {
+                                            message?: string;
+                                            increment?: number;
+                                        }) => {
+                                            progress.report(update);
+                                            webviewPanel.webview.postMessage({
+                                                command: "bibleDownloadProgress",
+                                                progress: {
+                                                    ...update,
+                                                    status: {
+                                                        [update.message || "processing"]: "active",
+                                                    },
+                                                },
+                                            } as SourceUploadResponseMessages);
+                                        };
+
+                                        await transaction.continueExecution(
+                                            { report: progressCallback },
+                                            token
+                                        );
+
+                                        webviewPanel.webview.postMessage({
+                                            command: "bibleDownloadComplete",
+                                        } as SourceUploadResponseMessages);
+
+                                        await this.updateCodexFiles(webviewPanel);
+                                    } catch (error) {
+                                        console.error("Bible download error:", error);
+                                        webviewPanel.webview.postMessage({
+                                            command: "bibleDownloadError",
+                                            error:
+                                                error instanceof Error
+                                                    ? error.message
+                                                    : "Unknown error",
+                                        } as SourceUploadResponseMessages);
+                                        throw error;
+                                    }
+                                }
+                            );
+                        } catch (error) {
+                            console.error("Bible download error:", error);
+                            webviewPanel.webview.postMessage({
+                                command: "error",
+                                message: error instanceof Error ? error.message : "Unknown error",
+                            } as SourceUploadResponseMessages);
+                        }
+                        break;
+                    case "cancelBibleDownload":
+                        try {
+                            const transaction = message.transaction as DownloadBibleTransaction;
+                            await transaction.rollback();
+                            webviewPanel.webview.postMessage({
+                                command: "bibleDownloadCancelled",
+                            } as SourceUploadResponseMessages);
+                        } catch (error) {
+                            console.error("Bible download cancellation error:", error);
+                            webviewPanel.webview.postMessage({
+                                command: "error",
+                                message: error instanceof Error ? error.message : "Unknown error",
                             } as SourceUploadResponseMessages);
                         }
                         break;
