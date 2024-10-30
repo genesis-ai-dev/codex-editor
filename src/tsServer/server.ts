@@ -106,21 +106,22 @@ connection.onRequest(
                     return { code: 1, cellId: params.cellId };
                 }
             }
+            // FIXME: Not convinced this is working, or even useful...
+            // const savedSuggestions = await connection.sendRequest(ExecuteCommandRequest, {
+            //     command: "codex-smart-edits.getEdits",
+            //     args: [text, params.cellId],
+            // });
 
-            const savedSuggestions = await connection.sendRequest(ExecuteCommandRequest, {
-                command: "codex-smart-edits.getEdits",
-                args: [text, params.cellId],
-            });
-
-            // Check for smart edits
-            if (savedSuggestions?.suggestions?.length > 0) {
-                return {
-                    code: 2,
-                    cellId: params.cellId,
-                    savedSuggestions: savedSuggestions,
-                };
-            }
-
+            // // Check for smart edits
+            // debugLog(`Checking for smart edits: ${savedSuggestions?.suggestions}`);
+            // if (savedSuggestions?.suggestions?.length > 0) {
+            //     return {
+            //         code: 2,
+            //         cellId: params.cellId,
+            //         savedSuggestions: savedSuggestions,
+            //     };
+            // }
+            debugLog("No smart edits found, checking for applicable prompt");
             // If no spelling errors or smart edits, check for applicable prompt
             const prompt = await connection.sendRequest(ExecuteCommandRequest, {
                 command: "codex-smart-edits.getPromptFromCellId",
