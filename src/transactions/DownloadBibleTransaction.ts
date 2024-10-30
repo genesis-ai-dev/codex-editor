@@ -287,10 +287,7 @@ export class DownloadBibleTransaction extends BaseTransaction {
             }
             return text;
         });
-        return text
-            .trim()
-            .split("\n")
-            .filter((line) => line.trim().length > 0);
+        return text.trim().split("\n");
     }
 
     async transformToNotebooks(): Promise<void> {
