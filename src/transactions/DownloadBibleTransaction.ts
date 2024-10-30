@@ -252,8 +252,27 @@ export class DownloadBibleTransaction extends BaseTransaction {
         // FIXME: this is a hack to get the token to work, but we really should be passing one around in the process
         const currentToken =
             this.state.progress?.token || new vscode.CancellationTokenSource().token;
+
         // serialize and save each notebook pair
         for (const notebookPair of this.state.notebooks) {
+            const bookName = notebookPair.sourceNotebook.metadata.id;
+            const sourceUri = vscode.Uri.joinPath(sourceDestinationDirectory, `${bookName}.source`);
+            const codexUri = vscode.Uri.joinPath(codexDestinationDirectory, `${bookName}.codex`);
+
+            // Update source notebook metadata
+            notebookPair.sourceNotebook.metadata = {
+                ...notebookPair.sourceNotebook.metadata,
+                sourceFsPath: sourceUri.fsPath,
+                codexFsPath: undefined,
+            };
+
+            // Update codex notebook metadata
+            notebookPair.codexNotebook.metadata = {
+                ...notebookPair.codexNotebook.metadata,
+                sourceFsPath: sourceUri.fsPath,
+                codexFsPath: codexUri.fsPath,
+            };
+
             const serializedSourceNotebook = await serializer.serializeNotebook(
                 notebookPair.sourceNotebook,
                 currentToken
@@ -263,12 +282,7 @@ export class DownloadBibleTransaction extends BaseTransaction {
                 currentToken
             );
 
-            const bookName = notebookPair.sourceNotebook.metadata.id;
-
-            const sourceUri = vscode.Uri.joinPath(sourceDestinationDirectory, `${bookName}.source`);
             await vscode.workspace.fs.writeFile(sourceUri, serializedSourceNotebook);
-
-            const codexUri = vscode.Uri.joinPath(codexDestinationDirectory, `${bookName}.codex`);
             await vscode.workspace.fs.writeFile(codexUri, serializedCodexNotebook);
         }
     }

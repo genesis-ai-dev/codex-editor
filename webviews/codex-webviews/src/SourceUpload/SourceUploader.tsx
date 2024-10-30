@@ -345,22 +345,22 @@ export const SourceUploader: React.FC = () => {
                 }
                 return renderPreview();
 
-            case "processing":
-                return (
-                    <div style={{ padding: "2rem" }}>
-                        <ProcessingStages
-                            stages={workflow.processingStages}
-                            importType={workflow.importType || "source"}
-                        />
-                        {workflow.progress && (
-                            <ProgressDisplay
-                                progress={workflow.progress}
-                                stages={workflow.processingStages}
-                                importType={workflow.importType || "source"}
-                            />
-                        )}
-                    </div>
-                );
+            // case "processing":
+            //     return (
+            //         <div style={{ padding: "2rem" }}>
+            //             <ProcessingStages
+            //                 stages={workflow.processingStages}
+            //                 importType={workflow.importType || "source"}
+            //             />
+            //             {workflow.progress && (
+            //                 <ProgressDisplay
+            //                     progress={workflow.progress}
+            //                     stages={workflow.processingStages}
+            //                     importType={workflow.importType || "source"}
+            //                 />
+            //             )}
+            //         </div>
+            //     );
 
             case "complete":
                 return (
