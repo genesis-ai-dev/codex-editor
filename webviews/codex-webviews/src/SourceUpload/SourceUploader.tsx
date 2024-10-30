@@ -4,6 +4,8 @@ import {
     VSCodePanels,
     VSCodePanelTab,
     VSCodePanelView,
+    VSCodeDropdown,
+    VSCodeOption,
 } from "@vscode/webview-ui-toolkit/react";
 import {
     BiblePreviewData,
@@ -28,11 +30,13 @@ import { TranslationPreview } from "./components/TranslationPreview";
 import { BibleDownloadForm } from "./components/BibleDownloadForm";
 import { ExtendedMetadata } from "../../../../src/utils/ebible/ebibleCorpusUtils";
 import { BiblePreview } from "./components/BiblePreview";
+import { FileDropzone } from "./components/FileDropzone";
 
 const initialWorkflowState: WorkflowState = {
     step: "type-select",
     importType: null,
     selectedFile: null,
+    fileObject: null,
     processingStages: {
         fileValidation: {
             label: "Validating File",
@@ -222,6 +226,47 @@ export const SourceUploader: React.FC = () => {
         }));
     }, [setWorkflow]);
 
+    const handleFileDrop = useCallback(
+        (files: File[]) => {
+            if (files.length > 0) {
+                const file = files[0];
+                setWorkflow((prev) => ({
+                    ...prev,
+                    selectedFile: file.name,
+                    fileObject: file,
+                }));
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    if (workflow.importType === "translation") {
+                        if (!workflow.selectedSourceId) {
+                            vscode.postMessage({
+                                command: "error",
+                                errorMessage: "Please select a source file first",
+                            } as SourceUploadPostMessages);
+                            return;
+                        }
+
+                        vscode.postMessage({
+                            command: "uploadTranslation",
+                            fileContent: e.target?.result?.toString() || "",
+                            fileName: file.name,
+                            sourceId: workflow.selectedSourceId,
+                        } as SourceUploadPostMessages);
+                    } else {
+                        vscode.postMessage({
+                            command: "uploadSourceText",
+                            fileContent: e.target?.result?.toString() || "",
+                            fileName: file.name,
+                        } as SourceUploadPostMessages);
+                    }
+                };
+                reader.readAsText(file);
+            }
+        },
+        [setWorkflow, vscode, workflow.importType, workflow.selectedSourceId]
+    );
+
     const renderPreview = () => {
         if (!workflow.preview) return null;
 
@@ -315,8 +360,58 @@ export const SourceUploader: React.FC = () => {
                         />
                     );
                 }
-                // Handle other import types...
-                break;
+
+                return (
+                    <div style={{ padding: "2rem" }}>
+                        <h2 style={{ marginBottom: "1rem" }}>
+                            {workflow.importType === "source"
+                                ? "Select Your Source File"
+                                : "Select Translation File"}
+                        </h2>
+                        {workflow.importType === "translation" && (
+                            <div style={{ marginBottom: "2rem" }}>
+                                <label>Codex File:</label>
+                                <VSCodeDropdown
+                                    style={{ width: "100%", marginTop: "0.5rem" }}
+                                    onChange={(e: any) => {
+                                        setWorkflow((prev) => ({
+                                            ...prev,
+                                            selectedSourceId: e.target.value,
+                                            error: null,
+                                        }));
+                                    }}
+                                >
+                                    <VSCodeOption value="">Select a Codex file...</VSCodeOption>
+                                    {workflow.availableCodexFiles?.map((file) => (
+                                        <VSCodeOption key={file.id} value={file.id}>
+                                            {file.name}
+                                        </VSCodeOption>
+                                    ))}
+                                </VSCodeDropdown>
+                            </div>
+                        )}
+                        <FileDropzone
+                            onDrop={handleFileDrop}
+                            selectedFile={workflow.fileObject}
+                            onClearFile={handleClearFile}
+                            type={workflow.importType}
+                        />
+                        {workflow.error && (
+                            <div
+                                style={{
+                                    marginTop: "1rem",
+                                    padding: "0.5rem",
+                                    color: "var(--vscode-inputValidation-errorForeground)",
+                                    background: "var(--vscode-inputValidation-errorBackground)",
+                                    border: "1px solid var(--vscode-inputValidation-errorBorder)",
+                                    borderRadius: "4px",
+                                }}
+                            >
+                                {workflow.error}
+                            </div>
+                        )}
+                    </div>
+                );
 
             case "preview":
                 if (workflow.importType === "bible-download") {

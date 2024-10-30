@@ -45,6 +45,7 @@ export interface WorkflowState {
     step: WorkflowStep;
     importType: ImportType | null;
     selectedFile: string | null;
+    fileObject: File | null;
     selectedSourceId?: string;
     preview?: PreviewContent | BiblePreviewData;
     error?: string | null;

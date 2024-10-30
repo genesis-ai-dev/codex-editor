@@ -6,6 +6,7 @@ const vscode = acquireVsCodeApi();
 const initialWorkflowState: WorkflowState = {
     step: "type-select",
     selectedFile: null,
+    fileObject: null,
     processingStages: {},
     importType: null,
 };
