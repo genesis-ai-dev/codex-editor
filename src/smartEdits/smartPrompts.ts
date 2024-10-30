@@ -218,8 +218,8 @@ export class PromptedSmartEdits {
 
     // Add helper function to extract and process cell references
     private async processCellReferences(prompt: string): Promise<string> {
-        // Match patterns like "gen 1:1", "LUK 4:12", "PSM 50:105" etc
-        const cellIdPattern = /\b([a-zA-Z]{3})\s*(\d+):(\d+)\b/g;
+        // Match patterns like @GEN 1:1, @GEN1:1, @gen 1:12 etc
+        const cellIdPattern = /@([a-zA-Z]+)\s*(\d+):(\d+)/g;
         let processedPrompt = prompt;
 
         for (const match of Array.from(prompt.matchAll(cellIdPattern))) {
