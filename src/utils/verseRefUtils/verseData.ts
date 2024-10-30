@@ -3692,3 +3692,20 @@ export const vrefData: BookData = {
         abbreviations: ["Rev", "Re", "The Revelation"],
     },
 };
+
+export const allORGBibleVerseRefs: string[] = (() => {
+    const orgVerseRefs: string[] = [];
+    const allBookRefs = Object.keys(vrefData).filter((ref) => !nonCanonicalBookRefs.includes(ref));
+
+    allBookRefs.forEach((book) => {
+        const chapters = Object.keys(vrefData[book].chapterVerseCountPairings);
+        chapters.forEach((chapter) => {
+            const numberOfVerses = vrefData[book].chapterVerseCountPairings[chapter];
+            for (let verse = 1; verse <= numberOfVerses; verse++) {
+                orgVerseRefs.push(`${book} ${chapter}:${verse}`);
+            }
+        });
+    });
+
+    return orgVerseRefs;
+})();

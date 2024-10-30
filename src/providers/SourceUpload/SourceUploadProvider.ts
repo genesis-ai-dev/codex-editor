@@ -2,10 +2,9 @@ import * as vscode from "vscode";
 import { importTranslations } from "../../projectManager/translationImporter";
 import { NotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { importSourceText } from "../../projectManager/sourceTextImporter";
-import { downloadBible } from "../../projectManager/projectInitializers";
-import { processDownloadedBible } from "../../projectManager/sourceTextImporter";
 import { registerScmCommands } from "../scm/scmActionHandler";
 import {
+    CodexNotebookAsJSONData,
     NotebookPreview,
     SourceUploadPostMessages,
     SourceUploadResponseMessages,
@@ -18,6 +17,8 @@ import { getFileType } from "../../utils/fileTypeUtils";
 import { analyzeSourceContent } from "../../utils/contentAnalyzers";
 import { TranslationImportTransaction } from "../../transactions/TranslationImportTransaction";
 import { DownloadBibleTransaction } from "../../transactions/DownloadBibleTransaction";
+import { ProgressManager } from "../../utils/progressManager";
+import { ExtendedMetadata } from "../../utils/ebible/ebibleCorpusUtils";
 
 // Add new types for workflow status tracking
 interface ProcessingStatus {
@@ -107,9 +108,10 @@ export class SourceUploadProvider
     public static readonly viewType = "sourceUploadProvider";
     onDidChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
     onDidChange = this.onDidChangeEmitter.event;
-    private currentPreview: PreviewState | null = null; // Add this property
+    private currentPreview: PreviewState | null = null;
     private currentSourceTransaction: SourceImportTransaction | null = null;
     private currentTranslationTransaction: TranslationImportTransaction | null = null;
+    private currentDownloadBibleTransaction: DownloadBibleTransaction | null = null;
 
     constructor(private readonly context: vscode.ExtensionContext) {
         registerScmCommands(context);
@@ -252,65 +254,12 @@ export class SourceUploadProvider
                         break;
                     case "downloadBible":
                         try {
-                            const transaction = new DownloadBibleTransaction({
-                                ebibleMetadata: message.ebibleMetadata,
-                            });
-                            await transaction.prepare();
-
-                            // First phase: Download and generate preview
-                            await vscode.window.withProgress(
-                                {
-                                    location: vscode.ProgressLocation.Notification,
-                                    title: "Preparing Bible Download",
-                                    cancellable: true,
-                                },
-                                async (progress, token) => {
-                                    try {
-                                        const progressCallback = (update: {
-                                            message?: string;
-                                            increment?: number;
-                                        }) => {
-                                            progress.report(update);
-                                            webviewPanel.webview.postMessage({
-                                                command: "bibleDownloadProgress",
-                                                progress: {
-                                                    ...update,
-                                                    status: {
-                                                        [update.message || "processing"]: "active",
-                                                    },
-                                                },
-                                            } as SourceUploadResponseMessages);
-                                        };
-
-                                        await transaction.execute(
-                                            { report: progressCallback },
-                                            token
-                                        );
-
-                                        // If we have a preview, send it to the webview
-                                        const preview = transaction.getPreview();
-                                        if (preview) {
-                                            webviewPanel.webview.postMessage({
-                                                command: "biblePreview",
-                                                preview,
-                                                transaction,
-                                            } as SourceUploadResponseMessages);
-                                        }
-                                    } catch (error) {
-                                        console.error("Bible download error:", error);
-                                        webviewPanel.webview.postMessage({
-                                            command: "bibleDownloadError",
-                                            error:
-                                                error instanceof Error
-                                                    ? error.message
-                                                    : "Unknown error",
-                                        } as SourceUploadResponseMessages);
-                                        throw error;
-                                    }
-                                }
-                            );
+                            if (!message.ebibleMetadata) {
+                                throw new Error("No Bible metadata provided");
+                            }
+                            await this.handleBibleDownload(webviewPanel, message.ebibleMetadata);
                         } catch (error) {
-                            console.error("Bible download error:", error);
+                            console.error("Error downloading Bible:", error);
                             webviewPanel.webview.postMessage({
                                 command: "error",
                                 message: error instanceof Error ? error.message : "Unknown error",
@@ -319,57 +268,15 @@ export class SourceUploadProvider
                         break;
                     case "confirmBibleDownload":
                         try {
-                            const transaction = message.transaction as DownloadBibleTransaction;
-                            await transaction.confirmPreview();
-
-                            await vscode.window.withProgress(
-                                {
-                                    location: vscode.ProgressLocation.Notification,
-                                    title: "Completing Bible Download",
-                                    cancellable: true,
-                                },
-                                async (progress, token) => {
-                                    try {
-                                        const progressCallback = (update: {
-                                            message?: string;
-                                            increment?: number;
-                                        }) => {
-                                            progress.report(update);
-                                            webviewPanel.webview.postMessage({
-                                                command: "bibleDownloadProgress",
-                                                progress: {
-                                                    ...update,
-                                                    status: {
-                                                        [update.message || "processing"]: "active",
-                                                    },
-                                                },
-                                            } as SourceUploadResponseMessages);
-                                        };
-
-                                        await transaction.continueExecution(
-                                            { report: progressCallback },
-                                            token
-                                        );
-
-                                        webviewPanel.webview.postMessage({
-                                            command: "bibleDownloadComplete",
-                                        } as SourceUploadResponseMessages);
-
-                                        await this.updateCodexFiles(webviewPanel);
-                                    } catch (error) {
-                                        console.error("Bible download error:", error);
-                                        webviewPanel.webview.postMessage({
-                                            command: "bibleDownloadError",
-                                            error:
-                                                error instanceof Error
-                                                    ? error.message
-                                                    : "Unknown error",
-                                        } as SourceUploadResponseMessages);
-                                        throw error;
-                                    }
-                                }
-                            );
+                            if (this.currentDownloadBibleTransaction) {
+                                console.log("confirmBibleDownload", {
+                                    message,
+                                    transaction: this.currentDownloadBibleTransaction,
+                                });
+                                await this.executeBibleDownload(webviewPanel);
+                            }
                         } catch (error) {
+                            this.currentDownloadBibleTransaction = null;
                             console.error("Bible download error:", error);
                             webviewPanel.webview.postMessage({
                                 command: "error",
@@ -392,53 +299,53 @@ export class SourceUploadProvider
                             } as SourceUploadResponseMessages);
                         }
                         break;
-                    case "syncAction":
-                        await vscode.commands.executeCommand(
-                            "codex.scm.handleSyncAction",
-                            vscode.Uri.parse(message.fileUri),
-                            message.status
-                        );
-                        await this.updateMetadata(webviewPanel);
-                        break;
-                    case "openFile":
-                        console.log("openFile message in provider", { message });
-                        if (message.fileUri) {
-                            const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-                            if (!workspaceUri) {
-                                vscode.window.showErrorMessage("No workspace folder found");
-                                return;
-                            }
+                    // case "syncAction":
+                    //     await vscode.commands.executeCommand(
+                    //         "codex.scm.handleSyncAction",
+                    //         vscode.Uri.parse(message.fileUri),
+                    //         message.status
+                    //     );
+                    //     await this.updateMetadata(webviewPanel);
+                    //     break;
+                    // case "openFile":
+                    //     console.log("openFile message in provider", { message });
+                    //     if (message.fileUri) {
+                    //         const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+                    //         if (!workspaceUri) {
+                    //             vscode.window.showErrorMessage("No workspace folder found");
+                    //             return;
+                    //         }
 
-                            let fullUri: vscode.Uri;
-                            if (message.fileUri.startsWith("file://")) {
-                                fullUri = vscode.Uri.parse(message.fileUri);
-                            } else {
-                                fullUri = vscode.Uri.joinPath(workspaceUri, message.fileUri);
-                            }
+                    //         let fullUri: vscode.Uri;
+                    //         if (message.fileUri.startsWith("file://")) {
+                    //             fullUri = vscode.Uri.parse(message.fileUri);
+                    //         } else {
+                    //             fullUri = vscode.Uri.joinPath(workspaceUri, message.fileUri);
+                    //         }
 
-                            if (
-                                fullUri.path.endsWith(".source") ||
-                                fullUri.path.endsWith(".codex")
-                            ) {
-                                await vscode.commands.executeCommand(
-                                    "vscode.openWith",
-                                    fullUri,
-                                    "codex.cellEditor"
-                                );
-                            } else if (fullUri.path.endsWith(".dictionary")) {
-                                console.log("Opening dictionary editor", { message });
-                                await vscode.commands.executeCommand(
-                                    "vscode.openWith",
-                                    fullUri,
-                                    "codex.dictionaryEditor"
-                                );
-                            } else {
-                                vscode.commands.executeCommand("vscode.open", fullUri);
-                            }
-                        } else {
-                            vscode.window.showErrorMessage("File URI is null");
-                        }
-                        break;
+                    //         if (
+                    //             fullUri.path.endsWith(".source") ||
+                    //             fullUri.path.endsWith(".codex")
+                    //         ) {
+                    //             await vscode.commands.executeCommand(
+                    //                 "vscode.openWith",
+                    //                 fullUri,
+                    //                 "codex.cellEditor"
+                    //             );
+                    //         } else if (fullUri.path.endsWith(".dictionary")) {
+                    //             console.log("Opening dictionary editor", { message });
+                    //             await vscode.commands.executeCommand(
+                    //                 "vscode.openWith",
+                    //                 fullUri,
+                    //                 "codex.dictionaryEditor"
+                    //             );
+                    //         } else {
+                    //             vscode.commands.executeCommand("vscode.open", fullUri);
+                    //         }
+                    //     } else {
+                    //         vscode.window.showErrorMessage("File URI is null");
+                    //     }
+                    //     break;
                     case "createSourceFolder": {
                         if (message.data?.sourcePath) {
                             await this.handleSourceFileSetup(webviewPanel, message.data.sourcePath);
@@ -1014,5 +921,117 @@ export class SourceUploadProvider
                 preview: this.currentPreview,
             });
         });
+    }
+
+    private async handleBibleDownload(
+        webviewPanel: vscode.WebviewPanel,
+        metadata: ExtendedMetadata
+    ) {
+        try {
+            // Create new transaction
+            this.currentDownloadBibleTransaction = new DownloadBibleTransaction();
+
+            // Set the metadata with both language code and translation ID
+            this.currentDownloadBibleTransaction.setMetadata({
+                languageCode: metadata.languageCode,
+                translationId: metadata.translationId || "",
+            });
+
+            // Prepare and show preview
+            await this.currentDownloadBibleTransaction.prepare();
+            const preview = await this.currentDownloadBibleTransaction.getPreview();
+
+            webviewPanel.webview.postMessage({
+                command: "biblePreview",
+                preview: {
+                    original: {
+                        preview: (preview as CodexNotebookAsJSONData).cells
+                            .slice(0, 10)
+                            .map((cell) => `${cell.metadata.id}: ${cell.value}`)
+                            .join("\n"),
+                        validationResults: [],
+                    },
+                    transformed: {
+                        sourceNotebooks: preview
+                            ? [
+                                  {
+                                      name: preview.metadata.id,
+                                      cells: preview.cells,
+                                      metadata: preview.metadata,
+                                  },
+                              ]
+                            : [],
+                        validationResults: [],
+                    },
+                },
+                transaction: this.currentDownloadBibleTransaction,
+            } as SourceUploadResponseMessages);
+        } catch (error) {
+            if (this.currentDownloadBibleTransaction) {
+                await this.currentDownloadBibleTransaction.rollback();
+                this.currentDownloadBibleTransaction = null;
+            }
+            throw error;
+        }
+    }
+
+    private async executeBibleDownload(webviewPanel: vscode.WebviewPanel) {
+        if (!this.currentDownloadBibleTransaction) {
+            throw new Error("No transaction in SourceUploadProvider.executeBibleDownload()");
+        }
+
+        try {
+            await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: "Finalizing download...",
+                    cancellable: true,
+                },
+                async (progress, token) => {
+                    const progressCallback = (update: { message?: string; increment?: number }) => {
+                        const { message, increment } = update;
+                        progress.report({ message, increment });
+
+                        // Map progress to stages
+                        const status: Record<string, "pending" | "active" | "complete" | "error"> =
+                            {};
+                        if (message?.includes("download")) status.download = "active";
+                        if (message?.includes("transform")) status.notebooks = "active";
+                        if (message?.includes("commit")) status.commit = "active";
+
+                        webviewPanel.webview.postMessage({
+                            command: "bibleDownloadProgress",
+                            progress: {
+                                message: message || "",
+                                increment: increment || 0,
+                                status,
+                            },
+                        } as SourceUploadResponseMessages);
+                    };
+
+                    token.onCancellationRequested(() => {
+                        this.currentDownloadBibleTransaction?.rollback();
+                        webviewPanel.webview.postMessage({
+                            command: "error",
+                            message: "Operation cancelled",
+                        } as SourceUploadResponseMessages);
+                    });
+
+                    await this.currentDownloadBibleTransaction?.execute(
+                        { report: progressCallback },
+                        token
+                    );
+                }
+            );
+
+            webviewPanel.webview.postMessage({
+                command: "bibleDownloadComplete",
+            } as SourceUploadResponseMessages);
+        } catch (error) {
+            await this.currentDownloadBibleTransaction?.rollback();
+            throw error;
+        } finally {
+            this.currentDownloadBibleTransaction = null;
+        }
     }
 }

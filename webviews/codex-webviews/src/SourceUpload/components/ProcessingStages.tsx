@@ -1,7 +1,7 @@
 import React from "react";
 import { VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
-import { ImportType } from "../types";
-import { ProcessingStatus } from "../../../../../types";
+import { ImportType, ProcessingStatus } from "../../../../../types";
+import { BibleDownloadStages } from "../types";
 
 interface ProcessingStagesProps {
     stages: Record<
@@ -15,7 +15,85 @@ interface ProcessingStagesProps {
     importType: ImportType;
 }
 
+const getBibleDownloadStages = (): BibleDownloadStages => ({
+    validation: {
+        label: "Validation",
+        description: "Validating Bible content",
+        status: "pending",
+    },
+    download: {
+        label: "Download",
+        description: "Downloading Bible text",
+        status: "pending",
+    },
+    splitting: {
+        label: "Splitting",
+        description: "Splitting into sections",
+        status: "pending",
+    },
+    notebooks: {
+        label: "Notebooks",
+        description: "Creating notebooks",
+        status: "pending",
+    },
+    metadata: {
+        label: "Metadata",
+        description: "Updating metadata",
+        status: "pending",
+    },
+    commit: {
+        label: "Commit",
+        description: "Committing changes",
+        status: "pending",
+    },
+});
+
 export const ProcessingStages: React.FC<ProcessingStagesProps> = ({ stages, importType }) => {
+    const currentStages = React.useMemo(() => {
+        if (importType === "bible-download") {
+            // Start with Bible download stages
+            const bibleStages = getBibleDownloadStages();
+            // Merge with any active stages from props
+            return Object.entries(stages).reduce(
+                (acc, [key, stage]) => ({
+                    ...acc,
+                    [key]: {
+                        ...bibleStages[key as keyof BibleDownloadStages],
+                        status: stage.status,
+                    },
+                }),
+                bibleStages
+            );
+        }
+        return stages;
+    }, [stages, importType]);
+
+    const getImportTypeTitle = () => {
+        switch (importType) {
+            case "source":
+                return "Processing Source Text";
+            case "translation":
+                return "Processing Translation";
+            case "bible-download":
+                return "Downloading Bible";
+            default:
+                return "Processing";
+        }
+    };
+
+    const getImportTypeDescription = () => {
+        switch (importType) {
+            case "source":
+                return "Creating source notebooks and preparing translation templates";
+            case "translation":
+                return "Processing translation file and linking with source text";
+            case "bible-download":
+                return "Downloading and processing Bible content";
+            default:
+                return "Processing content";
+        }
+    };
+
     return (
         <div
             style={{
@@ -26,9 +104,7 @@ export const ProcessingStages: React.FC<ProcessingStagesProps> = ({ stages, impo
             }}
         >
             <div style={{ marginBottom: "1rem" }}>
-                <h3>
-                    {importType === "source" ? "Processing Source Text" : "Processing Translation"}
-                </h3>
+                <h3>{getImportTypeTitle()}</h3>
                 <p
                     style={{
                         color: "var(--vscode-descriptionForeground)",
@@ -36,13 +112,11 @@ export const ProcessingStages: React.FC<ProcessingStagesProps> = ({ stages, impo
                         marginTop: "0.5rem",
                     }}
                 >
-                    {importType === "source"
-                        ? "Creating source notebooks and preparing translation templates"
-                        : "Processing translation file and linking with source text"}
+                    {getImportTypeDescription()}
                 </p>
             </div>
 
-            {Object.entries(stages).map(([key, stage]) => (
+            {Object.entries(currentStages).map(([key, stage]) => (
                 <div
                     key={key}
                     style={{
@@ -59,6 +133,8 @@ export const ProcessingStages: React.FC<ProcessingStagesProps> = ({ stages, impo
                             display: "flex",
                             alignItems: "center",
                             gap: "0.5rem",
+                            minWidth: "24px",
+                            justifyContent: "center",
                         }}
                     >
                         {stage.status === "active" && <VSCodeProgressRing />}
@@ -72,6 +148,12 @@ export const ProcessingStages: React.FC<ProcessingStagesProps> = ({ stages, impo
                             <i
                                 className="codicon codicon-error"
                                 style={{ color: "var(--vscode-testing-iconFailed)" }}
+                            />
+                        )}
+                        {stage.status === "pending" && (
+                            <i
+                                className="codicon codicon-circle-outline"
+                                style={{ color: "var(--vscode-descriptionForeground)" }}
                             />
                         )}
                     </div>

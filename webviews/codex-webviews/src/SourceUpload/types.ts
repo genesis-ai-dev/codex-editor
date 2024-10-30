@@ -19,6 +19,28 @@ export interface ProcessingStages {
     [key: string]: ProcessingStage;
 }
 
+// Add specific Bible download stages
+export interface BibleDownloadStages extends ProcessingStages {
+    validation: ProcessingStage;
+    download: ProcessingStage;
+    splitting: ProcessingStage;
+    notebooks: ProcessingStage;
+    metadata: ProcessingStage;
+    commit: ProcessingStage;
+}
+
+// Add Bible download specific state
+export interface BibleDownloadState {
+    language: string;
+    translationId: string;
+    status: "idle" | "downloading" | "complete" | "error";
+    progress?: {
+        stage: keyof BibleDownloadStages;
+        message: string;
+        increment: number;
+    };
+}
+
 export interface WorkflowState {
     step: WorkflowStep;
     importType: ImportType | null;
@@ -26,7 +48,7 @@ export interface WorkflowState {
     selectedSourceId?: string;
     preview?: PreviewContent | BiblePreviewData;
     error?: string | null;
-    processingStages: ProcessingStages;
+    processingStages: ProcessingStages | BibleDownloadStages;
     progress?: {
         message: string;
         increment: number;
@@ -36,10 +58,7 @@ export interface WorkflowState {
         name: string;
         path: string;
     }>;
-    bibleDownload?: {
-        language: string;
-        status: "downloading" | "complete" | "error";
-    };
+    bibleDownload?: BibleDownloadState;
     currentTransaction?: DownloadBibleTransaction;
 }
 

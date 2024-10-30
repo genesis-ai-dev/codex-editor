@@ -1,27 +1,46 @@
-import React from 'react';
-import { WorkflowStep, ImportType } from '../types';
+import React from "react";
+import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { ImportType, WorkflowStep } from "../types";
 
 interface WorkflowProgressProps {
     currentStep: WorkflowStep;
-    importType: ImportType | null;
+    importType: ImportType;
     steps: WorkflowStep[];
-    onStepClick?: (step: WorkflowStep) => void;
+    onStepClick: (step: WorkflowStep) => void;
 }
 
-export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({ 
-    currentStep, 
+export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
+    currentStep,
     importType,
     steps,
-    onStepClick 
+    onStepClick,
 }) => {
     const getStepLabel = (step: WorkflowStep): string => {
+        if (importType === "bible-download") {
+            switch (step) {
+                case "type-select":
+                    return "Select Type";
+                case "select":
+                    return "Choose Bible";
+                case "preview":
+                    return "Preview Content";
+                case "processing":
+                    return "Download";
+                case "complete":
+                    return "Complete";
+                default:
+                    return step;
+            }
+        }
+
+        // Default labels for other import types
         switch (step) {
             case "type-select":
-                return "Import Type";
+                return "Select Type";
             case "select":
-                return importType === "bible-download" ? "Select Language" : "Select File";
+                return "Choose File";
             case "preview":
-                return "Review";
+                return "Preview";
             case "processing":
                 return "Processing";
             case "complete":
@@ -31,119 +50,107 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
         }
     };
 
-    const getStepIcon = (step: WorkflowStep, isActive: boolean, isComplete: boolean): string => {
-        if (isComplete) return "codicon-check";
-        if (isActive && step === "processing") return "codicon-sync codicon-modifier-spin";
-        
+    const getStepDescription = (step: WorkflowStep): string => {
+        if (importType === "bible-download") {
+            switch (step) {
+                case "type-select":
+                    return "Choose import type";
+                case "select":
+                    return "Select Bible translation";
+                case "preview":
+                    return "Review Bible content";
+                case "processing":
+                    return "Download and process";
+                case "complete":
+                    return "Import complete";
+                default:
+                    return "";
+            }
+        }
+
+        // Default descriptions for other import types
         switch (step) {
             case "type-select":
-                return "codicon-list-selection";
+                return "Choose import type";
             case "select":
-                return importType === "bible-download" ? "codicon-globe" : "codicon-file-add";
+                return "Select source file";
             case "preview":
-                return "codicon-preview";
+                return "Review content";
             case "processing":
-                return "codicon-loading";
+                return "Process content";
             case "complete":
-                return "codicon-pass";
+                return "Import complete";
             default:
-                return "codicon-circle-outline";
+                return "";
         }
     };
 
-    const isStepClickable = (step: WorkflowStep): boolean => {
-        const currentIndex = steps.indexOf(currentStep);
+    const isStepComplete = (step: WorkflowStep): boolean => {
         const stepIndex = steps.indexOf(step);
-        
-        // Allow going back to any previous step except during processing
-        return currentStep !== 'processing' && 
-               (step === 'type-select' || stepIndex < currentIndex) && 
-               step !== 'processing' && 
-               step !== 'complete';
+        const currentIndex = steps.indexOf(currentStep);
+        return stepIndex < currentIndex;
+    };
+
+    const isStepActive = (step: WorkflowStep): boolean => {
+        return step === currentStep;
+    };
+
+    const canClickStep = (step: WorkflowStep): boolean => {
+        if (currentStep === "processing") return false;
+        if (step === "complete" && !isStepComplete("processing")) return false;
+        const stepIndex = steps.indexOf(step);
+        const currentIndex = steps.indexOf(currentStep);
+        return stepIndex <= currentIndex;
     };
 
     return (
-        <div style={{
-            display: "flex",
-            justifyContent: "space-between",
-            marginBottom: "2rem",
-            position: "relative",
-            padding: "1rem 0"
-        }}>
-            {/* Progress line */}
-            <div style={{
-                position: "absolute",
-                top: "50%",
-                left: "0",
-                right: "0",
-                height: "2px",
-                background: "var(--vscode-widget-border)",
-                zIndex: 0
-            }} />
-            
-            {/* Progress fill */}
-            <div style={{
-                position: "absolute",
-                top: "50%",
-                left: "0",
-                height: "2px",
-                background: "var(--vscode-button-background)",
-                width: `${(steps.indexOf(currentStep) / (steps.length - 1)) * 100}%`,
-                transition: "width 0.3s ease-in-out",
-                zIndex: 0
-            }} />
-
-            {steps.map((step, index) => {
-                const isActive = step === currentStep;
-                const isComplete = steps.indexOf(currentStep) > index;
-                const clickable = isStepClickable(step);
-                const icon = getStepIcon(step, isActive, isComplete);
-                
-                return (
-                    <div 
-                        key={step} 
-                        onClick={() => clickable && onStepClick?.(step)}
-                        style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            alignItems: "center",
-                            gap: "0.5rem",
-                            position: "relative",
-                            zIndex: 1,
-                            cursor: clickable ? "pointer" : "default",
-                            opacity: currentStep === 'processing' && !isActive ? 0.7 : 1,
-                            transition: "opacity 0.3s ease"
-                        }}
-                    >
-                        <div style={{
-                            width: "2rem",
-                            height: "2rem",
-                            borderRadius: "50%",
-                            background: isActive || isComplete 
-                                ? "var(--vscode-button-background)" 
-                                : "var(--vscode-editor-background)",
-                            border: "2px solid var(--vscode-button-background)",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            color: isActive || isComplete 
-                                ? "var(--vscode-button-foreground)" 
-                                : "var(--vscode-foreground)",
-                            transition: "all 0.3s ease"
-                        }}>
-                            <i className={`codicon ${icon}`} />
-                        </div>
-                        <span style={{
-                            color: isActive 
-                                ? "var(--vscode-button-background)" 
-                                : "var(--vscode-foreground)",
-                            fontSize: "0.9em"
-                        }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            <div
+                style={{
+                    display: "flex",
+                    gap: "0.5rem",
+                    alignItems: "center",
+                }}
+            >
+                {steps.map((step, index) => (
+                    <React.Fragment key={step}>
+                        <VSCodeButton
+                            appearance={isStepActive(step) ? "primary" : "secondary"}
+                            disabled={!canClickStep(step)}
+                            onClick={() => onStepClick(step)}
+                            style={{
+                                opacity: isStepComplete(step) ? 0.7 : 1,
+                                cursor: canClickStep(step) ? "pointer" : "default",
+                            }}
+                        >
+                            {isStepComplete(step) && (
+                                <i
+                                    className="codicon codicon-check"
+                                    style={{ marginRight: "0.5rem" }}
+                                />
+                            )}
                             {getStepLabel(step)}
-                        </span>
-                    </div>
-                );
-            })}
+                        </VSCodeButton>
+                        {index < steps.length - 1 && (
+                            <div
+                                style={{
+                                    height: "1px",
+                                    width: "1rem",
+                                    background: "var(--vscode-button-separator)",
+                                }}
+                            />
+                        )}
+                    </React.Fragment>
+                ))}
+            </div>
+            <p
+                style={{
+                    color: "var(--vscode-descriptionForeground)",
+                    fontSize: "0.9em",
+                }}
+            >
+                {getStepDescription(currentStep)}
+            </p>
         </div>
     );
 };

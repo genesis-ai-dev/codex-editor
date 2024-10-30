@@ -762,7 +762,7 @@ export interface TranslationPreview extends BasePreview {
     };
 }
 
-export type PreviewContent = SourcePreview | TranslationPreview;
+export type PreviewContent = SourcePreview | TranslationPreview | BiblePreview;
 
 // Add new interfaces to support the preview structure
 export interface NotebookPreview {
@@ -849,7 +849,7 @@ export interface WorkflowState {
     importType: ImportType | null;
     selectedFile: string | null;
     processingStages: Record<string, ProcessingStage>;
-    preview?: BiblePreviewData;
+    preview?: PreviewContent;
     progress?: {
         message: string;
         increment: number;
@@ -858,6 +858,25 @@ export interface WorkflowState {
     bibleDownload?: {
         language: string;
         status: "downloading" | "complete" | "error";
+        translationId: string;
     };
-    currentTransaction?: any; // We'll type this properly in a moment
+    currentTransaction?: DownloadBibleTransaction;
 }
+
+// Add Bible download specific types
+export interface BibleDownloadStages {
+    validation: ProcessingStage;
+    download: ProcessingStage;
+    splitting: ProcessingStage;
+    notebooks: ProcessingStage;
+    metadata: ProcessingStage;
+    commit: ProcessingStage;
+}
+
+export interface ProcessingStage {
+    label: string;
+    description: string;
+    status: ProcessingStatus;
+}
+
+export type ImportType = "source" | "translation" | "bible-download";

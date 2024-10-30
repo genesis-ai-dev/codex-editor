@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect } from "react";
 import {
+    VSCodeButton,
     VSCodePanels,
     VSCodePanelTab,
     VSCodePanelView,
-    VSCodeButton,
 } from "@vscode/webview-ui-toolkit/react";
 import {
     BiblePreviewData,
@@ -16,7 +16,13 @@ import { SourcePreview } from "./components/SourcePreview";
 import { ProcessingStages } from "./components/ProcessingStages";
 import { ProgressDisplay } from "./components/ProgressDisplay";
 import { useVSCodeMessageHandler } from "./hooks/useVSCodeMessageHandler";
-import { WorkflowState, WorkflowStep, ImportType, ProcessingStatus } from "./types";
+import {
+    WorkflowState,
+    WorkflowStep,
+    ImportType,
+    ProcessingStatus,
+    BibleDownloadState,
+} from "./types";
 import { ImportTypeSelector } from "./components/ImportTypeSelector";
 import { TranslationPreview } from "./components/TranslationPreview";
 import { BibleDownloadForm } from "./components/BibleDownloadForm";
@@ -128,10 +134,8 @@ export const SourceUploader: React.FC = () => {
 
     const handleStepClick = useCallback(
         (step: WorkflowStep) => {
-            // Don't allow navigation during processing
-            if (workflow.step === "processing") {
-                return;
-            }
+            if (workflow.step === "processing") return; // Prevent navigation during processing
+            if (step === "complete" && workflow.step !== "complete") return; // Prevent skipping to complete
 
             switch (step) {
                 case "type-select":
@@ -178,6 +182,10 @@ export const SourceUploader: React.FC = () => {
                 ...prev,
                 importType: type,
                 step: "select",
+                error: null,
+                // Initialize Bible download stages if needed
+                processingStages:
+                    type === "bible-download" ? getBibleProcessingStages() : prev.processingStages,
             }));
         },
         [setWorkflow, vscode]
@@ -188,16 +196,18 @@ export const SourceUploader: React.FC = () => {
             setWorkflow((prev) => ({
                 ...prev,
                 step: "processing",
+                processingStages: getBibleProcessingStages(),
                 bibleDownload: {
                     language: metadata.languageCode,
                     status: "downloading",
+                    translationId: metadata.translationId || "",
                 },
             }));
 
             vscode.postMessage({
                 command: "downloadBible",
-                ebibleMetadata: metadata, // Pass the full metadata
-            });
+                ebibleMetadata: metadata,
+            } as SourceUploadPostMessages);
         },
         [setWorkflow, vscode]
     );
@@ -234,11 +244,18 @@ export const SourceUploader: React.FC = () => {
             return preview.type === "source";
         };
 
-        if (workflow.importType === "bible-download" && isBiblePreview(workflow.preview)) {
+        if (
+            workflow.importType === "bible-download" &&
+            "type" in workflow.preview &&
+            workflow.preview.type === "bible"
+        ) {
             return (
                 <BiblePreview
                     preview={workflow.preview}
                     onConfirm={() => {
+                        console.log("confirmBibleDownload in webview", {
+                            transaction: workflow.currentTransaction,
+                        });
                         vscode.postMessage({
                             command: "confirmBibleDownload",
                             transaction: workflow.currentTransaction,
@@ -305,7 +322,7 @@ export const SourceUploader: React.FC = () => {
                 if (workflow.importType === "bible-download") {
                     return (
                         <BiblePreview
-                            preview={workflow.preview as BiblePreviewData}
+                            preview={workflow.preview as PreviewContent & { type: "bible" }}
                             onConfirm={() => {
                                 vscode.postMessage({
                                     command: "confirmBibleDownload",
@@ -359,7 +376,9 @@ export const SourceUploader: React.FC = () => {
                         />
                         <h2 style={{ marginBottom: "1rem" }}>Import Complete!</h2>
                         <p style={{ marginBottom: "2rem" }}>
-                            Your source file has been successfully imported.
+                            {workflow.importType === "bible-download"
+                                ? "Bible content has been successfully downloaded and processed."
+                                : "Your source file has been successfully imported."}
                         </p>
                         <VSCodeButton onClick={handleUploadAnother}>
                             Upload Another File
@@ -455,22 +474,6 @@ export const SourceUploader: React.FC = () => {
                         gap: "2rem",
                     }}
                 >
-                    {/* <div style={{ 
-                        display: "flex", 
-                        justifyContent: "space-between", 
-                        alignItems: "center" 
-                    }}>
-                        {workflow.step !== "type-select" && (
-                            <VSCodeButton 
-                                appearance="secondary" 
-                                onClick={handleBack}
-                            >
-                                <i className="codicon codicon-arrow-left" style={{ marginRight: "0.5rem" }} />
-                                Back
-                            </VSCodeButton>
-                        )}
-                    </div> */}
-
                     <WorkflowProgress
                         currentStep={workflow.step}
                         importType={workflow.importType || "source"}

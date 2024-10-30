@@ -1,3 +1,43 @@
+export interface LanguageInfo {
+    code: string;
+    name: string;
+    bibles: ExtendedMetadata[];
+}
+
+export function getAvailableLanguages(): LanguageInfo[] {
+    // Create a map to store unique languages and their Bibles
+    const languageMap = new Map<string, LanguageInfo>();
+
+    // Get all extended metadata
+    const allMetadata = extendedEbibleCorpusMetadata;
+
+    // Group Bibles by language code
+    allMetadata.forEach((metadata) => {
+        const { languageCode, languageNameInEnglish, languageName } = metadata;
+        if (!languageCode) return;
+
+        if (!languageMap.has(languageCode)) {
+            languageMap.set(languageCode, {
+                code: languageCode,
+                name: languageNameInEnglish || languageName || languageCode,
+                bibles: [],
+            });
+        }
+
+        const langInfo = languageMap.get(languageCode)!;
+        langInfo.bibles.push(metadata);
+    });
+
+    // Convert to array and sort by name
+    return Array.from(languageMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function getBiblesForLanguage(languageCode: string): ExtendedMetadata[] {
+    return extendedEbibleCorpusMetadata.filter(
+        (metadata) => metadata.languageCode === languageCode
+    );
+}
+
 export function getEBCorpusMetadataByLanguageCode(languageCode: string): EbibleCorpusMetadata[] {
     if (languageCode === "") {
         return eBibleCorpusMetadata;

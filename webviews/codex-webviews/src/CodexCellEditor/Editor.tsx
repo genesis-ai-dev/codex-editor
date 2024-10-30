@@ -4,7 +4,6 @@ import "quill/dist/quill.snow.css";
 import registerQuillSpellChecker, { getCleanedHtml } from "./react-quill-spellcheck";
 import { EditorPostMessages, SpellCheckResponse } from "../../../../types";
 import "./TextEditor.css"; // over write the default quill styles so spans flow
-import { applyStyles } from "@popperjs/core";
 
 const icons: any = Quill.import("ui/icons");
 // Assuming you have access to the VSCode API here

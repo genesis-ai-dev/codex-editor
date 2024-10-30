@@ -1,11 +1,17 @@
 import * as vscode from "vscode";
 import { BaseTransaction, TransactionState } from "./BaseTransaction";
-import { CodexContentSerializer } from "src/serializer";
-import { CodexNotebookAsJSONData, CustomNotebookDocument } from "@types";
-import { CodexCellTypes } from "@types/enums";
+import { CodexContentSerializer } from "../serializer";
+import { CodexNotebookAsJSONData, ValidationError, ValidationResult } from "../../types";
+import { CodexCellTypes } from "../../types/enums";
+import { allORGBibleVerseRefs } from "../utils/verseRefUtils/verseData";
+import { NotebookMetadataManager } from "../utils/notebookMetadataManager";
+import { getWorkSpaceUri } from "../utils";
 
 export interface DownloadBibleTransactionState extends TransactionState {
-    ebibleFileName: string;
+    metadata: {
+        languageCode: string;
+        translationId: string;
+    };
     verses: {
         vref: string;
         text: string;
@@ -15,6 +21,18 @@ export interface DownloadBibleTransactionState extends TransactionState {
         codexNotebook: CodexNotebookAsJSONData;
     }[];
     preview: CodexNotebookAsJSONData | null;
+    progress: {
+        message: string;
+        increment: number;
+        status: Record<string, string>;
+        token?: vscode.CancellationToken;
+        report: (update: {
+            message?: string;
+            increment?: number;
+            status?: Record<string, string>;
+        }) => void;
+    } | null;
+    tempDir: vscode.Uri | null;
 }
 
 export class DownloadBibleTransaction extends BaseTransaction {
@@ -24,85 +42,258 @@ export class DownloadBibleTransaction extends BaseTransaction {
     constructor() {
         super();
         this.state = {
-            ebibleFileName: "",
+            metadata: {
+                languageCode: "",
+                translationId: "",
+            },
             tempFiles: [],
             status: "pending",
             verses: [],
             notebooks: [],
             preview: null,
+            progress: null,
+            tempDir: null,
         };
     }
-    private async downloadVrefList(): Promise<string[]> {
-        const vrefUrl = "https://raw.githubusercontent.com/BibleNLP/ebible/main/metadata/vref.txt";
-        const response = await fetch(vrefUrl);
-        if (!response.ok) {
-            throw new Error(
-                `Failed to download vref list: ${response.status} ${response.statusText}`
-            );
-        }
-        const text = await response.text();
-        return text
-            .trim()
-            .split("\n")
-            .filter((line) => line.trim().length > 0);
+
+    setMetadata(metadata: { languageCode: string; translationId: string }) {
+        this.state.metadata = metadata;
     }
 
-    private async downloadVerseContent(): Promise<string[]> {
-        const ebibleUrl = `https://raw.githubusercontent.com/BibleNLP/ebible/main/corpus/${this.state.ebibleFileName}`;
-        const response = await fetch(ebibleUrl);
-        if (!response.ok) {
-            throw new Error(
-                `Failed to download Bible text: ${response.status} ${response.statusText}`
-            );
+    private getEbibleFileName(): string {
+        const { languageCode, translationId } = this.state.metadata;
+        if (!languageCode || !translationId) {
+            throw new Error("Missing language code or translation ID");
         }
-        const text = await response.text();
-        return text
-            .trim()
-            .split("\n")
-            .filter((line) => line.trim().length > 0);
+        return `${languageCode}-${translationId}.txt`;
     }
 
-    async prepare(): Promise<any> {
-        const [vrefs, verses] = await Promise.all([
-            this.downloadVrefList(),
-            this.downloadVerseContent(),
-        ]);
+    async getPreview(): Promise<CodexNotebookAsJSONData | null> {
+        return this.state.preview;
+    }
 
-        if (vrefs.length !== verses.length) {
-            throw new Error(
-                `Mismatch between vref count (${vrefs.length}) and verse count (${verses.length})`
-            );
+    private async validateBibleContent(): Promise<ValidationResult> {
+        // Basic validation of Bible content
+        const errors = [];
+
+        if (!this.state.metadata.languageCode) {
+            errors.push({
+                code: "INVALID_LANGUAGE_CODE",
+                message: "No language code provided",
+            });
         }
 
-        this.state.verses = vrefs.map((vref, i) => ({
-            vref,
-            text: verses[i],
-        }));
+        if (!this.state.metadata.translationId) {
+            errors.push({
+                code: "INVALID_TRANSLATION_ID",
+                message: "No translation ID provided",
+            });
+        }
 
-        this.state.status = "prepared";
+        if (this.state.verses.length === 0) {
+            errors.push({
+                code: "NO_CONTENT",
+                message: "No Bible verses found",
+            });
+        }
+
+        // Check for malformed verse references
+        // const malformedRefs = this.state.verses.filter(
+        //     (verse) => !verse.vref.match(/^[A-Za-z0-9]+ \d+:\d+$/)
+        // );
+        // if (malformedRefs.length > 0) {
+        //     errors.push({
+        //         code: "MALFORMED_REFS",
+        //         message: `Found ${malformedRefs.length} malformed verse references`,
+        //         details: { examples: malformedRefs.slice(0, 3) },
+        //     });
+        // }
+
+        return {
+            isValid: errors.length === 0,
+            errors: errors as ValidationError[],
+        };
+    }
+
+    async prepare(): Promise<void> {
+        try {
+            this.state.status = "executing";
+
+            // Report progress
+            this.state.progress?.report({
+                message: "Validating Bible content",
+                increment: 10,
+                status: { validation: "active" },
+            });
+
+            // Download and validate content
+            const [vrefs, verses] = await Promise.all([
+                Promise.resolve(allORGBibleVerseRefs),
+                this.downloadVerseContent(),
+            ]);
+
+            // Trim verses array to match allORGBibleVerseRefs length
+            const trimmedVerses = verses.slice(0, vrefs.length);
+
+            this.state.verses = trimmedVerses.map((text, i) => ({
+                vref: vrefs[i],
+                text,
+            }));
+
+            // Validate content
+            const validationResult = await this.validateBibleContent();
+            if (!validationResult.isValid) {
+                throw new Error(
+                    `Bible content validation failed: ${validationResult.errors
+                        .map((e) => e.message)
+                        .join(", ")}`
+                );
+            }
+
+            // Transform content into notebooks
+            this.state.progress?.report({
+                message: "Transforming Bible content",
+                increment: 40,
+                status: { notebooks: "active" },
+            });
+            await this.transformToNotebooks();
+
+            this.state.progress?.report({
+                message: "Creating preview",
+                increment: 20,
+                status: { validation: "complete", transform: "active" },
+            });
+
+            // Create preview notebook
+            await this.createPreviewNotebook();
+
+            this.state.status = "prepared";
+
+            this.state.progress?.report({
+                message: "Preview ready",
+                increment: 30,
+                status: { transform: "complete" },
+            });
+        } catch (error) {
+            await this.rollback();
+            this.state.status = "rolledback";
+            throw error;
+        }
     }
 
     async execute(
-        progress?: { report: (update: { message?: string; increment?: number }) => void },
+        progress?: {
+            report: (update: {
+                message?: string;
+                increment?: number;
+                status?: Record<string, string>;
+            }) => void;
+        },
         token?: vscode.CancellationToken
     ): Promise<void> {
-        this.state.status = "executing";
+        this.state.progress = progress
+            ? { ...progress, message: "", increment: 0, status: {} }
+            : null;
+        try {
+            this.state.status = "executing";
 
-        // we have the ebible text, and we have the vrefs
+            // Save notebooks
+            progress?.report({
+                message: "Saving notebooks",
+                increment: 80,
+                status: { metadata: "complete", commit: "active" },
+            });
+            await this.saveNotebooks();
 
-        // transform: we need to create notebooks - one per book
-        // save: the notebooks to the temp directory
-        await this.transformToNotebooks();
+            // Create metadata
+            progress?.report({
+                message: "Setting up metadata",
+                increment: 60,
+                status: { notebooks: "complete", metadata: "active" },
+            });
+            await this.setupMetadata();
 
-        // create a truncated preview notebook
-        await this.createPreviewNotebook();
+            // Complete
+            progress?.report({
+                message: "Bible import complete",
+                increment: 100,
+                status: { commit: "complete" },
+            });
+            this.state.status = "committed";
+        } catch (error) {
+            await this.rollback();
+            this.state.status = "rolledback";
+            throw error;
+        }
+    }
 
-        // commit: move the notebooks to the user's workspace
-        this.state.status = "awaiting_confirmation";
+    private async setupMetadata(): Promise<void> {
+        const metadataManager = new NotebookMetadataManager();
+        for (const notebookPair of this.state.notebooks) {
+            await metadataManager.addOrUpdateMetadata(notebookPair.sourceNotebook.metadata);
+            await metadataManager.addOrUpdateMetadata(notebookPair.codexNotebook.metadata);
+        }
+    }
+
+    private async saveNotebooks(): Promise<void> {
+        const serializer = new CodexContentSerializer();
+
+        const workspaceUri = getWorkSpaceUri();
+        if (!workspaceUri) {
+            throw new Error("No workspace found in DownloadBibleTransaction.saveNotebooks()");
+        }
+        const sourceDestinationDirectory = vscode.Uri.joinPath(
+            workspaceUri,
+            ".project",
+            "sourceTexts"
+        );
+        const codexDestinationDirectory = vscode.Uri.joinPath(workspaceUri, "files", "target");
+
+        // FIXME: this is a hack to get the token to work, but we really should be passing one around in the process
+        const currentToken =
+            this.state.progress?.token || new vscode.CancellationTokenSource().token;
+        // serialize and save each notebook pair
+        for (const notebookPair of this.state.notebooks) {
+            const serializedSourceNotebook = await serializer.serializeNotebook(
+                notebookPair.sourceNotebook,
+                currentToken
+            );
+            const serializedCodexNotebook = await serializer.serializeNotebook(
+                notebookPair.codexNotebook,
+                currentToken
+            );
+
+            const bookName = notebookPair.sourceNotebook.metadata.id;
+
+            const sourceUri = vscode.Uri.joinPath(sourceDestinationDirectory, `${bookName}.source`);
+            await vscode.workspace.fs.writeFile(sourceUri, serializedSourceNotebook);
+
+            const codexUri = vscode.Uri.joinPath(codexDestinationDirectory, `${bookName}.codex`);
+            await vscode.workspace.fs.writeFile(codexUri, serializedCodexNotebook);
+        }
+    }
+
+    private async downloadVerseContent(): Promise<string[]> {
+        const ebibleUrl = `https://raw.githubusercontent.com/BibleNLP/ebible/main/corpus/${this.getEbibleFileName()}`;
+        const response = await fetch(ebibleUrl);
+        if (!response.ok) {
+            throw new Error(
+                `Failed to download Bible text: ${response.status} ${response.statusText}. It could be that this file no longer exists on the remote server. Try navigating to ${ebibleUrl}`
+            );
+        }
+        const text = await response.text().then((text) => {
+            if (!text) {
+                throw new Error("Received empty response from the server.");
+            }
+            return text;
+        });
+        return text
+            .trim()
+            .split("\n")
+            .filter((line) => line.trim().length > 0);
     }
 
     async transformToNotebooks(): Promise<void> {
-        const serializer = new CodexContentSerializer();
         // each notebook needs notebook metadata, and cells with content
         const notebooks: {
             sourceNotebook: CodexNotebookAsJSONData;
@@ -184,9 +375,12 @@ export class DownloadBibleTransaction extends BaseTransaction {
     }
 
     async commit(): Promise<void> {
+        await this.moveNotebooksToWorkspace();
         await this.cleanupTempFiles();
         this.state.status = "committed";
     }
+
+    async moveNotebooksToWorkspace(): Promise<void> {}
 
     async awaitConfirmation(): Promise<void> {
         // FIXME: we need to make this work with the implementing context - e.g., SourceUploadProvider.ts

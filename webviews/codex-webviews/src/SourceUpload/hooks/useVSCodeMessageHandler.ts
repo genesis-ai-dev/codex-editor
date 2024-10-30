@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { SourceUploadResponseMessages } from "../../../../../types";
-import { WorkflowState } from "../types";
+import { WorkflowState, BibleDownloadStages } from "../types";
 
 const vscode = acquireVsCodeApi();
 const initialWorkflowState: WorkflowState = {
@@ -10,6 +10,39 @@ const initialWorkflowState: WorkflowState = {
     importType: null,
 };
 
+const getBibleDownloadStages = (): BibleDownloadStages => ({
+    validation: {
+        label: "Validation",
+        description: "Validating Bible content",
+        status: "pending",
+    },
+    download: {
+        label: "Download",
+        description: "Downloading Bible text",
+        status: "pending",
+    },
+    splitting: {
+        label: "Splitting",
+        description: "Splitting into sections",
+        status: "pending",
+    },
+    notebooks: {
+        label: "Notebooks",
+        description: "Creating notebooks",
+        status: "pending",
+    },
+    metadata: {
+        label: "Metadata",
+        description: "Updating metadata",
+        status: "pending",
+    },
+    commit: {
+        label: "Commit",
+        description: "Committing changes",
+        status: "pending",
+    },
+});
+
 export function useVSCodeMessageHandler() {
     const [workflow, setWorkflow] = useState<WorkflowState>(initialWorkflowState);
 
@@ -18,6 +51,49 @@ export function useVSCodeMessageHandler() {
             const message = event.data;
 
             switch (message.command) {
+                case "bibleDownloadProgress":
+                    if (message.progress) {
+                        setWorkflow((prev) => ({
+                            ...prev,
+                            step: "processing",
+                            processingStages: Object.entries(message.progress?.status || {}).reduce(
+                                (acc, [key, status]) => ({
+                                    ...acc,
+                                    [key]: {
+                                        ...getBibleDownloadStages()[
+                                            key as keyof BibleDownloadStages
+                                        ],
+                                        status,
+                                    },
+                                }),
+                                prev.processingStages
+                            ),
+                            progress: {
+                                message: message.progress.message || "",
+                                increment: message.progress.increment || 0,
+                            },
+                        }));
+                    }
+                    break;
+
+                case "bibleDownloadComplete":
+                    setWorkflow((prev) => ({
+                        ...prev,
+                        step: "complete",
+                        processingStages: Object.entries(getBibleDownloadStages()).reduce(
+                            (acc, [key, stage]) => ({
+                                ...acc,
+                                [key]: { ...stage, status: "complete" },
+                            }),
+                            {}
+                        ),
+                        bibleDownload: {
+                            ...prev.bibleDownload!,
+                            status: "complete",
+                        },
+                    }));
+                    break;
+
                 case "availableCodexFiles":
                     if (message.files) {
                         setWorkflow((prev) => ({
@@ -49,34 +125,6 @@ export function useVSCodeMessageHandler() {
                             },
                         }));
                     }
-                    break;
-
-                case "bibleDownloadProgress":
-                    if (message.progress) {
-                        setWorkflow((prev) => ({
-                            ...prev,
-                            step: "processing",
-                            bibleDownload: {
-                                ...prev.bibleDownload!,
-                                status: "downloading",
-                                progress: {
-                                    message: message.progress?.message || "",
-                                    increment: message.progress?.increment || 0,
-                                },
-                            },
-                        }));
-                    }
-                    break;
-
-                case "bibleDownloadComplete":
-                    setWorkflow((prev) => ({
-                        ...prev,
-                        step: "complete",
-                        bibleDownload: {
-                            ...prev.bibleDownload!,
-                            status: "complete",
-                        },
-                    }));
                     break;
 
                 case "bibleDownloadError":
@@ -140,6 +188,21 @@ export function useVSCodeMessageHandler() {
                         setWorkflow((prev) => ({
                             ...prev,
                             error: message.message,
+                        }));
+                    }
+                    break;
+
+                case "biblePreview":
+                    if (message.preview) {
+                        setWorkflow((prev) => ({
+                            ...prev,
+                            step: "preview",
+                            preview: {
+                                type: "bible",
+                                original: message.preview.original,
+                                transformed: message.preview.transformed,
+                            },
+                            currentTransaction: message.transaction,
                         }));
                     }
                     break;

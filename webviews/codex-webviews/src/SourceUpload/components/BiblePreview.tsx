@@ -8,9 +8,27 @@ import {
 } from "@vscode/webview-ui-toolkit/react";
 import { BiblePreviewData } from "../../../../../types";
 import ValidationResult from "./ValidationResult";
+import { formatFileSize } from "../../../../../src/utils/formatters";
 
 interface BiblePreviewProps {
-    preview: BiblePreviewData;
+    preview: {
+        type: "bible";
+        original: {
+            preview: string;
+            validationResults: any[];
+        };
+        transformed: {
+            sourceNotebooks: Array<{
+                name: string;
+                cells: Array<{
+                    value: string;
+                    metadata: { id: string; type: string };
+                }>;
+                metadata: any;
+            }>;
+            validationResults: any[];
+        };
+    };
     onConfirm: () => void;
     onCancel: () => void;
 }
@@ -58,6 +76,9 @@ export const BiblePreview: React.FC<BiblePreviewProps> = ({ preview, onConfirm, 
                             <li>Language: {metadata.originalName}</li>
                             <li>Total Books: {preview.transformed.sourceNotebooks.length}</li>
                             <li>Total Verses: {notebook.cells.length}</li>
+                            <li>Content Size: {formatFileSize(preview.original.preview.length)}</li>
+                            {metadata.format && <li>Format: {metadata.format}</li>}
+                            {metadata.license && <li>License: {metadata.license}</li>}
                         </ul>
 
                         <h4>Sample Content</h4>
@@ -69,7 +90,7 @@ export const BiblePreview: React.FC<BiblePreviewProps> = ({ preview, onConfirm, 
                                 borderRadius: "4px",
                             }}
                         >
-                            {notebook.cells.slice(0, 10).map((cell, index) => (
+                            {notebook.cells.map((cell, index) => (
                                 <div
                                     key={index}
                                     style={{

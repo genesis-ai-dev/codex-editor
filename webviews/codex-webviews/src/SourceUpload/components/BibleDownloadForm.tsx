@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from "react";
 import { VSCodeButton, VSCodeDropdown, VSCodeOption } from "@vscode/webview-ui-toolkit/react";
 import {
-    getEBCorpusMetadataByLanguageCode,
-    getExtendedEbibleMetadataByLanguageNameOrCode,
+    getAvailableLanguages,
+    getBiblesForLanguage,
     ExtendedMetadata,
 } from "../../../../../src/utils/ebible/ebibleCorpusUtils";
 
@@ -22,15 +22,13 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({ onDownload
     const [selectedLanguage, setSelectedLanguage] = useState<string>("");
     const [selectedBible, setSelectedBible] = useState<string>("");
 
-    const ebibleCorpusMetadata = getEBCorpusMetadataByLanguageCode("");
-    const ebibleLanguageMap = [...new Set(ebibleCorpusMetadata.map((metadata) => metadata.lang))];
+    const availableLanguages = useMemo(() => getAvailableLanguages(), []);
 
     const availableBibles = useMemo(() => {
         if (!selectedLanguage) return [];
 
-        const bibles = getExtendedEbibleMetadataByLanguageNameOrCode(selectedLanguage);
+        const bibles = getBiblesForLanguage(selectedLanguage);
         return bibles.map((bible) => {
-            // Determine coverage
             let coverage = "";
             if (bible.OTbooks === 39 && bible.NTbooks === 27) {
                 coverage = "Full Bible";
@@ -50,13 +48,12 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({ onDownload
                         : "");
             }
 
-            // Extract year from UpdateDate or sourceDate
             const dateStr = bible.UpdateDate || bible.sourceDate || "";
             const year = dateStr.split("-")[0] || dateStr;
 
             return {
                 id: bible.translationId,
-                displayTitle: bible.shortTitle || bible.title,
+                displayTitle: bible.shortTitle || bible.title || bible.translationId,
                 coverage,
                 year: year ? `(${year})` : "",
             } as BibleInfo;
@@ -66,7 +63,7 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({ onDownload
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (selectedLanguage && selectedBible) {
-            const bibles = getExtendedEbibleMetadataByLanguageNameOrCode(selectedLanguage);
+            const bibles = getBiblesForLanguage(selectedLanguage);
             const selectedMetadata = bibles.find((b) => b.translationId === selectedBible);
             if (selectedMetadata) {
                 onDownload(selectedMetadata);
@@ -105,9 +102,9 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({ onDownload
                     }}
                 >
                     <VSCodeOption value="">Select a language...</VSCodeOption>
-                    {ebibleLanguageMap.map((language) => (
-                        <VSCodeOption key={language} value={language}>
-                            {language}
+                    {availableLanguages.map((language) => (
+                        <VSCodeOption key={language.code} value={language.code}>
+                            {language.name} ({language.code})
                         </VSCodeOption>
                     ))}
                 </VSCodeDropdown>
