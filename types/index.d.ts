@@ -325,6 +325,12 @@ type EditorCellContent = {
     cellLabel?: string;
 };
 
+interface EditHistoryEntry {
+    before: string;
+    after: string;
+    timestamp: number;
+}
+
 export type EditorPostMessages =
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string } }
     | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata }
@@ -358,7 +364,14 @@ export type EditorPostMessages =
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string } }
     | { command: "pickVideoFile" }
     | { command: "applyPromptedEdit"; content: { text: string; prompt: string; cellId: string } }
-    | { command: "getAndApplyTopPrompts"; content: { text: string; cellId: string } };
+    | { command: "getAndApplyTopPrompts"; content: { text: string; cellId: string } }
+    | {
+          command: "supplyRecentEditHistory";
+          content: {
+              cellId: string;
+              editHistory: EditHistoryEntry[];
+          };
+      };
 
 type EditorReceiveMessages =
     | {

@@ -29,7 +29,10 @@ const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
     };
 
     const removeHtmlTags = (text: string) => {
-        return text.replace(/<[^>]*>?/g, "").replace(/\n/g, " ");
+        return text
+            .replace(/<[^>]*>?/g, "")
+            .replace(/\n/g, " ")
+            .replace(/&nbsp;/g, " ");
     };
 
     const data: TimeBlock[] = translationUnitsForSection.map((unit) => ({

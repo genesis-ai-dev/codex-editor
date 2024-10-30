@@ -786,6 +786,15 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         }
                         return;
                     }
+                    case "supplyRecentEditHistory": {
+                        console.log("supplyRecentEditHistory message received", { e });
+                        const result = await vscode.commands.executeCommand(
+                            "codex-smart-edits.supplyRecentEditHistory",
+                            e.content.cellId,
+                            e.content.editHistory
+                        );
+                        return;
+                    }
                 }
             } catch (error) {
                 console.error("Unexpected error in message handler:", error);

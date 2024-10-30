@@ -9,6 +9,13 @@ interface SavedPrompt {
     lastUpdated: number;
     updateCount: number;
 }
+interface TargetCell {
+    cellId: string;
+    targetContent: string;
+    id?: string;
+    score?: number;
+    sourceContent?: string;
+}
 
 const SYSTEM_MESSAGE = `You are a helpful assistant that modifies text and manages prompts.
 Your response should follow this json format:
@@ -40,13 +47,15 @@ export class PromptedSmartEdits {
     }
 
     async applyPromptedEdit(text: string, prompt: string, cellId: string): Promise<string> {
-        console.log(`Applying prompt for cellId: ${cellId}`);
+        console.log(`Applying prompt for cellId: ${cellId}, prompt: ${prompt}`);
 
         // Get existing prompt if any
         const existingPrompt = await this.getPromptFromCellId(cellId);
-
+        console.log(`Existing prompt: ${existingPrompt}`);
         // Process any cell references in the prompt
         const processedPrompt = await this.processCellReferences(prompt);
+        console.log("Prompt has been processed:");
+        console.log("Processed prompt: ", processedPrompt);
 
         try {
             // Apply the processed prompt using chatbot
@@ -189,34 +198,47 @@ export class PromptedSmartEdits {
 
     // Add helper function to extract and process cell references
     private async processCellReferences(prompt: string): Promise<string> {
-        // Match cellIds in format <BOOK C:V> or similar patterns
-        const cellIdPattern = /<([^>]+)>/g;
-        const matches = prompt.match(cellIdPattern);
-
-        if (!matches) return prompt;
-
+        // Match patterns like "gen 1:1", "LUK 4:12", "PSM 50:105" etc
+        const cellIdPattern = /\b([a-zA-Z]{3})\s*(\d+):(\d+)\b/g;
         let processedPrompt = prompt;
 
-        for (const match of matches) {
-            const cellId = match.slice(1, -1); // Remove < >
+        for (const match of Array.from(prompt.matchAll(cellIdPattern))) {
+            const book = match[1].toUpperCase();
+            const chapter = match[2];
+            const verse = match[3];
+            const cellId = `${book} ${chapter}:${verse}`;
+            console.log(`Processing cell reference: ${cellId}`);
+
             try {
-                const translationPair = await vscode.commands.executeCommand<TranslationPair>(
-                    "translators-copilot.getTranslationPairFromProject",
+                const targetCell = await vscode.commands.executeCommand<TargetCell>(
+                    "translators-copilot.getTargetCellByCellId",
                     cellId
                 );
+                console.log(
+                    `Target cell for ${cellId}:`,
+                    targetCell
+                        ? {
+                              cellId: cellId,
+                              content: targetCell.targetContent,
+                          }
+                        : "Not found"
+                );
 
-                if (translationPair) {
-                    // Replace the cell reference with its actual content
+                if (targetCell?.targetContent) {
+                    console.log(`Found content for ${cellId}:`, targetCell.targetContent);
                     processedPrompt = processedPrompt.replace(
-                        match,
-                        `"${translationPair.targetCell.content}"`
+                        match[0],
+                        ` "${targetCell.targetContent}" `
                     );
+                } else {
+                    console.log(`No content found for ${cellId}`);
                 }
             } catch (error) {
                 console.error(`Error processing cell reference ${cellId}:`, error);
             }
         }
 
+        console.log(`Final processed prompt: ${processedPrompt}`);
         return processedPrompt;
     }
 }

@@ -108,5 +108,23 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
             }
         )
     );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-smart-edits.supplyRecentEditHistory",
+            async ({ cellId, editHistory }) => {
+                try {
+                    await smartEdits.updateEditHistory(cellId, editHistory);
+                    // TODO: Think about if below would be nice or not
+                    // await promptedSmartEdits.updateEditHistory(cellId, editHistory);
+                    return true;
+                } catch (error) {
+                    console.error("Error updating edit history:", error);
+                    return false;
+                }
+            }
+        )
+    );
+
     console.log("Smart Edit commands registered");
 };
