@@ -336,6 +336,7 @@ export type EditorPostMessages =
     | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata }
     | { command: "pickVideoFile" }
     | { command: "from-quill-spellcheck-getSpellCheckResponse"; content: EditorCellContent }
+    | { command: "searchSimilarCellIds"; content: { cellId: string } }
     | { command: "updateCellTimestamps"; content: { cellId: string; timestamps: Timestamps } }
     | { command: "deleteCell"; content: { cellId: string } }
     | { command: "addWord"; words: string[] }
@@ -395,7 +396,8 @@ type EditorReceiveMessages =
     | { type: "jumpToSection"; content: string }
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata }
     | { type: "updateVideoUrlInWebview"; content: string }
-    | { type: "providerSendsPromptedEditResponse"; content: string };
+    | { type: "providerSendsPromptedEditResponse"; content: string }
+    | { type: "providerSendsSimilarCellIdsResponse"; content: { cellId: string; score: number }[] };
 
 type EditHistory = {
     cellValue: string;

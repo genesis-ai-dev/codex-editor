@@ -192,6 +192,44 @@ export function searchParallelCells(
         })
         .filter((pair): pair is NonNullable<TranslationPair> => pair !== null);
 
-
     return translationPairs;
+}
+
+export function searchSimilarCellIds(
+    translationPairsIndex: MiniSearch,
+    cellId: string,
+    k: number = 5,
+    fuzziness: number = 0.2
+) {
+    // Parse the input cellId into book and chapter
+    const match = cellId.match(/^(\w+)\s*(\d+)/);
+    if (!match) {
+        return translationPairsIndex
+            .search(cellId, {
+                fields: ["cellId"],
+                combineWith: "OR",
+                prefix: true,
+                fuzzy: fuzziness,
+                boost: { cellId: 2 },
+            })
+            .slice(0, k)
+            .map((result) => ({
+                cellId: result.cellId,
+                score: result.score,
+            }));
+    }
+
+    // Search for exact book+chapter prefix (e.g., "GEN 2")
+    const bookChapterPrefix = match[0];
+    return translationPairsIndex
+        .search(bookChapterPrefix, {
+            fields: ["cellId"],
+            prefix: true,
+            combineWith: "AND",
+        })
+        .slice(0, k)
+        .map((result) => ({
+            cellId: result.cellId,
+            score: result.score,
+        }));
 }

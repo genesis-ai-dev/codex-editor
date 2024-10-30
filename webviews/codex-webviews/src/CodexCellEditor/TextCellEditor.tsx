@@ -17,6 +17,11 @@ import { debounce } from "lodash";
 import { generateChildCellId } from "../../../../src/providers/codexCellEditorProvider/utils/cellUtils";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 
+interface SimilarCell {
+    cellId: string;
+    score: number;
+}
+
 interface CellEditorProps {
     cellMarkers: string[];
     cellContent: string;
@@ -89,6 +94,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     const [editableLabel, setEditableLabel] = useState(cellLabel || "");
     const [prompt, setPrompt] = useState("");
+    const [similarCells, setSimilarCells] = useState<SimilarCell[]>([]);
+    const [showSuggestions, setShowSuggestions] = useState(false);
+    const [cursorPosition, setCursorPosition] = useState(0);
+    const [activeSearchPosition, setActiveSearchPosition] = useState<number | null>(null);
 
     useEffect(() => {
         setEditableLabel(cellLabel || "");
@@ -121,7 +130,60 @@ const CellEditor: React.FC<CellEditorProps> = ({
     };
 
     const handlePromptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-        setPrompt(e.target.value);
+        const newValue = e.target.value;
+        setPrompt(newValue);
+        setCursorPosition(e.target.selectionStart);
+
+        // Only search if we're in an active @ search
+        if (activeSearchPosition !== null) {
+            const textAfterAt = newValue.slice(activeSearchPosition + 1, e.target.selectionStart);
+            if (textAfterAt.length > 0) {
+                const messageContent: EditorPostMessages = {
+                    command: "searchSimilarCellIds",
+                    content: {
+                        cellId: textAfterAt,
+                    },
+                };
+                window.vscodeApi.postMessage(messageContent);
+                setShowSuggestions(true);
+            }
+        } else {
+            // Check for new @ symbol
+            const lastAtSymbolIndex = newValue.lastIndexOf("@", e.target.selectionStart);
+            if (lastAtSymbolIndex !== -1 && lastAtSymbolIndex === e.target.selectionStart - 1) {
+                setActiveSearchPosition(lastAtSymbolIndex);
+                setShowSuggestions(true);
+            }
+        }
+    };
+
+    const insertCellId = (cellId: string) => {
+        if (activeSearchPosition !== null) {
+            // Get the text before and after the current search
+            const textBefore = prompt.slice(0, activeSearchPosition);
+            const textAfter = prompt.slice(cursorPosition).trimLeft();
+
+            // Create new prompt with exactly one space after the cell ID if there's more text
+            const newPrompt = `${textBefore}@${cellId}${textAfter ? " " + textAfter : ""}`;
+
+            // Calculate new cursor position (right after the cell ID, before the space)
+            const newCursorPosition = activeSearchPosition + cellId.length + 1; // +1 for @ only
+
+            setPrompt(newPrompt);
+
+            // Need to wait for the state update before setting cursor position
+            setTimeout(() => {
+                const textarea = document.querySelector(".prompt-input") as HTMLTextAreaElement;
+                if (textarea) {
+                    textarea.focus();
+                    textarea.setSelectionRange(newCursorPosition, newCursorPosition);
+                }
+            }, 0);
+
+            setActiveSearchPosition(null);
+            setShowSuggestions(false);
+            setCursorPosition(newCursorPosition);
+        }
     };
 
     const handlePromptSend = async () => {
@@ -145,6 +207,18 @@ const CellEditor: React.FC<CellEditorProps> = ({
             console.error("Error sending prompt:", error);
         }
     };
+
+    useEffect(() => {
+        const handleSimilarCellsResponse = (event: MessageEvent) => {
+            const message = event.data;
+            if (message.type === "providerSendsSimilarCellIdsResponse") {
+                setSimilarCells(message.content);
+            }
+        };
+
+        window.addEventListener("message", handleSimilarCellsResponse);
+        return () => window.removeEventListener("message", handleSimilarCellsResponse);
+    }, []);
 
     const makeChild = () => {
         const parentCellId = cellMarkers[0];
@@ -258,6 +332,29 @@ const CellEditor: React.FC<CellEditorProps> = ({
         return () => window.removeEventListener("message", handlePromptedEditResponse);
     }, []);
 
+    const formatPromptWithHighlights = (text: string) => {
+        // Updated regex to include spaces and more characters in cell IDs
+        const parts = text.split(/(@[\w\s:.]+?)(?=\s|$)/g);
+        return parts.map((part, index) => {
+            if (part.startsWith("@")) {
+                return (
+                    <span key={index} className="cell-reference">
+                        {part}
+                    </span>
+                );
+            }
+            return part;
+        });
+    };
+
+    // Add keydown handler to detect Escape key
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (e.key === "Escape") {
+            setActiveSearchPosition(null);
+            setShowSuggestions(false);
+        }
+    };
+
     return (
         <div ref={cellEditorRef} className="cell-editor" style={{ direction: textDirection }}>
             <div className="cell-header">
@@ -284,10 +381,27 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             <textarea
                                 value={prompt}
                                 onChange={handlePromptChange}
+                                onKeyDown={handleKeyDown}
                                 placeholder="Prompt"
                                 rows={1}
                                 className="prompt-input"
                             />
+                            <div className="prompt-preview">
+                                {formatPromptWithHighlights(prompt)}
+                            </div>
+                            {showSuggestions && similarCells.length > 0 && (
+                                <div className="suggestions-dropdown">
+                                    {similarCells.map((cell) => (
+                                        <div
+                                            key={cell.cellId}
+                                            className="suggestion-item"
+                                            onClick={() => insertCellId(cell.cellId)}
+                                        >
+                                            {cell.cellId}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                             <VSCodeButton
                                 onClick={handlePromptSend}
                                 appearance="icon"
@@ -417,6 +531,50 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                 @keyframes flash {
                     50% { border-color: var(--vscode-button-background); }
+                }
+
+                .prompt-container {
+                    position: relative;
+                }
+
+                .prompt-input {
+                    width: 250px;
+                    resize: none;
+                    position: absolute;
+                    background: transparent;
+                    color: transparent;
+                    caret-color: var(--vscode-input-foreground);
+                }
+
+                .prompt-preview {
+                    width: 250px;
+                    white-space: pre-wrap;
+                    pointer-events: none;
+                }
+
+                .cell-reference {
+                    color: var(--vscode-textLink-foreground);
+                }
+
+                .suggestions-dropdown {
+                    position: absolute;
+                    top: 100%;
+                    left: 0;
+                    right: 0;
+                    background: var(--vscode-input-background);
+                    border: 1px solid var(--vscode-input-border);
+                    max-height: 200px;
+                    overflow-y: auto;
+                    z-index: 1000;
+                }
+
+                .suggestion-item {
+                    padding: 4px 8px;
+                    cursor: pointer;
+                }
+
+                .suggestion-item:hover {
+                    background: var(--vscode-list-hoverBackground);
                 }
             `}</style>
         </div>

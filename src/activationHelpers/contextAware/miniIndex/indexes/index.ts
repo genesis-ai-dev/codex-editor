@@ -12,6 +12,7 @@ import {
     getTranslationPairFromProject,
     handleTextSelection,
     searchParallelCells,
+    searchSimilarCellIds,
 } from "./search";
 import MiniSearch, { SearchResult } from "minisearch";
 import {
@@ -511,7 +512,12 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             return uniqueResults;
         }
     );
-
+    const searchSimilarCellIdsCommand = vscode.commands.registerCommand(
+        "translators-copilot.searchSimilarCellIds",
+        async (cellId: string) => {
+            return searchSimilarCellIds(translationPairsIndex, cellId);
+        }
+    );
     const getTranslationPairFromProjectCommand = vscode.commands.registerCommand(
         "translators-copilot.getTranslationPairFromProject",
         async (cellId?: string, showInfo: boolean = false) => {
@@ -556,6 +562,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             refreshWordIndexCommand,
             getWordsAboveThresholdCommand,
             searchParallelCellsCommand,
+            searchSimilarCellIdsCommand,
         ]
     );
 

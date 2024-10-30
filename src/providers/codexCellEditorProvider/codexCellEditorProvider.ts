@@ -481,6 +481,28 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         }
                         return;
                     }
+                    case "searchSimilarCellIds": {
+                        try {
+                            const response = await vscode.commands.executeCommand<
+                                Array<{ cellId: string; score: number }>
+                            >(
+                                "translators-copilot.searchSimilarCellIds",
+                                e.content.cellId,
+                                5, // Default k value from searchSimilarCellIds
+                                0.2 // Default fuzziness from searchSimilarCellIds
+                            );
+                            this.postMessageToWebview(webviewPanel, {
+                                type: "providerSendsSimilarCellIdsResponse",
+                                content: response || [], // Ensure we always return an array
+                            });
+                        } catch (error) {
+                            console.error("Error searching for similar cell IDs:", error);
+                            vscode.window.showErrorMessage(
+                                "Failed to search for similar cell IDs."
+                            );
+                        }
+                        return;
+                    }
                     case "from-quill-spellcheck-getSpellCheckResponse": {
                         try {
                             const response = await vscode.commands.executeCommand(
