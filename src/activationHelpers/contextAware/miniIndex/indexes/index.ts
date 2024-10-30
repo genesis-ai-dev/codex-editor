@@ -463,7 +463,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
     const searchParallelCellsCommand = vscode.commands.registerCommand(
         "translators-copilot.searchParallelCells",
-        async (query?: string, k: number = 10, showInfo: boolean = false) => {
+        async (query?: string, k: number = 5, showInfo: boolean = false) => {
             if (!query) {
                 query = await vscode.window.showInputBox({
                     prompt: "Enter a query to search parallel cells",
