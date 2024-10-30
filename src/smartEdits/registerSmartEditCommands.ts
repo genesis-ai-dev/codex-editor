@@ -32,6 +32,14 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
     );
     context.subscriptions.push(
         vscode.commands.registerCommand(
+            "codex-smart-edits.hasApplicablePrompts",
+            async (cellId: string, text: string) => {
+                return await promptedSmartEdits.hasApplicablePrompts(cellId, text);
+            }
+        )
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
             "codex-smart-edits.getSavedSuggestions",
             async (cellId: string) => {
                 try {

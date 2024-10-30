@@ -124,8 +124,8 @@ connection.onRequest(
             debugLog("No smart edits found, checking for applicable prompt");
             // If no spelling errors or smart edits, check for applicable prompt
             const prompt = await connection.sendRequest(ExecuteCommandRequest, {
-                command: "codex-smart-edits.getPromptFromCellId",
-                args: [params.cellId],
+                command: "codex-smart-edits.hasApplicablePrompts",
+                args: [params.cellId, text],
             });
 
             const code = prompt ? 3 : 0;
@@ -133,7 +133,7 @@ connection.onRequest(
             return {
                 code,
                 cellId: params.cellId,
-                savedSuggestions: savedSuggestions || { suggestions: [] },
+                savedSuggestions: { suggestions: [] }, //savedSuggestions || { suggestions: [] },
             };
         } catch (error) {
             console.error("Error in getAlertCode:", error);

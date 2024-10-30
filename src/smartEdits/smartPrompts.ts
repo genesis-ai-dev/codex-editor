@@ -45,6 +45,26 @@ export class PromptedSmartEdits {
         this.smartPromptPath = path.join(workspaceUri.fsPath, "files", "smart_prompt.json");
         console.log("SmartPrompt initialized with path:", this.smartPromptPath);
     }
+    async hasApplicablePrompts(cellId: string, text: string): Promise<boolean> {
+        // First check if this cell already has its own prompt
+        const existingPrompt = await this.getPromptFromCellId(cellId);
+        if (existingPrompt) {
+            return false; // Cell already has a prompt
+        }
+
+        // Find similar cells
+        const similarCells = await this.findSimilarCells(text);
+
+        // Check if any similar cells have prompts
+        for (const cell of similarCells) {
+            const prompt = await this.getPromptFromCellId(cell.cellId);
+            if (prompt) {
+                return true; // Found a similar cell with a prompt
+            }
+        }
+
+        return false; // No applicable prompts found
+    }
 
     async applyPromptedEdit(text: string, prompt: string, cellId: string): Promise<string> {
         console.log(`Applying prompt for cellId: ${cellId}, prompt: ${prompt}`);
