@@ -55,7 +55,7 @@ connection.onInitialize((params: InitializeParams) => {
 
     // Initialize services
     debugLog("Initializing SpellChecker...");
-    spellChecker = new SpellChecker(workspaceFolder);
+    spellChecker = new SpellChecker(connection);
     debugLog("SpellChecker initialized.");
 
     debugLog("Initializing SpellCheckDiagnosticsProvider...");
@@ -101,7 +101,7 @@ connection.onRequest(
 
             // spellcheck
             for (const word of words) {
-                const spellCheckResult = spellChecker.spellCheck(word);
+                const spellCheckResult = await spellChecker.spellCheck(word);
                 if (spellCheckResult?.corrections?.length > 0) {
                     return { code: 1, cellId: params.cellId };
                 }
@@ -162,8 +162,7 @@ connection.onRequest("spellcheck/check", async (params: { text: string; cellChan
 
     for (const word of words) {
         if (!word) continue; // Skip empty words
-
-        const spellCheckResult = spellChecker.spellCheck(word);
+        const spellCheckResult = await spellChecker.spellCheck(word);
         if (!spellCheckResult) continue;
 
         const offset = text.indexOf(word, 0);

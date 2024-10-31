@@ -11,6 +11,9 @@ import {
     TextEdit,
     CancellationToken,
     CompletionContext,
+    Connection,
+    RequestType,
+    HandlerResult,
 } from "vscode-languageserver/node";
 import { verseRefRegex } from "./types";
 import { SpellCheckResult } from "./types";
@@ -18,161 +21,100 @@ import { Dictionary, DictionaryEntry } from "codex-types";
 import * as fs from "fs";
 import * as path from "path";
 import { URI } from "vscode-uri";
-import { Connection } from "vscode-languageserver/node";
 import { cleanWord } from "../utils/cleaningUtils";
 import {
     readDictionaryServer,
     saveDictionaryServer,
     addWordsToDictionary,
 } from "../utils/dictionaryUtils/server";
+import { Database } from "sql.js";
 
 let folderUri: URI | undefined;
 
+// Define request types
+interface CheckWordResponse {
+    exists: boolean;
+}
+
+const CheckWordRequest = new RequestType<string, CheckWordResponse, never>("custom/checkWord");
+const GetSuggestionsRequest = new RequestType<string, string[], never>("custom/getSuggestions");
+const AddWordsRequest = new RequestType<string[], boolean, never>("custom/addWords");
+
 export class SpellChecker {
-    private dictionary: Dictionary | null = null;
-    private dictionaryPath: string;
-    private dictionaryWatcher: fs.FSWatcher | null = null;
-    private connection: Connection | null = null;
+    private connection: Connection;
 
-    constructor(workspaceFolder: string | undefined, connection: Connection | null = null) {
-        if (workspaceFolder) {
-            folderUri = URI.parse(workspaceFolder);
-            this.dictionaryPath = path.join(folderUri.fsPath, "files", "project.dictionary");
-        } else {
-            // Fallback to a default path if no workspace folder is provided
-            this.dictionaryPath = path.join(process.cwd(), "files", "project.dictionary");
-        }
-        const metadataPath = path.join(folderUri?.fsPath || process.cwd(), "metadata.json");
-        if (fs.existsSync(metadataPath)) {
-            this.ensureDictionaryExists();
-            this.initializeDictionary();
-            this.watchDictionary();
-            this.connection = connection;
-        } else {
-            console.log("metadata.json not found. Skipping dictionary initialization.");
-        }
+    constructor(connection: Connection) {
+        this.connection = connection;
     }
 
-    async initializeDictionary() {
-        try {
-            this.dictionary = await readDictionaryServer(this.dictionaryPath);
-            console.log(`Dictionary loaded with ${this.dictionary.entries.length} words.`);
-        } catch (error: any) {
-            console.error(`Failed to initialize dictionary: ${error.message}`);
-            this.dictionary = { id: "project", label: "Project", entries: [], metadata: {} };
-        }
-    }
-
-    private async ensureDictionaryExists() {
-        const metadataPath = path.join(folderUri?.fsPath || process.cwd(), "metadata.json");
-        if (fs.existsSync(metadataPath)) {
-            try {
-                await fs.promises.access(this.dictionaryPath);
-            } catch {
-                const emptyDictionary = ""; // Dictionary is JSONL
-                await fs.promises.mkdir(path.dirname(this.dictionaryPath), { recursive: true });
-                await fs.promises.writeFile(this.dictionaryPath, emptyDictionary);
-                console.log("Created new empty dictionary.");
-            }
-        } else {
-            console.log("metadata.json not found. Skipping dictionary creation.");
-        }
-    }
-
-    async addWords(words: string[]): Promise<void> {
-        console.log("Adding words to dictionary:", words);
-        await addWordsToDictionary(this.dictionaryPath, words);
-        await this.initializeDictionary(); // Reload the dictionary
-    }
-
-    private watchDictionary() {
-        this.dictionaryWatcher = fs.watch(this.dictionaryPath, async (eventType, filename) => {
-            if (eventType === "change") {
-                console.log("Dictionary file changed. Reloading...");
-                await this.initializeDictionary();
-                if (this.connection) {
-                    this.connection.sendNotification("custom/dictionaryUpdated");
-                }
-            }
-        });
-    }
-
-    // Add a method to stop watching when necessary
-    public stopWatchingDictionary() {
-        if (this.dictionaryWatcher) {
-            this.dictionaryWatcher.close();
-            this.dictionaryWatcher = null;
-        }
-    }
-
-    /**
-     * Saves the current dictionary to the dictionary file in JSONL format.
-     */
-    private async saveDictionary(): Promise<void> {
-        if (!this.dictionary) {
-            console.error("Dictionary is not initialized.");
-            return;
-        }
-        await saveDictionaryServer(this.dictionaryPath, this.dictionary);
-        console.log("Dictionary successfully saved.");
-    }
-
-    spellCheck(word: string): SpellCheckResult {
-        if (!this.dictionary || this.dictionary.entries.length === 0) {
-            return { word, corrections: [word] };
-        }
-
+    async spellCheck(word: string): Promise<SpellCheckResult> {
         const originalWord = word;
         const cleanedWord = cleanWord(word);
 
-        const isInDictionary = this.dictionary.entries.some((entry) => {
-            const formToCheck = entry.headWord || entry.headForm;
-            if (!formToCheck) {
-                console.warn("Encountered dictionary entry without headWord or headForm:", entry);
-                return false;
-            }
-            const entryWithoutPunctuation = formToCheck.replace(/[^\p{L}\p{N}'-]/gu, "");
-            return entryWithoutPunctuation === cleanedWord;
-        });
+        try {
+            // Check if word exists in dictionary
+            const response = await this.connection.sendRequest(CheckWordRequest, cleanedWord);
 
-        if (isInDictionary) {
+            if (response.exists) {
+                return { word: originalWord, corrections: [] };
+            }
+
+            const suggestions = await this.getSuggestions(originalWord);
+            return { word: originalWord, corrections: suggestions };
+        } catch (error) {
+            console.error("Error in spellCheck:", error);
             return { word: originalWord, corrections: [] };
         }
-
-        const suggestions = this.getSuggestions(originalWord);
-
-        return { word: originalWord, corrections: suggestions };
     }
-    private getSuggestions(word: string): string[] {
+
+    private async getSuggestions(word: string): Promise<string[]> {
         if (!word || word.trim().length === 0) {
             return [];
         }
 
-        const cleanedWord = cleanWord(word);
-        const leadingPunctuation = word.match(/^[^\p{L}\p{N}]+/u)?.[0] || "";
-        const trailingPunctuation = word.match(/[^\p{L}\p{N}]+$/u)?.[0] || "";
+        try {
+            const cleanedWord = cleanWord(word);
+            const leadingPunctuation = word.match(/^[^\p{L}\p{N}]+/u)?.[0] || "";
+            const trailingPunctuation = word.match(/[^\p{L}\p{N}]+$/u)?.[0] || "";
 
-        return this.dictionary!.entries.filter((entry) => entry.headWord) // Filter out entries without headWord
-            .map((entry) => ({
-                word: entry.headWord,
-                distance: this.levenshteinDistance(
-                    cleanedWord,
-                    entry.headWord
-                ),
-            }))
-            .sort((a, b) => a.distance - b.distance)
-            .slice(0, 3)
-            .map((suggestion) => {
-                let result = suggestion.word;
+            // Get all words from the dictionary
+            const dictWords = await this.connection.sendRequest(GetSuggestionsRequest, cleanedWord);
 
-                // Preserve original capitalization
-                if (word[0].toUpperCase() === word[0]) {
-                    result = result.charAt(0).toUpperCase() + result.slice(1);
-                }
+            const suggestions = dictWords.map((dictWord) => ({
+                word: dictWord,
+                distance: this.levenshteinDistance(cleanedWord, dictWord),
+            }));
 
-                // Preserve surrounding punctuation
-                return leadingPunctuation + result + trailingPunctuation;
-            });
+            return suggestions
+                .sort((a, b) => a.distance - b.distance)
+                .slice(0, 3)
+                .map((suggestion) => {
+                    let result = suggestion.word;
+
+                    // Preserve original capitalization
+                    if (word[0].toUpperCase() === word[0]) {
+                        result = result.charAt(0).toUpperCase() + result.slice(1);
+                    }
+
+                    // Preserve surrounding punctuation
+                    return leadingPunctuation + result + trailingPunctuation;
+                });
+        } catch (error) {
+            console.error("Error in getSuggestions:", error);
+            return [];
+        }
+    }
+
+    async addWords(words: string[]): Promise<void> {
+        try {
+            const success = await this.connection.sendRequest(AddWordsRequest, words);
+
+            if (success) {
+                this.connection.sendNotification("custom/dictionaryUpdated");
+            }
+        } catch (error) {
+            console.error("Error in addWords:", error);
+        }
     }
 
     private levenshteinDistance(a: string, b: string): number {
@@ -229,9 +171,9 @@ export class SpellCheckDiagnosticsProvider {
             const words = lineWithoutHtml.slice(startIndex).split(/\s+/);
             let editWindow = startIndex;
 
-            words.forEach((word) => {
+            words.forEach(async (word) => {
                 if (word.length > 0) {
-                    const spellCheckResult = this.spellChecker.spellCheck(word);
+                    const spellCheckResult = await this.spellChecker.spellCheck(word);
                     if (spellCheckResult.corrections.length > 0) {
                         const range: Range = {
                             start: { line: lineIndex, character: editWindow },
@@ -303,11 +245,11 @@ export class SpellCheckCodeActionProvider {
             (diag) => diag.source === "Spell-Check" || diag.source === "Punctuation-Check"
         );
 
-        diagnostics.forEach((diagnostic) => {
+        diagnostics.forEach(async (diagnostic) => {
             const word = document.getText(diagnostic.range);
             const cleanedWord = cleanWord(word);
             if (diagnostic.source === "Spell-Check") {
-                const spellCheckResult = this.spellChecker.spellCheck(word);
+                const spellCheckResult = await this.spellChecker.spellCheck(word);
 
                 spellCheckResult.corrections.forEach((correction: string) => {
                     const action: CodeAction = {
@@ -377,12 +319,12 @@ export class SpellCheckCompletionItemProvider {
         this.spellChecker = spellChecker;
     }
 
-    provideCompletionItems(
+    async provideCompletionItems(
         document: TextDocument,
         position: Position,
         token: CancellationToken,
         context: CompletionContext
-    ): CompletionItem[] {
+    ): Promise<CompletionItem[]> {
         const text = document.getText();
         const offset = document.offsetAt(position);
         const linePrefix = text.substr(0, offset);
@@ -392,7 +334,7 @@ export class SpellCheckCompletionItemProvider {
         }
 
         const currentWord = wordMatch[0];
-        const spellCheckResult = this.spellChecker.spellCheck(currentWord);
+        const spellCheckResult = await this.spellChecker.spellCheck(currentWord);
 
         return spellCheckResult.corrections.map((suggestion) => ({
             label: suggestion,
