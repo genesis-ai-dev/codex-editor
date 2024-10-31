@@ -1,12 +1,18 @@
 import * as vscode from "vscode";
 import { BaseTransaction, TransactionState } from "./BaseTransaction";
 import { CodexContentSerializer } from "../serializer";
-import { CodexNotebookAsJSONData, ValidationError, ValidationResult } from "../../types";
+import {
+    CodexNotebookAsJSONData,
+    CustomNotebookCellData,
+    ValidationError,
+    ValidationResult,
+} from "../../types";
 import { CodexCellTypes } from "../../types/enums";
 import { allORGBibleVerseRefs } from "../utils/verseRefUtils/verseData";
 import { NotebookMetadataManager } from "../utils/notebookMetadataManager";
 import { getWorkSpaceUri } from "../utils";
 import { CodexNotebookReader } from "../serializer";
+import { CodexCell } from "src/utils/codexNotebookUtils";
 
 export interface DownloadBibleTransactionState extends TransactionState {
     metadata: {
@@ -398,69 +404,116 @@ export class DownloadBibleTransaction extends BaseTransaction {
     }
 
     private async transformToTranslation(): Promise<void> {
-        // Find existing codex notebooks in the workspace
         const workspaceUri = getWorkSpaceUri();
         if (!workspaceUri) {
             throw new Error("No workspace found");
         }
 
-        const metadataManager = new NotebookMetadataManager();
-        await metadataManager.loadMetadata();
-        const allMetadata = metadataManager.getAllMetadata();
+        return vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Import Translation",
+                cancellable: true,
+            },
+            async (progress, token) => {
+                try {
+                    // Create verse lookup map once
+                    const verseMap = new Map(
+                        this.state.verses.map((verse) => [verse.vref, verse.text])
+                    );
 
-        try {
-            const notebooks: {
-                sourceNotebook: CodexNotebookAsJSONData;
-                codexNotebook: CodexNotebookAsJSONData;
-            }[] = [];
+                    // Get all codex files in parallel
+                    const codexFiles = await vscode.workspace.findFiles("**/files/target/*.codex");
+                    const totalFiles = codexFiles.length;
 
-            // Create a map of verse references to their texts
-            const verseMap = new Map(this.state.verses.map((verse) => [verse.vref, verse.text]));
+                    // Process notebooks in batches to avoid memory issues
+                    const BATCH_SIZE = 10;
+                    const notebooks: {
+                        sourceNotebook: CodexNotebookAsJSONData;
+                        codexNotebook: CodexNotebookAsJSONData;
+                    }[] = [];
 
-            // Process each notebook pair from metadata
-            for (const metadata of allMetadata) {
-                if (!metadata.codexFsPath || !metadata.sourceFsPath) {
-                    continue; // Skip if no codex file exists
+                    for (let i = 0; i < codexFiles.length; i += BATCH_SIZE) {
+                        if (token.isCancellationRequested) {
+                            throw new Error("Operation cancelled by user");
+                        }
+
+                        const batch = codexFiles.slice(i, i + BATCH_SIZE);
+                        const batchResults = await Promise.all(
+                            batch.map(async (codexUri) => {
+                                try {
+                                    // Get corresponding source file path
+                                    const sourceUri = vscode.Uri.joinPath(
+                                        workspaceUri,
+                                        ".project",
+                                        "sourceTexts",
+                                        `${codexUri.path
+                                            .split("/")
+                                            .pop()
+                                            ?.replace(".codex", ".source")}`
+                                    );
+
+                                    // Read both files in parallel
+                                    const [codexContent, sourceContent] = await Promise.all([
+                                        vscode.workspace.fs.readFile(codexUri),
+                                        vscode.workspace.fs.readFile(sourceUri),
+                                    ]);
+
+                                    const codexNotebook = JSON.parse(codexContent.toString());
+                                    const sourceNotebook = JSON.parse(sourceContent.toString());
+
+                                    // Only update cells that need updating
+                                    codexNotebook.cells = codexNotebook.cells.map(
+                                        (cell: CustomNotebookCellData) => {
+                                            const newValue = verseMap.get(cell.metadata?.id);
+                                            if (!newValue) return cell; // No change needed
+
+                                            return {
+                                                ...cell,
+                                                value: newValue,
+                                            };
+                                        }
+                                    );
+
+                                    // Update last modified timestamp
+                                    codexNotebook.metadata.codexLastModified =
+                                        new Date().toISOString();
+
+                                    return {
+                                        sourceNotebook,
+                                        codexNotebook,
+                                    };
+                                } catch (error) {
+                                    console.error(`Error processing ${codexUri.fsPath}:`, error);
+                                    return null;
+                                }
+                            })
+                        );
+
+                        // Filter out any failed notebooks and add successful ones
+                        notebooks.push(
+                            ...batchResults.filter(
+                                (result): result is NonNullable<typeof result> => result !== null
+                            )
+                        );
+
+                        // Update progress
+                        const processedCount = Math.min(i + BATCH_SIZE, totalFiles);
+                        progress.report({
+                            message: `Processing notebooks (${processedCount}/${totalFiles})`,
+                            increment: (BATCH_SIZE / totalFiles) * 100,
+                        });
+                    }
+
+                    this.state.notebooks = notebooks;
+                } catch (error) {
+                    if ((error as any).message === "Operation cancelled by user") {
+                        throw error;
+                    }
+                    throw new Error(`Failed to transform Bible content to translation: ${error}`);
                 }
-
-                const codexUri = vscode.Uri.file(metadata.codexFsPath);
-                const reader = new CodexNotebookReader(codexUri);
-                const cells = await reader.getCells();
-
-                const sourceUri = vscode.Uri.file(metadata.sourceFsPath);
-                const sourceAsJson = await vscode.workspace.fs.readFile(sourceUri);
-                const sourceNotebook = JSON.parse(sourceAsJson.toString());
-
-                // Only update the codex cells where we have matching verse references
-                const updatedCodexCells = cells.map((cell) => ({
-                    kind: cell.kind,
-                    languageId: cell.document.languageId,
-                    value: verseMap.get(cell.metadata?.id) || "", // Only update if we have matching verse
-                    metadata: {
-                        type: cell.metadata?.type || CodexCellTypes.TEXT,
-                        id: cell.metadata?.id || "",
-                        data: cell.metadata?.data || {},
-                    },
-                }));
-
-                const updatedCodex: CodexNotebookAsJSONData = {
-                    cells: updatedCodexCells,
-                    metadata: {
-                        ...metadata,
-                        codexLastModified: new Date().toISOString(),
-                    },
-                };
-
-                notebooks.push({
-                    sourceNotebook,
-                    codexNotebook: updatedCodex,
-                });
             }
-
-            this.state.notebooks = notebooks;
-        } catch (error) {
-            throw new Error(`Failed to transform Bible content to translation: ${error}`);
-        }
+        );
     }
 
     async createPreviewNotebook(): Promise<void> {
