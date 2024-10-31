@@ -6,6 +6,7 @@ import { CodexCellTypes } from "../../types/enums";
 import { allORGBibleVerseRefs } from "../utils/verseRefUtils/verseData";
 import { NotebookMetadataManager } from "../utils/notebookMetadataManager";
 import { getWorkSpaceUri } from "../utils";
+import { CodexNotebookReader } from "../serializer";
 
 export interface DownloadBibleTransactionState extends TransactionState {
     metadata: {
@@ -33,14 +34,16 @@ export interface DownloadBibleTransactionState extends TransactionState {
         }) => void;
     } | null;
     tempDir: vscode.Uri | null;
+    asTranslationOnly: boolean;
 }
 
 export class DownloadBibleTransaction extends BaseTransaction {
     protected state: DownloadBibleTransactionState;
     protected tempDir: vscode.Uri | null = null;
 
-    constructor() {
+    constructor(asTranslationOnly: boolean = false) {
         super();
+        console.log("DownloadBibleTransaction constructor called with:", { asTranslationOnly });
         this.state = {
             metadata: {
                 languageCode: "",
@@ -53,7 +56,13 @@ export class DownloadBibleTransaction extends BaseTransaction {
             preview: null,
             progress: null,
             tempDir: null,
+            asTranslationOnly,
         };
+        if (asTranslationOnly) {
+            vscode.window.showInformationMessage(
+                `Initialized a transaction with asTranslationOnly=${asTranslationOnly}`
+            );
+        }
     }
 
     setMetadata(metadata: { languageCode: string; translationId: string }) {
@@ -289,7 +298,16 @@ export class DownloadBibleTransaction extends BaseTransaction {
 
     private async downloadVerseContent(): Promise<string[]> {
         const ebibleUrl = `https://raw.githubusercontent.com/BibleNLP/ebible/main/corpus/${this.getEbibleFileName()}`;
-        const response = await fetch(ebibleUrl);
+        let response;
+        try {
+            response = await fetch(ebibleUrl);
+        } catch (error) {
+            throw new Error(
+                `Failed to fetch Bible text from ${ebibleUrl}. This could be due to network issues or the server being unavailable. Error: ${
+                    (error as any).message
+                }`
+            );
+        }
         if (!response.ok) {
             throw new Error(
                 `Failed to download Bible text: ${response.status} ${response.statusText}. It could be that this file no longer exists on the remote server. Try navigating to ${ebibleUrl}`
@@ -305,84 +323,167 @@ export class DownloadBibleTransaction extends BaseTransaction {
     }
 
     async transformToNotebooks(): Promise<void> {
-        // each notebook needs notebook metadata, and cells with content
-        const notebooks: {
-            sourceNotebook: CodexNotebookAsJSONData;
-            codexNotebook: CodexNotebookAsJSONData;
-        }[] = [];
-        // we need to create a notebook for each [book] in the ebible file
-        const bookNames = new Set(this.state.verses.map((verse) => verse.vref.split(" ")[0]));
+        if (this.state.asTranslationOnly) {
+            vscode.window.showInformationMessage("Transforming to translation");
+            await this.transformToTranslation();
+        } else {
+            // each notebook needs notebook metadata, and cells with content
+            const notebooks: {
+                sourceNotebook: CodexNotebookAsJSONData;
+                codexNotebook: CodexNotebookAsJSONData;
+            }[] = [];
+            // we need to create a notebook for each [book] in the ebible file
+            const bookNames = new Set(this.state.verses.map((verse) => verse.vref.split(" ")[0]));
 
-        for (const bookName of bookNames) {
-            // Filter verses for this book
-            const bookVerses = this.state.verses.filter(
-                (verse) => verse.vref.split(" ")[0] === bookName
-            );
+            for (const bookName of bookNames) {
+                // Filter verses for this book
+                const bookVerses = this.state.verses.filter(
+                    (verse) => verse.vref.split(" ")[0] === bookName
+                );
 
-            // Create source notebook
-            const sourceNotebook: CodexNotebookAsJSONData = {
-                cells: bookVerses.map((verse) => ({
-                    kind: vscode.NotebookCellKind.Code,
-                    languageId: "html",
-                    value: verse.text,
-                    metadata: {
-                        type: CodexCellTypes.TEXT,
-                        id: verse.vref,
-                        data: {},
-                    },
-                })),
-                // @ts-expect-error - will be populated shortly
-                metadata: {},
-            };
+                // Create source notebook
+                const sourceNotebook: CodexNotebookAsJSONData = {
+                    cells: bookVerses.map((verse) => ({
+                        kind: vscode.NotebookCellKind.Code,
+                        languageId: "html",
+                        value: verse.text,
+                        metadata: {
+                            type: CodexCellTypes.TEXT,
+                            id: verse.vref,
+                            data: {},
+                        },
+                    })),
+                    // @ts-expect-error - will be populated shortly
+                    metadata: {},
+                };
 
-            // Create matching codex notebook with empty cells
-            const codexNotebook: CodexNotebookAsJSONData = {
-                ...sourceNotebook,
-                cells: bookVerses.map((verse) => ({
-                    kind: vscode.NotebookCellKind.Code,
-                    languageId: "html",
-                    value: "", // Empty value for codex cells
-                    metadata: {
-                        type: CodexCellTypes.TEXT,
-                        id: verse.vref,
-                        data: {},
-                    },
-                })),
-                // @ts-expect-error - will be populated shortly
-                metadata: {},
-            };
+                // Create matching codex notebook with empty cells
+                const codexNotebook: CodexNotebookAsJSONData = {
+                    ...sourceNotebook,
+                    cells: bookVerses.map((verse) => ({
+                        kind: vscode.NotebookCellKind.Code,
+                        languageId: "html",
+                        value: "", // Empty value for codex cells
+                        metadata: {
+                            type: CodexCellTypes.TEXT,
+                            id: verse.vref,
+                            data: {},
+                        },
+                    })),
+                    // @ts-expect-error - will be populated shortly
+                    metadata: {},
+                };
 
-            const commonMetadata = {
-                id: bookName,
-                originalName: bookName,
-                sourceFsPath: "", // Will be set when saving
-                codexFsPath: "", // Will be set when saving
-                navigation: [],
-                sourceCreatedAt: new Date().toISOString(),
-                codexLastModified: new Date().toISOString(),
-                gitStatus: "untracked" as const,
-                corpusMarker: "",
-            };
+                const commonMetadata = {
+                    id: bookName,
+                    originalName: bookName,
+                    sourceFsPath: "", // Will be set when saving
+                    codexFsPath: "", // Will be set when saving
+                    navigation: [],
+                    sourceCreatedAt: new Date().toISOString(),
+                    codexLastModified: new Date().toISOString(),
+                    gitStatus: "untracked" as const,
+                    corpusMarker: "",
+                };
 
-            sourceNotebook.metadata = commonMetadata;
-            codexNotebook.metadata = commonMetadata;
+                sourceNotebook.metadata = commonMetadata;
+                codexNotebook.metadata = commonMetadata;
 
-            notebooks.push({ sourceNotebook, codexNotebook });
+                notebooks.push({ sourceNotebook, codexNotebook });
+            }
+
+            // Store the notebooks in the state for later use
+            this.state.notebooks = notebooks;
+        }
+    }
+
+    private async transformToTranslation(): Promise<void> {
+        // Find existing codex notebooks in the workspace
+        const workspaceUri = getWorkSpaceUri();
+        if (!workspaceUri) {
+            throw new Error("No workspace found");
         }
 
-        // Store the notebooks in the state for later use
-        this.state.notebooks = notebooks;
+        const metadataManager = new NotebookMetadataManager();
+        await metadataManager.loadMetadata();
+        const allMetadata = metadataManager.getAllMetadata();
+
+        try {
+            const notebooks: {
+                sourceNotebook: CodexNotebookAsJSONData;
+                codexNotebook: CodexNotebookAsJSONData;
+            }[] = [];
+
+            // Create a map of verse references to their texts
+            const verseMap = new Map(this.state.verses.map((verse) => [verse.vref, verse.text]));
+
+            // Process each notebook pair from metadata
+            for (const metadata of allMetadata) {
+                if (!metadata.codexFsPath) {
+                    continue; // Skip if no codex file exists
+                }
+
+                const codexUri = vscode.Uri.file(metadata.codexFsPath);
+                const reader = new CodexNotebookReader(codexUri);
+                const cells = await reader.getCells();
+
+                // Only update the codex cells where we have matching verse references
+                const updatedCodexCells = cells.map((cell) => ({
+                    kind: cell.kind,
+                    languageId: cell.document.languageId,
+                    value: verseMap.get(cell.metadata?.id) || "", // Only update if we have matching verse
+                    metadata: {
+                        type: cell.metadata?.type || CodexCellTypes.TEXT,
+                        id: cell.metadata?.id || "",
+                        data: cell.metadata?.data || {},
+                    },
+                }));
+
+                const updatedCodex: CodexNotebookAsJSONData = {
+                    cells: updatedCodexCells,
+                    metadata: {
+                        ...metadata,
+                        codexLastModified: new Date().toISOString(),
+                    },
+                };
+
+                // Create a dummy source notebook that won't be saved
+                const dummySource: CodexNotebookAsJSONData = {
+                    cells: [], // Empty cells since we don't want to modify source
+                    metadata: {
+                        ...metadata,
+                        sourceFsPath: undefined,
+                    },
+                };
+
+                notebooks.push({
+                    sourceNotebook: dummySource,
+                    codexNotebook: updatedCodex,
+                });
+            }
+
+            this.state.notebooks = notebooks;
+        } catch (error) {
+            throw new Error(`Failed to transform Bible content to translation: ${error}`);
+        }
     }
 
     async createPreviewNotebook(): Promise<void> {
-        // TODO: Implement createPreviewNotebook by getting the first 10 cells of the first notebook
+        if (this.state.notebooks.length === 0) {
+            throw new Error("No notebooks available for preview");
+        }
+
         const firstNotebook = this.state.notebooks[0];
-        const firstTenCells = firstNotebook.sourceNotebook.cells.slice(0, 10);
-        const previewNotebook = {
-            ...firstNotebook.sourceNotebook,
-            cells: firstTenCells,
+        const previewCells = firstNotebook[
+            this.state.asTranslationOnly ? "codexNotebook" : "sourceNotebook"
+        ].cells.slice(0, 10);
+
+        this.state.preview = {
+            cells: previewCells,
+            metadata:
+                firstNotebook[this.state.asTranslationOnly ? "codexNotebook" : "sourceNotebook"]
+                    .metadata,
         };
-        this.state.preview = previewNotebook;
     }
 
     async commit(): Promise<void> {
@@ -391,22 +492,39 @@ export class DownloadBibleTransaction extends BaseTransaction {
         this.state.status = "committed";
     }
 
+    async rollback(): Promise<void> {
+        this.state = {
+            metadata: {
+                languageCode: "",
+                translationId: "",
+            },
+            verses: [],
+            notebooks: [],
+            preview: null,
+            progress: null,
+            tempDir: null,
+            tempFiles: [],
+            asTranslationOnly: false,
+            status: "rolledback",
+        };
+    }
+
     async moveNotebooksToWorkspace(): Promise<void> {}
 
-    async awaitConfirmation(): Promise<void> {
-        // FIXME: we need to make this work with the implementing context - e.g., SourceUploadProvider.ts
-        const confirmation = await vscode.window.showInformationMessage(
-            "Would you like to import these Bible notebooks into your workspace?",
-            { modal: true },
-            "Yes",
-            "No"
-        );
+    // async awaitConfirmation(): Promise<void> {
+    //     // FIXME: we need to make this work with the implementing context - e.g., SourceUploadProvider.ts
+    //     const confirmation = await vscode.window.showInformationMessage(
+    //         "Would you like to import these Bible notebooks into your workspace?",
+    //         { modal: true },
+    //         "Yes",
+    //         "No"
+    //     );
 
-        if (confirmation !== "Yes") {
-            await this.rollback();
-            throw new Error("User cancelled the import");
-        }
+    //     if (confirmation !== "Yes") {
+    //         await this.rollback();
+    //         throw new Error("User cancelled the import");
+    //     }
 
-        this.state.status = "awaiting_confirmation";
-    }
+    //     this.state.status = "awaiting_confirmation";
+    // }
 }

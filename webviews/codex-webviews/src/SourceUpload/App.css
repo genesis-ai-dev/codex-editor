@@ -1,6 +1,7 @@
 /* Add these new styles */
 .workflow-container {
     padding: 2rem;
+    width: 100%;
     max-width: 800px;
     margin: 0 auto;
 }

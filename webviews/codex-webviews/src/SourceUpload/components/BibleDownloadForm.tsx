@@ -1,5 +1,10 @@
 import React, { useState, useMemo } from "react";
-import { VSCodeButton, VSCodeDropdown, VSCodeOption } from "@vscode/webview-ui-toolkit/react";
+import {
+    VSCodeButton,
+    VSCodeDropdown,
+    VSCodeOption,
+    VSCodeCheckbox,
+} from "@vscode/webview-ui-toolkit/react";
 import {
     getAvailableLanguages,
     getBiblesForLanguage,
@@ -7,7 +12,7 @@ import {
 } from "../../../../../src/utils/ebible/ebibleCorpusUtils";
 
 interface BibleDownloadFormProps {
-    onDownload: (metadata: ExtendedMetadata) => void;
+    onDownload: (metadata: ExtendedMetadata, asTranslationOnly: boolean) => void;
     onCancel: () => void;
 }
 
@@ -21,6 +26,7 @@ interface BibleInfo {
 export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({ onDownload, onCancel }) => {
     const [selectedLanguage, setSelectedLanguage] = useState<string>("");
     const [selectedBible, setSelectedBible] = useState<string>("");
+    const [asTranslationOnly, setAsTranslationOnly] = useState(false);
 
     const availableLanguages = useMemo(() => getAvailableLanguages(), []);
 
@@ -66,7 +72,7 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({ onDownload
             const bibles = getBiblesForLanguage(selectedLanguage);
             const selectedMetadata = bibles.find((b) => b.translationId === selectedBible);
             if (selectedMetadata) {
-                onDownload(selectedMetadata);
+                onDownload(selectedMetadata, asTranslationOnly);
             }
         }
     };
@@ -133,6 +139,15 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({ onDownload
                     </VSCodeDropdown>
                 </div>
             )}
+
+            <div style={{ marginBottom: "1rem" }}>
+                <VSCodeCheckbox
+                    checked={asTranslationOnly}
+                    onChange={(e) => setAsTranslationOnly((e.target as HTMLInputElement).checked)}
+                >
+                    Import as translation only (not as a source text)
+                </VSCodeCheckbox>
+            </div>
 
             <div style={{ display: "flex", gap: "1rem", justifyContent: "flex-end" }}>
                 <VSCodeButton appearance="secondary" onClick={onCancel}>

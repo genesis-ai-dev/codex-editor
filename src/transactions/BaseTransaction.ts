@@ -85,6 +85,4 @@ export abstract class BaseTransaction {
     ): Promise<void>;
 
     abstract commit(): Promise<void>;
-
-    abstract awaitConfirmation(): Promise<void>;
 }

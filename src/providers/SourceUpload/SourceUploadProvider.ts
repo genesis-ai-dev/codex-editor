@@ -257,7 +257,24 @@ export class SourceUploadProvider
                             if (!message.ebibleMetadata) {
                                 throw new Error("No Bible metadata provided");
                             }
-                            await this.handleBibleDownload(webviewPanel, message.ebibleMetadata);
+                            // Debug the incoming message
+                            console.log("Download Bible message:", {
+                                metadata: message.ebibleMetadata,
+                                asTranslationOnly: message.asTranslationOnly,
+                                fullMessage: message
+                            });
+                            
+                            // Ensure we're explicitly passing the boolean value
+                            const asTranslationOnly = Boolean(message.asTranslationOnly);
+                            vscode.window.showInformationMessage(
+                                `Received download request with asTranslationOnly=${asTranslationOnly}`
+                            );
+                            
+                            await this.handleBibleDownload(
+                                webviewPanel,
+                                message.ebibleMetadata,
+                                asTranslationOnly
+                            );
                         } catch (error) {
                             console.error("Error downloading Bible:", error);
                             webviewPanel.webview.postMessage({
@@ -925,11 +942,15 @@ export class SourceUploadProvider
 
     private async handleBibleDownload(
         webviewPanel: vscode.WebviewPanel,
-        metadata: ExtendedMetadata
+        metadata: ExtendedMetadata,
+        asTranslationOnly?: boolean
     ) {
+        vscode.window.showInformationMessage(
+            `in handleBibledownload asTranslationOnly is ${asTranslationOnly}`
+        );
         try {
             // Create new transaction
-            this.currentDownloadBibleTransaction = new DownloadBibleTransaction();
+            this.currentDownloadBibleTransaction = new DownloadBibleTransaction(asTranslationOnly);
 
             // Set the metadata with both language code and translation ID
             this.currentDownloadBibleTransaction.setMetadata({

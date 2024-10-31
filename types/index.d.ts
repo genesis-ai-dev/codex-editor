@@ -180,7 +180,7 @@ export type SourceUploadPostMessages =
     | { command: "confirmTranslationImport" }
     | { command: "cancelSourceImport" }
     | { command: "cancelTranslationImport" }
-    | { command: "downloadBible"; ebibleMetadata: ExtendedMetadata }
+    | { command: "downloadBible"; ebibleMetadata: ExtendedMetadata; asTranslationOnly: boolean }
     | { command: "confirmBibleDownload"; transaction: DownloadBibleTransaction }
     | { command: "cancelBibleDownload"; transaction: DownloadBibleTransaction }
     | { command: "getMetadata" }
@@ -215,9 +215,12 @@ export type SourceUploadResponseMessages =
       }
     | { command: "bibleDownloadComplete" }
     | { command: "bibleDownloadError"; error: string }
-    | { command: "biblePreview"; preview: BiblePreviewData; transaction: DownloadBibleTransaction }
+    | {
+          command: "biblePreview";
+          preview: BiblePreviewData;
+          transaction: DownloadBibleTransaction;
+      }
     | { command: "bibleDownloadCancelled" };
-// ... other existing message types ...
 
 type DictionaryPostMessages =
     | { command: "sendData"; data: Dictionary }

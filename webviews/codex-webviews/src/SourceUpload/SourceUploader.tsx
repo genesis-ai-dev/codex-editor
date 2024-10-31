@@ -196,7 +196,7 @@ export const SourceUploader: React.FC = () => {
     );
 
     const handleBibleDownload = useCallback(
-        (metadata: ExtendedMetadata) => {
+        (metadata: ExtendedMetadata, asTranslationOnly: boolean) => {
             setWorkflow((prev) => ({
                 ...prev,
                 step: "processing",
@@ -211,6 +211,7 @@ export const SourceUploader: React.FC = () => {
             vscode.postMessage({
                 command: "downloadBible",
                 ebibleMetadata: metadata,
+                asTranslationOnly,
             } as SourceUploadPostMessages);
         },
         [setWorkflow, vscode]
