@@ -419,13 +419,17 @@ export class DownloadBibleTransaction extends BaseTransaction {
 
             // Process each notebook pair from metadata
             for (const metadata of allMetadata) {
-                if (!metadata.codexFsPath) {
+                if (!metadata.codexFsPath || !metadata.sourceFsPath) {
                     continue; // Skip if no codex file exists
                 }
 
                 const codexUri = vscode.Uri.file(metadata.codexFsPath);
                 const reader = new CodexNotebookReader(codexUri);
                 const cells = await reader.getCells();
+
+                const sourceUri = vscode.Uri.file(metadata.sourceFsPath);
+                const sourceAsJson = await vscode.workspace.fs.readFile(sourceUri);
+                const sourceNotebook = JSON.parse(sourceAsJson.toString());
 
                 // Only update the codex cells where we have matching verse references
                 const updatedCodexCells = cells.map((cell) => ({
@@ -447,17 +451,8 @@ export class DownloadBibleTransaction extends BaseTransaction {
                     },
                 };
 
-                // Create a dummy source notebook that won't be saved
-                const dummySource: CodexNotebookAsJSONData = {
-                    cells: [], // Empty cells since we don't want to modify source
-                    metadata: {
-                        ...metadata,
-                        sourceFsPath: undefined,
-                    },
-                };
-
                 notebooks.push({
-                    sourceNotebook: dummySource,
+                    sourceNotebook,
                     codexNotebook: updatedCodex,
                 });
             }
