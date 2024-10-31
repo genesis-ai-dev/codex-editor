@@ -11,8 +11,6 @@ import { CodexCellTypes } from "../../types/enums";
 import { allORGBibleVerseRefs } from "../utils/verseRefUtils/verseData";
 import { NotebookMetadataManager } from "../utils/notebookMetadataManager";
 import { getWorkSpaceUri } from "../utils";
-import { CodexNotebookReader } from "../serializer";
-import { CodexCell } from "src/utils/codexNotebookUtils";
 
 export interface DownloadBibleTransactionState extends TransactionState {
     metadata: {

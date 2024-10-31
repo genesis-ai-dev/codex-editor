@@ -5,8 +5,10 @@ import { WorkflowState, BibleDownloadStages } from "../types";
 const vscode = acquireVsCodeApi();
 const initialWorkflowState: WorkflowState = {
     step: "type-select",
-    selectedFile: null,
-    fileObject: null,
+    selectedFiles: [],
+    translationAssociations: [],
+    fileObjects: [],
+    previews: [],
     processingStages: {},
     importType: null,
 };
@@ -105,25 +107,20 @@ export function useVSCodeMessageHandler() {
                     break;
 
                 case "sourcePreview":
-                    if (message.preview) {
+                    if (message.previews) {
                         setWorkflow((prev) => ({
                             ...prev,
                             step: "preview",
-                            preview: {
-                                type: "source",
-                                fileName: message.preview.fileName,
-                                fileSize: message.preview.fileSize,
-                                fileType: message.preview.fileType,
-                                original: message.preview.preview.original,
-                                transformed: {
-                                    sourceNotebooks:
-                                        message.preview.preview.transformed.sourceNotebooks,
-                                    codexNotebooks:
-                                        message.preview.preview.transformed.codexNotebooks,
-                                    validationResults:
-                                        message.preview.preview.transformed.validationResults,
+                            previews: message.previews.map((preview) => ({
+                                id: preview.id,
+                                fileName: preview.fileName,
+                                fileSize: preview.fileSize,
+                                isValid: true,
+                                preview: {
+                                    ...preview.preview,
+                                    type: "source",
                                 },
-                            },
+                            })),
                         }));
                     }
                     break;
@@ -142,18 +139,21 @@ export function useVSCodeMessageHandler() {
                     break;
 
                 case "translationPreview":
-                    if (message.preview) {
+                    if (message.previews) {
                         setWorkflow((prev) => ({
                             ...prev,
                             step: "preview",
-                            preview: {
-                                type: "translation",
-                                fileName: message.preview.fileName,
-                                fileSize: message.preview.fileSize,
-                                fileType: message.preview.fileType,
-                                original: message.preview.preview.original,
-                                transformed: message.preview.preview.transformed,
-                            },
+                            previews: message.previews.map((preview) => ({
+                                id: preview.id,
+                                fileName: preview.fileName,
+                                fileSize: preview.fileSize,
+                                isValid: true,
+                                sourceId: preview.sourceId,
+                                preview: {
+                                    ...preview.preview,
+                                    type: "translation",
+                                },
+                            })),
                         }));
                     }
                     break;

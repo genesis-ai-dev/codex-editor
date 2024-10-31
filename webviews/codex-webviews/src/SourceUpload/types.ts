@@ -41,11 +41,32 @@ export interface BibleDownloadState {
     };
 }
 
+export interface MultiPreviewItem {
+    id: string; // Unique ID for each preview
+    fileName: string;
+    fileSize: number;
+    isValid: boolean;
+    isRejected?: boolean;
+    preview: PreviewContent | BiblePreviewData;
+    sourceId?: string; // Optional sourceId for translation previews
+}
+
+export interface CodexFile {
+    id: string;
+    name: string;
+    path: string;
+}
+
+export interface TranslationAssociation {
+    file: File;
+    codexId: string;
+}
+
 export interface WorkflowState {
     step: WorkflowStep;
     importType: ImportType | null;
-    selectedFile: string | null;
-    fileObject: File | null;
+    selectedFiles: string[];
+    fileObjects: File[];
     selectedSourceId?: string;
     preview?: PreviewContent | BiblePreviewData;
     error?: string | null;
@@ -54,13 +75,12 @@ export interface WorkflowState {
         message: string;
         increment: number;
     };
-    availableCodexFiles?: Array<{
-        id: string;
-        name: string;
-        path: string;
-    }>;
+    availableCodexFiles?: CodexFile[];
     bibleDownload?: BibleDownloadState;
     currentTransaction?: DownloadBibleTransaction;
+    previews: MultiPreviewItem[];
+    selectedPreviewId?: string;
+    translationAssociations: TranslationAssociation[];
 }
 
 export interface ImportProgress {

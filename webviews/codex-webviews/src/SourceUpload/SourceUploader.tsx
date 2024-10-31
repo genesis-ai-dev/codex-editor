@@ -31,12 +31,15 @@ import { BibleDownloadForm } from "./components/BibleDownloadForm";
 import { ExtendedMetadata } from "../../../../src/utils/ebible/ebibleCorpusUtils";
 import { BiblePreview } from "./components/BiblePreview";
 import { FileDropzone } from "./components/FileDropzone";
+import { MultiPreviewContainer } from "./components/MultiPreviewContainer";
 
 const initialWorkflowState: WorkflowState = {
     step: "type-select",
     importType: null,
-    selectedFile: null,
-    fileObject: null,
+    selectedFiles: [],
+    translationAssociations: [],
+    fileObjects: [],
+    previews: [],
     processingStages: {
         fileValidation: {
             label: "Validating File",
@@ -229,43 +232,106 @@ export const SourceUploader: React.FC = () => {
 
     const handleFileDrop = useCallback(
         (files: File[]) => {
-            if (files.length > 0) {
-                const file = files[0];
-                setWorkflow((prev) => ({
-                    ...prev,
-                    selectedFile: file.name,
-                    fileObject: file,
-                }));
-
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    if (workflow.importType === "translation") {
-                        if (!workflow.selectedSourceId) {
-                            vscode.postMessage({
-                                command: "error",
-                                errorMessage: "Please select a source file first",
-                            } as SourceUploadPostMessages);
-                            return;
-                        }
-
-                        vscode.postMessage({
-                            command: "uploadTranslation",
-                            fileContent: e.target?.result?.toString() || "",
-                            fileName: file.name,
-                            sourceId: workflow.selectedSourceId,
-                        } as SourceUploadPostMessages);
-                    } else {
-                        vscode.postMessage({
-                            command: "uploadSourceText",
-                            fileContent: e.target?.result?.toString() || "",
-                            fileName: file.name,
-                        } as SourceUploadPostMessages);
-                    }
-                };
-                reader.readAsText(file);
-            }
+            setWorkflow((prev) => ({
+                ...prev,
+                selectedFiles: files.map((f) => f.name),
+                fileObjects: files,
+                // Reset associations when new files are dropped
+                translationAssociations: [],
+            }));
         },
-        [setWorkflow, vscode, workflow.importType, workflow.selectedSourceId]
+        [setWorkflow]
+    );
+
+    const handleAssociationChange = useCallback(
+        (associations: Array<{ file: File; codexId: string }>) => {
+            setWorkflow((prev) => ({
+                ...prev,
+                translationAssociations: associations,
+            }));
+        },
+        [setWorkflow]
+    );
+
+    const handleContinue = useCallback(async () => {
+        if (!workflow.fileObjects.length) return;
+
+        try {
+            const fileReaders = workflow.fileObjects.map(
+                (file) =>
+                    new Promise<{ content: string; name: string; sourceId?: string }>(
+                        (resolve, reject) => {
+                            const reader = new FileReader();
+                            reader.onload = (e) => {
+                                resolve({
+                                    content: e.target?.result?.toString() || "",
+                                    name: file.name,
+                                    ...(workflow.importType === "translation"
+                                        ? {
+                                              sourceId: workflow.translationAssociations.find(
+                                                  (a) => a.file.name === file.name
+                                              )?.codexId,
+                                          }
+                                        : {}),
+                                });
+                            };
+                            reader.onerror = reject;
+                            reader.readAsText(file);
+                        }
+                    )
+            );
+
+            const fileContents = await Promise.all(fileReaders);
+
+            if (workflow.importType === "translation") {
+                // Validate associations before proceeding
+                const validFiles = fileContents.filter((f) => f.sourceId);
+                if (validFiles.length === 0) {
+                    throw new Error("Please associate each translation file with a Codex file");
+                }
+
+                vscode.postMessage({
+                    command: "uploadTranslation",
+                    files: validFiles,
+                } as SourceUploadPostMessages);
+            } else {
+                vscode.postMessage({
+                    command: "uploadSourceText",
+                    files: fileContents,
+                } as SourceUploadPostMessages);
+            }
+        } catch (error) {
+            setWorkflow((prev) => ({
+                ...prev,
+                error: error instanceof Error ? error.message : "Failed to process files",
+            }));
+        }
+    }, [workflow.fileObjects, workflow.importType, workflow.translationAssociations, vscode]);
+
+    const handlePreviewReject = useCallback(
+        (previewId: string) => {
+            setWorkflow((prev) => ({
+                ...prev,
+                previews: prev.previews.map((p) =>
+                    p.id === previewId ? { ...p, isRejected: true } : p
+                ),
+            }));
+        },
+        [setWorkflow]
+    );
+
+    const handleRemoveFile = useCallback(
+        (fileToRemove: File) => {
+            setWorkflow((prev) => ({
+                ...prev,
+                selectedFiles: prev.selectedFiles.filter((f) => f !== fileToRemove.name),
+                fileObjects: prev.fileObjects.filter((f) => f !== fileToRemove),
+                translationAssociations: prev.translationAssociations.filter(
+                    (a) => a.file !== fileToRemove
+                ),
+            }));
+        },
+        [setWorkflow]
     );
 
     const renderPreview = () => {
@@ -369,7 +435,7 @@ export const SourceUploader: React.FC = () => {
                                 ? "Select Your Source File"
                                 : "Select Translation File"}
                         </h2>
-                        {workflow.importType === "translation" && (
+                        {/* {workflow.importType === "translation" && (
                             <div style={{ marginBottom: "2rem" }}>
                                 <label>Codex File:</label>
                                 <VSCodeDropdown
@@ -390,12 +456,15 @@ export const SourceUploader: React.FC = () => {
                                     ))}
                                 </VSCodeDropdown>
                             </div>
-                        )}
+                        )} */}
                         <FileDropzone
                             onDrop={handleFileDrop}
-                            selectedFile={workflow.fileObject}
-                            onClearFile={handleClearFile}
+                            selectedFiles={workflow.fileObjects}
+                            onClearFiles={handleClearFile}
+                            onRemoveFile={handleRemoveFile}
                             type={workflow.importType}
+                            availableCodexFiles={workflow.availableCodexFiles}
+                            onAssociationChange={handleAssociationChange}
                         />
                         {workflow.error && (
                             <div
@@ -411,35 +480,43 @@ export const SourceUploader: React.FC = () => {
                                 {workflow.error}
                             </div>
                         )}
+                        {workflow.fileObjects.length > 0 && (
+                            <VSCodeButton
+                                onClick={handleContinue}
+                                style={{ marginTop: "1rem" }}
+                                disabled={
+                                    workflow.importType === "translation" &&
+                                    (workflow.translationAssociations.length === 0 ||
+                                        workflow.translationAssociations.length <
+                                            workflow.fileObjects.length)
+                                }
+                            >
+                                {workflow.importType === "translation"
+                                    ? `Continue with ${
+                                          workflow.translationAssociations.length
+                                      } matched file${
+                                          workflow.translationAssociations.length !== 1 ? "s" : ""
+                                      }`
+                                    : "Continue"}
+                            </VSCodeButton>
+                        )}
                     </div>
                 );
 
-            case "preview":
-                if (workflow.importType === "bible-download") {
-                    return (
-                        <BiblePreview
-                            preview={workflow.preview as PreviewContent & { type: "bible" }}
-                            onConfirm={() => {
-                                vscode.postMessage({
-                                    command: "confirmBibleDownload",
-                                    transaction: workflow.currentTransaction,
-                                } as SourceUploadPostMessages);
-                                setWorkflow((prev) => ({
-                                    ...prev,
-                                    step: "processing",
-                                }));
-                            }}
-                            onCancel={() => {
-                                vscode.postMessage({
-                                    command: "cancelBibleDownload",
-                                    transaction: workflow.currentTransaction,
-                                } as SourceUploadPostMessages);
-                                handleCancel();
-                            }}
-                        />
-                    );
-                }
-                return renderPreview();
+            case "preview": {
+                const currentType = workflow.importType || "source";
+                return (
+                    <MultiPreviewContainer
+                        previews={workflow.previews}
+                        onConfirm={() =>
+                            // Not handling bible downloading here..
+                            handlePreviewConfirm(currentType as "source" | "translation")
+                        }
+                        onCancel={handlePreviewCancel}
+                        onRejectPreview={handlePreviewReject}
+                    />
+                );
+            }
 
             // case "processing":
             //     return (

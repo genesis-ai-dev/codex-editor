@@ -10,11 +10,12 @@ import { formatFileSize } from "../../../../../src/utils/formatters";
 
 interface SourcePreviewProps {
     preview: ISourcePreview;
-    onConfirm: () => void;
-    onCancel: () => void;
+    onConfirm?: () => void;
+    onCancel?: () => void;
+    hideActions?: boolean;
 }
 
-export const SourcePreview: React.FC<SourcePreviewProps> = ({ preview, onConfirm, onCancel }) => {
+export const SourcePreview: React.FC<SourcePreviewProps> = ({ preview, onConfirm, onCancel, hideActions }) => {
     return (
         <div
             style={{
@@ -81,29 +82,16 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ preview, onConfirm
                 </VSCodePanelView>
             </VSCodePanels>
 
-            <div
-                style={{
-                    display: "flex",
-                    gap: "1rem",
-                    justifyContent: "flex-end",
-                    marginTop: "1rem",
-                    paddingTop: "1rem",
-                    borderTop: "1px solid var(--vscode-widget-border)",
-                }}
-            >
-                <VSCodeButton appearance="secondary" onClick={onCancel}>
-                    Back
-                </VSCodeButton>
-                <VSCodeButton
-                    onClick={onConfirm}
-                    disabled={
-                        !preview.original.validationResults.every((r) => r.isValid) ||
-                        !preview.transformed.validationResults.every((r) => r.isValid)
-                    }
-                >
-                    Continue
-                </VSCodeButton>
-            </div>
+            {!hideActions && (
+                <div className="action-buttons">
+                    <VSCodeButton appearance="secondary" onClick={onCancel}>
+                        Back
+                    </VSCodeButton>
+                    <VSCodeButton onClick={onConfirm}>
+                        Continue
+                    </VSCodeButton>
+                </div>
+            )}
         </div>
     );
 };

@@ -171,9 +171,19 @@ type ChatPostMessages =
       };
 
 export type SourceUploadPostMessages =
+    | {
+          command: "uploadSourceText";
+          files: Array<{ content: string; name: string }>;
+      }
+    | {
+          command: "uploadTranslation";
+          files: Array<{
+              content: string;
+              name: string;
+              sourceId: string;
+          }>;
+      }
     | { command: "error"; errorMessage: string }
-    | { command: "uploadSourceText"; fileContent: string; fileName: string }
-    | { command: "uploadTranslation"; fileContent: string; fileName: string; sourceId: string }
     | { command: "getAvailableCodexFiles" }
     | { command: "selectSourceFile" }
     | { command: "confirmSourceImport" }
@@ -191,11 +201,29 @@ export type SourceUploadPostMessages =
     | { command: "previewSourceText"; fileContent: string; fileName: string };
 
 export type SourceUploadResponseMessages =
+    | {
+          command: "translationPreview";
+          previews: Array<{
+              id: string;
+              fileName: string;
+              fileSize: number;
+              preview: TranslationPreview;
+              sourceId: string;
+          }>;
+      }
+    | {
+          command: "sourcePreview";
+          previews: Array<{
+              id: string;
+              fileName: string;
+              fileSize: number;
+              preview: SourcePreview;
+          }>;
+      }
     | { command: "updateMetadata"; metadata: any[] }
     | { command: "error"; message: string }
     | { command: "importComplete" }
     | { command: "setupComplete"; data: { path: string } }
-    | { command: "sourcePreview"; preview: any }
     | { command: "sourceFileSelected"; data: { path: string } }
     | {
           command: "updateProcessingStatus";
@@ -204,7 +232,6 @@ export type SourceUploadResponseMessages =
       }
     | { command: "importCancelled" }
     | { command: "availableCodexFiles"; files: Array<{ id: string; name: string; path: string }> }
-    | { command: "translationPreview"; preview: any }
     | {
           command: "bibleDownloadProgress";
           progress: {

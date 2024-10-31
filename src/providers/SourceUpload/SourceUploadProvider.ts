@@ -112,6 +112,7 @@ export class SourceUploadProvider
     private currentSourceTransaction: SourceImportTransaction | null = null;
     private currentTranslationTransaction: TranslationImportTransaction | null = null;
     private currentDownloadBibleTransaction: DownloadBibleTransaction | null = null;
+    public availableCodexFiles: vscode.Uri[] = [];
 
     constructor(private readonly context: vscode.ExtensionContext) {
         registerScmCommands(context);
@@ -155,47 +156,61 @@ export class SourceUploadProvider
                     case "getMetadata":
                         await this.updateMetadata(webviewPanel);
                         break;
-                    case "uploadSourceText":
+                    case "uploadSourceText": {
                         try {
-                            const tempUri = await this.saveUploadedFile(
-                                message.fileContent,
-                                message.fileName
-                            );
+                            if (Array.isArray(message.files)) {
+                                await this.handleMultipleSourceImports(
+                                    webviewPanel,
+                                    message.files,
+                                    _token
+                                );
+                            } else {
+                                // const tempUri = await this.saveUploadedFile(
+                                //     message.files[0].content,
+                                //     message.files[0].name
+                                // );
 
-                            const transaction = new SourceImportTransaction(tempUri, this.context);
-                            this.currentSourceTransaction = transaction;
+                                // const transaction = new SourceImportTransaction(
+                                //     tempUri,
+                                //     this.context
+                                // );
+                                // this.currentSourceTransaction = transaction;
 
-                            // Get the raw preview from transaction
-                            const rawPreview = await transaction.prepare();
+                                // // Get the raw preview from transaction
+                                // const rawPreview = await transaction.prepare();
 
-                            // Transform it into our PreviewState format
-                            const preview: PreviewState = {
-                                type: "source",
-                                preview: {
-                                    original: {
-                                        preview: rawPreview.originalContent.preview,
-                                        validationResults:
-                                            rawPreview.originalContent.validationResults,
-                                    },
-                                    transformed: {
-                                        sourceNotebooks:
-                                            rawPreview.transformedContent.sourceNotebooks,
-                                        codexNotebooks:
-                                            rawPreview.transformedContent.codexNotebooks,
-                                        validationResults:
-                                            rawPreview.transformedContent.validationResults,
-                                    },
-                                },
-                            };
+                                // // Transform it into our PreviewState format
+                                // const preview: PreviewState = {
+                                //     type: "source",
+                                //     preview: {
+                                //         original: {
+                                //             preview: rawPreview.originalContent.preview,
+                                //             validationResults:
+                                //                 rawPreview.originalContent.validationResults,
+                                //         },
+                                //         transformed: {
+                                //             sourceNotebooks:
+                                //                 rawPreview.transformedContent.sourceNotebooks,
+                                //             codexNotebooks:
+                                //                 rawPreview.transformedContent.codexNotebooks,
+                                //             validationResults:
+                                //                 rawPreview.transformedContent.validationResults,
+                                //         },
+                                //     },
+                                // };
 
-                            // Store the preview
-                            this.currentPreview = preview;
+                                // // Store the preview
+                                // this.currentPreview = preview;
 
-                            // Send preview to webview
-                            webviewPanel.webview.postMessage({
-                                command: "sourcePreview",
-                                preview,
-                            } as SourceUploadResponseMessages);
+                                // // Send preview to webview
+                                // webviewPanel.webview.postMessage({
+                                //     command: "sourcePreview",
+                                //     preview,
+                                // } as SourceUploadResponseMessages);
+                                vscode.window.showInformationMessage(
+                                    `Received upload request for single file: ${message.files[0]}`
+                                );
+                            }
                         } catch (error) {
                             console.error("Error preparing source import:", error);
                             webviewPanel.webview.postMessage({
@@ -207,50 +222,56 @@ export class SourceUploadProvider
                             } as SourceUploadResponseMessages);
                         }
                         break;
+                    }
                     case "uploadTranslation":
-                        try {
-                            const tempUri = await this.saveUploadedFile(
-                                message.fileContent,
-                                message.fileName
-                            );
+                        await this.handleMultipleTranslationImports(
+                            webviewPanel,
+                            message.files,
+                            _token
+                        );
+                        // try {
+                        //     const tempUri = await this.saveUploadedFile(
+                        //         message.fileContent,
+                        //         message.fileName
+                        //     );
 
-                            const transaction = new TranslationImportTransaction(
-                                tempUri,
-                                message.sourceId,
-                                this.context
-                            );
-                            this.currentTranslationTransaction = transaction; // Ensure this is set
+                        //     const transaction = new TranslationImportTransaction(
+                        //         tempUri,
+                        //         message.sourceId,
+                        //         this.context
+                        //     );
+                        //     this.currentTranslationTransaction = transaction; // Ensure this is set
 
-                            // Generate preview
-                            const rawPreview = await transaction.prepare();
+                        //     // Generate preview
+                        //     const rawPreview = await transaction.prepare();
 
-                            // Transform to PreviewState format
-                            const preview: PreviewState = {
-                                type: "translation",
-                                preview: {
-                                    original: {
-                                        preview: rawPreview.original.preview,
-                                        validationResults: rawPreview.original.validationResults,
-                                    },
-                                    transformed: rawPreview.transformed,
-                                },
-                            };
+                        //     // Transform to PreviewState format
+                        //     const preview: PreviewState = {
+                        //         type: "translation",
+                        //         preview: {
+                        //             original: {
+                        //                 preview: rawPreview.original.preview,
+                        //                 validationResults: rawPreview.original.validationResults,
+                        //             },
+                        //             transformed: rawPreview.transformed,
+                        //         },
+                        //     };
 
-                            // Store the preview
-                            this.currentPreview = preview;
+                        //     // Store the preview
+                        //     this.currentPreview = preview;
 
-                            // Send preview to webview
-                            webviewPanel.webview.postMessage({
-                                command: "translationPreview",
-                                preview,
-                            } as SourceUploadResponseMessages);
-                        } catch (error: any) {
-                            console.error("Error preparing translation import:", error);
-                            webviewPanel.webview.postMessage({
-                                command: "error",
-                                message: error instanceof Error ? error.message : "Unknown error",
-                            } as SourceUploadResponseMessages);
-                        }
+                        //     // Send preview to webview
+                        //     webviewPanel.webview.postMessage({
+                        //         command: "translationPreview",
+                        //         preview,
+                        //     } as SourceUploadResponseMessages);
+                        // } catch (error: any) {
+                        //     console.error("Error preparing translation import:", error);
+                        //     webviewPanel.webview.postMessage({
+                        //         command: "error",
+                        //         message: error instanceof Error ? error.message : "Unknown error",
+                        //     } as SourceUploadResponseMessages);
+                        // }
                         break;
                     case "downloadBible":
                         try {
@@ -261,12 +282,12 @@ export class SourceUploadProvider
                             console.log("Download Bible message:", {
                                 metadata: message.ebibleMetadata,
                                 asTranslationOnly: message.asTranslationOnly,
-                                fullMessage: message
+                                fullMessage: message,
                             });
-                            
+
                             // Ensure we're explicitly passing the boolean value
                             const asTranslationOnly = Boolean(message.asTranslationOnly);
-                            
+
                             await this.handleBibleDownload(
                                 webviewPanel,
                                 message.ebibleMetadata,
@@ -539,6 +560,7 @@ export class SourceUploadProvider
                                 name: meta.originalName || path.basename(meta.codexFsPath!),
                                 path: meta.codexFsPath!,
                             }));
+                        this.availableCodexFiles = codexFiles.map((f) => vscode.Uri.file(f.path));
 
                         webviewPanel.webview.postMessage({
                             command: "availableCodexFiles",
@@ -1047,6 +1069,166 @@ export class SourceUploadProvider
             throw error;
         } finally {
             this.currentDownloadBibleTransaction = null;
+        }
+    }
+
+    private async handleMultipleSourceImports(
+        webviewPanel: vscode.WebviewPanel,
+        files: Array<{ content: string; name: string }>,
+        token: vscode.CancellationToken
+    ): Promise<void> {
+        const BATCH_SIZE = 5; // Process 5 files at a time
+        const transactions: SourceImportTransaction[] = [];
+
+        try {
+            // Create all transactions first
+            const fileUris = await Promise.all(
+                files.map((file) => this.saveUploadedFile(file.content, file.name))
+            );
+
+            // Initialize transactions
+            transactions.push(
+                ...fileUris.map((uri) => new SourceImportTransaction(uri, this.context))
+            );
+
+            // Process in batches
+            for (let i = 0; i < transactions.length; i += BATCH_SIZE) {
+                const batch = transactions.slice(i, i + BATCH_SIZE);
+
+                // Prepare previews in parallel
+                const previews = await Promise.all(
+                    batch.map(async (transaction) => {
+                        const preview = await transaction.prepare();
+                        return { transaction, preview };
+                    })
+                );
+
+                // Send previews to webview
+                webviewPanel.webview.postMessage({
+                    command: "sourcePreview",
+                    previews: previews.map((p) => p.preview),
+                });
+
+                // Execute transactions in parallel with progress
+                await vscode.window.withProgress(
+                    {
+                        location: vscode.ProgressLocation.Notification,
+                        title: `Importing files ${i + 1}-${Math.min(
+                            i + BATCH_SIZE,
+                            transactions.length
+                        )} of ${transactions.length}`,
+                        cancellable: true,
+                    },
+                    async (progress, token) => {
+                        const progressCallback = (update: {
+                            message?: string;
+                            increment?: number;
+                        }) => {
+                            progress.report(update);
+                            webviewPanel.webview.postMessage({
+                                command: "updateProcessingStatus",
+                                status: {
+                                    [update.message || "processing"]: "active",
+                                },
+                                progress: update,
+                            } as SourceUploadResponseMessages);
+                        };
+
+                        await Promise.all(
+                            batch.map((transaction) =>
+                                transaction.execute({ report: progressCallback }, token)
+                            )
+                        );
+                    }
+                );
+            }
+
+            // Send completion message
+            webviewPanel.webview.postMessage({
+                command: "importComplete",
+            } as SourceUploadResponseMessages);
+        } catch (error) {
+            // Rollback all transactions on error
+            await Promise.all(transactions.map((t) => t.rollback()));
+            throw error;
+        }
+    }
+
+    private async handleMultipleTranslationImports(
+        webviewPanel: vscode.WebviewPanel,
+        files: Array<{ content: string; name: string; sourceId: string }>,
+        token: vscode.CancellationToken
+    ): Promise<void> {
+        const BATCH_SIZE = 5;
+        const transactions: TranslationImportTransaction[] = [];
+
+        try {
+            // Create transactions for each file
+            for (const file of files) {
+                const tempUri = await this.saveUploadedFile(file.content, file.name);
+                const transaction = new TranslationImportTransaction(
+                    tempUri,
+                    file.sourceId,
+                    this.context
+                );
+                transactions.push(transaction);
+            }
+
+            // Process transactions in batches
+            for (let i = 0; i < transactions.length; i += BATCH_SIZE) {
+                const batch = transactions.slice(i, i + BATCH_SIZE);
+
+                await vscode.window.withProgress(
+                    {
+                        location: vscode.ProgressLocation.Notification,
+                        title: `Importing translations ${i + 1}-${Math.min(
+                            i + BATCH_SIZE,
+                            transactions.length
+                        )} of ${transactions.length}`,
+                        cancellable: true,
+                    },
+                    async (progress, token) => {
+                        // First prepare all transactions in the batch
+                        await Promise.all(batch.map((transaction) => transaction.prepare()));
+
+                        const progressCallback = (update: {
+                            message?: string;
+                            increment?: number;
+                        }) => {
+                            progress.report(update);
+                            webviewPanel.webview.postMessage({
+                                command: "updateProcessingStatus",
+                                status: {
+                                    [update.message || "processing"]: "active",
+                                },
+                                progress: update,
+                            } as SourceUploadResponseMessages);
+                        };
+
+                        await Promise.all(
+                            batch.map((transaction) =>
+                                transaction.execute({ report: progressCallback }, token)
+                            )
+                        );
+                    }
+                );
+            }
+
+            // Send completion message
+            webviewPanel.webview.postMessage({
+                command: "importComplete",
+            } as SourceUploadResponseMessages);
+        } catch (error) {
+            // Rollback all transactions on error
+            await Promise.all(transactions.map((t) => t.rollback()));
+
+            // Send error message to webview
+            webviewPanel.webview.postMessage({
+                command: "error",
+                message: error instanceof Error ? error.message : "Failed to import translations",
+            } as SourceUploadResponseMessages);
+
+            throw error;
         }
     }
 }
