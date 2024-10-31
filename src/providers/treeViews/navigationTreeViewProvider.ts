@@ -15,6 +15,13 @@ export interface CodexNode {
     sourceFileUri?: vscode.Uri;
 }
 
+const DEBUG_ENABLED = false;
+function debug(message: string, ...args: any[]): void {
+    if (DEBUG_ENABLED) {
+        console.log(`[NavigationTreeViewProvider] ${message}`, ...args);
+    }
+}
+
 export class CodexModel {
     public readonly notebookMetadataManager: NotebookMetadataManager;
     private cachedMetadata: Map<string, CustomNotebookMetadata> = new Map();
@@ -24,7 +31,7 @@ export class CodexModel {
 
     constructor(private workspaceRoot: string | undefined) {
         this.notebookMetadataManager = new NotebookMetadataManager();
-        console.log("CodexModel: Initializing with workspace root:", workspaceRoot);
+        debug("Initializing with workspace root:", workspaceRoot);
         this.notebookMetadataManager.initialize();
     }
 
@@ -34,13 +41,13 @@ export class CodexModel {
             this.cachedMetadata.size === 0 ||
             now - this.lastMetadataLoad > this.METADATA_REFRESH_INTERVAL
         ) {
-            console.log("CodexModel: Loading metadata (cache empty or stale)");
+            debug("Loading metadata (cache empty or stale)");
             await this.notebookMetadataManager.loadMetadata();
             const metadata = this.notebookMetadataManager.getAllMetadata();
             this.cachedMetadata.clear();
-            metadata.forEach(m => this.cachedMetadata.set(m.id, m));
+            metadata.forEach((m) => this.cachedMetadata.set(m.id, m));
             this.lastMetadataLoad = now;
-            console.log("CodexModel: Loaded and cached metadata count:", metadata.length);
+            debug("Loaded and cached metadata count:", metadata.length);
         }
     }
 
@@ -52,10 +59,10 @@ export class CodexModel {
     }
 
     public async getChildren(node: CodexNode): Promise<CodexNode[]> {
-        console.log("CodexModel: Getting children for:", node.type, node.label);
-        
+        debug("Getting children for:", node.type, node.label);
+
         if (this.isRefreshing) {
-            console.log("CodexModel: Already refreshing, using cached data");
+            debug("Already refreshing, using cached data");
             return this.getChildrenFromCache(node);
         }
 
@@ -78,9 +85,9 @@ export class CodexModel {
     }
 
     private async getNotebooksByCorpus(): Promise<CodexNode[]> {
-        console.log("CodexModel: Getting notebooks by corpus");
+        debug("Getting notebooks by corpus");
         if (this.isRefreshing) {
-            console.log("CodexModel: Already refreshing, using cached data");
+            debug("Already refreshing, using cached data");
             return this.processMetadataIntoCorpora();
         }
 
@@ -98,14 +105,16 @@ export class CodexModel {
         const ungroupedNotebooks: CodexNode[] = [];
 
         for (const metadata of this.cachedMetadata.values()) {
-            if (!metadata.codexFsPath || metadata.codexFsPath.includes('.codex-temp')) {
-                console.log("CodexModel: Skipping metadata:", metadata.id);
+            if (!metadata.codexFsPath || metadata.codexFsPath.includes(".codex-temp")) {
+                debug("Skipping metadata:", metadata.id);
                 continue;
             }
 
-            console.log("CodexModel: Processing metadata for corpus:", metadata.id);
+            debug("Processing metadata for corpus:", metadata.id);
             const notebookUri = vscode.Uri.file(metadata.codexFsPath);
-            const sourceUri = metadata.sourceFsPath ? vscode.Uri.file(metadata.sourceFsPath) : undefined;
+            const sourceUri = metadata.sourceFsPath
+                ? vscode.Uri.file(metadata.sourceFsPath)
+                : undefined;
 
             const fileName = path.basename(metadata.codexFsPath);
             const fileNameWithoutExtension = fileName.slice(0, -6); // Remove .codex
@@ -129,7 +138,7 @@ export class CodexModel {
                     };
                 }
             } else {
-                console.log("CodexModel: Adding to ungrouped notebooks:", fileNameWithoutExtension);
+                debug("Adding to ungrouped notebooks:", fileNameWithoutExtension);
                 ungroupedNotebooks.push({
                     resource: notebookUri,
                     type: "document",
@@ -140,24 +149,24 @@ export class CodexModel {
         }
 
         const result = [...Object.values(corpora), ...ungroupedNotebooks];
-        console.log("CodexModel: Processed metadata into corpora, total nodes:", result.length);
+        debug("Processed metadata into corpora, total nodes:", result.length);
         return result;
     }
 
     private async getNotebooksForCorpus(corpus: string): Promise<CodexNode[]> {
-        console.log("CodexModel: Getting notebooks for corpus:", corpus);
+        debug("Getting notebooks for corpus:", corpus);
         const notebooks: CodexNode[] = [];
 
         // Use cached metadata instead of reloading
         for (const metadata of this.cachedMetadata.values()) {
             if (!metadata.codexFsPath) {
-                console.log("CodexModel: Skipping metadata without codexFsPath:", metadata.id);
+                debug("Skipping metadata without codexFsPath:", metadata.id);
                 continue;
             }
 
             // Skip temp files
-            if (metadata.codexFsPath.includes('.codex-temp')) {
-                console.log("CodexModel: Skipping temp file:", metadata.codexFsPath);
+            if (metadata.codexFsPath.includes(".codex-temp")) {
+                debug("Skipping temp file:", metadata.codexFsPath);
                 continue;
             }
 
@@ -190,7 +199,7 @@ export class CodexModel {
     }
 
     private async getSectionsForNotebook(notebookUri: vscode.Uri): Promise<CodexNode[]> {
-        console.log("CodexModel: Getting sections for notebook:", notebookUri.fsPath);
+        debug("Getting sections for notebook:", notebookUri.fsPath);
         try {
             const metadata = await this.notebookMetadataManager.getMetadataByUri(notebookUri);
             if (!metadata) {
@@ -198,7 +207,7 @@ export class CodexModel {
                 return [];
             }
 
-            console.log("CodexModel: Found metadata for notebook:", metadata.id);
+            debug("Found metadata for notebook:", metadata.id);
             // Use the correct file path from metadata
             const actualUri = vscode.Uri.file(metadata.codexFsPath!);
             const notebookContentUint8Array = await vscode.workspace.fs.readFile(actualUri);
@@ -251,9 +260,9 @@ export class CodexModel {
 
     // Update the metadata change handler to be more conservative
     public async handleMetadataChange(): Promise<void> {
-        console.log("CodexModel: Handling metadata change");
+        debug("Handling metadata change");
         if (this.isRefreshing) {
-            console.log("CodexModel: Already refreshing, skipping metadata change");
+            debug("Already refreshing, skipping metadata change");
             return;
         }
 
@@ -368,7 +377,7 @@ export class CodexNotebookTreeViewProvider
             if (element.type === "document") {
                 treeItem.contextValue = "document";
                 treeItem.iconPath = new vscode.ThemeIcon("book");
-                
+
                 // Add source file URI to the tree item for the command to use
                 if (element.sourceFileUri) {
                     treeItem.resourceUri = element.sourceFileUri;

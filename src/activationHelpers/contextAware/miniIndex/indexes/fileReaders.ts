@@ -15,6 +15,13 @@ export interface FileData {
     }>;
 }
 
+const DEBUG_ENABLED = false;
+function debug(message: string, ...args: any[]): void {
+    if (DEBUG_ENABLED) {
+        console.log(`[FileReaders] ${message}`, ...args);
+    }
+}
+
 export async function readSourceAndTargetFiles(): Promise<{
     sourceFiles: FileData[];
     targetFiles: FileData[];
@@ -33,7 +40,7 @@ export async function readSourceAndTargetFiles(): Promise<{
     const sourceUris = await vscode.workspace.findFiles(sourcePattern);
     const targetUris = await vscode.workspace.findFiles(targetPattern);
 
-    console.log(
+    debug(
         "Target File URIs:",
         targetUris.map((uri) => uri.fsPath)
     );
@@ -93,6 +100,6 @@ async function readFile(
         cells,
     };
 
-    console.log(`File ${uri.toString()} has ${fileData.cells.length} cells`);
+    debug(`File ${uri.toString()} has ${fileData.cells.length} cells`);
     return fileData;
 }
