@@ -266,9 +266,6 @@ export class SourceUploadProvider
                             
                             // Ensure we're explicitly passing the boolean value
                             const asTranslationOnly = Boolean(message.asTranslationOnly);
-                            vscode.window.showInformationMessage(
-                                `Received download request with asTranslationOnly=${asTranslationOnly}`
-                            );
                             
                             await this.handleBibleDownload(
                                 webviewPanel,
@@ -945,9 +942,6 @@ export class SourceUploadProvider
         metadata: ExtendedMetadata,
         asTranslationOnly?: boolean
     ) {
-        vscode.window.showInformationMessage(
-            `in handleBibledownload asTranslationOnly is ${asTranslationOnly}`
-        );
         try {
             // Create new transaction
             this.currentDownloadBibleTransaction = new DownloadBibleTransaction(asTranslationOnly);

@@ -49,7 +49,6 @@ export class DownloadBibleTransaction extends BaseTransaction {
 
     constructor(asTranslationOnly: boolean = false) {
         super();
-        console.log("DownloadBibleTransaction constructor called with:", { asTranslationOnly });
         this.state = {
             metadata: {
                 languageCode: "",
@@ -64,11 +63,6 @@ export class DownloadBibleTransaction extends BaseTransaction {
             tempDir: null,
             asTranslationOnly,
         };
-        if (asTranslationOnly) {
-            vscode.window.showInformationMessage(
-                `Initialized a transaction with asTranslationOnly=${asTranslationOnly}`
-            );
-        }
     }
 
     setMetadata(metadata: { languageCode: string; translationId: string }) {
@@ -330,7 +324,6 @@ export class DownloadBibleTransaction extends BaseTransaction {
 
     async transformToNotebooks(): Promise<void> {
         if (this.state.asTranslationOnly) {
-            vscode.window.showInformationMessage("Transforming to translation");
             await this.transformToTranslation();
         } else {
             // each notebook needs notebook metadata, and cells with content
