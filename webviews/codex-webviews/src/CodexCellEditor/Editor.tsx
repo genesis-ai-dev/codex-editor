@@ -12,9 +12,15 @@ const vscode: any = (window as any).vscodeApi;
 // Register the QuillSpellChecker with the VSCode API
 registerQuillSpellChecker(Quill, vscode);
 // Use VSCode icon for autocomplete
-icons["autocomplete"] = `<i class="codicon codicon-sparkle quill-toolbar-icon"></i>`;
-icons["openLibrary"] = `<i class="codicon codicon-book quill-toolbar-icon"></i>`;
-icons["applyTopPrompts"] = `<i class="codicon codicon-symbol-event quill-toolbar-icon"></i>`; // Add new icon
+icons[
+    "autocomplete"
+] = `<i class="codicon codicon-sparkle quill-toolbar-icon" style="color: var(--vscode-editor-foreground)"></i>`;
+icons[
+    "openLibrary"
+] = `<i class="codicon codicon-book quill-toolbar-icon" style="color: var(--vscode-editor-foreground)"></i>`;
+icons[
+    "applyTopPrompts"
+] = `<i class="codicon codicon-symbol-event quill-toolbar-icon" style="color: var(--vscode-editor-foreground)"></i>`; // Add new icon
 
 export interface EditorContentChanged {
     html: string;
