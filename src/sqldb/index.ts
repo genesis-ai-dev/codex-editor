@@ -2,7 +2,7 @@ import { StatusBarItem } from "vscode";
 import initSqlJs, { Database, SqlJsStatic } from "sql.js";
 import path from "path";
 import vscode from "vscode";
-import { parseAndImportXML } from "./parseAndImportXML";
+import { parseAndImportJSONL } from "./parseAndImportJSONL";
 
 function getDefinitions(db: Database, word: string): string[] {
     const stmt = db.prepare("SELECT definition FROM entries WHERE word = ?");
@@ -55,7 +55,7 @@ export const initializeSqlJs = async (context: vscode.ExtensionContext) => {
             throw new Error("Failed to initialize SQL.js");
         }
 
-        console.log("SQL.js initialized successfully");
+        console.log("SQL.js initialized successfullyy");
     } catch (error) {
         console.error("Error initializing sql.js:", error);
         vscode.window.showErrorMessage(`Failed to initialize SQL.js: ${error}`);
@@ -71,10 +71,14 @@ export const initializeSqlJs = async (context: vscode.ExtensionContext) => {
     const dbPath = vscode.Uri.joinPath(workspaceFolder.uri, "data", "dictionary.sqlite");
 
     let fileBuffer: Uint8Array;
+    console.log("dbPath", dbPath);
     try {
         // Try to read existing database
+        console.log("trying to read existing database");
         fileBuffer = await vscode.workspace.fs.readFile(dbPath);
+        console.log("fileBuffer found", fileBuffer);
     } catch {
+        console.log("fileBuffer not found, creating new database");
         // If file doesn't exist, create new database
         const newDb = new SQL.Database();
         // Create your table structure
@@ -96,9 +100,12 @@ export const initializeSqlJs = async (context: vscode.ExtensionContext) => {
 };
 
 export const registerLookupWordCommand = (db: Database, context: vscode.ExtensionContext) => {
-    const disposable = vscode.commands.registerCommand("extension.lookupWord", () =>
-        lookupWord(db)
-    );
+    console.log("registerLookupWordCommand called");
+    const disposable = vscode.commands.registerCommand("extension.lookupWord", () => {
+        console.log("lookupWord command called");
+        console.log({ allEntries: getWords(db) });
+        return lookupWord(db);
+    });
     context.subscriptions.push(disposable);
 };
 
@@ -147,13 +154,23 @@ export const removeWord = (db: Database, word: string) => {
     stmt.free();
 };
 
-export async function importWiktionaryXML(db: Database) {
+export const getWords = (db: Database) => {
+    const stmt = db.prepare("SELECT word FROM entries");
+    const words: string[] = [];
+    while (stmt.step()) {
+        words.push(stmt.getAsObject()["word"] as string);
+    }
+    stmt.free();
+    return words;
+};
+
+export async function importWiktionaryJSONL(db: Database) {
     try {
         const options: vscode.OpenDialogOptions = {
             canSelectMany: false,
             openLabel: "Import",
             filters: {
-                "XML files": ["xml"],
+                "JSONL files": ["jsonl"],
                 "All files": ["*"],
             },
         };
@@ -161,18 +178,18 @@ export async function importWiktionaryXML(db: Database) {
         const fileUri = await vscode.window.showOpenDialog(options);
 
         if (fileUri && fileUri[0]) {
-            const xmlFilePath = fileUri[0].fsPath;
+            const jsonlFilePath = fileUri[0].fsPath;
             vscode.window.withProgress(
                 {
                     location: vscode.ProgressLocation.Notification,
-                    title: "Importing Wiktionary XML",
+                    title: "Importing Wiktionary JSONL",
                     cancellable: false,
                 },
                 async (progress) => {
                     progress.report({ increment: 0, message: "Starting import..." });
-                    await parseAndImportXML(xmlFilePath, progress, db);
+                    await parseAndImportJSONL(jsonlFilePath, progress, db);
                     progress.report({ increment: 100, message: "Import completed!" });
-                    vscode.window.showInformationMessage("Wiktionary XML import completed.");
+                    vscode.window.showInformationMessage("Wiktionary JSONL import completed.");
                 }
             );
         } else {

@@ -25,9 +25,8 @@ import { VideoEditorProvider } from "./providers/VideoEditor/VideoEditorProvider
 import { registerVideoPlayerCommands } from "./providers/VideoPlayer/registerCommands";
 import { SourceUploadProvider } from "./providers/SourceUpload/SourceUploadProvider";
 import { StatusBarItem } from "vscode";
-import initSqlJs, { Database, SqlJsStatic } from "sql.js";
-import { importWiktionaryXML, initializeSqlJs, registerLookupWordCommand } from "./sqldb";
-import { parseAndImportXML } from "./sqldb/parseAndImportXML";
+import { Database } from "sql.js";
+import { importWiktionaryJSONL, initializeSqlJs, registerLookupWordCommand } from "./sqldb";
 
 let client: LanguageClient | undefined;
 let clientCommandsDisposable: vscode.Disposable;
@@ -36,11 +35,11 @@ let db: Database | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
     db = await initializeSqlJs(context);
-
+    console.log("initializeSqlJs db", db);
     if (db) {
         const importCommand = vscode.commands.registerCommand(
-            "extension.importWiktionaryXML",
-            () => db && importWiktionaryXML(db)
+            "extension.importWiktionaryJSONL",
+            () => db && importWiktionaryJSONL(db)
         );
         context.subscriptions.push(importCommand);
         registerLookupWordCommand(db, context);
