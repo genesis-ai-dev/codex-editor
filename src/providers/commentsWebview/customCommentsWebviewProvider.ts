@@ -118,7 +118,7 @@ export class CustomWebviewProvider {
                     if (value) {
                         webviewView.webview.postMessage({
                             command: "reload",
-                            data: { cellId: value },
+                            data: { cellId: value.cellId },
                         } as CommentPostMessages);
                     }
                 }
@@ -271,7 +271,7 @@ export class CustomWebviewProvider {
                                     webviewView.webview.postMessage({
                                         command: "reload",
                                         data: {
-                                            cellId: value,
+                                            cellId: value.cellId, // Extract just the cellId string
                                         },
                                     } as CommentPostMessages);
                                 }
@@ -317,7 +317,7 @@ export class CustomWebviewProvider {
         if (cellId) {
             webviewView.webview.postMessage({
                 command: "reload",
-                data: { cellId },
+                data: { cellId: cellId.cellId },
             } as CommentPostMessages);
         }
     }

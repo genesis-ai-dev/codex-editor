@@ -1115,10 +1115,10 @@
         "@types/copy-webpack-plugin": "^8.0.1",
         "@types/diff": "^5.2.3",
         "@types/glob": "^7.1.1",
-        "@types/lodash": "^4.17.12",
+        "@types/lodash": "^4.17.13",
         "@types/md5": "^2.3.5",
         "@types/mocha": "^10.0.1",
-        "@types/node": "14.x",
+        "@types/node": "^14.18.63",
         "@types/react": "^18.3.3",
         "@types/react-dom": "^18.3.1",
         "@types/semver": "^7.5.6",
@@ -1153,7 +1153,8 @@
         "vscode-languageserver-textdocument": "^1.0.12",
         "vscode-test": "^1.5.0",
         "webpack": "^5.95.0",
-        "webpack-cli": "^5.1.4"
+        "webpack-cli": "^5.1.4",
+        "codex-types": "^0.0.4"
     },
     "dependencies": {
         "@types/better-sqlite3": "^7.6.11",
@@ -1162,7 +1163,6 @@
         "@vscode/python-extension": "^1.0.5",
         "@vscode/webview-ui-toolkit": "^1.4.0",
         "bible-reference-range": "^1.1.1",
-        "codex-types": "^0.0.4",
         "date-fns": "^2.30.0",
         "diff": "^7.0.0",
         "fitty": "^2.4.2",

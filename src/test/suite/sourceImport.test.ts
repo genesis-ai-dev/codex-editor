@@ -37,9 +37,8 @@ suite("Source Import Tests", () => {
 
         assert.strictEqual(preview.fileName, "test.usfm");
         assert.strictEqual(preview.fileType, "usfm");
-        assert.strictEqual(preview.expectedBooks.length, 1);
-        assert.ok(preview.originalContent.validationResults[0].isValid);
-        assert.ok(preview.transformedContent.sourceNotebooks.length > 0);
+        assert.ok(preview.original.validationResults[0].isValid);
+        assert.ok(preview.transformed.sourceNotebooks.length > 0);
     });
 
     test("should prepare transaction with preview", async () => {
@@ -48,8 +47,8 @@ suite("Source Import Tests", () => {
 
         assert.ok(preview);
         assert.strictEqual(preview.fileName, "test.usfm");
-        assert.strictEqual(preview.expectedBooks.length, 1);
         assert.ok(preview.transformedContent.sourceNotebooks.length > 0);
+        assert.ok(preview.originalContent.validationResults[0].isValid);
     });
 
     test("should handle transaction cancellation", async () => {

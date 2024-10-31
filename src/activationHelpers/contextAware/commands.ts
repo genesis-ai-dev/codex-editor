@@ -25,8 +25,7 @@ import {
     Verse,
 } from "./sourceData";
 import { exportCodexContent } from "../../commands/exportHandler";
-import * as path from "path";
-import { debounce } from "lodash";
+import debounce from "lodash/debounce";
 import { DownloadBibleTransaction } from "../../transactions/DownloadBibleTransaction";
 import { getExtendedEbibleMetadataByLanguageNameOrCode } from "../../utils/ebible/ebibleCorpusUtils";
 
@@ -271,11 +270,10 @@ export async function registerCommands(context: vscode.ExtensionContext) {
                 );
 
                 if (selectedBible && "id" in selectedBible) {
-                    const transaction = new DownloadBibleTransaction({
-                        ebibleMetadata: biblesForLanguage.find(
-                            (b) => b.translationId === selectedBible.id
-                        ),
-                    });
+                    const ebibleMetadata = biblesForLanguage.find(
+                        (b) => b.translationId === selectedBible.id
+                    );
+                    const transaction = new DownloadBibleTransaction(false);
 
                     try {
                         await transaction.prepare();

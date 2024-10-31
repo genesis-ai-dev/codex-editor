@@ -3,12 +3,11 @@ import { nonCanonicalBookRefs } from "../../utils/verseRefUtils/verseData";
 import { LanguageMetadata, LanguageProjectStatus, Project } from "codex-types";
 import { getAllBookRefs } from "../../utils";
 import * as vscode from "vscode";
-import { v5 as uuidV5 } from "uuid";
-import path from "path";
+import * as path from "path";
+import semver from "semver";
 import ProjectTemplate from "../../providers/obs/data/TextTemplate.json";
 import { ProjectMetadata, ProjectOverview } from "../../../types";
 import { initializeProject } from "../projectInitializers";
-import * as semver from "semver";
 import { getProjectMetadata } from "../../utils";
 import { CodexContentSerializer } from "../../serializer";
 
