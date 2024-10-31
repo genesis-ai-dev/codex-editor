@@ -25,12 +25,26 @@ import { VideoEditorProvider } from "./providers/VideoEditor/VideoEditorProvider
 import { registerVideoPlayerCommands } from "./providers/VideoPlayer/registerCommands";
 import { SourceUploadProvider } from "./providers/SourceUpload/SourceUploadProvider";
 import { StatusBarItem } from "vscode";
+import { Database } from "sql.js";
+import { importWiktionaryJSONL, initializeSqlJs, registerLookupWordCommand } from "./sqldb";
 
 let client: LanguageClient | undefined;
 let clientCommandsDisposable: vscode.Disposable;
 let autoCompleteStatusBarItem: StatusBarItem;
+let db: Database | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
+    db = await initializeSqlJs(context);
+    console.log("initializeSqlJs db", db);
+    if (db) {
+        const importCommand = vscode.commands.registerCommand(
+            "extension.importWiktionaryJSONL",
+            () => db && importWiktionaryJSONL(db)
+        );
+        context.subscriptions.push(importCommand);
+        registerLookupWordCommand(db, context);
+    }
+
     vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
 
     // Register trust change listener
@@ -194,6 +208,9 @@ export function deactivate() {
     }
     if (client) {
         return client.stop();
+    }
+    if (db) {
+        db.close();
     }
 }
 

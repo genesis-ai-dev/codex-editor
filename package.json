@@ -704,6 +704,15 @@
             {
                 "command": "translators-copilot.getZeroDraftContentOptions",
                 "title": "Get Zero Draft Content Options for Cell ID"
+            },
+            {
+                "command": "extension.lookupWord",
+                "title": "Look Up Word",
+                "category": "Dictionary"
+            },
+            {
+                "command": "extension.importWiktionaryJSONL",
+                "title": "Import Wiktionary"
             }
         ],
         "notebooks": [
@@ -1102,7 +1111,7 @@
     "scripts": {
         "vscode:prepublish": "npm run build:webviews && npm run compile",
         "compile": "webpack --config webpack.config.js",
-        "watch": "webpack --watch",
+        "watch": "webpack --config webpack.config.js --watch",
         "package": "webpack --mode production --devtool hidden-source-map",
         "lint": "eslint src --ext ts",
         "pretest": "npm run compile && npm run lint",
@@ -1121,6 +1130,7 @@
         "@types/node": "^14.18.63",
         "@types/react": "^18.3.3",
         "@types/react-dom": "^18.3.1",
+        "@types/sax": "^1.2.7",
         "@types/semver": "^7.5.6",
         "@types/sinon": "^17.0.3",
         "@types/sql.js": "^1.4.9",
@@ -1163,6 +1173,8 @@
         "@vscode/python-extension": "^1.0.5",
         "@vscode/webview-ui-toolkit": "^1.4.0",
         "bible-reference-range": "^1.1.1",
+        "codex-types": "^0.0.4",
+        "copy-webpack-plugin": "^12.0.2",
         "date-fns": "^2.30.0",
         "diff": "^7.0.0",
         "fitty": "^2.4.2",
@@ -1181,6 +1193,7 @@
         "pnpm": "^8.15.5",
         "proc-log": "^5.0.0",
         "react-wordcloud": "^1.2.7",
+        "sax": "^1.4.1",
         "semver": "^7.6.0",
         "sinon": "^19.0.2",
         "sql.js": "^1.11.0",
