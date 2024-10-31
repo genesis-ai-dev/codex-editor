@@ -111,7 +111,7 @@ type VerseRefGlobalState = {
 };
 type CommentPostMessages =
     | { command: "commentsFromWorkspace"; content: string }
-    | { command: "reload"; data: { cellId: string } }
+    | { command: "reload"; data: { cellId: string; uri: string } }
     | { command: "updateCommentThread"; commentThread: NotebookCommentThread }
     | { command: "deleteCommentThread"; commentThreadId: string }
     | {

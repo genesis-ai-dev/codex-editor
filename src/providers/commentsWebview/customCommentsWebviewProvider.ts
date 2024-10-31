@@ -272,6 +272,7 @@ export class CustomWebviewProvider {
                                         command: "reload",
                                         data: {
                                             cellId: value.cellId, // Extract just the cellId string
+                                            uri: value.uri,
                                         },
                                     } as CommentPostMessages);
                                 }
