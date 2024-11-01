@@ -1,10 +1,4 @@
-import {
-    VSCodeButton,
-    VSCodeDataGrid,
-    VSCodeDataGridCell,
-    VSCodeDataGridRow,
-    VSCodeDivider,
-} from "@vscode/webview-ui-toolkit/react";
+import { VSCodeButton, VSCodeDivider } from "@vscode/webview-ui-toolkit/react";
 import { formatDistanceToNow } from "date-fns";
 
 interface ProjectListItem {
@@ -18,7 +12,7 @@ interface ProjectListItem {
 }
 
 interface ProjectListProps {
-    projects: Array<ProjectListItem>;
+    projects: Array<ProjectListItem> | null;
     watchedFolders: string[];
     onCreateNew: () => void;
     onOpenProject: (path: string) => void;
@@ -38,15 +32,16 @@ export function ProjectList({
     onAddWatchFolder,
     onRemoveWatchFolder,
     onRefreshProjects,
-    showBackButton
+    showBackButton,
 }: ProjectListProps) {
-    // Sort projects by last opened date, with most recent first
-    const sortedProjects = [...projects].sort((a, b) => {
-        if (!a.lastOpened && !b.lastOpened) return 0;
-        if (!a.lastOpened) return 1;
-        if (!b.lastOpened) return -1;
-        return b.lastOpened.getTime() - a.lastOpened.getTime();
-    });
+    const sortedProjects = projects
+        ? [...projects].sort((a, b) => {
+              if (!a?.lastOpened && !b?.lastOpened) return 0;
+              if (!a?.lastOpened) return 1;
+              if (!b?.lastOpened) return -1;
+              return b.lastOpened.getTime() - a.lastOpened.getTime();
+          })
+        : [];
 
     const getVersionDisplay = (
         version: string,
@@ -84,7 +79,7 @@ export function ProjectList({
                 )}
             </div>
 
-            <div style={{ display: "flex", gap: "0.5rem" }}>
+            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
                 <VSCodeButton onClick={onCreateNew}>
                     <i className="codicon codicon-new-folder"></i> Create New Project
                 </VSCodeButton>
@@ -103,57 +98,121 @@ export function ProjectList({
                     </VSCodeButton>
                 </div>
 
-                <VSCodeDataGrid style={{ marginTop: "0.5rem" }}>
+                <div
+                    style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "0.5rem",
+                        marginTop: "1rem",
+                    }}
+                >
                     {watchedFolders.map((folder) => (
-                        <VSCodeDataGridRow key={folder}>
-                            <VSCodeDataGridCell grid-column="1">{folder}</VSCodeDataGridCell>
-                            <VSCodeDataGridCell grid-column="2">
-                                <VSCodeButton
-                                    appearance="icon"
-                                    onClick={() => onRemoveWatchFolder(folder)}
-                                >
-                                    <i className="codicon codicon-trash"></i>
-                                </VSCodeButton>
-                            </VSCodeDataGridCell>
-                        </VSCodeDataGridRow>
+                        <div
+                            key={folder}
+                            style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                padding: "0.5rem",
+                                backgroundColor: "var(--vscode-list-hoverBackground)",
+                                borderRadius: "4px",
+                            }}
+                        >
+                            <span style={{ wordBreak: "break-all" }}>{folder}</span>
+                            <VSCodeButton
+                                appearance="icon"
+                                onClick={() => onRemoveWatchFolder(folder)}
+                            >
+                                <i className="codicon codicon-trash"></i>
+                            </VSCodeButton>
+                        </div>
                     ))}
-                </VSCodeDataGrid>
+                </div>
             </div>
 
             <VSCodeDivider />
 
             <h3>Found Projects</h3>
-            <VSCodeDataGrid>
-                {sortedProjects.map((project) => (
-                    <VSCodeDataGridRow key={project.path}>
-                        <VSCodeDataGridCell grid-column="1">{project.name}</VSCodeDataGridCell>
-                        <VSCodeDataGridCell grid-column="2">{project.path}</VSCodeDataGridCell>
-                        <VSCodeDataGridCell grid-column="3">
-                            {getVersionDisplay(
-                                project.version,
-                                project.hasVersionMismatch || false,
-                                project.isOutdated || false
-                            )}
-                        </VSCodeDataGridCell>
-                        <VSCodeDataGridCell grid-column="4">
-                            <span
+            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                {sortedProjects.length > 0 ? (
+                    sortedProjects.map((project) => (
+                        <div
+                            key={project.path}
+                            style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: "0.5rem",
+                                padding: "0.75rem",
+                                backgroundColor: "var(--vscode-list-hoverBackground)",
+                                borderRadius: "4px",
+                            }}
+                        >
+                            <div
                                 style={{
-                                    fontSize: "0.8em",
-                                    color: "var(--vscode-descriptionForeground)",
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    alignItems: "center",
+                                    gap: "1rem",
                                 }}
                             >
-                                Modified{" "}
-                                {formatDistanceToNow(project.lastModified, { addSuffix: true })}
-                            </span>
-                        </VSCodeDataGridCell>
-                        <VSCodeDataGridCell grid-column="5">
-                            <VSCodeButton onClick={() => onOpenProject(project.path)}>
-                                <i className="codicon codicon-folder-opened"></i>
-                            </VSCodeButton>
-                        </VSCodeDataGridCell>
-                    </VSCodeDataGridRow>
-                ))}
-            </VSCodeDataGrid>
+                                <span
+                                    style={{
+                                        fontSize: "1.1em",
+                                        fontWeight: "bold",
+                                    }}
+                                >
+                                    {project.name}
+                                </span>
+                                <VSCodeButton onClick={() => onOpenProject(project.path)}>
+                                    <i className="codicon codicon-folder-opened"></i> Open
+                                </VSCodeButton>
+                            </div>
+
+                            <div
+                                style={{
+                                    fontSize: "0.9em",
+                                    color: "var(--vscode-descriptionForeground)",
+                                    wordBreak: "break-all",
+                                }}
+                            >
+                                {project.path}
+                            </div>
+
+                            <div
+                                style={{
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    alignItems: "center",
+                                    gap: "1rem",
+                                    fontSize: "0.9em",
+                                }}
+                            >
+                                <div>
+                                    {getVersionDisplay(
+                                        project.version,
+                                        project.hasVersionMismatch || false,
+                                        project.isOutdated || false
+                                    )}
+                                </div>
+                                <div style={{ color: "var(--vscode-descriptionForeground)" }}>
+                                    Modified{" "}
+                                    {formatDistanceToNow(project.lastModified, { addSuffix: true })}
+                                </div>
+                            </div>
+                        </div>
+                    ))
+                ) : (
+                    <div
+                        style={{
+                            padding: "1rem",
+                            textAlign: "center",
+                            color: "var(--vscode-descriptionForeground)",
+                        }}
+                    >
+                        No projects found in watched folders
+                    </div>
+                )}
+            </div>
         </div>
     );
 }

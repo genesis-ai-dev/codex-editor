@@ -544,32 +544,58 @@ export async function updateProjectSettings(projectDetails: ProjectDetails) {
     }
 }
 
-export async function findAllCodexProjects(): Promise<
-    Array<{
-        name: string;
-        path: string;
-        lastOpened?: Date;
-        lastModified: Date;
-        version: string;
-        hasVersionMismatch?: boolean;
-        isOutdated?: boolean;
-    }>
-> {
+interface CodexMetadata {
+    format: string;
+    meta: {
+        generator: {
+            softwareName: string;
+            softwareVersion: string;
+        };
+        // ... other fields optional for validation
+    };
+}
+
+export async function isValidCodexProject(folderPath: string): Promise<{
+    isValid: boolean;
+    version?: string;
+    hasVersionMismatch?: boolean;
+}> {
+    try {
+        const metadataPath = vscode.Uri.file(path.join(folderPath, "metadata.json"));
+        const metadata = await vscode.workspace.fs.readFile(metadataPath);
+        const metadataJson = JSON.parse(Buffer.from(metadata).toString("utf-8")) as CodexMetadata;
+        
+        const currentVersion = vscode.extensions.getExtension("project-accelerate.codex-editor-extension")
+            ?.packageJSON.version || "0.0.0";
+
+        if (metadataJson.meta?.generator?.softwareName !== "Codex Editor") {
+            return { isValid: false };
+        }
+
+        const projectVersion = metadataJson.meta.generator.softwareVersion;
+        const hasVersionMismatch = semver.major(projectVersion) !== semver.major(currentVersion);
+
+        return {
+            isValid: true,
+            version: projectVersion,
+            hasVersionMismatch
+        };
+    } catch {
+        return { isValid: false };
+    }
+}
+
+export async function findAllCodexProjects(): Promise<Array<{
+    name: string;
+    path: string;
+    lastOpened?: Date;
+    lastModified: Date;
+    version: string;
+    hasVersionMismatch?: boolean;
+}>> {
     const config = vscode.workspace.getConfiguration("codex-project-manager");
     const watchedFolders = config.get<string[]>("watchedFolders") || [];
     const projectHistory = config.get<Record<string, string>>("projectHistory") || {};
-
-    // Get current extension version
-    const currentVersion =
-        vscode.extensions.getExtension("project-accelerate.codex-editor-extension")?.packageJSON
-            .version || "0.0.0";
-
-    // Add home directory to watched folders if not already included
-    const homeDir = process.env.HOME || process.env.USERPROFILE;
-    if (homeDir && !watchedFolders.includes(homeDir)) {
-        watchedFolders.push(homeDir);
-        await config.update("watchedFolders", watchedFolders, vscode.ConfigurationTarget.Global);
-    }
 
     const projects: Array<{
         name: string;
@@ -578,63 +604,33 @@ export async function findAllCodexProjects(): Promise<
         lastModified: Date;
         version: string;
         hasVersionMismatch?: boolean;
-        isOutdated?: boolean;
     }> = [];
 
-    const foundPaths = new Set<string>(); // Track found project paths
-
-    // Search watched folders for projects
-    for (const dir of watchedFolders) {
+    for (const folder of watchedFolders) {
         try {
-            const entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(dir));
+            const entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(folder));
             for (const [name, type] of entries) {
                 if (type === vscode.FileType.Directory) {
-                    const projectPath = path.join(dir, name);
-                    const metadataPath = path.join(projectPath, "metadata.json");
-                    try {
-                        const metadataUri = vscode.Uri.file(metadataPath);
-                        const metadataStat = await vscode.workspace.fs.stat(metadataUri);
-                        const metadata = await vscode.workspace.fs.readFile(metadataUri);
-                        const metadataJson = JSON.parse(Buffer.from(metadata).toString("utf-8"));
-
-                        if (metadataJson.meta?.generator?.softwareName === "Codex Editor") {
-                            const projectVersion =
-                                metadataJson.meta.generator.softwareVersion || "0.0.0";
-
-                            // Check version compatibility
-                            const hasVersionMismatch =
-                                semver.major(projectVersion) !== semver.major(currentVersion);
-                            const isOutdated = semver.lt(projectVersion, currentVersion);
-
-                            if (!foundPaths.has(projectPath)) {
-                                foundPaths.add(projectPath);
-                                projects.push({
-                                    name: path.basename(projectPath),
-                                    path: projectPath,
-                                    lastOpened: projectHistory[projectPath]
-                                        ? new Date(projectHistory[projectPath])
-                                        : undefined,
-                                    lastModified: new Date(metadataStat.mtime),
-                                    version: projectVersion,
-                                    hasVersionMismatch,
-                                    isOutdated,
-                                });
-                            }
-                        }
-                    } catch {
-                        // Not a Codex project or can't read metadata, skip
+                    const projectPath = path.join(folder, name);
+                    const projectStatus = await isValidCodexProject(projectPath);
+                    
+                    if (projectStatus.isValid) {
+                        const stats = await vscode.workspace.fs.stat(vscode.Uri.file(projectPath));
+                        projects.push({
+                            name,
+                            path: projectPath,
+                            lastOpened: projectHistory[projectPath] ? new Date(projectHistory[projectPath]) : undefined,
+                            lastModified: new Date(stats.mtime),
+                            version: projectStatus.version || "unknown",
+                            hasVersionMismatch: projectStatus.hasVersionMismatch
+                        });
                     }
                 }
             }
-        } catch {
-            // Cannot read directory, skip
+        } catch (error) {
+            console.error(`Error scanning folder ${folder}:`, error);
         }
     }
 
-    // After collecting all projects, update known projects
-    const knownPaths = Array.from(foundPaths);
-    await config.update("knownProjects", knownPaths, vscode.ConfigurationTarget.Global);
-
-    // Sort by last modified date
-    return projects.sort((a, b) => b.lastModified.getTime() - a.lastModified.getTime());
+    return projects;
 }
