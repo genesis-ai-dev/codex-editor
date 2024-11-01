@@ -16,7 +16,8 @@ import ConfirmationButton from "./ConfirmationButton";
 import { debounce } from "lodash";
 import { generateChildCellId } from "../../../../src/providers/codexCellEditorProvider/utils/cellUtils";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
-
+import { VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react";
+import "./TextCellEditorStyles.css";
 interface SimilarCell {
     cellId: string;
     score: number;
@@ -98,6 +99,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [cursorPosition, setCursorPosition] = useState(0);
     const [activeSearchPosition, setActiveSearchPosition] = useState<number | null>(null);
+    const [topPrompts, setTopPrompts] = useState<string[]>([]);
+    const [selectedPrompts, setSelectedPrompts] = useState<Set<string>>(new Set());
+    const [visiblePrompts, setVisiblePrompts] = useState<string[]>([]);
+    const MAX_VISIBLE_PROMPTS = 5;
+    const [editingPromptIndex, setEditingPromptIndex] = useState<number | null>(null);
+    const [editingPromptText, setEditingPromptText] = useState("");
 
     useEffect(() => {
         setEditableLabel(cellLabel || "");
@@ -355,6 +362,104 @@ const CellEditor: React.FC<CellEditorProps> = ({
         }
     };
 
+    useEffect(() => {
+        if (contentBeingUpdated.cellContent) {
+            const messageContent: EditorPostMessages = {
+                command: "getTopPrompts",
+                content: {
+                    cellId: cellMarkers[0],
+                    text: contentBeingUpdated.cellContent,
+                },
+            };
+            window.vscodeApi.postMessage(messageContent);
+        }
+    }, [contentBeingUpdated.cellContent]);
+
+    useEffect(() => {
+        const handleTopPromptsResponse = (event: MessageEvent) => {
+            const message = event.data;
+            if (message.type === "providerSendsTopPrompts") {
+                setTopPrompts(message.content);
+            }
+        };
+
+        window.addEventListener("message", handleTopPromptsResponse);
+        return () => window.removeEventListener("message", handleTopPromptsResponse);
+    }, []);
+
+    useEffect(() => {
+        if (topPrompts.length > 0) {
+            // Remove duplicates using Set
+            const uniquePrompts = Array.from(new Set(topPrompts));
+            const initialVisible = uniquePrompts.slice(0, MAX_VISIBLE_PROMPTS);
+            setVisiblePrompts(initialVisible);
+            setSelectedPrompts(new Set(initialVisible));
+        }
+    }, [topPrompts]);
+
+    const handlePromptSelect = (prompt: string) => {
+        setSelectedPrompts((prev) => {
+            const newSet = new Set(prev);
+            if (newSet.has(prompt)) {
+                newSet.delete(prompt);
+            } else {
+                newSet.add(prompt);
+            }
+            return newSet;
+        });
+    };
+
+    const handleApplySelectedPrompts = async () => {
+        for (const prompt of selectedPrompts) {
+            // Reuse existing prompt sending logic
+            const messageContent: EditorPostMessages = {
+                command: "applyPromptedEdit",
+                content: {
+                    text: contentBeingUpdated.cellContent,
+                    prompt: prompt,
+                    cellId: cellMarkers[0],
+                },
+            };
+            window.vscodeApi.postMessage(messageContent);
+        }
+        setSelectedPrompts(new Set()); // Clear selections after applying
+    };
+
+    const handlePromptEdit = (index: number, event: React.MouseEvent) => {
+        // Stop the event from reaching the checkbox
+        event.preventDefault();
+        event.stopPropagation();
+
+        setEditingPromptIndex(index);
+        setEditingPromptText(visiblePrompts[index]);
+    };
+
+    const handlePromptEditSave = () => {
+        if (editingPromptIndex !== null) {
+            const newPrompts = [...visiblePrompts];
+            newPrompts[editingPromptIndex] = editingPromptText;
+
+            // Update visible prompts
+            setVisiblePrompts(newPrompts);
+
+            // Update selected prompts
+            setSelectedPrompts((prev) => {
+                const newSet = new Set(prev);
+                newSet.delete(visiblePrompts[editingPromptIndex]);
+                newSet.add(editingPromptText);
+                return newSet;
+            });
+
+            setEditingPromptIndex(null);
+            setEditingPromptText("");
+        }
+    };
+
+    const handlePromptEditCancel = () => {
+        setEditingPromptIndex(null);
+        setEditingPromptText("");
+    };
+
     return (
         <div ref={cellEditorRef} className="cell-editor" style={{ direction: textDirection }}>
             <div className="cell-header">
@@ -439,6 +544,68 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     </div>
                 </div>
             </div>
+            {visiblePrompts.length > 0 && (
+                <div className="suggested-prompts">
+                    <div className="prompts-header">
+                        <h3>Suggested Prompts</h3>
+                        {selectedPrompts.size > 0 && (
+                            <VSCodeButton onClick={handleApplySelectedPrompts}>
+                                Apply Selected ({selectedPrompts.size})
+                            </VSCodeButton>
+                        )}
+                    </div>
+                    <div className="prompts-list">
+                        {visiblePrompts.map((prompt, index) => (
+                            <div key={index} className="prompt-item">
+                                {editingPromptIndex === index ? (
+                                    <div className="prompt-edit-container">
+                                        <textarea
+                                            value={editingPromptText}
+                                            onChange={(e) => setEditingPromptText(e.target.value)}
+                                            className="prompt-edit-input"
+                                            autoFocus
+                                        />
+                                        <div className="prompt-edit-buttons">
+                                            <VSCodeButton
+                                                appearance="icon"
+                                                onClick={handlePromptEditSave}
+                                                title="Save"
+                                            >
+                                                <i className="codicon codicon-check"></i>
+                                            </VSCodeButton>
+                                            <VSCodeButton
+                                                appearance="icon"
+                                                onClick={handlePromptEditCancel}
+                                                title="Cancel"
+                                            >
+                                                <i className="codicon codicon-close"></i>
+                                            </VSCodeButton>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="prompt-display">
+                                        <VSCodeCheckbox
+                                            checked={selectedPrompts.has(prompt)}
+                                            onChange={(e) => {
+                                                e.stopPropagation(); // Stop event from reaching the span
+                                                handlePromptSelect(prompt);
+                                            }}
+                                        >
+                                            <span
+                                                className="prompt-text"
+                                                onClick={(e) => handlePromptEdit(index, e)}
+                                                title="Click to edit"
+                                            >
+                                                {prompt}
+                                            </span>
+                                        </VSCodeCheckbox>
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
             <div className={`text-editor ${showFlashingBorder ? "flashing-border" : ""}`}>
                 <Editor
                     currentLineId={cellMarkers[0]}
@@ -480,103 +647,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     )}
                 </div>
             </div>
-            <style>{`
-                .cell-editor {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 1rem;
-                }
-                
-                .header-controls {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    gap: 1rem;
-                }
-
-                .input-group {
-                    display: flex;
-                    gap: 1rem;
-                    flex-grow: 1;
-                }
-
-                .label-container, .prompt-container {
-                    display: flex;
-                    align-items: center;
-                    gap: 0.5rem;
-                    background: var(--vscode-input-background);
-                    border: 1px solid var(--vscode-input-border);
-                    padding: 2px;
-                }
-
-                .label-input {
-                    width: 200px;
-                }
-
-                .prompt-input {
-                    width: 250px;
-                    resize: none;
-                }
-
-                .label-input, .prompt-input {
-                    background: transparent;
-                    border: none;
-                    color: var(--vscode-input-foreground);
-                }
-
-                .action-buttons, .footer-buttons {
-                    display: flex;
-                    gap: 0.5rem;
-                }
-
-                @keyframes flash {
-                    50% { border-color: var(--vscode-button-background); }
-                }
-
-                .prompt-container {
-                    position: relative;
-                }
-
-                .prompt-input {
-                    width: 250px;
-                    resize: none;
-                    position: absolute;
-                    background: transparent;
-                    color: transparent;
-                    caret-color: var(--vscode-input-foreground);
-                }
-
-                .prompt-preview {
-                    width: 250px;
-                    white-space: pre-wrap;
-                    pointer-events: none;
-                }
-
-                .cell-reference {
-                    color: var(--vscode-textLink-foreground);
-                }
-
-                .suggestions-dropdown {
-                    position: absolute;
-                    top: 100%;
-                    left: 0;
-                    right: 0;
-                    background: var(--vscode-input-background);
-                    border: 1px solid var(--vscode-input-border);
-                    max-height: 200px;
-                    overflow-y: auto;
-                    z-index: 1000;
-                }
-
-                .suggestion-item {
-                    padding: 4px 8px;
-                    cursor: pointer;
-                }
-
-                .suggestion-item:hover {
-                    background: var(--vscode-list-hoverBackground);
-                }
-            `}</style>
         </div>
     );
 };

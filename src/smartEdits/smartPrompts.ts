@@ -125,8 +125,8 @@ export class PromptedSmartEdits {
         }
     }
 
-    async getAndApplyTopPrompts(cellId: string, text: string): Promise<string> {
-        console.log(`Getting and applying top prompt for cellId: ${cellId}`);
+    async getTopPrompts(cellId: string, text: string): Promise<string[]> {
+        console.log(`Getting top prompts for cellId: ${cellId}`);
 
         // Find similar cells
         const similarCells = await this.findSimilarCells(text);
@@ -135,34 +135,12 @@ export class PromptedSmartEdits {
 
         // Get prompt for current cell and similar cells
         const promptPromises = cellIds.map((id) => this.getPromptFromCellId(id));
-        const allPrompt = await Promise.all(promptPromises);
-        console.log(`Retrieved ${allPrompt.length} pieces of prompt`);
+        const allPrompts = await Promise.all(promptPromises);
+        console.log(`Retrieved ${allPrompts.length} pieces of prompt`);
 
-        // Filter out null values and get most recent valid prompt
-        const validPrompt = allPrompt.filter((prompt) => prompt !== null)[0];
-        console.log(`Found valid prompt: ${validPrompt ? "yes" : "no"}`);
-
-        if (!validPrompt) {
-            console.log("No valid prompt found, returning original text");
-            return text;
-        }
-
-        try {
-            console.log("Applying prompt using chatbot");
-            // Apply the prompt using chatbot
-            const message = `Prompt: ${validPrompt}\n\nModify this text according to this prompt:\n\n${text} \n\nPlease return the modified text in the json format specified, do not include any HTML in your response or in the text.`;
-            const response = await this.chatbot.getJsonCompletion(message);
-
-            if (response && response.modifiedText) {
-                console.log("Successfully modified text with prompt");
-                return response.modifiedText;
-            }
-            console.log("No modified text in response, returning original");
-            return text;
-        } catch (error) {
-            console.error("Error applying prompt:", error);
-            return text;
-        }
+        // Filter out null values and return valid prompts
+        const validPrompts = allPrompts.filter((prompt): prompt is string => prompt !== null);
+        return validPrompts;
     }
 
     private async savePromptToCellId(

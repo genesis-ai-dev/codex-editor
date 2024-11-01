@@ -144,10 +144,15 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
         await initializeBibleData(context);
 
         client = await registerLanguageServer(context);
-
-        if (client) {
+        if (client && db) {
+            try {
+                await registerClientOnRequests(client, db);
+                // Start the client after registering handlers
+                await client.start();
+            } catch (error) {
+                console.error("Error registering client requests:", error);
+            }
             clientCommandsDisposable = registerClientCommands(context, client);
-            await registerClientOnRequests(client); // So that the language server thread can interface with the main extension commands
             context.subscriptions.push(clientCommandsDisposable);
         }
 

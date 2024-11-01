@@ -12,9 +12,12 @@ const vscode: any = (window as any).vscodeApi;
 // Register the QuillSpellChecker with the VSCode API
 registerQuillSpellChecker(Quill, vscode);
 // Use VSCode icon for autocomplete
-icons["autocomplete"] = `<i class="codicon codicon-sparkle quill-toolbar-icon"></i>`;
-icons["openLibrary"] = `<i class="codicon codicon-book quill-toolbar-icon"></i>`;
-icons["applyTopPrompts"] = `<i class="codicon codicon-symbol-event quill-toolbar-icon"></i>`; // Add new icon
+icons[
+    "autocomplete"
+] = `<i class="codicon codicon-sparkle quill-toolbar-icon" style="color: var(--vscode-editor-foreground)"></i>`;
+icons[
+    "openLibrary"
+] = `<i class="codicon codicon-book quill-toolbar-icon" style="color: var(--vscode-editor-foreground)"></i>`;
 
 export interface EditorContentChanged {
     html: string;
@@ -43,7 +46,7 @@ const TOOLBAR_OPTIONS = [
     [{ indent: "-1" }, { indent: "+1" }],
     ["clean"],
     ["openLibrary"], // Library button
-    ["autocomplete", "applyTopPrompts"], // Add both dynamic buttons here
+    ["autocomplete"], // Keep only autocomplete
 ];
 
 export default function Editor(props: EditorProps) {
@@ -123,16 +126,6 @@ export default function Editor(props: EditorProps) {
                                 setWordsToAdd(words);
                                 setShowModal(true);
                             },
-                            applyTopPrompts: async () => {
-                                const content = quill.getText();
-                                window.vscodeApi.postMessage({
-                                    command: "getAndApplyTopPrompts",
-                                    content: {
-                                        text: content,
-                                        cellId: props.currentLineId,
-                                    },
-                                });
-                            },
                         },
                     },
                     spellChecker: {},
@@ -147,17 +140,14 @@ export default function Editor(props: EditorProps) {
                 const empty = isQuillEmpty(quill);
                 setIsEditorEmpty(empty);
 
-                // Get the buttons
+                // Get the autocomplete button only
                 const autocompleteButton = document.querySelector(".ql-autocomplete");
-                const applyPromptButton = document.querySelector(".ql-applyTopPrompts");
 
-                if (autocompleteButton && applyPromptButton) {
+                if (autocompleteButton) {
                     if (empty) {
                         (autocompleteButton as HTMLElement).style.display = "";
-                        (applyPromptButton as HTMLElement).style.display = "none";
                     } else {
                         (autocompleteButton as HTMLElement).style.display = "none";
-                        (applyPromptButton as HTMLElement).style.display = "";
                     }
                 }
             };

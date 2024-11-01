@@ -787,24 +787,22 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         }
                         return;
                     }
-                    case "getAndApplyTopPrompts": {
-                        console.log("getAndApplyTopPrompts message received", { e });
+                    case "getTopPrompts": {
+                        console.log("getTopPrompts message received", { e });
                         try {
                             const result = await vscode.commands.executeCommand(
-                                "codex-smart-edits.getAndApplyTopPrompts",
+                                "codex-smart-edits.getTopPrompts",
                                 e.content.cellId,
                                 e.content.text
                             );
-                            console.log("providerSendsPromptedEditResponse", { result });
+                            console.log("providerSendsTopPrompts", { result });
                             this.postMessageToWebview(webviewPanel, {
-                                type: "providerSendsPromptedEditResponse",
-                                content: result as string,
+                                type: "providerSendsTopPrompts",
+                                content: result as string[],
                             });
                         } catch (error) {
                             console.error("Error getting and applying prompted edit:", error);
-                            vscode.window.showErrorMessage(
-                                "Failed to get and apply prompted edit."
-                            );
+                            vscode.window.showErrorMessage("Failed to get top prompts.");
                         }
                         return;
                     }

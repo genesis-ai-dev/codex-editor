@@ -98,18 +98,15 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
     );
     context.subscriptions.push(
         vscode.commands.registerCommand(
-            "codex-smart-edits.getAndApplyTopPrompts",
+            "codex-smart-edits.getTopPrompts",
             async (cellId: string, text: string) => {
                 try {
-                    const modifiedText = await promptedSmartEdits.getAndApplyTopPrompts(
-                        cellId,
-                        text
-                    );
-                    return modifiedText;
+                    const prompts = await promptedSmartEdits.getTopPrompts(cellId, text);
+                    return prompts;
                 } catch (error) {
-                    console.error("Error getting and applying prompted edit:", error);
+                    console.error("Error getting top prompts:", error);
                     vscode.window.showErrorMessage(
-                        "Failed to get and apply prompted edit. Please check the console for more details."
+                        "Failed to get top prompts. Please check the console for more details."
                     );
                     return null;
                 }

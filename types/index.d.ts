@@ -395,7 +395,7 @@ export type EditorPostMessages =
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string } }
     | { command: "pickVideoFile" }
     | { command: "applyPromptedEdit"; content: { text: string; prompt: string; cellId: string } }
-    | { command: "getAndApplyTopPrompts"; content: { text: string; cellId: string } }
+    | { command: "getTopPrompts"; content: { text: string; cellId: string } }
     | {
           command: "supplyRecentEditHistory";
           content: {
@@ -427,7 +427,8 @@ type EditorReceiveMessages =
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata }
     | { type: "updateVideoUrlInWebview"; content: string }
     | { type: "providerSendsPromptedEditResponse"; content: string }
-    | { type: "providerSendsSimilarCellIdsResponse"; content: { cellId: string; score: number }[] };
+    | { type: "providerSendsSimilarCellIdsResponse"; content: { cellId: string; score: number }[] }
+    | { type: "providerSendsTopPrompts"; content: string[] };
 
 type EditHistory = {
     cellValue: string;
