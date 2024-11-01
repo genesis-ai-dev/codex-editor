@@ -981,6 +981,7 @@ export class SourceUploadProvider
             webviewPanel.webview.postMessage({
                 command: "biblePreview",
                 preview: {
+                    type: "bible",
                     original: {
                         preview: (preview as CodexNotebookAsJSONData).cells
                             .slice(0, 10)

@@ -107,20 +107,22 @@ export function useVSCodeMessageHandler() {
                     break;
 
                 case "sourcePreview":
+                case "translationPreview":
                     if (message.previews) {
                         setWorkflow((prev) => ({
                             ...prev,
                             step: "preview",
-                            previews: message.previews.map((preview) => ({
+                            previews: message.previews.map(preview => ({
                                 id: preview.id,
                                 fileName: preview.fileName,
                                 fileSize: preview.fileSize,
                                 isValid: true,
                                 preview: {
                                     ...preview.preview,
-                                    type: "source",
+                                    type: message.command === "sourcePreview" ? "source" : "translation",
                                 },
-                            })),
+                                ...(message.command === "translationPreview" ? { sourceId: preview.id } : {})
+                            }))
                         }));
                     }
                     break;
@@ -134,26 +136,6 @@ export function useVSCodeMessageHandler() {
                                 ...prev.bibleDownload!,
                                 status: "error",
                             },
-                        }));
-                    }
-                    break;
-
-                case "translationPreview":
-                    if (message.previews) {
-                        setWorkflow((prev) => ({
-                            ...prev,
-                            step: "preview",
-                            previews: message.previews.map((preview) => ({
-                                id: preview.id,
-                                fileName: preview.fileName,
-                                fileSize: preview.fileSize,
-                                isValid: true,
-                                sourceId: preview.sourceId,
-                                preview: {
-                                    ...preview.preview,
-                                    type: "translation",
-                                },
-                            })),
                         }));
                     }
                     break;
@@ -198,11 +180,7 @@ export function useVSCodeMessageHandler() {
                         setWorkflow((prev) => ({
                             ...prev,
                             step: "preview",
-                            preview: {
-                                type: "bible",
-                                original: message.preview.original,
-                                transformed: message.preview.transformed,
-                            },
+                            preview: message.preview,
                             currentTransaction: message.transaction,
                         }));
                     }

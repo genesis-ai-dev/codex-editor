@@ -503,20 +503,61 @@ export const SourceUploader: React.FC = () => {
                     </div>
                 );
 
-            case "preview": {
-                const currentType = workflow.importType || "source";
+            case "preview":
+                if (workflow.importType === "bible-download" && workflow.preview) {
+                    return (
+                        <BiblePreview
+                            preview={{ ...workflow.preview, type: "bible" } as BiblePreviewData}
+                            onConfirm={() => {
+                                if (workflow.currentTransaction) {
+                                    vscode.postMessage({
+                                        command: "confirmBibleDownload",
+                                        transaction: workflow.currentTransaction,
+                                    });
+                                }
+                            }}
+                            onCancel={() => {
+                                if (workflow.currentTransaction) {
+                                    vscode.postMessage({
+                                        command: "cancelBibleDownload",
+                                        transaction: workflow.currentTransaction,
+                                    });
+                                }
+                            }}
+                        />
+                    );
+                }
+
+                // For source and translation imports, show multiple previews
                 return (
                     <MultiPreviewContainer
                         previews={workflow.previews}
-                        onConfirm={() =>
-                            // Not handling bible downloading here..
-                            handlePreviewConfirm(currentType as "source" | "translation")
-                        }
-                        onCancel={handlePreviewCancel}
-                        onRejectPreview={handlePreviewReject}
+                        onConfirm={() => {
+                            vscode.postMessage({
+                                command:
+                                    workflow.importType === "translation"
+                                        ? "confirmTranslationImport"
+                                        : "confirmSourceImport",
+                            });
+                        }}
+                        onCancel={() => {
+                            vscode.postMessage({
+                                command:
+                                    workflow.importType === "translation"
+                                        ? "cancelTranslationImport"
+                                        : "cancelSourceImport",
+                            });
+                        }}
+                        onRejectPreview={(id) => {
+                            setWorkflow((prev) => ({
+                                ...prev,
+                                previews: prev.previews.map((p) =>
+                                    p.id === id ? { ...p, isRejected: true } : p
+                                ),
+                            }));
+                        }}
                     />
                 );
-            }
 
             // case "processing":
             //     return (

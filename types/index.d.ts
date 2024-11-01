@@ -873,6 +873,7 @@ export interface CustomNotebookPreviewWithMetadata {
 }
 
 export interface BiblePreviewData {
+    type: "bible";
     original: {
         preview: string;
         validationResults: {
