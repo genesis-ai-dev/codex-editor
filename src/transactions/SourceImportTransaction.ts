@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { ImportTransaction } from "./ImportTransaction";
+import { ImportTransaction, ImportTransactionState } from "./ImportTransaction";
 import { CustomNotebookMetadata, NotebookPreview, RawSourcePreview } from "../../types";
 import { SourceAnalyzer } from "../validation/sourceAnalyzer";
 import { SourceFileValidator } from "../validation/sourceFileValidator";
@@ -7,8 +7,11 @@ import { NotebookMetadataManager } from "../utils/notebookMetadataManager";
 import path from "path";
 import { ProgressManager, ProgressStep } from "../utils/progressManager";
 import { CodexCellTypes } from "../../types/enums";
+import { random } from "lodash";
+import { randomUUID } from "crypto";
 
 export class SourceImportTransaction extends ImportTransaction {
+    public id: string;
     private preview: RawSourcePreview | null = null;
     private analyzer: SourceAnalyzer;
     private metadataManager: NotebookMetadataManager;
@@ -25,9 +28,18 @@ export class SourceImportTransaction extends ImportTransaction {
 
     constructor(sourceFile: vscode.Uri, context: vscode.ExtensionContext) {
         super(sourceFile);
+        this.id = randomUUID();
         this.context = context;
         this.analyzer = new SourceAnalyzer(new SourceFileValidator());
         this.metadataManager = new NotebookMetadataManager();
+    }
+
+    public getId(): string {
+        return this.id;
+    }
+
+    public getState(): ImportTransactionState {
+        return this.state;
     }
 
     async prepare(): Promise<RawSourcePreview> {

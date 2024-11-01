@@ -758,6 +758,7 @@ interface BasePreview {
 
 export interface SourcePreview extends BasePreview {
     type: "source";
+    fileSize?: number;
     transformed: {
         books?: Array<{
             name: string;

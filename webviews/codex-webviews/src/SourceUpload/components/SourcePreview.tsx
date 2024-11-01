@@ -15,24 +15,25 @@ interface SourcePreviewProps {
     hideActions?: boolean;
 }
 
-export const SourcePreview: React.FC<SourcePreviewProps> = ({ preview, onConfirm, onCancel, hideActions }) => {
+export const SourcePreview: React.FC<SourcePreviewProps> = ({
+    preview,
+    onConfirm,
+    onCancel,
+    hideActions,
+}) => {
+    if (!preview?.original) {
+        return <div>No preview available</div>;
+    }
+
     return (
-        <div
-            style={{
-                padding: "2rem",
-                maxWidth: "800px",
-                margin: "0 auto",
-                display: "flex",
-                flexDirection: "column",
-                gap: "1.5rem",
-            }}
-        >
+        <div>
             <h3>Source File Preview</h3>
-
+            {preview.fileSize && (
+                <div style={{ marginBottom: "1rem", color: "var(--vscode-descriptionForeground)" }}>
+                    File size: {formatFileSize(preview.fileSize)}
+                </div>
+            )}
             <VSCodePanels>
-                <VSCodePanelTab id="tab-1">Original Content</VSCodePanelTab>
-                <VSCodePanelTab id="tab-2">Transformed Content</VSCodePanelTab>
-
                 <VSCodePanelView id="view-1">
                     <div
                         style={{
@@ -58,38 +59,12 @@ export const SourcePreview: React.FC<SourcePreviewProps> = ({ preview, onConfirm
                         <ValidationResult key={index} result={result} />
                     ))}
                 </VSCodePanelView>
-
-                <VSCodePanelView id="view-2">
-                    <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-                        <div>
-                            <h4>Source Notebooks ({preview.transformed.sourceNotebooks.length})</h4>
-                            {preview.transformed.sourceNotebooks.map((notebook, index) => (
-                                <NotebookPreview key={index} notebook={notebook} type="source" />
-                            ))}
-                        </div>
-
-                        <div>
-                            <h4>Target Notebooks ({preview.transformed.codexNotebooks.length})</h4>
-                            {preview.transformed.codexNotebooks.map((notebook, index) => (
-                                <NotebookPreview key={index} notebook={notebook} type="target" />
-                            ))}
-                        </div>
-
-                        {preview.transformed.validationResults.map((result, index) => (
-                            <ValidationResult key={index} result={result} />
-                        ))}
-                    </div>
-                </VSCodePanelView>
             </VSCodePanels>
 
             {!hideActions && (
-                <div className="action-buttons">
-                    <VSCodeButton appearance="secondary" onClick={onCancel}>
-                        Back
-                    </VSCodeButton>
-                    <VSCodeButton onClick={onConfirm}>
-                        Continue
-                    </VSCodeButton>
+                <div style={{ marginTop: "1rem", display: "flex", gap: "0.5rem" }}>
+                    <VSCodeButton onClick={onConfirm}>Import</VSCodeButton>
+                    <VSCodeButton onClick={onCancel}>Cancel</VSCodeButton>
                 </div>
             )}
         </div>

@@ -91,10 +91,10 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
     useEffect(() => {
         if (type === "translation" && associations.length > 0) {
             const validAssociations = associations
-                .filter(a => a.codexId !== null)
-                .map(a => ({ 
-                    file: a.file, 
-                    codexId: a.codexId! 
+                .filter((a) => a.codexId !== null)
+                .map((a) => ({
+                    file: a.file,
+                    codexId: a.codexId!,
                 }));
 
             if (validAssociations.length > 0) {
@@ -102,7 +102,7 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
             }
         }
     }, [associations, type, onAssociationChange]);
-    
+
     const { getRootProps, getInputProps, isDragActive } = useDropzone({
         onDrop: (files) => {
             if (type === "translation") {
@@ -110,14 +110,14 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
                 const newAssociations: TranslationFileAssociation[] = [];
                 const usedCodexIds = new Set<string>();
 
-                files.forEach(file => {
+                files.forEach((file) => {
                     const bestMatch = findBestCodexMatch(file, availableCodexFiles, usedCodexIds);
                     if (bestMatch) {
                         usedCodexIds.add(bestMatch.id);
                     }
                     newAssociations.push({
                         file,
-                        codexId: bestMatch?.id || null
+                        codexId: bestMatch?.id || null,
                     });
                 });
 

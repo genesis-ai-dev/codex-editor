@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { SourceUploadResponseMessages } from "../../../../../types";
 import { WorkflowState, BibleDownloadStages } from "../types";
+import path from "path";
 
 const vscode = acquireVsCodeApi();
 const initialWorkflowState: WorkflowState = {
@@ -107,22 +108,39 @@ export function useVSCodeMessageHandler() {
                     break;
 
                 case "sourcePreview":
+                    if (message.previews) {
+                        setWorkflow((prev) => ({
+                            ...prev,
+                            step: "preview",
+                            previews: message.previews.map((preview) => ({
+                                id: preview.id,
+                                fileName: preview.fileName,
+                                fileSize: preview.fileSize,
+                                isValid: true, // Add required isValid property
+                                preview: preview.preview,
+                            })),
+                        }));
+                    }
+                    break;
+
                 case "translationPreview":
                     if (message.previews) {
                         setWorkflow((prev) => ({
                             ...prev,
                             step: "preview",
-                            previews: message.previews.map(preview => ({
+                            previews: message.previews.map((preview) => ({
                                 id: preview.id,
                                 fileName: preview.fileName,
                                 fileSize: preview.fileSize,
                                 isValid: true,
                                 preview: {
                                     ...preview.preview,
-                                    type: message.command === "sourcePreview" ? "source" : "translation",
+                                    type: "translation",
                                 },
-                                ...(message.command === "translationPreview" ? { sourceId: preview.id } : {})
-                            }))
+                                ...(message.command === "translationPreview"
+                                    ? { sourceId: preview.id }
+                                    : {}),
+                            })),
                         }));
                     }
                     break;

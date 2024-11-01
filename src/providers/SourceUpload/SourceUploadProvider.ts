@@ -879,66 +879,66 @@ export class SourceUploadProvider
         return this.currentPreview;
     }
 
-    private async handleSourceImport(
-        webviewPanel: vscode.WebviewPanel,
-        fileUri: vscode.Uri,
-        token: vscode.CancellationToken
-    ): Promise<void> {
-        const transaction = new SourceImportTransaction(fileUri, this.context);
+    // private async handleSourceImport(
+    //     webviewPanel: vscode.WebviewPanel,
+    //     fileUri: vscode.Uri,
+    //     token: vscode.CancellationToken
+    // ): Promise<void> {
+    //     const transaction = new SourceImportTransaction(fileUri, this.context);
 
-        try {
-            // Prepare and show preview
-            const preview = await transaction.prepare();
-            webviewPanel.webview.postMessage({
-                command: "preview",
-                preview,
-            });
+    //     try {
+    //         // Prepare and show preview
+    //         const preview = await transaction.prepare();
+    //         webviewPanel.webview.postMessage({
+    //             command: "preview",
+    //             preview,
+    //         });
 
-            // Wait for user confirmation
-            const confirmed = await this.awaitConfirmation(webviewPanel);
-            if (!confirmed) {
-                await transaction.rollback();
-                return;
-            }
+    //         // Wait for user confirmation
+    //         const confirmed = await this.awaitConfirmation(webviewPanel);
+    //         if (!confirmed) {
+    //             await transaction.rollback();
+    //             return;
+    //         }
 
-            // Execute with progress
-            await vscode.window.withProgress(
-                {
-                    location: { viewId: "sourceUpload" },
-                    cancellable: true,
-                },
-                async (progress, token) => {
-                    // Forward progress to webview
-                    const progressCallback = (p: { message?: string; increment?: number }) => {
-                        webviewPanel.webview.postMessage({
-                            command: "progress",
-                            progress: p,
-                        });
-                        progress.report(p);
-                    };
+    //         // Execute with progress
+    //         await vscode.window.withProgress(
+    //             {
+    //                 location: { viewId: "sourceUpload" },
+    //                 cancellable: true,
+    //             },
+    //             async (progress, token) => {
+    //                 // Forward progress to webview
+    //                 const progressCallback = (p: { message?: string; increment?: number }) => {
+    //                     webviewPanel.webview.postMessage({
+    //                         command: "progress",
+    //                         progress: p,
+    //                     });
+    //                     progress.report(p);
+    //                 };
 
-                    token.onCancellationRequested(() => {
-                        transaction.rollback();
-                        webviewPanel.webview.postMessage({
-                            command: "error",
-                            error: "Operation cancelled",
-                        });
-                    });
+    //                 token.onCancellationRequested(() => {
+    //                     transaction.rollback();
+    //                     webviewPanel.webview.postMessage({
+    //                         command: "error",
+    //                         error: "Operation cancelled",
+    //                     });
+    //                 });
 
-                    await transaction.execute({ report: progressCallback }, token);
-                }
-            );
+    //                 await transaction.execute({ report: progressCallback }, token);
+    //             }
+    //         );
 
-            webviewPanel.webview.postMessage({ command: "complete" });
-        } catch (error) {
-            await transaction.rollback();
-            webviewPanel.webview.postMessage({
-                command: "error",
-                error: error instanceof Error ? error.message : "Unknown error occurred",
-            });
-            throw error;
-        }
-    }
+    //         webviewPanel.webview.postMessage({ command: "complete" });
+    //     } catch (error) {
+    //         await transaction.rollback();
+    //         webviewPanel.webview.postMessage({
+    //             command: "error",
+    //             error: error instanceof Error ? error.message : "Unknown error occurred",
+    //         });
+    //         throw error;
+    //     }
+    // }
 
     private async awaitConfirmation(webviewPanel: vscode.WebviewPanel): Promise<boolean> {
         return new Promise((resolve) => {
@@ -1078,7 +1078,7 @@ export class SourceUploadProvider
         files: Array<{ content: string; name: string }>,
         token: vscode.CancellationToken
     ): Promise<void> {
-        const BATCH_SIZE = 5; // Process 5 files at a time
+        const BATCH_SIZE = 5;
         const transactions: SourceImportTransaction[] = [];
 
         try {
@@ -1099,16 +1099,35 @@ export class SourceUploadProvider
                 // Prepare previews in parallel
                 const previews = await Promise.all(
                     batch.map(async (transaction) => {
-                        const preview = await transaction.prepare();
-                        return { transaction, preview };
+                        const rawPreview = await transaction.prepare();
+                        return {
+                            id: transaction.getId(),
+                            fileName: path.basename(transaction.getState().sourceFile.fsPath),
+                            fileSize: (
+                                await vscode.workspace.fs.stat(transaction.getState().sourceFile)
+                            ).size,
+                            preview: {
+                                type: "source",
+                                original: {
+                                    preview: rawPreview.originalContent.preview,
+                                    validationResults: rawPreview.originalContent.validationResults,
+                                },
+                                transformed: {
+                                    sourceNotebooks: rawPreview.transformedContent.sourceNotebooks,
+                                    codexNotebooks: rawPreview.transformedContent.codexNotebooks,
+                                    validationResults:
+                                        rawPreview.transformedContent.validationResults,
+                                },
+                            },
+                        };
                     })
                 );
 
                 // Send previews to webview
                 webviewPanel.webview.postMessage({
                     command: "sourcePreview",
-                    previews: previews.map((p) => p.preview),
-                });
+                    previews: previews,
+                } as SourceUploadResponseMessages);
 
                 // Execute transactions in parallel with progress
                 await vscode.window.withProgress(
