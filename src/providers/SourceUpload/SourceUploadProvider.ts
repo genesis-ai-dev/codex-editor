@@ -1078,6 +1078,9 @@ export class SourceUploadProvider
         files: Array<{ content: string; name: string }>,
         token: vscode.CancellationToken
     ): Promise<void> {
+        // FIXME: we're not pausing to let the user review and confirm/cancel multiple previews.
+        // The download bible transaction *does* currently pause, but the source and translation
+        // imports do not.
         const BATCH_SIZE = 5;
         const transactions: SourceImportTransaction[] = [];
 
