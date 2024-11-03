@@ -35,6 +35,7 @@ const extensionConfig = {
         alias: {
             "@": path.resolve(__dirname, "src"),
             "@types": path.resolve(__dirname, "types"),
+            "sqldb": path.resolve(__dirname, "src/sqldb"),
         },
     },
     module: {
