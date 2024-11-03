@@ -72,11 +72,20 @@ class ProjectManagerStore {
             const config = vscode.workspace.getConfiguration("codex-project-manager");
             let watchedFolders = config.get<string[]>("watchedFolders") || [];
 
-            // Add workspace folder if it exists and isn't already watched
+            // Add workspace folder and its parent if they exist and aren't already watched
             if (vscode.workspace.workspaceFolders?.[0]) {
                 const workspacePath = vscode.workspace.workspaceFolders[0].uri.fsPath;
-                if (!watchedFolders.includes(workspacePath)) {
-                    watchedFolders = [workspacePath, ...watchedFolders];
+                const parentPath = vscode.Uri.joinPath(
+                    vscode.workspace.workspaceFolders[0].uri,
+                    ".."
+                ).fsPath;
+
+                const pathsToAdd = [workspacePath, parentPath].filter(
+                    (path) => !watchedFolders.includes(path)
+                );
+
+                if (pathsToAdd.length > 0) {
+                    watchedFolders = [...pathsToAdd, ...watchedFolders];
                     await config.update(
                         "watchedFolders",
                         watchedFolders,
@@ -208,7 +217,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private _context: vscode.ExtensionContext;
     private store: ProjectManagerStore;
-    private refreshInterval: NodeJS.Timer | null = null;
+    private refreshInterval: ReturnType<typeof setInterval> | null = null;
 
     constructor(context: vscode.ExtensionContext) {
         this._context = context;
@@ -778,7 +787,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 if (this._view?.visible) {
                     await this.refreshState();
                 }
-            }, 5000); // Poll every 5 seconds instead of 1 second
+            }, 1000); // Poll every 1 second
         }
     }
 

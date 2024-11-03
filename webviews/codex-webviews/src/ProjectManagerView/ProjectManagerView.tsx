@@ -45,30 +45,111 @@ function ProjectManagerView() {
     const [state, setState] = useState<ProjectState>({
         projects: null,
         projectOverview: null,
-        isScanning: false,
+        isScanning: true,
         watchedFolders: [],
     });
 
-    useEffect(() => {
-        const handler = (message: MessageEvent) => {
-            if (message.data.type === "stateUpdate") {
-                setState(message.data.state);
-            }
-        };
-
-        window.addEventListener("message", handler);
-        vscode.postMessage({ command: "webviewReady" });
-
-        return () => window.removeEventListener("message", handler);
-    }, []);
+    const [initialized, setInitialized] = useState(false);
+    const [retryCount, setRetryCount] = useState(0);
 
     const handleAction = (command: string, data?: any) => {
         vscode.postMessage({ command, data });
     };
 
-    // Simple loading state
+    useEffect(() => {
+        const handler = (message: MessageEvent) => {
+            if (message.data.type === "stateUpdate") {
+                setState(message.data.state);
+                setInitialized(true);
+            }
+        };
+
+        window.addEventListener("message", handler);
+
+        // Initial state request with retry logic
+        const requestInitialState = () => {
+            vscode.postMessage({ command: "webviewReady" });
+        };
+
+        const retryWithBackoff = () => {
+            if (!initialized && retryCount < 5) {
+                // Max 5 retries
+                const backoffTime = Math.min(1000 * Math.pow(2, retryCount), 10000); // Max 10 seconds
+                setTimeout(() => {
+                    requestInitialState();
+                    setRetryCount((prev) => prev + 1);
+                }, backoffTime);
+            }
+        };
+
+        // Initial request
+        requestInitialState();
+
+        // Setup retry timer
+        const retryTimer = setTimeout(retryWithBackoff, 1000);
+
+        return () => {
+            window.removeEventListener("message", handler);
+            clearTimeout(retryTimer);
+        };
+    }, [initialized, retryCount]);
+
+    // Show loading state with retry information
+    if (!initialized) {
+        return (
+            <div
+                style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    height: "100vh",
+                    gap: "1rem",
+                }}
+            >
+                <div
+                    style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.5rem",
+                    }}
+                >
+                    <i className="codicon codicon-loading codicon-modifier-spin"></i>
+                    <span>
+                        Loading project manager
+                        {retryCount > 0 ? ` (attempt ${retryCount + 1})` : ""}...
+                    </span>
+                </div>
+                {retryCount >= 5 && (
+                    <VSCodeButton
+                        onClick={() => {
+                            setRetryCount(0);
+                            vscode.postMessage({ command: "webviewReady" });
+                        }}
+                    >
+                        <i className="codicon codicon-refresh"></i>
+                        Retry Loading
+                    </VSCodeButton>
+                )}
+            </div>
+        );
+    }
+
+    // Show scanning indicator only after initial load
     if (state.isScanning) {
-        return <div>Scanning projects...</div>;
+        return (
+            <div
+                style={{
+                    padding: "1rem",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.5rem",
+                }}
+            >
+                <i className="codicon codicon-loading codicon-modifier-spin"></i>
+                <span>Scanning projects...</span>
+            </div>
+        );
     }
 
     return (
