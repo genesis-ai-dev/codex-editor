@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.0.60",
+    "version": "0.0.61",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -1126,7 +1126,7 @@
         "@types/glob": "^7.1.1",
         "@types/lodash": "^4.17.13",
         "@types/md5": "^2.3.5",
-        "@types/mocha": "^10.0.1",
+        "@types/mocha": "^10.0.9",
         "@types/node": "^14.18.63",
         "@types/react": "^18.3.3",
         "@types/react-dom": "^18.3.1",
@@ -1143,7 +1143,9 @@
         "@vscode/vsce-sign": "^2.0.3",
         "assert": "^2.1.0",
         "browserify-zlib": "^0.2.0",
+        "codex-types": "^0.0.4",
         "cross-env": "^7.0.3",
+        "crypto-browserify": "^3.12.1",
         "eslint": "^7.27.0",
         "glob": "^7.1.4",
         "html-loader": "^5.1.0",
@@ -1163,8 +1165,7 @@
         "vscode-languageserver-textdocument": "^1.0.12",
         "vscode-test": "^1.5.0",
         "webpack": "^5.95.0",
-        "webpack-cli": "^5.1.4",
-        "codex-types": "^0.0.4"
+        "webpack-cli": "^5.1.4"
     },
     "dependencies": {
         "@types/better-sqlite3": "^7.6.11",

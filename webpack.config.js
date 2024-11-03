@@ -133,7 +133,7 @@ const testConfig = {
     resolve: {
         extensions: [".ts", ".js"],
         fallback: {
-            assert: require.resolve("assert/"), // Add this fallback
+            assert: require.resolve("assert/"),
             process: require.resolve("process/browser"),
             url: require.resolve("url/"),
             fs: require.resolve("memfs"),
@@ -141,6 +141,7 @@ const testConfig = {
             stream: require.resolve("stream-browserify"),
             util: require.resolve("util/"),
             os: require.resolve("os-browserify/browser"),
+            crypto: require.resolve("crypto-browserify"),
         },
     },
     module: {
