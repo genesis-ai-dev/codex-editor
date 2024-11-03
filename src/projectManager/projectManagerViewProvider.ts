@@ -26,6 +26,7 @@ interface ProjectManagerState {
         isOutdated?: boolean;
     }> | null;
     isScanning: boolean;
+    canInitializeProject: boolean;
 }
 
 class ProjectManagerStore {
@@ -35,6 +36,7 @@ class ProjectManagerStore {
         watchedFolders: [],
         projects: null,
         isScanning: false,
+        canInitializeProject: false,
     };
 
     private initialized = false;
@@ -736,10 +738,12 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
 
     private async refreshState() {
         try {
-            // Always check initialization status first
-            const hasMetadata = vscode.workspace.workspaceFolders
-                ? await checkIfMetadataIsInitialized()
-                : false;
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            const hasWorkspace = workspaceFolders && workspaceFolders.length > 0;
+            const hasMetadata = hasWorkspace ? await checkIfMetadataIsInitialized() : false;
+
+            // Can initialize if we have a workspace but no metadata
+            const canInitializeProject = hasWorkspace && !hasMetadata;
 
             const [projects, overview] = await Promise.all([
                 findAllCodexProjects(),
@@ -760,6 +764,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                       }
                     : null,
                 isScanning: false,
+                canInitializeProject,
             });
         } catch (error) {
             console.error("Error refreshing state:", error);
