@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { getProjectMetadata, getWorkSpaceFolder } from "../utils";
+import { getProjectMetadata } from "../utils";
 import { LanguageProjectStatus } from "codex-types";
 import * as path from "path";
 import {
@@ -7,217 +7,21 @@ import {
     createProjectNotebooks,
     splitSourceFileByBook,
 } from "../utils/codexNotebookUtils";
-import {
-    EbibleCorpusMetadata,
-    downloadEBibleText,
-    ensureVrefList,
-    getEBCorpusMetadataByLanguageCode,
-} from "../utils/ebibleCorpusUtils";
-import { vrefData } from "../utils/verseRefUtils/verseData";
-import {
-    CodexNotebookAsJSONData,
-    CustomNotebookCellData,
-    CustomNotebookDocument,
-} from "../../types";
-import { CodexCellTypes } from "../../types/enums";
-
-export async function downloadBible(
-    languageType: "source" | "target"
-): Promise<vscode.Uri | undefined> {
-    const projectMetadata = await getProjectMetadata();
-    let languageCode = projectMetadata?.languages?.find(
-        (language) =>
-            language.projectStatus ===
-            (languageType === "source"
-                ? LanguageProjectStatus.SOURCE
-                : LanguageProjectStatus.TARGET)
-    )?.tag;
-
-    if (!languageCode) {
-        vscode.window.showErrorMessage(
-            `No ${languageType} language specified in project metadata.`
-        );
-        languageCode = "";
-    }
-
-    let ebibleCorpusMetadata: EbibleCorpusMetadata[] =
-        getEBCorpusMetadataByLanguageCode(languageCode);
-    if (ebibleCorpusMetadata.length === 0) {
-        vscode.window.showInformationMessage(
-            `No text bibles found for ${languageCode} in the eBible corpus.`
-        );
-        ebibleCorpusMetadata = getEBCorpusMetadataByLanguageCode(""); // Get all bibles if no language is specified
-    }
-
-    // Create quick pick items with a 'See more languages' option
-    const getQuickPickItems = (ebibleCorpusMetadata: EbibleCorpusMetadata[]) => [
-        ...ebibleCorpusMetadata.map((corpus) => ({
-            label: corpus.file,
-            description: `Download ${corpus.file}`,
-            corpus: corpus, // Add the full corpus metadata to the item
-        })),
-        {
-            label: "See more languages",
-            description: "Reload eBible metadata for all languages",
-            corpus: null, // No corpus for this option
-        },
-    ];
-
-    let selectedItem: (vscode.QuickPickItem & { corpus: EbibleCorpusMetadata | null }) | undefined;
-    let items = getQuickPickItems(ebibleCorpusMetadata);
-
-    let shouldContinue = true;
-    while (shouldContinue) {
-        selectedItem = await vscode.window.showQuickPick(items, {
-            placeHolder: `Select a ${languageType} text bible to download`,
-        });
-
-        if (!selectedItem) {
-            vscode.window.showErrorMessage("No text bible selected.");
-            return;
-        }
-
-        if (selectedItem.label === "See more languages") {
-            // Reload eBible metadata for all languages
-            ebibleCorpusMetadata = getEBCorpusMetadataByLanguageCode(""); // Get all bibles
-            items = getQuickPickItems(ebibleCorpusMetadata);
-            vscode.window.showInformationMessage("Reloaded eBible metadata for all languages.");
-        } else {
-            // If we reach here, a bible was selected
-            shouldContinue = false;
-        }
-    }
-
-    if (selectedItem && selectedItem.corpus) {
-        const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
-        if (workspaceRoot) {
-            const downloadedFileUri = await handleBibleDownload(
-                selectedItem.corpus,
-                workspaceRoot,
-                languageType
-            );
-            return downloadedFileUri;
-        }
-    }
-
-    return undefined;
-}
-
-async function handleBibleDownload(
-    corpusMetadata: EbibleCorpusMetadata,
-    workspaceRoot: string,
-    languageType: string
-): Promise<vscode.Uri> {
-    // FIXME: this has not been
-    const vrefPath = await ensureVrefList(workspaceRoot);
-
-    const bibleTextPath = path.join(
-        workspaceRoot,
-        ".project",
-        languageType === "source" ? "sourceTexts" : "targetTexts",
-        corpusMetadata.file
-    );
-    const bibleTextPathUri = vscode.Uri.file(bibleTextPath);
-    try {
-        console.log("Checking if bible text exists");
-        await vscode.workspace.fs.stat(bibleTextPathUri);
-        vscode.window.showInformationMessage(`Bible text ${corpusMetadata.file} already exists.`);
-    } catch {
-        await downloadEBibleText(corpusMetadata, workspaceRoot);
-        vscode.window.showInformationMessage(
-            `Bible text for ${corpusMetadata.lang} downloaded successfully.`
-        );
-    }
-
-    // Read the vref.txt file and the newly downloaded bible text file
-    const vrefFilePath = vscode.Uri.file(vrefPath);
-    const vrefFileData = await vscode.workspace.fs.readFile(vrefFilePath);
-    const vrefLines = new TextDecoder("utf-8").decode(vrefFileData).split(/\r?\n/);
-
-    const bibleTextData = await vscode.workspace.fs.readFile(bibleTextPathUri);
-    const bibleLines = new TextDecoder("utf-8").decode(bibleTextData).split(/\r?\n/);
-
-    // Instead of zipping, we'll create a new structure
-    //FIXME: add types
-    const bibleData: CodexNotebookAsJSONData = {
-        cells: [],
-        metadata: {
-            id: corpusMetadata.file,
-            originalName: corpusMetadata.file,
-            sourceFsPath: vscode.Uri.file(bibleTextPath).fsPath,
-            codexFsPath: vscode.Uri.file(bibleTextPath).fsPath,
-            corpusMarker: "",
-            navigation: [],
-            sourceCreatedAt: "",
-            gitStatus: "uninitialized",
-        },
-    };
-
-    let currentChapter = "";
-    let chapterCellId = "";
-    let testament: "OT" | "NT" | undefined;
-
-    vrefLines.forEach((vrefLine, index) => {
-        const bibleText = bibleLines[index] || "";
-        if (bibleText.trim() !== "") {
-            const [book, chapterVerse] = vrefLine.split(" ");
-            const [chapter, verse] = chapterVerse.split(":");
-
-            if (!testament && vrefData[book]) {
-                testament = vrefData[book].testament as "OT" | "NT";
-            }
-
-            if (chapter !== currentChapter) {
-                currentChapter = chapter;
-                chapterCellId = `${book} ${chapter}:1:${Math.random().toString(36).substr(2, 11)}`;
-                bibleData.cells.push({
-                    kind: 2,
-                    languageId: "html",
-                    value: `<h1>Chapter ${chapter}</h1>`,
-                    metadata: {
-                        type: CodexCellTypes.PARATEXT,
-                        id: chapterCellId,
-                    },
-                });
-            }
-
-            bibleData.cells.push({
-                kind: 2,
-                languageId: "html",
-                value: bibleText,
-                metadata: {
-                    type: CodexCellTypes.TEXT,
-                    id: vrefLine,
-                    data: {},
-                },
-            });
-        }
-    });
-
-    // Write the new structure to a .source file
-    const fileNameWithoutExtension = corpusMetadata.file.includes(".")
-        ? corpusMetadata.file.split(".")[0]
-        : corpusMetadata.file;
-
-    const bibleFilePath = path.join(
-        workspaceRoot,
-        ".project",
-        languageType === "source" ? "sourceTexts" : "targetTexts",
-        `${fileNameWithoutExtension}.source`
-    );
-    const bibleFileUri = vscode.Uri.file(bibleFilePath);
-    await vscode.workspace.fs.writeFile(
-        bibleFileUri,
-        new TextEncoder().encode(JSON.stringify(bibleData, null, 2))
-    );
-
-    vscode.window.showInformationMessage(`.source file created successfully at ${bibleFilePath}`);
-
-    // Split the source file by book
-    await splitSourceFileByBook(bibleFileUri, workspaceRoot, languageType);
-
-    return bibleFileUri;
-}
+// import {
+//     EbibleCorpusMetadata,
+//     getEBCorpusMetadataByLanguageCode,
+// } from "../utils/ebible/ebibleCorpusUtils";
+// // import { downloadEBibleText, ensureVrefList } from "../utils/ebible/ebibleClientOnlyUtils";
+// import { vrefData } from "../utils/verseRefUtils/verseData";
+// import {
+//     CodexNotebookAsJSONData,
+//     CustomNotebookCellData,
+//     CustomNotebookDocument,
+// } from "../../types";
+// import { CodexCellTypes } from "../../types/enums";
+// import { CodexContentSerializer } from "../serializer";
+// import { ExtendedMetadata } from "../utils/ebible/ebibleCorpusUtils";
+// import { DownloadBibleTransaction } from "../transactions/DownloadBibleTransaction";
 
 export async function setTargetFont() {
     const projectMetadata = await getProjectMetadata();
@@ -279,74 +83,6 @@ enum ConfirmationOptions {
     No = "No",
     NotNeeded = "Not-Needed",
 }
-
-// export async function setSourceAndTargetLanguage() {
-//   const workspaceFolder = vscode.workspace.workspaceFolders
-//     ? vscode.workspace.workspaceFolders[0]
-//     : undefined;
-//   if (!workspaceFolder) {
-//     console.error(
-//       "No workspace folder found. Please open a folder to store your project in."
-//     );
-//     return;
-//   }
-
-//   vscode.window.showInformationMessage("Initializing new project...");
-//   try {
-//     const projectDetails = await promptForProjectDetails();
-//     if (projectDetails) {
-//       const newProject = await initializeProjectMetadata(projectDetails);
-//       vscode.window.showInformationMessage(
-//         `New project initialized: ${newProject?.meta.generator.userName}'s ${newProject?.meta.category}`
-//       );
-//     } else {
-//       vscode.window.showInformationMessage("Project initialization cancelled.");
-//     }
-//   } catch (error) {
-//     vscode.window.showErrorMessage(
-//       `Failed to initialize new project: ${error}`
-//     );
-//   }
-//   await vscode.commands.executeCommand(
-//     "codex-project-manager.setEditorFontToTargetLanguage"
-//   );
-//   await vscode.commands.executeCommand(
-//     "codex-project-manager.downloadSourceText"
-//   );
-// }
-// export async function setSourceLanguage() {
-//   const workspaceFolder = vscode.workspace.workspaceFolders
-//     ? vscode.workspace.workspaceFolders[0]
-//     : undefined;
-//   if (!workspaceFolder) {
-//     vscode.window.showErrorMessage(
-//       "No workspace folder found. Please open a folder to store your project in."
-//     );
-//     return;
-//   }
-
-//   try {
-//     const projectDetails = await promptForSourceLanguage();
-//     if (projectDetails) {
-//       const newProject = await initializeProjectMetadata(projectDetails);
-//       vscode.window.showInformationMessage(
-//         `New project initialized: ${newProject?.meta.generator.userName}'s ${newProject?.meta.category}`
-//       );
-//     } else {
-//       vscode.window.showInformationMessage("Project initialization cancelled.");
-//     }
-//   } catch (error) {
-//     vscode.window.showErrorMessage(
-//       `Failed to initialize new project: ${error}`
-//     );
-//   }
-//   await vscode.commands.executeCommand(
-//     "codex-project-manager.setEditorFontToTargetLanguage"
-//   );
-//   await vscode.commands.executeCommand(
-//     "codex-project-manager.downloadSourceText"
-//   );
-// }
 
 export async function initializeProject(shouldImportUSFM: boolean) {
     const workspaceFolder = vscode.workspace.workspaceFolders
@@ -530,47 +266,47 @@ export async function initializeProject(shouldImportUSFM: boolean) {
 //   }
 // }
 
-export async function handleConfig() {
-    const config = vscode.workspace.getConfiguration();
+// export async function handleConfig() {
+//     const config = vscode.workspace.getConfiguration();
 
-    config.update("editor.wordWrap", "on", vscode.ConfigurationTarget.Workspace);
-    // Turn off line numbers by default in workspace
-    config.update("editor.lineNumbers", "off", vscode.ConfigurationTarget.Workspace);
-    // Set to serif font by default in workspace
+//     config.update("editor.wordWrap", "on", vscode.ConfigurationTarget.Workspace);
+//     // Turn off line numbers by default in workspace
+//     config.update("editor.lineNumbers", "off", vscode.ConfigurationTarget.Workspace);
+//     // Set to serif font by default in workspace
 
-    // Set to 16px font size by default in workspace
-    // config.update("editor.fontSize", 16, vscode.ConfigurationTarget.Workspace);
-    // Set cursor style to line-thin by default in workspace
-    config.update("editor.cursorStyle", "line-thin", vscode.ConfigurationTarget.Workspace);
+//     // Set to 16px font size by default in workspace
+//     // config.update("editor.fontSize", 16, vscode.ConfigurationTarget.Workspace);
+//     // Set cursor style to line-thin by default in workspace
+//     config.update("editor.cursorStyle", "line-thin", vscode.ConfigurationTarget.Workspace);
 
-    // TODO: set up the layout for the workspace
-    // FIXME: this way of doing things clobbers the users existing settings.
-    // These settings should probably be bundled in the app only, and not applied via the extension.
+//     // TODO: set up the layout for the workspace
+//     // FIXME: this way of doing things clobbers the users existing settings.
+//     // These settings should probably be bundled in the app only, and not applied via the extension.
 
-    const existingPatterns = config.get("files.readonlyInclude") || {};
-    const updatedPatterns = { ...existingPatterns, "**/*.source": true };
+//     const existingPatterns = config.get("files.readonlyInclude") || {};
+//     const updatedPatterns = { ...existingPatterns, "**/*.source": true };
 
-    config.update("files.readonlyInclude", updatedPatterns, vscode.ConfigurationTarget.Global);
-}
+//     config.update("files.readonlyInclude", updatedPatterns, vscode.ConfigurationTarget.Global);
+// }
 
-async function openWorkspace() {
-    let workspaceFolder;
-    const openFolder = await vscode.window.showOpenDialog({
-        canSelectFolders: true,
-        canSelectFiles: false,
-        canSelectMany: false,
-        openLabel: "Choose project folder",
-    });
-    if (openFolder && openFolder.length > 0) {
-        await vscode.commands.executeCommand("vscode.openFolder", openFolder[0], false);
-        workspaceFolder = vscode.workspace.workspaceFolders
-            ? vscode.workspace.workspaceFolders[0]
-            : undefined;
-    }
-    if (!workspaceFolder) {
-        return;
-    }
-}
+// async function openWorkspace() {
+//     let workspaceFolder;
+//     const openFolder = await vscode.window.showOpenDialog({
+//         canSelectFolders: true,
+//         canSelectFiles: false,
+//         canSelectMany: false,
+//         openLabel: "Choose project folder",
+//     });
+//     if (openFolder && openFolder.length > 0) {
+//         await vscode.commands.executeCommand("vscode.openFolder", openFolder[0], false);
+//         workspaceFolder = vscode.workspace.workspaceFolders
+//             ? vscode.workspace.workspaceFolders[0]
+//             : undefined;
+//     }
+//     if (!workspaceFolder) {
+//         return;
+//     }
+// }
 
 // export async function onBoard() {
 //   // The following block ensures a smooth user experience by guiding the user through the initial setup process before the extension is fully activated. This is crucial for setting up the necessary project environment and avoiding any functionality issues that might arise from missing project configurations.

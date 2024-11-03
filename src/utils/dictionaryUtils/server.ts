@@ -37,7 +37,7 @@ export async function addWordsToDictionary(path: string, words: string[]): Promi
             (word) =>
                 word &&
                 !dictionary.entries.some(
-                    (entry) => entry.headWord?.toLowerCase() === word.toLowerCase()
+                    (entry) => entry.headWord === word
                 )
         )
         .map((word) => createDictionaryEntry(word));

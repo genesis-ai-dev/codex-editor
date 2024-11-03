@@ -36,7 +36,7 @@ function App() {
             case "reload": {
                 console.log("Reload message received:", message.data);
                 if (message.data?.cellId) {
-                    setCellId(message.data.cellId);
+                    setCellId({ cellId: message.data.cellId, uri: message.data.uri });
                 }
                 if (message.data?.uri) {
                     setUri(message.data.uri);

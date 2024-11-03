@@ -21,7 +21,10 @@ export function run(): Promise<void> {
         });
 
         // Bundles all files in the current directory matching `*.test`
-        const importAll = (r: __WebpackModuleApi.RequireContext) => r.keys().forEach(r);
+        const importAll = (r: { keys: () => string[]; (key: string): any }) =>
+            r.keys().forEach((key) => r(key));
+        // Use webpack's require without accessing context property
+        // @ts-ignore: webpack require.context is not typed
         importAll(require.context(".", true, /\.test$/));
 
         try {
@@ -39,3 +42,6 @@ export function run(): Promise<void> {
         }
     });
 }
+
+export * from "./sourceImport.test";
+export * from "../testUtils";

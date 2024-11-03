@@ -18,6 +18,7 @@ import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import SourceCellContext from "./contextProviders/SourceCellContext";
 import DuplicateCellResolver from "./DuplicateCellResolver";
 import TimelineEditor from "./TimelineEditor";
+import VideoTimelineEditor from "./VideoTimelineEditor";
 
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
@@ -36,13 +37,15 @@ const CodexCellEditor: React.FC = () => {
     );
     const [chapterNumber, setChapterNumber] = useState<number>(1);
     const [autocompletionProgress, setAutocompletionProgress] = useState<number | null>(null);
-    const [textDirection, setTextDirection] = useState<"ltr" | "rtl">("ltr");
+    const [textDirection, setTextDirection] = useState<"ltr" | "rtl">(
+        (window as any).initialData?.metadata?.textDirection || "ltr"
+    );
     const [cellDisplayMode, setCellDisplayMode] = useState<CELL_DISPLAY_MODES>(
         CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
     );
     const [isSourceText, setIsSourceText] = useState<boolean>(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState<boolean>(false);
-    console.log({ isMetadataModalOpen });
+
     const [metadata, setMetadata] = useState<CustomNotebookMetadata>({
         videoUrl: "", // FIXME: use attachments instead of videoUrl
     } as CustomNotebookMetadata);
@@ -50,6 +53,12 @@ const CodexCellEditor: React.FC = () => {
     const playerRef = useRef<ReactPlayer>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     const { setSourceCellMap } = useContext(SourceCellContext);
+    const removeHtmlTags = (text: string) => {
+        return text
+            .replace(/<[^>]*>?/g, "")
+            .replace(/\n/g, " ")
+            .replace(/&nbsp;/g, " ");
+    };
     // A "temp" video URL that is used to update the video URL in the metadata modal.
     // We need to use the client-side file picker, so we need to then pass the picked
     // video URL back to the extension so the user can save or cancel the change.
@@ -61,8 +70,6 @@ const CodexCellEditor: React.FC = () => {
             isSourceText: boolean,
             sourceCellMap: { [k: string]: { content: string; versions: string[] } }
         ) => {
-            // const sourceCellMapObject = Object.fromEntries(sourceCellMap);
-            console.log("sourceCellMap in CodexCellEditor", { sourceCellMap });
             setTranslationUnits(content);
             setIsSourceText(isSourceText);
             setSourceCellMap(sourceCellMap);
@@ -112,14 +119,6 @@ const CodexCellEditor: React.FC = () => {
         setVideoUrl((window as any).initialData?.videoUrl || "");
         setMetadata((window as any).initialData?.metadata || {});
     }, []);
-
-    useEffect(() => {
-        // Send the text direction to the extension whenever it changes
-        vscode.postMessage({
-            command: "updateTextDirection",
-            direction: textDirection,
-        } as EditorPostMessages);
-    }, [textDirection]);
 
     useEffect(() => {
         // Initialize Quill and register SpellChecker and SmartEdits only once
@@ -298,23 +297,6 @@ const CodexCellEditor: React.FC = () => {
         );
     }
 
-    // const data = [{ begin: 25, end: 35, text: "This is subtitle" }];
-    const removeHtmlTags = (text: string) => {
-        return text.replace(/<[^>]*>?/g, "").replace(/\n/g, " ");
-    };
-    const data: {
-        begin: number;
-        end: number;
-        text: string;
-        id: string;
-    }[] = translationUnitsForSection.map((unit) => {
-        return {
-            begin: unit.timestamps?.startTime || 0,
-            end: unit.timestamps?.endTime || 0,
-            text: removeHtmlTags(unit.cellContent),
-            id: unit.cellMarkers[0],
-        };
-    });
     return (
         <div className="codex-cell-editor">
             <div className="static-header" ref={headerRef}>
@@ -325,7 +307,13 @@ const CodexCellEditor: React.FC = () => {
                         totalChapters={totalChapters}
                         unsavedChanges={!!contentBeingUpdated.cellContent}
                         onAutocompleteChapter={handleAutocompleteChapter}
-                        onSetTextDirection={setTextDirection}
+                        onSetTextDirection={(direction) => {
+                            setTextDirection(direction);
+                            vscode.postMessage({
+                                command: "updateTextDirection",
+                                direction,
+                            } as EditorPostMessages);
+                        }}
                         textDirection={textDirection}
                         onSetCellDisplayMode={setCellDisplayMode}
                         cellDisplayMode={cellDisplayMode}
@@ -351,12 +339,12 @@ const CodexCellEditor: React.FC = () => {
                         }}
                         ref={videoPlayerRef}
                     >
-                        <VideoPlayer
-                            playerRef={playerRef}
+                        <VideoTimelineEditor
                             videoUrl={videoUrl}
                             translationUnitsForSection={translationUnitsWithCurrentEditorContent}
+                            vscode={vscode}
+                            playerRef={playerRef}
                         />
-                        <TimelineEditor data={data} vscode={vscode} />
                     </div>
                 )}
             </div>
@@ -373,6 +361,7 @@ const CodexCellEditor: React.FC = () => {
                         </div>
                     )}
                     <CellList
+                        spellCheckResponse={spellCheckResponse}
                         translationUnits={translationUnitsForSection}
                         contentBeingUpdated={contentBeingUpdated}
                         setContentBeingUpdated={setContentBeingUpdated}
@@ -384,25 +373,39 @@ const CodexCellEditor: React.FC = () => {
                         isSourceText={isSourceText}
                         windowHeight={windowHeight}
                         headerHeight={headerHeight}
-                        spellCheckFunction={(cellContent: string) => {
-                            return new Promise<SpellCheckResponse | null>((resolve) => {
-                                vscode.postMessage({
-                                    command: "from-quill-spellcheck-getSpellCheckResponse",
-                                    content: {
-                                        cellContent,
-                                        cellChanged: true,
-                                    },
+                        getAlertCodeFunction={(cellContent: string, cellId: string) => {
+                            if (isSourceText) {
+                                return Promise.resolve({
+                                    alertColorCode: -1,
+                                    cellId: cellId,
                                 });
-                                const handleSpellCheckResponse = (event: MessageEvent) => {
-                                    if (event.data.type === "providerSendsSpellCheckResponse") {
-                                        window.removeEventListener(
-                                            "message",
-                                            handleSpellCheckResponse
-                                        );
-                                        resolve(event.data.content as SpellCheckResponse);
+                            }
+
+                            vscode.postMessage({
+                                command: "getAlertCode",
+                                content: {
+                                    text: removeHtmlTags(cellContent),
+                                    cellId: cellId, // Include cellId in the message
+                                },
+                            } as EditorPostMessages);
+                            return new Promise((resolve) => {
+                                const handlegetAlertCodeResponse = (event: MessageEvent) => {
+                                    const message = event.data;
+                                    if (message.type === "providerSendsgetAlertCodeResponse") {
+                                        // Make sure we only resolve for the cell we requested
+                                        if (message.content.cellId === cellId) {
+                                            window.removeEventListener(
+                                                "message",
+                                                handlegetAlertCodeResponse
+                                            ); // Remove listener
+                                            resolve({
+                                                alertColorCode: message.content.code,
+                                                cellId: message.content.cellId,
+                                            });
+                                        }
                                     }
                                 };
-                                window.addEventListener("message", handleSpellCheckResponse);
+                                window.addEventListener("message", handlegetAlertCodeResponse);
                             });
                         }}
                     />

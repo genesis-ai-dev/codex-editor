@@ -1,5 +1,42 @@
-import * as vscode from "vscode";
-import * as path from "path";
+export interface LanguageInfo {
+    code: string;
+    name: string;
+    bibles: ExtendedMetadata[];
+}
+
+export function getAvailableLanguages(): LanguageInfo[] {
+    // Create a map to store unique languages and their Bibles
+    const languageMap = new Map<string, LanguageInfo>();
+
+    // Get all extended metadata
+    const allMetadata = extendedEbibleCorpusMetadata;
+
+    // Group Bibles by language code
+    allMetadata.forEach((metadata) => {
+        const { languageCode, languageNameInEnglish, languageName } = metadata;
+        if (!languageCode) return;
+
+        if (!languageMap.has(languageCode)) {
+            languageMap.set(languageCode, {
+                code: languageCode,
+                name: languageNameInEnglish || languageName || languageCode,
+                bibles: [],
+            });
+        }
+
+        const langInfo = languageMap.get(languageCode)!;
+        langInfo.bibles.push(metadata);
+    });
+
+    // Convert to array and sort by name
+    return Array.from(languageMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function getBiblesForLanguage(languageCode: string): ExtendedMetadata[] {
+    return extendedEbibleCorpusMetadata.filter(
+        (metadata) => metadata.languageCode === languageCode
+    );
+}
 
 export function getEBCorpusMetadataByLanguageCode(languageCode: string): EbibleCorpusMetadata[] {
     if (languageCode === "") {
@@ -21,33 +58,19 @@ export function getEBCorpusMetadataByLanguageCode(languageCode: string): EbibleC
         });
 }
 
-export async function downloadFile(url: string, outputPath: string): Promise<void> {
-    const response = await fetch(url);
-    const buffer = await response.arrayBuffer();
-    await vscode.workspace.fs.writeFile(vscode.Uri.file(outputPath), new Uint8Array(buffer));
-}
-
-export async function ensureVrefList(workspaceRoot: string): Promise<string> {
-    const vrefPath = path.join(workspaceRoot, ".project", "sourceTexts", "vref.txt");
-    const vrefUri = vscode.Uri.file(vrefPath);
-    try {
-        await vscode.workspace.fs.stat(vrefUri);
-    } catch {
-        const vrefUrl = "https://raw.githubusercontent.com/BibleNLP/ebible/main/metadata/vref.txt";
-        await downloadFile(vrefUrl, vrefPath);
-    }
-    return vrefPath;
-}
-
-export async function downloadEBibleText(
-    languageMetadata: EbibleCorpusMetadata,
-    workspaceRoot: string
-): Promise<string> {
-    const fileName = languageMetadata.file;
-    const targetDataUrl = `https://raw.githubusercontent.com/BibleNLP/ebible/main/corpus/${fileName}`;
-    const targetPath = path.join(workspaceRoot, ".project", "sourceTexts", fileName);
-    await downloadFile(targetDataUrl, targetPath);
-    return targetPath;
+export function getExtendedEbibleMetadataByLanguageNameOrCode(
+    languageName?: string,
+    languageCode?: string
+): ExtendedMetadata[] {
+    return extendedEbibleCorpusMetadata.filter((metadata) => {
+        if (languageName) {
+            return metadata.languageName === languageName;
+        }
+        if (languageCode) {
+            return metadata.languageCode === languageCode;
+        }
+        return false;
+    });
 }
 
 export interface EbibleCorpusMetadata {
@@ -12241,7 +12264,7 @@ const extendedEbibleCorpusMetadata: ExtendedMetadata[] = [
         textDirection: "ltr",
         downloadable: true,
         font: "Andika",
-        shortTitle: "Minaifia NT",
+        shortTitle: "Miniafia NT",
         PODISBN: "978-1-5313-0000-5",
         script: "Latin",
         sourceDate: "2013-01-05",

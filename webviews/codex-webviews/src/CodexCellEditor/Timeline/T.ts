@@ -9,12 +9,26 @@ export interface TimelineReturn {
     changeCursorViewPort: (beginingTimeShow: number, endTimeShow: number) => void;
 }
 
-export default function TimeLine(
-    canvas: HTMLCanvasElement,
-    canvas2: HTMLCanvasElement,
-    alignments: TimeBlock[],
-    endTime: number,
-    getPlayer: () => void,
+export default function TimeLine({
+    canvas,
+    canvas2,
+    alignments,
+    endTime,
+    setContentToScrollTo,
+    getPlayer,
+    changeAlignment,
+    changeZoomLevel,
+    changeInScrollPosition,
+    changeShift,
+    tellAreaChangesToRectComponent,
+    options,
+}: {
+    canvas: HTMLCanvasElement;
+    canvas2: HTMLCanvasElement;
+    alignments: TimeBlock[];
+    setContentToScrollTo: React.Dispatch<React.SetStateAction<string | null>>;
+    endTime: number;
+    getPlayer: () => { currentTime: number; play: (currentTime: number) => void };
     changeAlignment: (
         alignments: {
             begin: number;
@@ -22,12 +36,16 @@ export default function TimeLine(
             text: string;
             id: string;
         }[]
-    ) => void,
-    changeZoomLevel: (zoomLevel: number) => void,
-    changeShift: (shift: number) => void,
-    tellAreaChangesToRectComponent: (beginingTimeShow: number, endTimeShow: number) => void,
+    ) => void;
+    changeZoomLevel: (zoomLevel: number) => void;
+    changeInScrollPosition: (position: number) => void;
+    changeShift: (shift: number) => void;
+    tellAreaChangesToRectComponent: (beginingTimeShow: number, endTimeShow: number) => void;
     options: {
         autoScroll: boolean;
+        initialZoomLevel?: number; // Add this to options
+        scrollingIsTracking: boolean;
+        scrollPosition: number;
         colors: {
             background: string;
             box: string;
@@ -42,8 +60,8 @@ export default function TimeLine(
             scrollBar: string;
             scrollBarHover: string;
         };
-    }
-): TimelineReturn | undefined {
+    };
+}): TimelineReturn | undefined {
     // constants
     const LINE_HEIGHT = 40;
     const TRACK_HEIGHT = 40;
@@ -71,7 +89,7 @@ export default function TimeLine(
     let animationID: number;
     let w = (canvas.width = canvas2.width = canvas.parentElement?.parentElement?.clientWidth || 0);
     let h = (canvas.height = canvas2.height = TIMELINE_HEIGHT);
-    let scrollPosition = 0;
+    let scrollPosition = options.scrollPosition;
     let scrollSize = w;
     const minimumZoomLevel = w / endTime;
     const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
@@ -95,7 +113,7 @@ export default function TimeLine(
     let player: any;
     let shift = 0;
     let movingDirection: string;
-    let zoomLevel = w / endTime || 1;
+    let zoomLevel = options.initialZoomLevel || w / endTime || 1; // Initialize with prop if available
     let moving = false;
     let resizing = false;
     let currentPrtcl: any;
@@ -109,10 +127,10 @@ export default function TimeLine(
     let endTimeShow = Math.abs(w + shift) / zoomLevel;
     let moveIndex: number;
     let newTime: number;
-    let prtcls: any[] = [];
+    let prtcls: Square[] = [];
     setData(alignments); //tooltip
 
-    let tooltipTimeout: number;
+    let tooltipTimeout: ReturnType<typeof setTimeout>;
     let visibleTooltip = false;
     let visitedPrtcl: number; // BEGIN ...
 
@@ -215,6 +233,7 @@ export default function TimeLine(
         // let xx = event.pageX - canvas.offsetLeft;
         const xxxx = event.pageX - canvasCoords.x;
         const yyyy = event.pageY - canvasCoords.y - window.pageYOffset;
+        // console.log("canvasCoords", { canvasCoords, xxxx, yyyy });
         return {
             x: xxxx,
             y: yyyy,
@@ -222,6 +241,8 @@ export default function TimeLine(
     }
 
     function getOffsetCoords(mouse: any, rect: any) {
+        // console.log("mouse", mouse);
+        // console.log("rect", rect);
         return {
             x: mouse.x - rect.x,
             y: mouse.y - rect.y,
@@ -480,7 +501,8 @@ export default function TimeLine(
                 currentPrtcl.selected = true;
                 currentPrtcl.offset = getOffsetCoords(mouse, currentPrtcl);
                 player.currentTime = currentPrtcl.x / zoomLevel;
-                player.play();
+                player.play(player.currentTime);
+                setContentToScrollTo(currentPrtcl.id);
             } else {
                 currentPrtcl.selected = false;
             }
@@ -535,6 +557,8 @@ export default function TimeLine(
             } else if (mouse.y > TIME_BAR_MARGIN && mouse.y < TIMELINE_HEIGHT - SCROLL_BAR_HEIGHT) {
                 swaping = true;
             }
+
+            player.play(player.currentTime);
         }
     }
 
@@ -706,7 +730,7 @@ export default function TimeLine(
     }
 
     function setData(aligns: TimeBlock[]) {
-        console.log({ aligns });
+        // console.log({ aligns });
         prtcls = aligns.map(
             (p, i) =>
                 // @ts-expect-error: square is some how a class
@@ -744,7 +768,31 @@ export default function TimeLine(
     }
 
     function handleCursorOutOfViewPort(time: number) {
-        if (!player.paused) changeCursorViewPort(time);
+        if (!autoScroll || scrolling || !options.scrollingIsTracking) return;
+
+        const viewportWidth = endTimeShow - beginingTimeShow;
+        const margin = viewportWidth * 0.2; // 20% margin
+
+        // Calculate cursor position relative to viewport
+        const cursorPosition = time;
+        const distanceFromEnd = endTimeShow - cursorPosition;
+        const distanceFromStart = cursorPosition - beginingTimeShow;
+
+        // Scroll if cursor is too close to edges
+        if (distanceFromEnd < margin) {
+            // Cursor is near right edge - scroll right
+            const targetShift = -1 * (time * zoomLevel - w * 0.7);
+            shift = Math.max(targetShift, maximumShift);
+        } else if (distanceFromStart < margin) {
+            // Cursor is near left edge - scroll left
+            const targetShift = -1 * (time * zoomLevel - w * 0.3);
+            shift = Math.min(targetShift, 0);
+        }
+
+        checkShift();
+        if (bgCtx) {
+            drawBG(bgCtx);
+        }
     }
 
     function changeCursorViewPort(time: number) {
@@ -885,15 +933,14 @@ export default function TimeLine(
     }
 
     function drawScroll() {
+        if (options.scrollingIsTracking) return;
         const cursorInScroll = cursorInScrollBar();
         scrolling = cursorInScroll && isMouseDown && !resizing;
-
         if (cursorInScroll || scrolling) {
             canvas.classList.add("e-resize");
         } else {
             canvas.classList.remove("e-resize");
         }
-
         const context = ctx;
         context.save();
         context.fillStyle = options.colors.scrollBarBackground;
@@ -902,11 +949,18 @@ export default function TimeLine(
             cursorInScroll || scrolling ? options.colors.scrollBarHover : options.colors.scrollBar;
         const d = endTimeShow - beginingTimeShow;
         let rat = d / endTime;
-        scrollSize = w * rat;
-        if (rat > 1) rat = 1;
+        if (rat > 1) rat = 10;
+        scrollSize = Math.max(w * rat, 10);
         const ratio = beginingTimeShow / endTime;
         scrollPosition = ratio * w;
+        changeInScrollPosition(scrollPosition);
         const padding = 1;
+        // console.log({
+        //     scrollSize,
+        //     scrollPosition,
+        //     2: TIMELINE_HEIGHT - SCROLL_BAR_HEIGHT + padding,
+        //     4: SCROLL_BAR_HEIGHT - 2 - 2 * padding,
+        // });
         context.fillRect(
             scrollPosition,
             TIMELINE_HEIGHT - SCROLL_BAR_HEIGHT + padding,
@@ -919,8 +973,8 @@ export default function TimeLine(
     function addListenerHandlers(canvas: HTMLCanvasElement) {
         window.removeEventListener("resize", resize);
         window.addEventListener("resize", resize);
-        canvas.removeEventListener("wheel", handleZoom);
-        canvas.addEventListener("wheel", handleZoom);
+        // canvas.removeEventListener("wheel", handleZoom);
+        // canvas.addEventListener("wheel", handleZoom);
         canvas.removeEventListener("mousemove", mousemoveGeneral);
         canvas.addEventListener("mousemove", mousemoveGeneral);
         canvas.removeEventListener("mousemove", handleMouseMove);
@@ -952,28 +1006,25 @@ export default function TimeLine(
     }
 
     function animate() {
-        let _player;
-
         if (!player) player = getPlayer();
-        currentTime =
-            ((_player = player) === null || _player === void 0 ? void 0 : _player.currentTime) || 0;
+        currentTime = player.currentTime || 0;
         calculateViewPortTimes();
-        if (player) handleCursorOutOfViewPort(currentTime); //clear paper
+        if (player) handleCursorOutOfViewPort(currentTime);
 
-        ctx.clearRect(0, 0, w, ctx.canvas.height); //draw boxes
+        ctx.clearRect(0, 0, w, ctx.canvas.height);
 
         if (!moving) currentPrtclsIndex = -1;
         currentHoveredIndex = -1;
         prtcls.filter((e, i) => {
             const isHoveredPrtcl = cursorInRect(mouse.x, mouse.y, e.x, e.y, e.edge, e.edge);
-            const position = currentTime * zoomLevel + shift; //player on box
+            const position = currentTime * zoomLevel + shift;
 
             if (position - shift >= e.x && position - shift <= e.x + e.edge) {
                 currentHoveredIndex = i;
-            } //mouse on box
+            }
 
             if (isHoveredPrtcl && !resizing && !moving) currentPrtclsIndex = i;
-            e.active = !!isHoveredPrtcl; //check prtcls is in viewport
+            e.active = !!isHoveredPrtcl;
 
             const condition =
                 (e.x >= -1 * shift && e.x + e.edge < -1 * shift + w) ||

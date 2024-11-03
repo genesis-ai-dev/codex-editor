@@ -1,6 +1,8 @@
-import { Dictionary, LanguageMetadata } from "codex-types";
+import { PreviewContent } from "./index.d";
+import { Dictionary, LanguageMetadata, Project } from "codex-types";
 import * as vscode from "vscode";
 import { ScriptureTSV } from "./TsvTypes";
+import { CodexCell } from "src/utils/codexNotebookUtils";
 
 interface ChatMessage {
     role: "system" | "user" | "assistant";
@@ -81,6 +83,7 @@ interface SavedSuggestions {
     cellId: string;
     lastCellValue: string;
     suggestions: SmartSuggestion[];
+    lastUpdatedDate: string;
 }
 
 interface SmartEdit {
@@ -101,10 +104,14 @@ interface ScriptureContent extends vscode.NotebookData {
     };
 }
 type NotebookCellKind = vscode.NotebookCellKind;
-
+type VerseRefGlobalState = {
+    verseRef: string;
+    cellId: string;
+    uri: string;
+};
 type CommentPostMessages =
     | { command: "commentsFromWorkspace"; content: string }
-    | { command: "reload"; data: VerseRefGlobalState }
+    | { command: "reload"; data: { cellId: string; uri: string } }
     | { command: "updateCommentThread"; commentThread: NotebookCommentThread }
     | { command: "deleteCommentThread"; commentThreadId: string }
     | {
@@ -163,18 +170,84 @@ type ChatPostMessages =
           sourceCellMap: { [k: string]: { content: string; versions: string[] } };
       };
 
-type SourceUploadPostMessages =
-    | { command: "downloadBible" }
-    | { command: "getMetadata" }
-    | { command: "openFile"; fileUri: string }
-    | { command: "syncAction"; status: string; fileUri: string }
-    | { command: "uploadSourceText"; fileContent: string; fileName: string; sourceFileName: string }
+export type SourceUploadPostMessages =
+    | {
+          command: "uploadSourceText";
+          files: Array<{ content: string; name: string }>;
+      }
     | {
           command: "uploadTranslation";
-          fileContent: string;
-          fileName: string;
-          sourceFileName: string;
-      };
+          files: Array<{
+              content: string;
+              name: string;
+              sourceId: string;
+          }>;
+      }
+    | { command: "error"; errorMessage: string }
+    | { command: "getAvailableCodexFiles" }
+    | { command: "selectSourceFile" }
+    | { command: "confirmSourceImport" }
+    | { command: "confirmTranslationImport" }
+    | { command: "cancelSourceImport" }
+    | { command: "cancelTranslationImport" }
+    | { command: "downloadBible"; ebibleMetadata: ExtendedMetadata; asTranslationOnly: boolean }
+    | { command: "confirmBibleDownload"; transaction: DownloadBibleTransaction }
+    | { command: "cancelBibleDownload"; transaction: DownloadBibleTransaction }
+    | { command: "getMetadata" }
+    | { command: "createSourceFolder"; data: { sourcePath: string } }
+    | { command: "importRemoteTranslation" }
+    | { command: "importLocalTranslation" }
+    | { command: "closePanel" }
+    | { command: "previewSourceText"; fileContent: string; fileName: string };
+
+export type SourceUploadResponseMessages =
+    | {
+          command: "translationPreview";
+          previews: Array<{
+              id: string;
+              fileName: string;
+              fileSize: number;
+              preview: TranslationPreview;
+              sourceId: string;
+          }>;
+      }
+    | {
+          command: "sourcePreview";
+          previews: Array<{
+              id: string;
+              fileName: string;
+              fileSize: number;
+              preview: SourcePreview;
+          }>;
+      }
+    | { command: "updateMetadata"; metadata: any[] }
+    | { command: "error"; message: string }
+    | { command: "importComplete" }
+    | { command: "setupComplete"; data: { path: string } }
+    | { command: "sourceFileSelected"; data: { path: string } }
+    | {
+          command: "updateProcessingStatus";
+          status: Record<string, ProcessingStatus>;
+          progress?: { message: string; increment: number };
+      }
+    | { command: "importCancelled" }
+    | { command: "availableCodexFiles"; files: Array<{ id: string; name: string; path: string }> }
+    | {
+          command: "bibleDownloadProgress";
+          progress: {
+              message?: string;
+              increment?: number;
+              status: Record<string, ProcessingStatus>;
+          };
+      }
+    | { command: "bibleDownloadComplete" }
+    | { command: "bibleDownloadError"; error: string }
+    | {
+          command: "biblePreview";
+          preview: BiblePreviewData;
+          transaction: DownloadBibleTransaction;
+      }
+    | { command: "bibleDownloadCancelled" };
 
 type DictionaryPostMessages =
     | { command: "sendData"; data: Dictionary }
@@ -282,14 +355,22 @@ type EditorCellContent = {
     cellLabel?: string;
 };
 
+interface EditHistoryEntry {
+    before: string;
+    after: string;
+    timestamp: number;
+}
+
 export type EditorPostMessages =
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string } }
     | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata }
     | { command: "pickVideoFile" }
     | { command: "from-quill-spellcheck-getSpellCheckResponse"; content: EditorCellContent }
+    | { command: "searchSimilarCellIds"; content: { cellId: string } }
     | { command: "updateCellTimestamps"; content: { cellId: string; timestamps: Timestamps } }
     | { command: "deleteCell"; content: { cellId: string } }
     | { command: "addWord"; words: string[] }
+    | { command: "getAlertCode"; content: { text: string; cellId: string } }
     | {
           command: "makeChildOfCell";
           content: {
@@ -312,7 +393,16 @@ export type EditorPostMessages =
     | { command: "updateTextDirection"; direction: "ltr" | "rtl" }
     | { command: "openSourceText"; content: { chapterNumber: number } }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string } }
-    | { command: "pickVideoFile" };
+    | { command: "pickVideoFile" }
+    | { command: "applyPromptedEdit"; content: { text: string; prompt: string; cellId: string } }
+    | { command: "getTopPrompts"; content: { text: string; cellId: string } }
+    | {
+          command: "supplyRecentEditHistory";
+          content: {
+              cellId: string;
+              editHistory: EditHistoryEntry[];
+          };
+      };
 
 type EditorReceiveMessages =
     | {
@@ -327,11 +417,18 @@ type EditorReceiveMessages =
       }
     | { type: "providerCompletesChapterAutocompletion" }
     | { type: "providerSendsSpellCheckResponse"; content: SpellCheckResponse }
+    | {
+          type: "providerSendsgetAlertCodeResponse";
+          content: { code: number; cellId: string };
+      }
     | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl" }
     | { type: "providerSendsLLMCompletionResponse"; content: { completion: string } }
     | { type: "jumpToSection"; content: string }
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata }
-    | { type: "updateVideoUrlInWebview"; content: string };
+    | { type: "updateVideoUrlInWebview"; content: string }
+    | { type: "providerSendsPromptedEditResponse"; content: string }
+    | { type: "providerSendsSimilarCellIdsResponse"; content: { cellId: string; score: number }[] }
+    | { type: "providerSendsTopPrompts"; content: string[] };
 
 type EditHistory = {
     cellValue: string;
@@ -339,7 +436,9 @@ type EditHistory = {
     type: import("./enums").EditType;
 };
 
-type CodexData = Timestamps;
+type CodexData = Timestamps & {
+    [key: string]: any;
+};
 
 type CustomCellMetaData = {
     id: string;
@@ -421,7 +520,7 @@ interface SpellCheckResponse {
 type SpellCheckResult = SpellCheckResponse[];
 
 /* This is the project overview that populates the project manager webview */
-interface ProjectOverview {
+interface ProjectOverview extends Project {
     projectName: string;
     abbreviation: string;
     sourceLanguage: LanguageMetadata;
@@ -575,13 +674,257 @@ declare function searchParallelCells(
 
 export type SupportedFileExtension = "vtt" | "txt" | "usfm" | "sfm" | "SFM" | "USFM";
 
-export type FileType = "subtitles" | "plaintext" | "usfm";
+export type FileType = "subtitles" | "plaintext" | "usfm" | "usx";
 
 export interface FileTypeMap {
     vtt: "subtitles";
     txt: "plaintext";
     usfm: "usfm";
+    usx: "usx";
     sfm: "usfm";
     SFM: "usfm";
     USFM: "usfm";
 }
+
+export interface AggregatedMetadata {
+    id: string;
+    originalName: string;
+    sourceFsPath?: string;
+    codexFsPath?: string;
+    videoUrl?: string;
+    lastModified?: string;
+    gitStatus?:
+        | "uninitialized"
+        | "modified"
+        | "added"
+        | "deleted"
+        | "renamed"
+        | "conflict"
+        | "untracked"
+        | "committed";
+}
+
+// Add these to your existing types
+export interface ValidationResult {
+    isValid: boolean;
+    errors: ValidationError[];
+}
+
+export interface ValidationError {
+    code: ValidationErrorCode;
+    message: string;
+    details?: unknown;
+}
+
+export interface SourceFileValidationOptions {
+    maxFileSizeBytes?: number;
+    supportedExtensions?: FileTypeMap;
+    minDiskSpaceBytes?: number;
+}
+
+interface ImportedContent {
+    id: string;
+    content: string;
+    startTime?: number;
+    endTime?: number;
+}
+
+// Add or verify these message types
+type ProjectManagerPostMessages =
+    | { command: "sendProjectsList"; data: Project[] }
+    | { command: "noWorkspaceOpen"; data: Project[] }
+    | { command: "requestProjectOverview" }
+    | { command: "error"; message: string };
+
+// Ensure the Project type is correctly defined
+interface Project {
+    name: string;
+    path: string;
+    lastOpened?: Date;
+    lastModified: Date;
+    version: string;
+    hasVersionMismatch?: boolean;
+    isOutdated?: boolean;
+}
+
+interface BasePreview {
+    fileName: string;
+    fileSize: number;
+    fileType: FileType;
+    original: {
+        preview: string;
+        validationResults: ValidationResult[];
+    };
+}
+
+export interface SourcePreview extends BasePreview {
+    type: "source";
+    fileSize?: number;
+    transformed: {
+        books?: Array<{
+            name: string;
+            versesCount: number;
+            chaptersCount: number;
+        }>;
+        sourceNotebooks: Array<NotebookPreview>;
+        codexNotebooks: Array<NotebookPreview>;
+        validationResults: ValidationResult[];
+    };
+}
+
+interface RawSourcePreview {
+    fileName: string;
+    originalContent: {
+        preview: string;
+        validationResults: ValidationResult[];
+    };
+    transformedContent: {
+        sourceNotebooks: Array<NotebookPreview>;
+        codexNotebooks: Array<NotebookPreview>;
+        validationResults: ValidationResult[];
+    };
+}
+
+export interface TranslationPreview extends BasePreview {
+    type: "translation";
+    transformed: {
+        sourceNotebook: {
+            name: string;
+            cells: Array<{
+                value: string;
+                metadata: { id: string; type: string };
+            }>;
+        };
+        targetNotebook: {
+            name: string;
+            cells: Array<{
+                value: string;
+                metadata: { id: string; type: string };
+            }>;
+        };
+        matchedCells: number;
+        unmatchedContent: number;
+        paratextItems: number;
+        validationResults: ValidationResult[];
+    };
+}
+
+export type PreviewContent = SourcePreview | TranslationPreview | BiblePreview;
+
+// Add new interfaces to support the preview structure
+export interface NotebookPreview {
+    name: string;
+    cells: CodexCell[];
+    metadata: CustomNotebookMetadata;
+}
+
+// Update BookPreview to be more specific
+export interface BookPreview {
+    name: string;
+    versesCount: number;
+    chaptersCount: number;
+    previewContent?: string;
+    sourceNotebook?: NotebookPreview;
+    codexNotebook?: NotebookPreview;
+}
+
+export interface ValidationResult {
+    isValid: boolean;
+    errors: ValidationError[];
+    warnings?: ValidationWarning[];
+}
+
+export interface ValidationError {
+    code: ValidationErrorCode;
+    message: string;
+    details?: Record<string, unknown>;
+}
+
+export interface ValidationWarning {
+    code: ValidationWarningCode;
+    message: string;
+    details?: Record<string, unknown>;
+}
+
+// Add to existing enums or create new ones
+export enum ValidationErrorCode {
+    FILE_SIZE_EXCEEDED = "FILE_SIZE_EXCEEDED",
+    UNSUPPORTED_FILE_TYPE = "UNSUPPORTED_FILE_TYPE",
+    INVALID_CONTENT = "INVALID_CONTENT",
+    INSUFFICIENT_SPACE = "INSUFFICIENT_SPACE",
+    SYSTEM_ERROR = "SYSTEM_ERROR",
+}
+
+export enum ValidationWarningCode {
+    LARGE_FILE = "LARGE_FILE",
+    UNUSUAL_STRUCTURE = "UNUSUAL_STRUCTURE",
+    MISSING_METADATA = "MISSING_METADATA",
+}
+
+// Add new types for workflow state tracking
+type WorkflowStep = "select" | "preview" | "confirm" | "processing" | "complete";
+
+// Add ProcessingStage type
+type ProcessingStatus = "pending" | "active" | "complete" | "error";
+
+export interface CustomNotebookPreviewWithMetadata {
+    translationId: string;
+    languageCode: string;
+    verseCount: number;
+    preview: PreviewContent;
+}
+
+export interface BiblePreviewData {
+    type: "bible";
+    original: {
+        preview: string;
+        validationResults: {
+            isValid: boolean;
+            errors: Array<{ message: string }>;
+        }[];
+    };
+    transformed: {
+        sourceNotebooks: NotebookPreview[];
+        validationResults: {
+            isValid: boolean;
+            errors: Array<{ message: string }>;
+        }[];
+    };
+}
+
+export interface WorkflowState {
+    step: WorkflowStep;
+    importType: ImportType | null;
+    selectedFile: string | null;
+    processingStages: Record<string, ProcessingStage>;
+    preview?: PreviewContent;
+    progress?: {
+        message: string;
+        increment: number;
+    };
+    error?: string;
+    bibleDownload?: {
+        language: string;
+        status: "downloading" | "complete" | "error";
+        translationId: string;
+    };
+    currentTransaction?: DownloadBibleTransaction;
+}
+
+// Add Bible download specific types
+export interface BibleDownloadStages {
+    validation: ProcessingStage;
+    download: ProcessingStage;
+    splitting: ProcessingStage;
+    notebooks: ProcessingStage;
+    metadata: ProcessingStage;
+    commit: ProcessingStage;
+}
+
+export interface ProcessingStage {
+    label: string;
+    description: string;
+    status: ProcessingStatus;
+}
+
+export type ImportType = "source" | "translation" | "bible-download";

@@ -6,6 +6,7 @@
 
 const path = require("path");
 const webpack = require("webpack");
+const CopyWebpackPlugin = require('copy-webpack-plugin');
 
 //@ts-check
 /** @typedef {import('webpack').Configuration} WebpackConfig **/
@@ -26,12 +27,14 @@ const extensionConfig = {
     externals: {
         vscode: "commonjs vscode", // the vscode-module is created on-the-fly and must be excluded. Add other modules that cannot be webpack'ed, 📖 -> https://webpack.js.org/configuration/externals/
         // modules added here also need to be added in the .vscodeignore file
+        "sql.js": "commonjs sql.js",
     },
     resolve: {
         // support reading TypeScript and JavaScript files, 📖 -> https://github.com/TypeStrong/ts-loader
         extensions: [".ts", ".js"],
         alias: {
             "@": path.resolve(__dirname, "src"),
+            "@types": path.resolve(__dirname, "types"),
         },
     },
     module: {
@@ -57,12 +60,29 @@ const extensionConfig = {
                     },
                 ],
             },
+            {
+                test: /\.wasm$/,
+                type: "asset/resource",
+            },
         ],
     },
     devtool: "nosources-source-map",
     infrastructureLogging: {
         level: "log", // enables logging required for problem matchers
     },
+    experiments: {
+        asyncWebAssembly: true,
+    },
+    plugins: [
+        new CopyWebpackPlugin({
+            patterns: [
+                {
+                    from: 'node_modules/sql.js/dist/sql-wasm.wasm',
+                    to: 'sql-wasm.wasm'
+                }
+            ]
+        })
+    ]
 };
 
 const serverConfig = {
@@ -113,7 +133,7 @@ const testConfig = {
     resolve: {
         extensions: [".ts", ".js"],
         fallback: {
-            assert: require.resolve("assert/"), // Add this fallback
+            assert: require.resolve("assert/"),
             process: require.resolve("process/browser"),
             url: require.resolve("url/"),
             fs: require.resolve("memfs"),
@@ -121,6 +141,7 @@ const testConfig = {
             stream: require.resolve("stream-browserify"),
             util: require.resolve("util/"),
             os: require.resolve("os-browserify/browser"),
+            crypto: require.resolve("crypto-browserify"),
         },
     },
     module: {

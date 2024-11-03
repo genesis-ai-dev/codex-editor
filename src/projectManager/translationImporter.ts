@@ -1,7 +1,13 @@
 import * as vscode from "vscode";
 import { WebVTTParser } from "webvtt-parser";
 import { CodexContentSerializer, CodexNotebookReader } from "../serializer";
-import { SupportedFileExtension, FileType, FileTypeMap, CustomNotebookCellData } from "../../types";
+import {
+    SupportedFileExtension,
+    FileType,
+    FileTypeMap,
+    CustomNotebookCellData,
+    ImportedContent,
+} from "../../types";
 import { CodexCellTypes } from "../../types/enums";
 import * as fs from "fs/promises"; // Add this import if not already present
 import * as path from "path";
@@ -26,17 +32,11 @@ export const fileTypeMap: FileTypeMap = {
     vtt: "subtitles",
     txt: "plaintext",
     usfm: "usfm",
+    usx: "usx",
     sfm: "usfm",
     SFM: "usfm",
     USFM: "usfm",
 };
-
-interface ImportedContent {
-    id: string;
-    content: string;
-    startTime?: number;
-    endTime?: number;
-}
 
 interface AlignedCell {
     notebookCell: vscode.NotebookCell | null;
@@ -121,7 +121,8 @@ export async function importTranslations(
 
         debug("Imported content length", importedContent.length);
 
-        const metadataManager = NotebookMetadataManager.getInstance();
+        const metadataManager = new NotebookMetadataManager();
+        await metadataManager.initialize();
         await metadataManager.loadMetadata();
 
         const sourceMetadata = metadataManager.getMetadataById(sourceNotebookId);

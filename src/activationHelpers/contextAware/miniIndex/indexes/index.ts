@@ -12,6 +12,7 @@ import {
     getTranslationPairFromProject,
     handleTextSelection,
     searchParallelCells,
+    searchSimilarCellIds,
 } from "./search";
 import MiniSearch, { SearchResult } from "minisearch";
 import {
@@ -117,7 +118,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         }
     }, 3000);
 
-    const metadataManager = NotebookMetadataManager.getInstance();
+    const metadataManager = new NotebookMetadataManager();
+    await metadataManager.initialize();
     await metadataManager.loadMetadata();
 
     async function rebuildIndexes(force: boolean = false) {
@@ -462,7 +464,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
     const searchParallelCellsCommand = vscode.commands.registerCommand(
         "translators-copilot.searchParallelCells",
-        async (query?: string, k: number = 10, showInfo: boolean = false) => {
+        async (query?: string, k: number = 5, showInfo: boolean = false) => {
             if (!query) {
                 query = await vscode.window.showInputBox({
                     prompt: "Enter a query to search parallel cells",
@@ -510,7 +512,12 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             return uniqueResults;
         }
     );
-
+    const searchSimilarCellIdsCommand = vscode.commands.registerCommand(
+        "translators-copilot.searchSimilarCellIds",
+        async (cellId: string) => {
+            return searchSimilarCellIds(translationPairsIndex, cellId);
+        }
+    );
     const getTranslationPairFromProjectCommand = vscode.commands.registerCommand(
         "translators-copilot.getTranslationPairFromProject",
         async (cellId?: string, showInfo: boolean = false) => {
@@ -555,6 +562,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             refreshWordIndexCommand,
             getWordsAboveThresholdCommand,
             searchParallelCellsCommand,
+            searchSimilarCellIdsCommand,
         ]
     );
 

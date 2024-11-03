@@ -20,6 +20,7 @@
 !node_modules/@vscode/codicons/dist/**
 !node_modules/vscode-languageserver-textdocument
 !node_modules/vscode-uri
+!node_modules/sql.js/dist/sql-wasm.wasm
 
 !CHANGELOG.md
 !LICENSE

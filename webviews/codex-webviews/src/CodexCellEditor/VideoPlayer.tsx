@@ -8,6 +8,8 @@ interface VideoPlayerProps {
     videoUrl: string;
     translationUnitsForSection: QuillCellContent[];
     showSubtitles?: boolean;
+    onTimeUpdate?: (time: number) => void;
+    autoPlay: boolean;
 }
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -15,6 +17,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     videoUrl,
     translationUnitsForSection,
     showSubtitles = true,
+    onTimeUpdate,
+    autoPlay,
 }) => {
     const { subtitleUrl } = useSubtitleData(translationUnitsForSection);
     let file: Config["file"] = undefined;
@@ -48,6 +52,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             setError("To use a local video, the file must be located in the project folder.");
         }
     };
+    const handleProgress = (state: {
+        played: number;
+        playedSeconds: number;
+        loaded: number;
+        loadedSeconds: number;
+    }) => {
+        onTimeUpdate?.(state.playedSeconds);
+    };
 
     return (
         <div
@@ -63,13 +75,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     key={subtitleUrl}
                     ref={playerRef}
                     url={videoUrl}
-                    playing={true}
+                    playing={autoPlay}
+                    volume={0}
                     controls={true}
                     width="100%"
                     onError={handleError}
                     config={{
                         file: file,
                     }}
+                    onProgress={handleProgress}
                 />
             )}
         </div>

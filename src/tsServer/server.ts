@@ -21,7 +21,7 @@ import { RequestType } from "vscode-languageserver";
 import { debug } from "console";
 import { tokenizeText } from "../utils/nlpUtils";
 
-const DEBUG_MODE = false; // Flag for debug mode
+const DEBUG_MODE = true; // Flag for debug mode
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
@@ -55,7 +55,7 @@ connection.onInitialize((params: InitializeParams) => {
 
     // Initialize services
     debugLog("Initializing SpellChecker...");
-    spellChecker = new SpellChecker(workspaceFolder);
+    spellChecker = new SpellChecker(connection);
     debugLog("SpellChecker initialized.");
 
     debugLog("Initializing SpellCheckDiagnosticsProvider...");
@@ -88,15 +88,103 @@ connection.onInitialize((params: InitializeParams) => {
     } as InitializeResult;
 });
 let lastCellChanged: boolean = false;
+connection.onRequest(
+    "spellcheck/getAlertCode",
+    async (params: { text: string; cellId: string }) => {
+        try {
+            debugLog("SERVER: Received spellcheck/getAlertCode request:", { params });
+            const text = params.text;
+            const words = tokenizeText({
+                method: "whitespace_and_punctuation",
+                text: text,
+            });
+
+            // spellcheck
+            for (const word of words) {
+                const spellCheckResult = await spellChecker.spellCheck(word);
+                if (spellCheckResult?.corrections?.length > 0) {
+                    return { code: 1, cellId: params.cellId };
+                }
+            }
+            // FIXME: Not convinced this is working, or even useful...
+            // const savedSuggestions = await connection.sendRequest(ExecuteCommandRequest, {
+            //     command: "codex-smart-edits.getEdits",
+            //     args: [text, params.cellId],
+            // });
+
+            // // Check for smart edits
+            // debugLog(`Checking for smart edits: ${savedSuggestions?.suggestions}`);
+            // if (savedSuggestions?.suggestions?.length > 0) {
+            //     return {
+            //         code: 2,
+            //         cellId: params.cellId,
+            //         savedSuggestions: savedSuggestions,
+            //     };
+            // }
+            debugLog("No smart edits found, checking for applicable prompt");
+            // If no spelling errors or smart edits, check for applicable prompt
+            const prompt = await connection.sendRequest(ExecuteCommandRequest, {
+                command: "codex-smart-edits.hasApplicablePrompts",
+                args: [params.cellId, text],
+            });
+
+            const code = prompt ? 3 : 0;
+
+            return {
+                code,
+                cellId: params.cellId,
+                savedSuggestions: { suggestions: [] }, //savedSuggestions || { suggestions: [] },
+            };
+        } catch (error) {
+            console.error("Error in getAlertCode:", error);
+            return {
+                code: 0,
+                cellId: params.cellId,
+                savedSuggestions: { suggestions: [] },
+            };
+        }
+    }
+);
 
 connection.onRequest("spellcheck/check", async (params: { text: string; cellChanged: boolean }) => {
     debugLog("SERVER: Received spellcheck/check request:", { params });
 
-    const text = params.text.toLowerCase();
+    const text = params.text;
     const matches: MatchesEntity[] = [];
 
-    // Get smart edit suggestions only if the cellId has changed
-    if (params.cellChanged !== lastCellChanged) {
+    // Perform regular spellcheck first
+    const words = tokenizeText({
+        method: "whitespace_and_punctuation",
+        text: params.text,
+    });
+
+    let hasSpellingErrors = false;
+
+    for (const word of words) {
+        if (!word) continue; // Skip empty words
+        const spellCheckResult = await spellChecker.spellCheck(word);
+        if (!spellCheckResult) continue;
+
+        const offset = text.indexOf(word, 0);
+        if (offset === -1) continue;
+
+        if (spellCheckResult.corrections && spellCheckResult.corrections.length > 0) {
+            matches.push({
+                id: `UNKNOWN_WORD_${matches.length}`,
+                text: word,
+                replacements: spellCheckResult.corrections
+                    .filter((c) => c !== null && c !== undefined)
+                    .map((correction) => ({ value: correction })),
+                offset: offset,
+                length: word.length,
+                color: "red", // Default color for spelling errors
+            });
+            hasSpellingErrors = true;
+        }
+    }
+
+    // Only process smart edits if there are no spelling errors
+    if (!hasSpellingErrors && params.cellChanged !== lastCellChanged) {
         specialPhrases = [];
         const smartEditSuggestions = await connection.sendRequest(ExecuteCommandRequest, {
             command: "codex-smart-edits.getEdits",
@@ -104,8 +192,6 @@ connection.onRequest("spellcheck/check", async (params: { text: string; cellChan
         });
 
         debugLog("Received smart edit suggestions:", smartEditSuggestions);
-
-        // Clear previous special phrases from smart edits
 
         // Process smart edit suggestions as special phrases
         smartEditSuggestions.forEach((suggestion: any, index: number) => {
@@ -118,77 +204,47 @@ connection.onRequest("spellcheck/check", async (params: { text: string; cellChan
 
         // Update the last processed cellId
         lastCellChanged = params.cellChanged;
-    }
 
-    debugLog("Special phrases:", specialPhrases);
-    // Handle special phrases first to avoid overlapping with single-word matches
-    specialPhrases.forEach(({ phrase, replacement, color }, index) => {
-        let startIndex = 0;
-        const phraseLower = phrase.toLowerCase();
+        // Handle special phrases
+        specialPhrases.forEach(({ phrase, replacement, color }, index) => {
+            let startIndex = 0;
+            const phraseLower = phrase.toLowerCase();
 
-        while ((startIndex = text.indexOf(phraseLower, startIndex)) !== -1) {
-            matches.push({
-                id: `SPECIAL_PHRASE_${index}_${matches.length}`,
-                text: phrase,
-                replacements: [{ value: replacement }],
-                offset: startIndex,
-                length: phrase.length,
-                color: color, // Assign specified color
-            });
-            startIndex += phrase.length;
-        }
-    });
-    debugLog("Made it past special phrases");
-    // Perform regular spellcheck for other words
-    const words = tokenizeText({
-        method: "whitespace_and_punctuation",
-        text: params.text,
-    });
-    words.forEach((word, index) => {
-        try {
-            if (!word) return; // Skip empty words
-            const lowerWord = word.toLowerCase();
-            debugLog("Processing word:", word);
-
-            // Skip if the word is part of any special phrase matched
-            const isPartOfSpecialPhrase = specialPhrases.some(({ phrase }) =>
-                phrase.toLowerCase().includes(lowerWord)
-            );
-            if (isPartOfSpecialPhrase) return;
-
-            const spellCheckResult = spellChecker.spellCheck(word);
-            if (!spellCheckResult) {
-                debugLog("Spell check result is undefined for word:", word);
-                return;
-            }
-
-            const offset = params.text.toLowerCase().indexOf(lowerWord, 0);
-            if (offset === -1) {
-                debugLog("Word not found in text:", word);
-                return;
-            }
-
-            if (spellCheckResult.corrections && spellCheckResult.corrections.length > 0) {
+            while ((startIndex = text.toLowerCase().indexOf(phraseLower, startIndex)) !== -1) {
                 matches.push({
-                    id: `UNKNOWN_WORD_${matches.length}`,
-                    text: word,
-                    replacements: spellCheckResult.corrections
-                        .filter((c) => c !== null && c !== undefined)
-                        .map((correction) => ({ value: correction })),
-                    offset: offset,
-                    length: word.length,
-                    color: "red", // Default color for spelling errors
+                    id: `SPECIAL_PHRASE_${index}_${matches.length}`,
+                    text: phrase,
+                    replacements: [{ value: replacement }],
+                    offset: startIndex,
+                    length: phrase.length,
+                    color: color,
                 });
+                startIndex += phrase.length;
             }
-        } catch (error) {
-            debugLog("Error processing word:", word, error);
-            // Continue to the next word
-        }
-    });
+        });
+    }
 
     debugLog(`Returning matches: ${JSON.stringify(matches)}`);
     return matches;
 });
+
+connection.onRequest(
+    "spellcheck/applyPromptedEdit",
+    async (params: { text: string; prompt: string; cellId: string }) => {
+        debugLog("Received spellcheck/applyPromptedEdit request:", { params });
+        try {
+            const modifiedText = await connection.sendRequest(ExecuteCommandRequest, {
+                command: "codex-smart-edits.applyPromptedEdit",
+                args: [params.text, params.prompt, params.cellId],
+            });
+            debugLog("Modified text from prompted edit:", modifiedText);
+            return modifiedText;
+        } catch (error) {
+            console.error("Error applying prompted edit:", error);
+            return null; // Return original text if there's an error
+        }
+    }
+);
 
 connection.onRequest("spellcheck/addWord", async (params: { words: string[] }) => {
     debugLog("Received spellcheck/addWord request:", { params });

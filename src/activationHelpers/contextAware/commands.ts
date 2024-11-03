@@ -14,7 +14,7 @@ import {
 } from "../../commands/indexVrefsCommand";
 import { DownloadedResource } from "../../providers/obs/resources/types";
 import { translationAcademy } from "../../providers/translationAcademy/provider";
-import { downloadBible, setTargetFont } from "../../projectManager/projectInitializers";
+import { setTargetFont } from "../../projectManager/projectInitializers";
 
 import { CodexNotebookTreeViewProvider } from "../../providers/treeViews/navigationTreeViewProvider";
 import { getWorkSpaceFolder } from "../../utils";
@@ -25,7 +25,9 @@ import {
     Verse,
 } from "./sourceData";
 import { exportCodexContent } from "../../commands/exportHandler";
-import * as path from "path";
+import debounce from "lodash/debounce";
+import { DownloadBibleTransaction } from "../../transactions/DownloadBibleTransaction";
+import { getExtendedEbibleMetadataByLanguageNameOrCode } from "../../utils/ebible/ebibleCorpusUtils";
 
 const ROOT_PATH = getWorkSpaceFolder();
 
@@ -33,22 +35,24 @@ export async function registerCommands(context: vscode.ExtensionContext) {
     const navigationTreeViewProvider = new CodexNotebookTreeViewProvider(ROOT_PATH, context);
     vscode.window.registerTreeDataProvider("codexNotebookTreeView", navigationTreeViewProvider);
 
+    // Create a debounced refresh function
+    const debouncedRefresh = debounce(async () => {
+        console.log("Commands: Triggering debounced refresh");
+        try {
+            // Clear the metadata cache before refreshing
+            await navigationTreeViewProvider.model.invalidateCache();
+            navigationTreeViewProvider.refresh();
+        } catch (error) {
+            console.error("Commands: Error during refresh:", error);
+            vscode.window.showErrorMessage("Failed to refresh navigation tree");
+        }
+    }, 500);
+
     const navigationExplorerRefreshCommand = vscode.commands.registerCommand(
         "codexNotebookTreeView.refresh",
-        () => navigationTreeViewProvider.refresh()
-    );
-
-    const navigationExplorerOpenChapterCommand = vscode.commands.registerCommand(
-        "codexNotebookTreeView.openSection",
-        async (notebookPath: vscode.Uri, cellIdToJumpTo: string) => {
-            try {
-                const uri = notebookPath;
-                await vscode.commands.executeCommand("vscode.openWith", uri, "codex.cellEditor");
-                // After opening, jump to the specific cell
-                await jumpToCellInNotebook(context, uri.fsPath, cellIdToJumpTo);
-            } catch (error) {
-                vscode.window.showErrorMessage(`Failed to open section: ${error}`);
-            }
+        () => {
+            console.log("Commands: Refresh command triggered");
+            return debouncedRefresh();
         }
     );
 
@@ -221,10 +225,79 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
+    const navigationExplorerOpenChapterCommand = vscode.commands.registerCommand(
+        "codexNotebookTreeView.openSection",
+        async (resource: vscode.Uri, cellId?: string) => {
+            try {
+                await navigationTreeViewProvider.openSection(resource, cellId);
+            } catch (error) {
+                if (error instanceof Error) {
+                    vscode.window.showErrorMessage(`Failed to open notebook: ${error.message}`);
+                } else {
+                    vscode.window.showErrorMessage("Failed to open notebook: Unknown error");
+                }
+            }
+        }
+    );
+
+    // Add to your command registration
+    const downloadSourceBibleCommand = vscode.commands.registerCommand(
+        "codex-editor-extension.downloadSourceBible",
+        async () => {
+            // Show quick pick UI only when called directly from command palette
+            const allEbibleBibles = getExtendedEbibleMetadataByLanguageNameOrCode();
+            const languages = Array.from(
+                new Set(allEbibleBibles.map((b) => b.languageName))
+            ).filter(Boolean) as string[];
+
+            const selectedLanguage = await vscode.window.showQuickPick(languages, {
+                placeHolder: "Select a language",
+            });
+
+            if (selectedLanguage) {
+                const biblesForLanguage = allEbibleBibles.filter(
+                    (b) => b.languageName === selectedLanguage
+                );
+                const bibleItems = biblesForLanguage.map((b) => ({
+                    label: b.shortTitle || b.title,
+                    description: `${(b.OTbooks || 0) + (b.NTbooks || 0)} books`,
+                    id: b.translationId,
+                }));
+
+                const selectedBible = await vscode.window.showQuickPick(
+                    bibleItems as vscode.QuickPickItem[],
+                    { placeHolder: "Select a Bible translation" }
+                );
+
+                if (selectedBible && "id" in selectedBible) {
+                    const ebibleMetadata = biblesForLanguage.find(
+                        (b) => b.translationId === selectedBible.id
+                    );
+                    const transaction = new DownloadBibleTransaction(false);
+
+                    try {
+                        await transaction.prepare();
+                        await vscode.window.withProgress(
+                            {
+                                location: vscode.ProgressLocation.Notification,
+                                title: "Downloading Bible",
+                                cancellable: true,
+                            },
+                            async (progress, token) => {
+                                await transaction.execute(progress, token);
+                            }
+                        );
+                    } catch (error) {
+                        vscode.window.showErrorMessage(`Failed to download Bible: ${error}`);
+                    }
+                }
+            }
+        }
+    );
+
     context.subscriptions.push(
         navigationTreeViewProvider,
         navigationExplorerRefreshCommand,
-        navigationExplorerOpenChapterCommand,
         indexVrefsCommand,
         openTnAcademyCommand,
         searchIndexCommand,
@@ -240,32 +313,8 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         updateProjectNotebooksToUseCellsForVerseContentCommand,
         openSourceUploadCommand,
         uploadSourceFolderCommand,
-        uploadTranslationFolderCommand
+        uploadTranslationFolderCommand,
+        navigationExplorerOpenChapterCommand,
+        downloadSourceBibleCommand
     );
-
-    ensureBibleDownload();
-}
-
-async function ensureBibleDownload() {
-    // We use a source Bible for various functions, so we need to ensure at least one is downloaded.
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (workspaceFolders) {
-        const workspaceRoot = workspaceFolders[0].uri.fsPath;
-        const bibleFiles = await vscode.workspace.findFiles(
-            new vscode.RelativePattern(
-                workspaceRoot,
-                vscode.Uri.joinPath(
-                    vscode.Uri.file(workspaceRoot),
-                    ".project",
-                    "**",
-                    "*.source"
-                ).fsPath
-            ),
-            "**/node_modules/**",
-            1
-        );
-        if (bibleFiles.length === 0) {
-            vscode.commands.executeCommand("codex-editor-extension.downloadSourceText");
-        }
-    }
 }

@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.0.58",
+    "version": "0.0.61",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -513,8 +513,8 @@
                 "command": "codex-editor-extension.initializeNewProject"
             },
             {
-                "command": "codex-project-manager.downloadSourceText",
-                "title": "Download Source Text Bible"
+                "command": "codex-editor-extension.downloadSourceBible",
+                "title": "Download Source Bible"
             },
             {
                 "command": "codex-notebook-extension.openFile",
@@ -704,6 +704,15 @@
             {
                 "command": "translators-copilot.getZeroDraftContentOptions",
                 "title": "Get Zero Draft Content Options for Cell ID"
+            },
+            {
+                "command": "extension.lookupWord",
+                "title": "Look Up Word",
+                "category": "Dictionary"
+            },
+            {
+                "command": "extension.importWiktionaryJSONL",
+                "title": "Import Wiktionary"
             }
         ],
         "notebooks": [
@@ -792,6 +801,30 @@
                         "type": "string",
                         "default": "",
                         "description": "Path to the primary source text for the project"
+                    },
+                    "codex-project-manager.knownProjects": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "default": [],
+                        "description": "List of known Codex project paths"
+                    },
+                    "codex-project-manager.watchedFolders": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "default": [],
+                        "description": "List of folders to watch for Codex projects"
+                    },
+                    "codex-project-manager.projectHistory": {
+                        "type": "object",
+                        "default": {},
+                        "description": "History of project access times",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
                     }
                 }
             },
@@ -1078,7 +1111,7 @@
     "scripts": {
         "vscode:prepublish": "npm run build:webviews && npm run compile",
         "compile": "webpack --config webpack.config.js",
-        "watch": "webpack --watch",
+        "watch": "webpack --config webpack.config.js --watch",
         "package": "webpack --mode production --devtool hidden-source-map",
         "lint": "eslint src --ext ts",
         "pretest": "npm run compile && npm run lint",
@@ -1091,12 +1124,13 @@
         "@types/copy-webpack-plugin": "^8.0.1",
         "@types/diff": "^5.2.3",
         "@types/glob": "^7.1.1",
-        "@types/lodash": "^4.14.191",
+        "@types/lodash": "^4.17.13",
         "@types/md5": "^2.3.5",
-        "@types/mocha": "^10.0.1",
-        "@types/node": "14.x",
+        "@types/mocha": "^10.0.9",
+        "@types/node": "^14.18.63",
         "@types/react": "^18.3.3",
         "@types/react-dom": "^18.3.1",
+        "@types/sax": "^1.2.7",
         "@types/semver": "^7.5.6",
         "@types/sinon": "^17.0.3",
         "@types/sql.js": "^1.4.9",
@@ -1109,7 +1143,9 @@
         "@vscode/vsce-sign": "^2.0.3",
         "assert": "^2.1.0",
         "browserify-zlib": "^0.2.0",
+        "codex-types": "^0.0.4",
         "cross-env": "^7.0.3",
+        "crypto-browserify": "^3.12.1",
         "eslint": "^7.27.0",
         "glob": "^7.1.4",
         "html-loader": "^5.1.0",
@@ -1134,11 +1170,13 @@
     "dependencies": {
         "@types/better-sqlite3": "^7.6.11",
         "@types/webpack-env": "^1.18.5",
-        "@vscode/codicons": "^0.0.35",
+        "@vscode/codicons": "^0.0.36",
         "@vscode/python-extension": "^1.0.5",
         "@vscode/webview-ui-toolkit": "^1.4.0",
         "bible-reference-range": "^1.1.1",
         "codex-types": "^0.0.4",
+        "copy-webpack-plugin": "^12.0.2",
+        "date-fns": "^2.30.0",
         "diff": "^7.0.0",
         "fitty": "^2.4.2",
         "hog-features": "^1.0.0",
@@ -1156,8 +1194,9 @@
         "pnpm": "^8.15.5",
         "proc-log": "^5.0.0",
         "react-wordcloud": "^1.2.7",
+        "sax": "^1.4.1",
         "semver": "^7.6.0",
-        "sinon": "^17.0.1",
+        "sinon": "^19.0.2",
         "sql.js": "^1.11.0",
         "token.js": "^0.4.3",
         "url": "^0.11.4",

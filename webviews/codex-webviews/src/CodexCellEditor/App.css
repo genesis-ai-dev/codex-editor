@@ -296,6 +296,12 @@ li {
     display: none; /* Hide paratext indicators unless in one-line-per-cell mode */
 }
 
+.cell-display-inline .paratext-display:hover,
+.cell-display-inline .paratext-display *:hover {
+    background-color: var(--vscode-editor-selectionHighlightBackground);
+    display: inline;
+}
+
 .cell-display-one-line-per-cell .paratext-display {
     background-color: var(
         --vscode-editor-inactiveSelectionBackground
@@ -303,6 +309,7 @@ li {
     border-inline-start: 4px solid var(--vscode-editorInfo-foreground); /* Strong accent from VSCode theme */
     padding: 0.5rem;
     border-radius: 4px;
+    display: block;
 }
 
 .cell-display-one-line-per-cell .paratext-indicator {
@@ -406,4 +413,171 @@ li {
     color: var(--vscode-editorError-foreground);
     border: none;
     border-radius: 0;
+}
+
+/* Add these styles */
+.source-setup-container {
+    padding: 1rem;
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.setup-step {
+    margin-bottom: 2rem;
+}
+
+.button-group {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.format-options,
+.location-options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+.translation-query {
+    margin-top: 2rem;
+    padding: 1rem;
+    background: var(--vscode-editor-background);
+    border-radius: 4px;
+}
+
+/* Add these new styles */
+.workflow-container {
+    padding: 2rem;
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.workflow-progress {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 2rem;
+    position: relative;
+}
+
+.workflow-progress::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--vscode-widget-border);
+    z-index: 0;
+}
+
+.progress-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    position: relative;
+    z-index: 1;
+}
+
+.step-indicator {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    background: var(--vscode-editor-background);
+    border: 2px solid var(--vscode-widget-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.progress-step.active .step-indicator {
+    background: var(--vscode-button-background);
+    border-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+}
+
+.progress-step.complete .step-indicator {
+    background: var(--vscode-button-background);
+    border-color: var(--vscode-button-background);
+}
+
+.progress-step.complete .step-indicator::after {
+    content: "✓";
+    color: var(--vscode-button-foreground);
+}
+
+.dropzone {
+    border: 2px dashed var(--vscode-widget-border);
+    border-radius: 8px;
+    padding: 2rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.3s ease;
+}
+
+.dropzone:hover {
+    border-color: var(--vscode-button-background);
+}
+
+.dropzone-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+}
+
+.dropzone-content i {
+    font-size: 2rem;
+}
+
+.dropzone-subtitle {
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.9em;
+}
+
+.selected-file {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    background: var(--vscode-editor-background);
+    border-radius: 4px;
+    margin-top: 1rem;
+}
+
+.processing-status {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.status-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    border-radius: 4px;
+    background: var(--vscode-editor-background);
+}
+
+.status-item.complete {
+    color: var(--vscode-testing-iconPassed);
+}
+
+.status-item.error {
+    color: var(--vscode-testing-iconFailed);
+}
+
+.completion-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 2rem;
+}
+
+.workflow-navigation {
+    margin-top: 2rem;
+    display: flex;
+    justify-content: flex-end;
 }

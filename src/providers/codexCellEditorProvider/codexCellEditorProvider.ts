@@ -48,7 +48,8 @@ class CodexCellDocument implements vscode.CustomDocument {
         this.uri = uri;
         this._documentData = initialContent.trim().length === 0 ? {} : JSON.parse(initialContent);
         if (!this._documentData.metadata) {
-            const metadata = NotebookMetadataManager.getInstance();
+            const metadata = new NotebookMetadataManager();
+            metadata.initialize();
             metadata.loadMetadata().then(() => {
                 const matchingMetadata = metadata
                     .getAllMetadata()
@@ -140,24 +141,18 @@ class CodexCellDocument implements vscode.CustomDocument {
         });
     }
     public replaceDuplicateCells(content: QuillCellContent) {
-        console.log(`Searching for cell with ID: ${content.cellMarkers[0]}`);
         let indexOfCellToDelete = this._documentData.cells.findIndex((cell) => {
-            console.log(`Checking cell:`, { cell });
             return cell.metadata?.id === content.cellMarkers[0];
         });
-        console.log(`Found cell at index: ${indexOfCellToDelete}`);
         const cellMarkerOfCellBeforeNewCell =
             indexOfCellToDelete === 0
                 ? null
                 : this._documentData.cells[indexOfCellToDelete - 1].metadata?.id;
         while (indexOfCellToDelete !== -1) {
             this._documentData.cells.splice(indexOfCellToDelete, 1);
-            console.log(`Searching for next cell with ID 2: ${content.cellMarkers[0]}`);
             indexOfCellToDelete = this._documentData.cells.findIndex((cell) => {
-                console.log(`Checking cell 2:`, { cell });
                 return cell.metadata?.id === content.cellMarkers[0];
             });
-            console.log(`Found next cell at index 2: ${indexOfCellToDelete}`);
         }
 
         this.addCell(
@@ -403,9 +398,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         openContext: { backupId?: string },
         _token: vscode.CancellationToken
     ): Promise<CodexCellDocument> {
-        console.log("openCustomDocument called", { uri });
         const document = await CodexCellDocument.create(uri, openContext.backupId, _token);
-        console.log("openCustomDocument returned", { document });
+
         return document;
     }
 
@@ -414,11 +408,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         webviewPanel: vscode.WebviewPanel,
         _token: vscode.CancellationToken
     ): Promise<void> {
-        console.log("resolveCustomEditor called");
         webviewPanel.webview.options = {
             enableScripts: true,
         };
-        const textDirection = this.getTextDirection();
+        const textDirection = this.getTextDirection(document);
         const isSourceText = document.uri.fsPath.endsWith(".source");
 
         webviewPanel.webview.html = this.getHtmlForWebview(
@@ -432,7 +425,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             const notebookData: vscode.NotebookData = this.getDocumentAsJson(document);
 
             const processedData = this.processNotebookData(notebookData);
-            console.log("document._sourceCellMap", document._sourceCellMap);
+
             this.postMessageToWebview(webviewPanel, {
                 type: "providerSendsInitialContent",
                 content: processedData,
@@ -471,16 +464,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         webviewPanel.webview.onDidReceiveMessage(async (e: EditorPostMessages) => {
             try {
-                console.log("message received (codexCellEditorProvider.ts): ", { e });
                 switch (e.command) {
                     case "addWord": {
-                        console.log("addWord message received", { e });
                         try {
                             const result = await vscode.commands.executeCommand(
                                 "spellcheck.addWord",
                                 e.words
                             );
-                            console.log("spellcheck.addWord command result:", result);
                             webviewPanel.webview.postMessage({
                                 type: "wordAdded",
                                 content: e.words,
@@ -491,11 +481,29 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         }
                         return;
                     }
+                    case "searchSimilarCellIds": {
+                        try {
+                            const response = await vscode.commands.executeCommand<
+                                Array<{ cellId: string; score: number }>
+                            >(
+                                "translators-copilot.searchSimilarCellIds",
+                                e.content.cellId,
+                                5, // Default k value from searchSimilarCellIds
+                                0.2 // Default fuzziness from searchSimilarCellIds
+                            );
+                            this.postMessageToWebview(webviewPanel, {
+                                type: "providerSendsSimilarCellIdsResponse",
+                                content: response || [], // Ensure we always return an array
+                            });
+                        } catch (error) {
+                            console.error("Error searching for similar cell IDs:", error);
+                            vscode.window.showErrorMessage(
+                                "Failed to search for similar cell IDs."
+                            );
+                        }
+                        return;
+                    }
                     case "from-quill-spellcheck-getSpellCheckResponse": {
-                        console.log(
-                            "from-quill-spellcheck-getSpellCheckResponse message received",
-                            { e }
-                        );
                         try {
                             const response = await vscode.commands.executeCommand(
                                 "translators-copilot.spellCheckText",
@@ -512,8 +520,32 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         }
                         return;
                     }
+
+                    case "getAlertCode": {
+                        // console.log("getAlertCode message received", { e });
+                        try {
+                            const result = await vscode.commands.executeCommand(
+                                "translators-copilot.alertCode",
+                                e.content.text,
+                                e.content.cellId // Pass the cellId
+                            );
+
+                            this.postMessageToWebview(webviewPanel, {
+                                type: "providerSendsgetAlertCodeResponse",
+                                content: {
+                                    code: (result as any).code as number,
+                                    cellId: e.content.cellId,
+                                },
+                            });
+                        } catch (error) {
+                            console.error("Error during getAlertCode:", error);
+                            // vscode.window.showErrorMessage(
+                            //     "Failed to check if text is problematic."
+                            // );
+                        }
+                        return;
+                    }
                     case "saveHtml":
-                        console.log("saveHtml message received", { e });
                         try {
                             document.updateCellContent(
                                 e.content.cellMarkers[0],
@@ -529,7 +561,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         updateWebview();
                         return;
                     case "setCurrentIdToGlobalState":
-                        console.log("setVerseRef message received", { e });
                         try {
                             await initializeStateStore().then(({ updateStoreState }) => {
                                 updateStoreState({
@@ -553,9 +584,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                 document,
                                 e.content.currentLineId
                             );
-                            console.log("completionResult", {
-                                completionResult,
-                            });
                             this.postMessageToWebview(webviewPanel, {
                                 type: "providerSendsLLMCompletionResponse",
                                 content: {
@@ -583,9 +611,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         return;
                     }
                     case "updateTextDirection": {
-                        console.log("updateTextDirection message received", {
-                            direction: e.direction,
-                        });
                         try {
                             const updatedMetadata = {
                                 textDirection: e.direction,
@@ -598,12 +623,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                 content: await document.getNotebookMetadata(),
                             });
                         } catch (error) {
-                            console.error("Error updating notebook metadata:", error);
+                            console.error("Error updating notebook text direction:", error);
+                            vscode.window.showErrorMessage("Failed to update text direction.");
                         }
                         return;
                     }
                     case "openSourceText": {
-                        console.log("openSourceText message received", { e });
                         try {
                             const workspaceFolderUri = getWorkSpaceUri();
                             if (!workspaceFolderUri) {
@@ -618,9 +643,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                 "sourceTexts",
                                 sourceFileName
                             );
-                            console.log("sourceFileName", {
-                                sourceFileName,
-                            });
+
                             await vscode.commands.executeCommand(
                                 "codexNotebookTreeView.openSourceFile",
                                 { sourceFileUri: sourceUri }
@@ -636,7 +659,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         return;
                     }
                     case "makeChildOfCell": {
-                        console.log("makeChildOfCell message received", { e });
                         try {
                             document.addCell(
                                 e.content.newCellId,
@@ -746,6 +768,53 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         }
                         return;
                     }
+                    case "applyPromptedEdit": {
+                        try {
+                            const result = await vscode.commands.executeCommand(
+                                "codex-smart-edits.applyPromptedEdit",
+                                e.content.text,
+                                e.content.prompt,
+                                e.content.cellId
+                            );
+                            console.log("providerSendsPromptedEditResponse", { result });
+                            this.postMessageToWebview(webviewPanel, {
+                                type: "providerSendsPromptedEditResponse",
+                                content: result as string,
+                            });
+                        } catch (error) {
+                            console.error("Error applying prompted edit:", error);
+                            vscode.window.showErrorMessage("Failed to apply prompted edit.");
+                        }
+                        return;
+                    }
+                    case "getTopPrompts": {
+                        console.log("getTopPrompts message received", { e });
+                        try {
+                            const result = await vscode.commands.executeCommand(
+                                "codex-smart-edits.getTopPrompts",
+                                e.content.cellId,
+                                e.content.text
+                            );
+                            console.log("providerSendsTopPrompts", { result });
+                            this.postMessageToWebview(webviewPanel, {
+                                type: "providerSendsTopPrompts",
+                                content: result as string[],
+                            });
+                        } catch (error) {
+                            console.error("Error getting and applying prompted edit:", error);
+                            vscode.window.showErrorMessage("Failed to get top prompts.");
+                        }
+                        return;
+                    }
+                    case "supplyRecentEditHistory": {
+                        console.log("supplyRecentEditHistory message received", { e });
+                        const result = await vscode.commands.executeCommand(
+                            "codex-smart-edits.supplyRecentEditHistory",
+                            e.content.cellId,
+                            e.content.editHistory
+                        );
+                        return;
+                    }
                 }
             } catch (error) {
                 console.error("Unexpected error in message handler:", error);
@@ -757,7 +826,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration("translators-copilot.textDirection")) {
-                this.updateTextDirection(webviewPanel);
+                this.updateTextDirection(webviewPanel, document);
             }
         });
     }
@@ -840,6 +909,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 // If it's a relative path, join it with the workspace URI
                 const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
                 if (workspaceUri) {
+                    // FIXME: if we don't add the video path, then you can use videos from anywhere on your machine
                     const fullPath = vscode.Uri.joinPath(workspaceUri, videoPath);
                     videoUri = webview.asWebviewUri(fullPath).toString();
                 }
@@ -897,12 +967,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
     }
 
-    private getTextDirection(): string {
-        return vscode.workspace.getConfiguration("translators-copilot").get("textDirection", "ltr");
+    private getTextDirection(document: CodexCellDocument): string {
+        const notebookData = this.getDocumentAsJson(document);
+        console.log("getTextDirection", notebookData.metadata?.textDirection);
+        return notebookData.metadata?.textDirection || "ltr";
     }
 
-    private updateTextDirection(webviewPanel: vscode.WebviewPanel): void {
-        const textDirection = this.getTextDirection();
+    private updateTextDirection(
+        webviewPanel: vscode.WebviewPanel,
+        document: CodexCellDocument
+    ): void {
+        const textDirection = this.getTextDirection(document);
         this.postMessageToWebview(webviewPanel, {
             type: "providerUpdatesTextDirection",
             textDirection: textDirection as "ltr" | "rtl",
@@ -1044,7 +1119,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         webviewPanel.webview.html = this.getHtmlForWebview(
             webviewPanel.webview,
             document,
-            this.getTextDirection(),
+            this.getTextDirection(document),
             isSourceText
         );
 

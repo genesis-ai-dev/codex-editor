@@ -25,13 +25,35 @@ import { VideoEditorProvider } from "./providers/VideoEditor/VideoEditorProvider
 import { registerVideoPlayerCommands } from "./providers/VideoPlayer/registerCommands";
 import { SourceUploadProvider } from "./providers/SourceUpload/SourceUploadProvider";
 import { StatusBarItem } from "vscode";
+import { Database } from "sql.js";
+import { importWiktionaryJSONL, initializeSqlJs, registerLookupWordCommand } from "./sqldb";
 
 let client: LanguageClient | undefined;
 let clientCommandsDisposable: vscode.Disposable;
 let autoCompleteStatusBarItem: StatusBarItem;
+let db: Database | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
+    db = await initializeSqlJs(context);
+    console.log("initializeSqlJs db", db);
+    if (db) {
+        const importCommand = vscode.commands.registerCommand(
+            "extension.importWiktionaryJSONL",
+            () => db && importWiktionaryJSONL(db)
+        );
+        context.subscriptions.push(importCommand);
+        registerLookupWordCommand(db, context);
+    }
+
     vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
+
+    // Register trust change listener
+    context.subscriptions.push(
+        vscode.workspace.onDidGrantWorkspaceTrust(async () => {
+            console.log("Workspace trust granted, reactivating extension");
+            await vscode.commands.executeCommand("workbench.action.reloadWindow");
+        })
+    );
 
     const fs = vscode.workspace.fs;
     const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -40,6 +62,21 @@ export async function activate(context: vscode.ExtensionContext) {
     registerProjectManager(context);
 
     if (workspaceFolders && workspaceFolders.length > 0) {
+        if (!vscode.workspace.isTrusted) {
+            console.log("Workspace not trusted. Waiting for trust...");
+            vscode.window
+                .showWarningMessage(
+                    "This workspace needs to be trusted before Codex Editor can fully activate.",
+                    "Trust Workspace"
+                )
+                .then((selection) => {
+                    if (selection === "Trust Workspace") {
+                        vscode.commands.executeCommand("workbench.action.trustWorkspace");
+                    }
+                });
+            return;
+        }
+
         const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
 
         let metadataExists = false;
@@ -107,10 +144,15 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
         await initializeBibleData(context);
 
         client = await registerLanguageServer(context);
-
-        if (client) {
+        if (client && db) {
+            try {
+                await registerClientOnRequests(client, db);
+                // Start the client after registering handlers
+                await client.start();
+            } catch (error) {
+                console.error("Error registering client requests:", error);
+            }
             clientCommandsDisposable = registerClientCommands(context, client);
-            await registerClientOnRequests(client); // So that the language server thread can interface with the main extension commands
             context.subscriptions.push(clientCommandsDisposable);
         }
 
@@ -171,6 +213,9 @@ export function deactivate() {
     }
     if (client) {
         return client.stop();
+    }
+    if (db) {
+        db.close();
     }
 }
 

@@ -1,10 +1,16 @@
-import React, { useEffect, useRef } from "react";
+import React, { useContext, useEffect, useRef, useState } from "react";
 import TimeLine, { TimelineReturn } from "./T";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import "./index.css";
 import { TimeBlock } from "../../../../../types";
+import ReactPlayer from "react-player";
+import ZoomButton from "./ZoomButton";
+import ScrollToContentContext from "../contextProviders/ScrollToContentContext";
 
 export interface TimelineProps {
+    setAutoPlay: (autoPlay: boolean) => void;
+    autoPlay: boolean;
+    playerRef?: React.RefObject<ReactPlayer>;
     changeAreaShow: (beginingTimeShow: number, endTimeShow: number) => void;
     changeZoomLevel: (zoomLevel: number) => void;
     changeShift: (shift: number) => void;
@@ -32,9 +38,12 @@ export interface TimelineProps {
     disableSaveButton?: boolean;
     onSave: () => void;
     onReset: () => void;
+    initialZoomLevel?: number; // Add this new prop
 }
 
 export default function Timeline(props: TimelineProps) {
+    // const [scrollingIsTracking, setScrollingIsTracking] = useState(true);
+    const [scrollPosition, setScrollPosition] = useState(0);
     let timeLine: TimelineReturn | undefined;
     let shift: number;
     let zoomLevel: number;
@@ -45,14 +54,17 @@ export default function Timeline(props: TimelineProps) {
     const canvasAudio = useRef(null);
     const canvas2 = useRef(null);
 
+    const { setContentToScrollTo, contentToScrollTo } = useContext(ScrollToContentContext);
     const changeAlignment = (z: TimeBlock[]) => {
         data = z;
         props.setAligns(z);
     };
+
     const changeZoomLevel = (z: number) => {
         props.changeZoomLevel(z);
         zoomLevel = z;
     };
+
     const changeShift = (s: number) => {
         props.changeShift(s);
         shift = s;
@@ -64,20 +76,40 @@ export default function Timeline(props: TimelineProps) {
         endTimeShow = e;
     };
 
+    const changeInScrollPosition = (position: number) => {
+        setScrollPosition(position);
+    };
+
     const defaultFunction = () => {};
+
     const drawTimeLine = (p: TimelineProps & { endTime: number }) => {
-        timeLine = TimeLine(
-            canvas1.current as unknown as HTMLCanvasElement,
-            canvas2.current as unknown as HTMLCanvasElement,
-            p.data,
-            p.endTime,
-            () => (props.audioRef ? props.audioRef.current : canvasAudio.current),
-            changeAlignment || defaultFunction,
-            changeZoomLevel || defaultFunction,
-            changeShift || defaultFunction,
-            changeAreaShow || defaultFunction,
-            {
+        timeLine = TimeLine({
+            canvas: canvas1.current as unknown as HTMLCanvasElement,
+            canvas2: canvas2.current as unknown as HTMLCanvasElement,
+            alignments: p.data,
+            endTime: p.endTime,
+            setContentToScrollTo: (id) => {
+                if (id && id !== contentToScrollTo) {
+                    setContentToScrollTo(id);
+                }
+            },
+            getPlayer: () => ({
+                currentTime: props.playerRef?.current?.getCurrentTime() || 0,
+                play: (currentTime: number) => {
+                    props.playerRef?.current?.seekTo(currentTime);
+                    // props.playerRef?.current?.forceUpdate();
+                },
+            }),
+            changeAlignment: changeAlignment || defaultFunction,
+            changeZoomLevel: changeZoomLevel || defaultFunction,
+            changeInScrollPosition: changeInScrollPosition || defaultFunction,
+            changeShift: changeShift || defaultFunction,
+            tellAreaChangesToRectComponent: changeAreaShow || defaultFunction,
+            options: {
                 autoScroll: props.autoScroll,
+                initialZoomLevel: props.initialZoomLevel, // Pass the prop through
+                scrollingIsTracking: true,
+                scrollPosition: scrollPosition,
                 colors: {
                     background: props.colors?.background || "transparent",
                     box: props.colors?.box || "#a9a9a9",
@@ -92,22 +124,13 @@ export default function Timeline(props: TimelineProps) {
                     scrollBar: props.colors?.scrollBar || "#c2c9d6",
                     scrollBarHover: props.colors?.scrollBarHover || "#8f96a3",
                 },
-            }
-        );
+            },
+        });
     };
 
     const resetTimeline = () => {
-        let endTime;
         if (props.data.length > 0 && props.src) {
-            endTime = props.data[props.data.length - 1]
-                ? props.data[props.data.length - 1].end * 1.2
-                : 60;
-            if (props.data[props.data.length - 1].end > endTime) {
-                endTime = props.data[props.data.length - 1].end;
-                console.log("Video time is less than the alignments end time");
-            }
-
-            drawTimeLine({ ...props, endTime });
+            drawTimeLine({ ...props, endTime: props.playerRef?.current?.getDuration() || 0 });
         }
     };
 
@@ -116,7 +139,7 @@ export default function Timeline(props: TimelineProps) {
         return () => {
             if (timeLine) timeLine.cancelAnimate();
         };
-    }, [props.data, props.src]); // Add props.resetTimeline to the dependency array
+    }, [props.data, props.src, props.initialZoomLevel]); // Add props.resetTimeline to the dependency array
 
     const style = {
         height: "90px",
@@ -124,8 +147,48 @@ export default function Timeline(props: TimelineProps) {
         width: "100%",
     };
 
+    const initialZoomLevel = props.initialZoomLevel || 1;
     return (
         <div style={{ display: "flex", flexDirection: "row" }}>
+            <div
+                style={{
+                    display: "flex",
+                    justifyContent: "end",
+                    flexDirection: "column",
+                    flex: 1,
+                    // gap: "10px",
+                    // padding: "10px",
+                    backgroundColor: "var(--vscode-scrollbar-shadow)",
+                }}
+            >
+                <VSCodeButton
+                    style={{
+                        display: "flex",
+                        flex: 1,
+                        borderRadius: 0,
+                    }}
+                    onClick={() => {
+                        props.setAutoPlay(!props.autoPlay);
+                    }}
+                >
+                    <i
+                        className={`codicon codicon-${
+                            props.autoPlay ? "run-errors" : "run-all-coverage"
+                        }`}
+                    ></i>
+                </VSCodeButton>
+                <ZoomButton
+                    initialZoomLevel={initialZoomLevel}
+                    changeZoomLevel={changeZoomLevel}
+                    zoomIn={true}
+                />
+
+                <ZoomButton
+                    initialZoomLevel={initialZoomLevel}
+                    changeZoomLevel={changeZoomLevel}
+                    zoomIn={false}
+                />
+            </div>
             <div style={style} className="timeline-editor">
                 <div hidden>
                     <audio src={props.src} ref={props.audioRef || canvasAudio} />

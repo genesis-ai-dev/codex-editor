@@ -1,11 +1,15 @@
 import React, { useEffect, useState } from "react";
 import Timeline from "./Timeline/index";
-import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { EditorPostMessages, TimeBlock } from "../../../../types";
+import ReactPlayer from "react-player";
 
 interface TimelineEditorProps {
+    playerRef: React.RefObject<ReactPlayer>;
     data: TimeBlock[];
     vscode: any;
+    setAutoPlay: (autoPlay: boolean) => void;
+    autoPlay: boolean;
+    currentTime: number;
 }
 
 const getListOfTimeBlocksWithUpdatedTimes = (
@@ -15,7 +19,7 @@ const getListOfTimeBlocksWithUpdatedTimes = (
     const timeBlocksWithUpdates: TimeBlock[] = [];
     newTimeBlocks.forEach((newTimeBlock) => {
         const oldBlock = oldTimeBlocks.find((block) => block.id === newTimeBlock.id);
-        console.log({ oldBlock, newTimeBlock });
+
         if (oldBlock) {
             if (newTimeBlock.begin !== oldBlock.begin) {
                 timeBlocksWithUpdates.push(newTimeBlock);
@@ -29,9 +33,17 @@ const getListOfTimeBlocksWithUpdatedTimes = (
     return timeBlocksWithUpdates;
 };
 
-const TimelineEditor: React.FC<TimelineEditorProps> = ({ data, vscode }) => {
+const TimelineEditor: React.FC<TimelineEditorProps> = ({
+    playerRef,
+    data,
+    vscode,
+
+    setAutoPlay,
+    autoPlay,
+    currentTime,
+}) => {
     const [timeBlocksWithUpdates, setTimeBlocksWithUpdates] = useState<TimeBlock[]>([]);
-    console.log({ timeBlocksWithUpdates, data });
+    const [zoomLevel, setZoomLevel] = useState(90);
     return (
         <div
             style={{
@@ -43,11 +55,14 @@ const TimelineEditor: React.FC<TimelineEditorProps> = ({ data, vscode }) => {
             }}
         >
             <Timeline
+                autoPlay={autoPlay}
+                setAutoPlay={setAutoPlay}
+                initialZoomLevel={zoomLevel}
                 changeAreaShow={(start: number, end: number) => {
                     // console.log({ start, end });
                 }}
                 changeZoomLevel={(zoomLevel: number) => {
-                    // console.log({ zoomLevel });
+                    setZoomLevel(zoomLevel);
                 }}
                 changeShift={(shift: number) => {
                     // console.log({ shift });
@@ -59,6 +74,7 @@ const TimelineEditor: React.FC<TimelineEditorProps> = ({ data, vscode }) => {
                     );
                     setTimeBlocksWithUpdates(timeBlocksWithUpdates);
                 }}
+                playerRef={playerRef}
                 // audioRef={playerRef}
                 src={"..."}
                 data={data}

@@ -10,6 +10,7 @@ import grammar, { ParsedUSFM } from "usfm-grammar";
 import { WebVTTParser } from "webvtt-parser";
 import {
     CodexNotebookAsJSONData,
+    CustomCellMetaData,
     CustomNotebookCellData,
     CustomNotebookMetadata,
 } from "../../types";
@@ -32,13 +33,7 @@ export const NOTEBOOK_TYPE = "codex-type";
  * @property {string} [chapter] - The chapter number or identifier associated with the cell.
  */
 export interface CodexCell extends vscode.NotebookCellData {
-    metadata?: {
-        type: "text" | "paratext";
-        id: string;
-        data: {
-            [key: string]: any | undefined;
-        };
-    };
+    metadata?: CustomCellMetaData;
 }
 
 interface deprecated_CodexCell extends vscode.NotebookCellData {
@@ -50,7 +45,9 @@ interface deprecated_CodexCell extends vscode.NotebookCellData {
     };
 }
 
-export const createCodexNotebook = async (cells: vscode.NotebookCellData[] = []) => {
+export const createCodexNotebook = async (
+    cells: CodexCell[] = []
+): Promise<vscode.NotebookDocument> => {
     /**
      * Creates a Codex notebook with the provided cell data.
      *
@@ -64,7 +61,9 @@ export const createCodexNotebook = async (cells: vscode.NotebookCellData[] = [])
      */
     const cellData =
         cells.length > 0
-            ? cells.map((cell) => new vscode.NotebookCellData(cell.kind, cell.value, "html"))
+            ? cells.map(
+                  (cell) => new vscode.NotebookCellData(cell.kind, cell.value, "html") as CodexCell
+              )
             : [];
     const data = new vscode.NotebookData(cellData);
     const doc = await vscode.workspace.openNotebookDocument(NOTEBOOK_TYPE, data);
@@ -164,7 +163,6 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
                     // @ts-expect-error: type is not defined in the type because it is the old type
                     if (cell.metadata?.type === "chapter-heading") {
                         // This is a chapter heading cell
-                        // @ts-expect-error: type is not defined in the type because it is the old type
                         const chapter = cell.metadata.data?.chapter;
                         if (chapter && book) {
                             const h1Content = `${chapterHeadingText} ${chapter}`;
@@ -387,7 +385,8 @@ async function processUsfmFile(fileUri: vscode.Uri, notebookId?: string): Promis
         );
 
         const bookCode = jsonOutput.book.bookCode;
-        const metadataManager = NotebookMetadataManager.getInstance();
+        const metadataManager = new NotebookMetadataManager();
+        await metadataManager.initialize();
         const baseName = basename(fileUri.fsPath).split(".")[0] || `new_source`;
         const generatedNotebookId = notebookId || metadataManager.generateNewId(baseName);
 
@@ -640,67 +639,64 @@ export async function createProjectNotebooks({
     await Promise.all(notebookCreationPromises);
 }
 
+// Update the splitSourceFileByBook function to handle transformed content better
+
 export async function splitSourceFileByBook(
-    sourceFileUri: vscode.Uri,
-    workspaceRoot: string,
-    languageType: string
+    sourceUri: vscode.Uri,
+    workspacePath: string,
+    language: string
 ): Promise<vscode.Uri[]> {
-    const createdBookFiles: vscode.Uri[] = [];
-    try {
-        const sourceFileContent = await vscode.workspace.fs.readFile(sourceFileUri);
-        const sourceData = JSON.parse(sourceFileContent.toString());
+    const content = await vscode.workspace.fs.readFile(sourceUri);
+    const textContent = Buffer.from(content).toString('utf-8');
+    const lines = textContent.split('\n').filter(line => line.trim());
 
-        const bookData: { [book: string]: any } = {};
-
-        for (const cell of sourceData.cells) {
-            if (cell.metadata && cell.metadata.id) {
-                const [book] = cell.metadata.id.split(" ");
-                if (!bookData[book]) {
-                    bookData[book] = {
-                        cells: [],
-                        metadata: {
-                            data: { ...sourceData.metadata.data },
-                            navigation: [],
-                        },
-                    };
-                }
-                bookData[book].cells.push(cell);
-
-                // Update navigation for chapter headings
-                if (cell.metadata.type === "paratext") {
-                    bookData[book].metadata.navigation.push({
-                        cellId: cell.metadata.id,
-                        children: [],
-                        label: cell.value.replace(/<\/?h1>/g, ""),
-                    });
-                }
+    // Group verses by book
+    const bookGroups = new Map<string, string[]>();
+    
+    lines.forEach(line => {
+        const match = line.match(/^([\w\s]+)\s+\d+:\d+\s+.+$/);
+        if (match) {
+            const book = match[1].trim();
+            if (!bookGroups.has(book)) {
+                bookGroups.set(book, []);
             }
+            bookGroups.get(book)!.push(line);
         }
+    });
 
-        const writePromises = Object.entries(bookData).map(async ([book, data]) => {
-            const bookFileName = `${book}.source`;
-            const bookFilePath = vscode.Uri.joinPath(
-                getWorkSpaceUri()!,
-                ".project",
-                languageType === "source" ? "sourceTexts" : "targetTexts",
-                bookFileName
-            );
-            await vscode.workspace.fs.writeFile(
-                bookFilePath,
-                new TextEncoder().encode(JSON.stringify(data, null, 2))
-            );
-            createdBookFiles.push(bookFilePath);
-        });
+    const createdFiles: vscode.Uri[] = [];
 
-        await Promise.all(writePromises);
-
-        vscode.window.showInformationMessage(`Source file split into individual book files.`);
-        return createdBookFiles;
+    // Create source directory if it doesn't exist
+    const sourceTextDir = vscode.Uri.joinPath(
+        vscode.Uri.file(workspacePath),
+        'files',
+        'source',
+        `${language}Texts`
+    );
+    
+    try {
+        await vscode.workspace.fs.createDirectory(sourceTextDir);
     } catch (error) {
-        console.error(`Error splitting source file: ${error}`);
-        vscode.window.showErrorMessage(`Failed to split source file: ${error}`);
-        return [];
+        // Directory might already exist
     }
+
+    // Create a file for each book
+    for (const [book, verses] of bookGroups) {
+        const safeBookName = book.replace(/[^a-zA-Z0-9]/g, '');
+        const sourceFilePath = vscode.Uri.joinPath(
+            sourceTextDir,
+            `${safeBookName}.source`
+        );
+
+        await vscode.workspace.fs.writeFile(
+            sourceFilePath,
+            Buffer.from(verses.join('\n'), 'utf-8')
+        );
+
+        createdFiles.push(sourceFilePath);
+    }
+
+    return createdFiles;
 }
 
 export async function migrateSourceFiles() {
@@ -840,7 +836,8 @@ export async function createCodexNotebookFromWebVTT(
             "target",
             `${notebookName}.codex`
         );
-        const metadataManager = NotebookMetadataManager.getInstance();
+        const metadataManager = new NotebookMetadataManager();
+        await metadataManager.initialize();
         const metadata = metadataManager.getMetadataById(notebookName);
 
         const targetNotebookMetadata: CustomNotebookMetadata = {
@@ -881,3 +878,32 @@ export async function createCodexNotebookFromWebVTT(
         throw error; // Re-throw the error to be handled by the caller
     }
 }
+
+export async function writeSourceFile(uri: vscode.Uri, content: string): Promise<void> {
+    const tempUri = vscode.Uri.joinPath(uri, ".temp");
+    try {
+        await vscode.workspace.fs.writeFile(tempUri, Buffer.from(content));
+        await vscode.workspace.fs.rename(tempUri, uri, { overwrite: true });
+    } catch (error) {
+        console.error("Error writing file:", error);
+        throw error;
+    }
+}
+
+export async function splitSourceFile(uri: vscode.Uri): Promise<void> {
+    try {
+        const content = await vscode.workspace.fs.readFile(uri);
+        const text = content.toString();
+        const books = text.split(/\\id /).filter(Boolean);
+
+        for (const book of books) {
+            const bookId = book.substring(0, 3).toLowerCase();
+            const bookUri = vscode.Uri.joinPath(uri, "..", `${bookId}.source`);
+            await writeSourceFile(bookUri, `\\id ${book}`);
+        }
+    } catch (error) {
+        console.error("Error splitting file:", error);
+        throw error;
+    }
+}
+

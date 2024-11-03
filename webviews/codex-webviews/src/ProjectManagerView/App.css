@@ -1,0 +1,35 @@
+/* Add these styles */
+.source-setup-container {
+    padding: 1rem;
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.setup-step {
+    margin-bottom: 2rem;
+}
+
+.button-group {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.format-options,
+.location-options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+.translation-query {
+    margin-top: 2rem;
+    padding: 1rem;
+    background: var(--vscode-editor-background);
+    border-radius: 4px;
+}
+
+.default-value {
+    color: var(--vscode-descriptionForeground);
+}

@@ -11,6 +11,17 @@ import { NotebookMetadataManager } from "../utils/notebookMetadataManager";
 import { CodexContentSerializer } from "../serializer";
 import * as path from "path";
 
+// Add this new function at the top level
+export async function validateSourceFile(fileUri: vscode.Uri): Promise<boolean> {
+    try {
+        const stat = await vscode.workspace.fs.stat(fileUri);
+        return stat.type === vscode.FileType.File;
+    } catch (error) {
+        console.error('Error validating source file:', error);
+        return false;
+    }
+}
+
 export async function importSourceText(
     context: vscode.ExtensionContext,
     fileUri: vscode.Uri
@@ -51,37 +62,51 @@ function getFileNameFromUri(fileUri: vscode.Uri): string {
     return fileName;
 }
 
+// Update the importSourceFile function to prevent duplicate file creation
 async function importSourceFile(
     context: vscode.ExtensionContext,
     fileUri: vscode.Uri
 ): Promise<void> {
     const fileExtension = fileUri.fsPath.split(".").pop()?.toLowerCase() as SupportedFileExtension;
-
     const fileType = fileTypeMap[fileExtension] || "plaintext";
 
     try {
-        const metadataManager = NotebookMetadataManager.getInstance();
+        // First validate the source file exists
+        const isValid = await validateSourceFile(fileUri);
+        if (!isValid) {
+            throw new Error(`Source file not found or invalid: ${fileUri.fsPath}`);
+        }
+
+        const metadataManager = new NotebookMetadataManager();
+        await metadataManager.initialize();
         await metadataManager.loadMetadata();
 
         const baseName = path.basename(fileUri.fsPath).split(".")[0] || `new_source`;
-        const notebookId = metadataManager.generateNewId(baseName);
+        const notebookId = baseName; // Remove timestamp from ID generation
 
         let importedNotebookIds: string[];
 
+        // Import based on file type
         switch (fileType) {
-            case "subtitles":
-                importedNotebookIds = [await importSubtitles(fileUri, baseName)];
+            case "subtitles": {
+                const fileContent = await vscode.workspace.fs.readFile(fileUri);
+                importedNotebookIds = [await createCodexNotebookFromWebVTT(
+                    new TextDecoder().decode(fileContent),
+                    notebookId
+                )];
                 break;
+            }
             case "plaintext":
-                importedNotebookIds = [await importPlaintext(fileUri, baseName)];
+                importedNotebookIds = [await importPlaintext(fileUri, notebookId)];
                 break;
             case "usfm":
-                importedNotebookIds = await importUSFM(fileUri, baseName);
+                importedNotebookIds = await importUSFM(fileUri, notebookId);
                 break;
             default:
                 throw new Error("Unsupported file type for source text.");
         }
 
+        // Only create target notebooks after source is successfully imported
         const workspaceFolderUri = getWorkSpaceUri();
         if (!workspaceFolderUri) {
             throw new Error("No workspace folder found. Cannot import source text.");
@@ -94,38 +119,34 @@ async function importSourceFile(
                 "sourceTexts",
                 `${importedNotebookId}.source`
             );
+
+            // Verify source file was created before creating target
+            const sourceExists = await validateSourceFile(sourceUri);
+            if (!sourceExists) {
+                throw new Error(`Source file was not created successfully: ${sourceUri.fsPath}`);
+            }
+
+            // Check if target notebook already exists
             const codexUri = vscode.Uri.joinPath(
                 workspaceFolderUri,
                 "files",
                 "target",
                 `${importedNotebookId}.codex`
             );
-
-            // Create empty Codex notebooks for each book before updating metadata
-            await createEmptyCodexNotebooks(importedNotebookId);
-
-            const metadata: CustomNotebookMetadata = {
-                id: importedNotebookId,
-                sourceFsPath: sourceUri.fsPath,
-                originalName: getFileNameFromUri(fileUri),
-                codexFsPath: codexUri.fsPath,
-                navigation: [],
-                sourceCreatedAt: "",
-                codexLastModified: "",
-                gitStatus: "uninitialized",
-                corpusMarker: "",
-            };
-
-            // Now that the files exist, we can update the metadata
-            await metadataManager.addOrUpdateMetadata(metadata);
-
-            // Split the source file if it contains multiple books
-            await splitSourceFileByBook(sourceUri, workspaceFolderUri.fsPath, "source");
+            
+            try {
+                await vscode.workspace.fs.stat(codexUri);
+                console.log(`Target notebook already exists: ${codexUri.fsPath}`);
+            } catch {
+                // Create target notebook only if it doesn't exist
+                await createEmptyCodexNotebooks(importedNotebookId);
+            }
         }
 
         vscode.window.showInformationMessage("Source text imported successfully.");
     } catch (error) {
-        vscode.window.showErrorMessage(`Error importing source text: ${error}`);
+        console.error("Error importing source text:", error);
+        throw error;
     }
 }
 
@@ -193,24 +214,24 @@ export async function createEmptyCodexNotebooks(sourceFileName: string): Promise
     const allSourceFiles = await vscode.workspace.findFiles(
         new vscode.RelativePattern(sourceFolder, `*.source`)
     );
-    console.log("RYDER: Found source files:", allSourceFiles);
 
     // Filter for the specific source file we're interested in
     const sourceFiles = allSourceFiles.filter(
         (file) => path.basename(file.fsPath, ".source") === sourceFileName
     );
-    console.log("RYDER: Filtered source files:", sourceFiles);
 
     if (sourceFiles.length === 0) {
         throw new Error(`No source file found for ${sourceFileName} in ${sourceFolder.fsPath}`);
     }
 
-    const metadataManager = NotebookMetadataManager.getInstance();
-    await metadataManager.loadMetadata();
+    const serializer = new CodexContentSerializer();
 
     for (const sourceFile of sourceFiles) {
         const sourceContent = await vscode.workspace.fs.readFile(sourceFile);
-        const sourceData = JSON.parse(new TextDecoder().decode(sourceContent));
+        const sourceData = await serializer.deserializeNotebook(
+            sourceContent,
+            new vscode.CancellationTokenSource().token
+        );
 
         const bookName = path.basename(sourceFile.path, path.extname(sourceFile.path));
         const codexUri = vscode.Uri.joinPath(
@@ -220,29 +241,23 @@ export async function createEmptyCodexNotebooks(sourceFileName: string): Promise
             `${bookName}.codex`
         );
 
-        // Create an empty Codex notebook with the same structure as the source
-        const emptyCodexData = {
-            cells: sourceData.cells.map((cell: any) => ({
+        // Create empty notebook data
+        const emptyNotebookData = new vscode.NotebookData(
+            sourceData.cells.map((cell) => ({
                 ...cell,
                 value: "", // Empty content for target cells
-            })),
-            metadata: {
-                ...sourceData.metadata,
-                codexUri: codexUri,
-            },
+            }))
+        );
+        emptyNotebookData.metadata = {
+            ...sourceData.metadata,
+            codexUri: codexUri,
         };
 
-        await vscode.workspace.fs.writeFile(
-            codexUri,
-            new TextEncoder().encode(JSON.stringify(emptyCodexData, null, 2))
+        const notebookContent = await serializer.serializeNotebook(
+            emptyNotebookData,
+            new vscode.CancellationTokenSource().token
         );
-
-        // Update metadata
-        const metadata = metadataManager.getMetadataById(sourceData.metadata.id);
-        if (metadata) {
-            metadata.codexFsPath = codexUri.fsPath;
-            metadataManager.addOrUpdateMetadata(metadata);
-        }
+        await vscode.workspace.fs.writeFile(codexUri, notebookContent);
 
         console.log(`Created empty Codex notebook: ${codexUri.fsPath}`);
     }

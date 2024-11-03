@@ -6,6 +6,7 @@
         "target": "ES2020",
         "outDir": "out",
         "lib": ["ES2020", "DOM"],
+        "types": ["node", "vscode", "mocha"],
         "sourceMap": true,
         "rootDir": ".",
         "resolveJsonModule": true,
@@ -14,7 +15,12 @@
         // "noImplicitReturns": true, /* Report error when not all code paths in function return a value. */
         // "noFallthroughCasesInSwitch": true, /* Report errors for fallthrough cases in switch statement. */
         // "noUnusedParameters": true,  /* Report errors on unused parameters. */
-        "skipLibCheck": true
+        "skipLibCheck": true,
+        "baseUrl": ".",
+        "paths": {
+            "@types": ["types/index.d.ts"],
+            "@types/*": ["types/*"]
+        }
     },
     "include": ["src/**/*", "types/**/*", "custom.d.ts"],
     "exclude": ["node_modules", "webviews", "src/test/**"]
