@@ -466,64 +466,52 @@ function App() {
     }
     const NavigateChatHistoryButton: React.FC<NavigateChatHistoryProps> = () => {
         return (
-            <>
-                <VSCodeButton
-                    aria-label="Start New Thread"
-                    appearance="icon"
-                    title="⨁"
-                    onClick={() => {
-                        clearChat();
-                    }}
+            availableMessageThreads &&
+            availableMessageThreads?.length > 0 && (
+                <VSCodeDropdown
                     style={{
-                        backgroundColor: "var(--vscode-button-background)",
-                        color: "var(--vscode-button-foreground)",
+                        height: "24px",
+                        flex: "1 1 auto",
+                        minWidth: "0",
+                        maxWidth: "100%", // Account for the two icon buttons
+                    }}
+                    value={currentMessageThreadId}
+                    onInput={(e: any) => {
+                        setCurrentMessageThreadId((e.target as HTMLSelectElement).value);
+                        vscode.postMessage({
+                            command: "fetchThread",
+                        } as ChatPostMessages);
                     }}
                 >
-                    <i className="codicon codicon-add"></i>
-                </VSCodeButton>
-                {availableMessageThreads && availableMessageThreads?.length > 0 && (
-                    <VSCodeDropdown
-                        value={currentMessageThreadId}
-                        // disabled={!selectedBook}
-                        onInput={(e: any) => {
-                            setCurrentMessageThreadId((e.target as HTMLSelectElement).value);
-                            vscode.postMessage({
-                                command: "fetchThread",
-                            } as ChatPostMessages);
-                        }}
-                    >
-                        {availableMessageThreads?.map((messageThread) => {
-                            const firstUserMessage = messageThread.messages.find(
-                                (message) => message.role === "user"
-                            )?.content;
+                    {availableMessageThreads?.map((messageThread) => {
+                        const firstUserMessage = messageThread.messages.find(
+                            (message) => message.role === "user"
+                        )?.content;
 
-                            return (
-                                <VSCodeOption
-                                    key={messageThread.id}
-                                    selected={messageThread.id === currentMessageThreadId}
-                                    value={messageThread.id}
-                                >
-                                    {messageThread.threadTitle ||
-                                        firstUserMessage ||
-                                        new Date(messageThread.createdAt).toLocaleTimeString()}
-                                </VSCodeOption>
-                            );
-                        })}
-                    </VSCodeDropdown>
-                )}
-                <VSCodeButton
-                    aria-label="Settings"
-                    appearance="icon"
-                    title="⚙️"
-                    onClick={handleSettingsButtonClick}
-                    style={{
-                        backgroundColor: "var(--vscode-button-background)",
-                        color: "var(--vscode-button-foreground)",
-                    }}
-                >
-                    <i className="codicon codicon-settings-gear"></i>
-                </VSCodeButton>
-            </>
+                        const displayText =
+                            messageThread.threadTitle ||
+                            (firstUserMessage && firstUserMessage.length > 50
+                                ? `${firstUserMessage.substring(0, 50)}...`
+                                : firstUserMessage) ||
+                            new Date(messageThread.createdAt).toLocaleTimeString();
+
+                        return (
+                            <VSCodeOption
+                                key={messageThread.id}
+                                selected={messageThread.id === currentMessageThreadId}
+                                value={messageThread.id}
+                                style={{
+                                    textOverflow: "ellipsis",
+                                    overflow: "hidden",
+                                    whiteSpace: "nowrap",
+                                }}
+                            >
+                                {displayText}
+                            </VSCodeOption>
+                        );
+                    })}
+                </VSCodeDropdown>
+            )
         );
     };
 
@@ -567,32 +555,40 @@ function App() {
             }}
         >
             <WebviewHeader>
-                <div
-                    style={{
-                        display: "flex",
-                        gap: 3,
-                        width: "95%",
-                    }}
+                <VSCodeButton
+                    appearance="icon"
+                    aria-label="Start New Thread"
+                    title="New Chat"
+                    onClick={() => clearChat()}
                 >
-                    <NavigateChatHistoryButton
-                        callback={(newMessageThreadId) => {
-                            setCurrentMessageThreadId(newMessageThreadId);
-                        }}
-                    />
-                    <DeleteChatButton
-                        callback={() => {
-                            markChatThreadAsDeleted(currentMessageThreadId);
-                            const threadIdThatIsNotBeingDeleted = availableMessageThreads?.find(
-                                (thread) => thread.id !== currentMessageThreadId
-                            )?.id;
-                            if (threadIdThatIsNotBeingDeleted) {
-                                setCurrentMessageThreadId(threadIdThatIsNotBeingDeleted);
-                            } else {
-                                clearChat();
-                            }
-                        }}
-                    />
-                </div>
+                    <i className="codicon codicon-add"></i>
+                </VSCodeButton>
+                <NavigateChatHistoryButton
+                    callback={(newMessageThreadId) => {
+                        setCurrentMessageThreadId(newMessageThreadId);
+                    }}
+                />
+                <DeleteChatButton
+                    callback={() => {
+                        markChatThreadAsDeleted(currentMessageThreadId);
+                        const threadIdThatIsNotBeingDeleted = availableMessageThreads?.find(
+                            (thread) => thread.id !== currentMessageThreadId
+                        )?.id;
+                        if (threadIdThatIsNotBeingDeleted) {
+                            setCurrentMessageThreadId(threadIdThatIsNotBeingDeleted);
+                        } else {
+                            clearChat();
+                        }
+                    }}
+                />
+                <VSCodeButton
+                    appearance="icon"
+                    aria-label="Settings"
+                    title="Settings"
+                    onClick={handleSettingsButtonClick}
+                >
+                    <i className="codicon codicon-settings-gear"></i>
+                </VSCodeButton>
             </WebviewHeader>
             <div
                 className="chat-container"
