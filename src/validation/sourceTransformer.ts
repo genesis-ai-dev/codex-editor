@@ -106,10 +106,10 @@ export class SourceTransformer {
             sourceCreatedAt: new Date().toISOString(),
             codexLastModified: new Date().toISOString(),
             gitStatus: "untracked" as const,
-            corpusMarker: "Video",
+            corpusMarker: "",
             textDirection: "ltr" as "ltr" | "rtl",
             data: {},
-            videoUrl: "", // Add empty video URL
+            videoUrl: "",
         };
 
         sourceNotebook.metadata = notebookMetadata;
