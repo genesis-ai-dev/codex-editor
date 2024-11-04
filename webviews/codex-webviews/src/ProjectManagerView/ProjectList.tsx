@@ -39,7 +39,7 @@ export function ProjectList({
               if (!a?.lastOpened && !b?.lastOpened) return 0;
               if (!a?.lastOpened) return 1;
               if (!b?.lastOpened) return -1;
-              return b.lastOpened.getTime() - a.lastOpened.getTime();
+              return b.lastOpened?.getTime() - a.lastOpened?.getTime();
           })
         : [];
 

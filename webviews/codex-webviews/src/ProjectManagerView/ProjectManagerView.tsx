@@ -17,15 +17,17 @@ declare const vscode: {
 };
 
 interface ProjectState {
-    projects: Array<{
-        name: string;
-        path: string;
-        lastOpened?: Date;
-        lastModified: Date;
-        version: string;
-        hasVersionMismatch?: boolean;
-        isOutdated?: boolean;
-    }> | null;
+    projects:
+        | Array<{
+              name: string;
+              path: string;
+              lastOpened?: Date;
+              lastModified: Date;
+              version: string;
+              hasVersionMismatch?: boolean;
+              isOutdated?: boolean;
+          }>
+        | [];
     watchedFolders: [];
     projectOverview: ProjectOverview | null;
     isScanning: boolean;
@@ -44,7 +46,7 @@ const getLanguageDisplay = (languageObj: any): string => {
 
 function ProjectManagerView() {
     const [state, setState] = useState<ProjectState>({
-        projects: null,
+        projects: [],
         projectOverview: null,
         isScanning: true,
         watchedFolders: [],
