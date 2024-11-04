@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 
-export class StatusBarHandler {
-    private static instance: StatusBarHandler;
+export class IndexingStatusBarHandler {
+    private static instance: IndexingStatusBarHandler;
     private statusBarItem: vscode.StatusBarItem;
     private indexCountsItem: vscode.StatusBarItem;
     private progressBarItem: vscode.StatusBarItem;
@@ -16,26 +16,30 @@ export class StatusBarHandler {
             99
         );
         this.progressBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
+
+        // Add command to status bar item
+        this.statusBarItem.command = 'translators-copilot.forceReindex';
+        
         this.statusBarItem.show();
         this.indexCountsItem.show();
         this.progressBarItem.show();
     }
 
-    public static getInstance(): StatusBarHandler {
-        if (!StatusBarHandler.instance) {
-            StatusBarHandler.instance = new StatusBarHandler();
+    public static getInstance(): IndexingStatusBarHandler {
+        if (!IndexingStatusBarHandler.instance) {
+            IndexingStatusBarHandler.instance = new IndexingStatusBarHandler();
         }
-        return StatusBarHandler.instance;
+        return IndexingStatusBarHandler.instance;
     }
 
     public setIndexingActive(): void {
         this.statusBarItem.text = "$(sync~spin) Indexing...";
-        this.statusBarItem.tooltip = "Translators Copilot is currently indexing";
+        this.statusBarItem.tooltip = "Translators Copilot is currently indexing. Click to force reindex.";
     }
 
     public setIndexingComplete(): void {
         this.statusBarItem.text = "$(check) Indexed";
-        this.statusBarItem.tooltip = "Translators Copilot indexing complete";
+        this.statusBarItem.tooltip = "Translators Copilot indexing complete. Click to force reindex.";
     }
 
     public updateTranslationProgress(percentage: number): void {
