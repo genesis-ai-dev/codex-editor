@@ -29,10 +29,6 @@ interface CellEditorProps {
     cellIndex: number;
     cellType: CodexCellTypes;
     spellCheckResponse: SpellCheckResponse | null;
-    getAlertCode: (
-        text: string,
-        cellId: string
-    ) => Promise<{ alertColorCode: number; cellId: string }>;
     contentBeingUpdated: EditorCellContent;
     setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorCellContent>>;
     handleCloseEditor: () => void;

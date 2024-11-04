@@ -370,7 +370,7 @@ export type EditorPostMessages =
     | { command: "updateCellTimestamps"; content: { cellId: string; timestamps: Timestamps } }
     | { command: "deleteCell"; content: { cellId: string } }
     | { command: "addWord"; words: string[] }
-    | { command: "getAlertCode"; content: { text: string; cellId: string } }
+    | { command: "getAlertCodes"; content: GetAlertCodes }
     | {
           command: "makeChildOfCell";
           content: {
@@ -419,7 +419,7 @@ type EditorReceiveMessages =
     | { type: "providerSendsSpellCheckResponse"; content: SpellCheckResponse }
     | {
           type: "providerSendsgetAlertCodeResponse";
-          content: { code: number; cellId: string };
+          content: { [cellId: string]: number };
       }
     | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl" }
     | { type: "providerSendsLLMCompletionResponse"; content: { completion: string } }
@@ -429,6 +429,14 @@ type EditorReceiveMessages =
     | { type: "providerSendsPromptedEditResponse"; content: string }
     | { type: "providerSendsSimilarCellIdsResponse"; content: { cellId: string; score: number }[] }
     | { type: "providerSendsTopPrompts"; content: string[] };
+
+type AlertCodesServerResponse = {
+    code: number;
+    cellId: string;
+    savedSuggestions: { suggestions: string[] };
+}[];
+
+type GetAlertCodes = { text: string; cellId: string }[];
 
 type EditHistory = {
     cellValue: string;

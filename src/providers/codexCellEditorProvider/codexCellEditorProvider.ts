@@ -14,6 +14,8 @@ import {
     CustomNotebookCellData,
     Timestamps,
     CustomNotebookMetadata,
+    AlertCodesServerResponse,
+    GetAlertCodes,
 } from "../../../types";
 import { NotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import path from "path";
@@ -391,6 +393,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private readonly _onDidChangeCustomDocument = new vscode.EventEmitter<
         vscode.CustomDocumentContentChangeEvent<CodexCellDocument>
     >();
+
     public readonly onDidChangeCustomDocument = this._onDidChangeCustomDocument.event;
 
     public async openCustomDocument(
@@ -521,21 +524,23 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         return;
                     }
 
-                    case "getAlertCode": {
-                        // console.log("getAlertCode message received", { e });
+                    case "getAlertCodes": {
                         try {
-                            const result = await vscode.commands.executeCommand(
-                                "translators-copilot.alertCode",
-                                e.content.text,
-                                e.content.cellId // Pass the cellId
-                            );
+                            const result: AlertCodesServerResponse =
+                                await vscode.commands.executeCommand(
+                                    "translators-copilot.alertCodes",
+                                    e.content
+                                );
+
+                            const content: { [cellId: string]: number } = {};
+
+                            result.forEach((item) => {
+                                content[item.cellId] = item.code;
+                            });
 
                             this.postMessageToWebview(webviewPanel, {
                                 type: "providerSendsgetAlertCodeResponse",
-                                content: {
-                                    code: (result as any).code as number,
-                                    cellId: e.content.cellId,
-                                },
+                                content,
                             });
                         } catch (error) {
                             console.error("Error during getAlertCode:", error);

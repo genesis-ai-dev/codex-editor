@@ -53,13 +53,15 @@ export class PromptedSmartEdits {
         }
 
         // Find similar cells
-        const similarCells = await this.findSimilarCells(text);
+        if (text) {
+            const similarCells = await this.findSimilarCells(text);
 
-        // Check if any similar cells have prompts
-        for (const cell of similarCells) {
-            const prompt = await this.getPromptFromCellId(cell.cellId);
-            if (prompt) {
-                return true; // Found a similar cell with a prompt
+            // Check if any similar cells have prompts
+            for (const cell of similarCells) {
+                const prompt = await this.getPromptFromCellId(cell.cellId);
+                if (prompt) {
+                    return true; // Found a similar cell with a prompt
+                }
             }
         }
 

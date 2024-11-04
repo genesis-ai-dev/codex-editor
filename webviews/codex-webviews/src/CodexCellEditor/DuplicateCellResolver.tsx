@@ -108,6 +108,7 @@ const DuplicateCellResolver: React.FC<{
                                                     }}
                                                 >
                                                     <CellContentDisplay
+                                                        alertColorCode={-1}
                                                         timestamps={cell.timestamps}
                                                         hasDuplicateId={false}
                                                         cellIds={cell.cellMarkers}

@@ -16,6 +16,8 @@ interface UseVSCodeMessageHandlerProps {
     updateTextDirection: (direction: "ltr" | "rtl") => void;
     updateNotebookMetadata: (metadata: CustomNotebookMetadata) => void;
     updateVideoUrl: (url: string) => void;
+    setAlertColorCodes: Dispatch<SetStateAction<{ [cellId: string]: number }>>;
+    recheckAlertCodes: () => void;
 }
 
 export const useVSCodeMessageHandler = ({
@@ -27,6 +29,8 @@ export const useVSCodeMessageHandler = ({
     updateTextDirection,
     updateNotebookMetadata,
     updateVideoUrl,
+    setAlertColorCodes,
+    recheckAlertCodes,
 }: UseVSCodeMessageHandlerProps) => {
     useEffect(() => {
         const handler = (event: MessageEvent) => {
@@ -58,6 +62,12 @@ export const useVSCodeMessageHandler = ({
                 case "updateVideoUrlInWebview":
                     updateVideoUrl(message.content);
                     break;
+                case "providerSendsgetAlertCodeResponse":
+                    setAlertColorCodes(message.content);
+                    break;
+                case "wordAdded":
+                    recheckAlertCodes();
+                    break;
             }
         };
 
@@ -75,5 +85,6 @@ export const useVSCodeMessageHandler = ({
         updateTextDirection,
         updateNotebookMetadata,
         updateVideoUrl,
+        setAlertColorCodes,
     ]);
 };

@@ -20,6 +20,7 @@ import {
 import { RequestType } from "vscode-languageserver";
 import { debug } from "console";
 import { tokenizeText } from "../utils/nlpUtils";
+import { GetAlertCodes, AlertCodesServerResponse } from "@types";
 
 const DEBUG_MODE = true; // Flag for debug mode
 
@@ -89,59 +90,55 @@ connection.onInitialize((params: InitializeParams) => {
 });
 let lastCellChanged: boolean = false;
 connection.onRequest(
-    "spellcheck/getAlertCode",
-    async (params: { text: string; cellId: string }) => {
+    "spellcheck/getAlertCodes",
+    async (params: GetAlertCodes): Promise<AlertCodesServerResponse> => {
         try {
-            debugLog("SERVER: Received spellcheck/getAlertCode request:", { params });
-            const text = params.text;
-            const words = tokenizeText({
-                method: "whitespace_and_punctuation",
-                text: text,
-            });
+            debugLog("SERVER: Received spellcheck/getAlertCodes request:", { params });
 
-            // spellcheck
-            for (const word of words) {
-                const spellCheckResult = await spellChecker.spellCheck(word);
-                if (spellCheckResult?.corrections?.length > 0) {
-                    return { code: 1, cellId: params.cellId };
-                }
-            }
-            // FIXME: Not convinced this is working, or even useful...
-            // const savedSuggestions = await connection.sendRequest(ExecuteCommandRequest, {
-            //     command: "codex-smart-edits.getEdits",
-            //     args: [text, params.cellId],
-            // });
+            const results = await Promise.all(
+                params.map(async (param) => {
+                    const words = tokenizeText({
+                        method: "whitespace_and_punctuation",
+                        text: param.text,
+                    });
 
-            // // Check for smart edits
-            // debugLog(`Checking for smart edits: ${savedSuggestions?.suggestions}`);
-            // if (savedSuggestions?.suggestions?.length > 0) {
-            //     return {
-            //         code: 2,
-            //         cellId: params.cellId,
-            //         savedSuggestions: savedSuggestions,
-            //     };
-            // }
-            debugLog("No smart edits found, checking for applicable prompt");
-            // If no spelling errors or smart edits, check for applicable prompt
-            const prompt = await connection.sendRequest(ExecuteCommandRequest, {
-                command: "codex-smart-edits.hasApplicablePrompts",
-                args: [params.cellId, text],
-            });
+                    // spellcheck
+                    for (const word of words) {
+                        const spellCheckResult = await spellChecker.spellCheck(word);
+                        if (spellCheckResult?.corrections?.length > 0) {
+                            return {
+                                code: 1,
+                                cellId: param.cellId,
+                                savedSuggestions: { suggestions: [] },
+                            };
+                        }
+                    }
 
-            const code = prompt ? 3 : 0;
+                    // debugLog("No smart edits found, checking for applicable prompt");
+                    // If no spelling errors or smart edits, check for applicable prompt
+                    const prompt = await connection.sendRequest(ExecuteCommandRequest, {
+                        command: "codex-smart-edits.hasApplicablePrompts",
+                        args: [param.cellId, param.text],
+                    });
 
-            return {
-                code,
-                cellId: params.cellId,
-                savedSuggestions: { suggestions: [] }, //savedSuggestions || { suggestions: [] },
-            };
+                    const code = prompt ? 3 : 0;
+
+                    return {
+                        code,
+                        cellId: param.cellId,
+                        savedSuggestions: { suggestions: [] },
+                    };
+                })
+            );
+
+            return results;
         } catch (error) {
             console.error("Error in getAlertCode:", error);
-            return {
+            return params.map((param) => ({
                 code: 0,
-                cellId: params.cellId,
+                cellId: param.cellId,
                 savedSuggestions: { suggestions: [] },
-            };
+            }));
         }
     }
 );
