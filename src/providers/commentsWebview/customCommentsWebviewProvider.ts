@@ -93,9 +93,7 @@ export class CustomWebviewProvider {
     private async initializeCommentsFile() {
         const workspaceFolders = workspace.workspaceFolders;
         if (!workspaceFolders) {
-            window.showErrorMessage(
-                "No workspace folder found. Unable to initialize comments file."
-            );
+            console.error("No workspace folder found. Unable to initialize comments file.");
             return;
         }
 
@@ -285,7 +283,6 @@ export class CustomWebviewProvider {
                 }
             } catch (error) {
                 console.error("Error:", error);
-                vscode.window.showErrorMessage("Service access failed.");
             }
         });
     }
