@@ -6,7 +6,7 @@
 
 const path = require("path");
 const webpack = require("webpack");
-const CopyWebpackPlugin = require('copy-webpack-plugin');
+const CopyWebpackPlugin = require("copy-webpack-plugin");
 
 //@ts-check
 /** @typedef {import('webpack').Configuration} WebpackConfig **/
@@ -28,8 +28,8 @@ const extensionConfig = {
         vscode: "commonjs vscode", // the vscode-module is created on-the-fly and must be excluded. Add other modules that cannot be webpack'ed, 📖 -> https://webpack.js.org/configuration/externals/
         // modules added here also need to be added in the .vscodeignore file
         "sql.js": "commonjs sql.js",
-        'vm': 'commonjs vm',
-        'encoding': 'commonjs encoding'
+        vm: "commonjs vm",
+        encoding: "commonjs encoding",
     },
     resolve: {
         // support reading TypeScript and JavaScript files, 📖 -> https://github.com/TypeStrong/ts-loader
@@ -37,18 +37,17 @@ const extensionConfig = {
         alias: {
             "@": path.resolve(__dirname, "src"),
             "@types": path.resolve(__dirname, "types"),
-            "sqldb": path.resolve(__dirname, "src/sqldb"),
-            'sql.js': path.resolve(__dirname, 'node_modules/sql.js/dist/sql-wasm.js'),
+            sqldb: path.resolve(__dirname, "src/sqldb"),
+            "sql.js": path.resolve(__dirname, "node_modules/sql.js/dist/sql-wasm.js"),
         },
         fallback: {
             path: false,
             fs: false,
-            crypto: require.resolve('crypto-browserify'),
-            stream: require.resolve('stream-browserify'),
-            buffer: require.resolve('buffer/'),
-            util: require.resolve('util/'),
-            process: false,
-            vm: false
+            crypto: require.resolve("crypto-browserify"),
+            stream: require.resolve("stream-browserify"),
+            buffer: require.resolve("buffer/"),
+            util: require.resolve("util/"),
+            vm: false,
         },
     },
     module: {
@@ -77,7 +76,7 @@ const extensionConfig = {
             {
                 test: /\.mjs$/,
                 include: /node_modules/,
-                type: 'javascript/auto'
+                type: "javascript/auto",
             },
             {
                 test: /\.wasm$/,
@@ -94,32 +93,31 @@ const extensionConfig = {
     },
     plugins: [
         new webpack.ProvidePlugin({
-            process: require.resolve('process/browser'),
-            Buffer: ['buffer', 'Buffer']
+            Buffer: ["buffer", "Buffer"],
         }),
         new webpack.DefinePlugin({
-            'process.env.NODE_ENV': JSON.stringify('production')
+            "process.env.NODE_ENV": JSON.stringify("production"),
         }),
         new CopyWebpackPlugin({
             patterns: [
                 {
-                    from: 'node_modules/sql.js/dist/sql-wasm.wasm',
-                    to: 'sql-wasm.wasm'
-                }
-            ]
-        })
+                    from: "node_modules/sql.js/dist/sql-wasm.wasm",
+                    to: "sql-wasm.wasm",
+                },
+            ],
+        }),
     ],
     optimization: {
-        minimize: false
+        minimize: false,
     },
     ignoreWarnings: [
         {
-            module: /node_modules\/vscode-languageserver-types/
+            module: /node_modules\/vscode-languageserver-types/,
         },
         {
-            module: /node_modules\/mocha/
-        }
-    ]
+            module: /node_modules\/mocha/,
+        },
+    ],
 };
 
 const serverConfig = {
@@ -131,6 +129,14 @@ const serverConfig = {
         path: path.resolve(__dirname, "out"),
         filename: "server.js",
         libraryTarget: "commonjs2",
+    },
+    node: {
+        __dirname: false,
+        __filename: false,
+        global: false,
+    },
+    externals: {
+        vscode: "commonjs vscode",
     },
     resolve: {
         extensions: [".ts", ".js"],
