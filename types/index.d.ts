@@ -18,6 +18,7 @@ type Dictionary = {
 interface ChatMessageWithContext extends ChatMessage {
     context?: any; // FixMe: discuss what context could be. Cound it be a link to a note?
     createdAt: string;
+    preReflection?: string; //If reflection has happened for a chat message, preReflection will be set to the original message.
     grade?: number;
     gradeComment?: string;
 }
@@ -158,6 +159,8 @@ type ChatPostMessages =
       }
     | { command: "requestGradeResponse"; messages: string; lastMessageCreatedAt: string }
     | { command: "respondWithGrade"; content: string; lastMessageCreatedAt: string }
+    | { command: "performReflection"; messageToReflect: string; context: string; lastMessageCreatedAt: string }
+    | { command: "reflectionResponse"; reflectedMessage: string; lastMessageCreatedAt: string }
     | { command: "deleteThread"; threadId: string }
     | { command: "fetchThread" }
     | { command: "abort-fetch" }
