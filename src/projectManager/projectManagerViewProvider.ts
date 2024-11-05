@@ -27,6 +27,7 @@ interface ProjectManagerState {
     }> | null;
     isScanning: boolean;
     canInitializeProject: boolean;
+    workspaceIsOpen: boolean;
 }
 
 class ProjectManagerStore {
@@ -37,6 +38,7 @@ class ProjectManagerStore {
         projects: null,
         isScanning: false,
         canInitializeProject: false,
+        workspaceIsOpen: false,
     };
 
     private initialized = false;
@@ -744,6 +746,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
 
             // Can initialize if we have a workspace but no metadata
             const canInitializeProject = hasWorkspace && !hasMetadata;
+            const workspaceIsOpen = hasWorkspace;
 
             const [projects, overview] = await Promise.all([
                 findAllCodexProjects(),
@@ -765,6 +768,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                     : null,
                 isScanning: false,
                 canInitializeProject,
+                workspaceIsOpen,
             });
         } catch (error) {
             console.error("Error refreshing state:", error);

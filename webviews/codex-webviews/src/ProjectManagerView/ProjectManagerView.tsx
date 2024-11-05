@@ -32,6 +32,7 @@ interface ProjectState {
     projectOverview: ProjectOverview | null;
     isScanning: boolean;
     canInitializeProject: boolean;
+    workspaceIsOpen: boolean;
 }
 
 const getLanguageDisplay = (languageObj: any): string => {
@@ -51,6 +52,7 @@ function ProjectManagerView() {
         isScanning: true,
         watchedFolders: [],
         canInitializeProject: false,
+        workspaceIsOpen: true,
     });
 
     const [initialized, setInitialized] = useState(false);
@@ -166,14 +168,14 @@ function ProjectManagerView() {
             }}
         >
             <VSCodePanels style={{ width: "100%" }}>
-                {/* Only show Current Project tab if we have a workspace */}
-                {state.canInitializeProject && (
+                {/* Show Current Project tab if workspace is open */}
+                {state.workspaceIsOpen && (
                     <VSCodePanelTab id="current-project">Current Project</VSCodePanelTab>
                 )}
                 <VSCodePanelTab id="all-projects">All Projects</VSCodePanelTab>
 
-                {/* Only show Current Project panel if we have a workspace */}
-                {state.canInitializeProject && (
+                {/* Current Project panel */}
+                {state.workspaceIsOpen && (
                     <VSCodePanelView
                         id="current-project-view"
                         style={{
@@ -182,6 +184,7 @@ function ProjectManagerView() {
                         }}
                     >
                         {state.projectOverview ? (
+                            // Show project details when we have metadata
                             <div style={{ width: "100%" }}>
                                 <VSCodeDataGrid
                                     style={{ width: "100%" }}
@@ -502,6 +505,7 @@ function ProjectManagerView() {
                                 </VSCodeDataGrid>
                             </div>
                         ) : state.canInitializeProject ? (
+                            // Show initialize button when we can initialize
                             <div
                                 style={{
                                     display: "flex",
@@ -517,7 +521,19 @@ function ProjectManagerView() {
                                     </div>
                                 </VSCodeButton>
                             </div>
-                        ) : null}
+                        ) : (
+                            // Show message when workspace is open but we can't initialize
+                            <div
+                                style={{
+                                    display: "flex",
+                                    justifyContent: "center",
+                                    alignItems: "center",
+                                    height: "100%",
+                                }}
+                            >
+                                <span>No project found in current workspace</span>
+                            </div>
+                        )}
                     </VSCodePanelView>
                 )}
 
