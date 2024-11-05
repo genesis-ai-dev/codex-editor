@@ -137,7 +137,7 @@ export function searchParallelCells(
     query: string,
     k: number = 5
 ): TranslationPair[] {
-    console.log("Searching for parallel cells with query:", query);
+    // console.log("Searching for parallel cells with query:", query);
 
     // Search target cells
     const targetResults = translationPairsIndex.search(query, {
@@ -148,19 +148,19 @@ export function searchParallelCells(
         boost: { targetContent: 2, cellId: 1 },
     });
 
-    console.log(
-        "Raw target search results:",
-        JSON.stringify(
-            targetResults.map((r) => ({ cellId: r.cellId })),
-            null,
-            2
-        )
-    );
+    // console.log(
+    //     "Raw target search results:",
+    //     JSON.stringify(
+    //         targetResults.map((r) => ({ cellId: r.cellId })),
+    //         null,
+    //         2
+    //     )
+    // );
 
     const translationPairs: TranslationPair[] = targetResults
         .slice(0, k)
         .map((result) => {
-            console.log("Processing result:", JSON.stringify(result, null, 2));
+            // console.log("Processing result:", JSON.stringify(result, null, 2));
 
             // Get source content from sourceTextIndex
             const sourceResult = sourceTextIndex.getStoredFields(result.cellId);

@@ -50,7 +50,7 @@ const CodexCellEditor: React.FC = () => {
 
     useEffect(() => {
         checkAlertCodes();
-    }, [translationUnits.length]);
+    }, [translationUnits]);
 
     const [spellCheckResponse, setSpellCheckResponse] = useState<SpellCheckResponse | null>(null);
     const [contentBeingUpdated, setContentBeingUpdated] = useState<EditorCellContent>(
@@ -147,7 +147,7 @@ const CodexCellEditor: React.FC = () => {
 
     useEffect(() => {
         // Initialize Quill and register SpellChecker and SmartEdits only once
-        registerQuillSpellChecker(Quill as any, vscode);
+        registerQuillSpellChecker(Quill as any, vscode, );
     }, []);
 
     const calculateTotalChapters = (units: QuillCellContent[]): number => {

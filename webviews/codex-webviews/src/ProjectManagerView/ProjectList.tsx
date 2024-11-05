@@ -72,8 +72,24 @@ export function ProjectList({
     };
 
     return (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1rem", padding: "1rem" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div
+            style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "1rem",
+                padding: "1rem",
+                minWidth: 0,
+            }}
+        >
+            <div
+                style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: "1rem",
+                    flexWrap: "wrap",
+                }}
+            >
                 <h2>Codex Projects</h2>
                 {showBackButton && onBackToOverview && (
                     <VSCodeButton onClick={onBackToOverview}>
@@ -148,6 +164,7 @@ export function ProjectList({
                                 padding: "0.75rem",
                                 backgroundColor: "var(--vscode-list-hoverBackground)",
                                 borderRadius: "4px",
+                                minWidth: 0,
                             }}
                         >
                             <div
@@ -155,13 +172,19 @@ export function ProjectList({
                                     display: "flex",
                                     justifyContent: "space-between",
                                     alignItems: "center",
-                                    gap: "1rem",
+                                    gap: "0.5rem",
+                                    flexWrap: "wrap",
+                                    minWidth: 0,
                                 }}
                             >
                                 <span
                                     style={{
                                         fontSize: "1.1em",
                                         fontWeight: "bold",
+                                        overflow: "hidden",
+                                        textOverflow: "ellipsis",
+                                        whiteSpace: "nowrap",
+                                        minWidth: 0,
                                     }}
                                 >
                                     {project.name}
@@ -176,6 +199,7 @@ export function ProjectList({
                                     fontSize: "0.9em",
                                     color: "var(--vscode-descriptionForeground)",
                                     wordBreak: "break-all",
+                                    minWidth: 0,
                                 }}
                             >
                                 {project.path}
@@ -186,18 +210,25 @@ export function ProjectList({
                                     display: "flex",
                                     justifyContent: "space-between",
                                     alignItems: "center",
-                                    gap: "1rem",
+                                    gap: "0.5rem",
                                     fontSize: "0.9em",
+                                    flexWrap: "wrap",
+                                    minWidth: 0,
                                 }}
                             >
-                                <div>
+                                <div style={{ minWidth: 0 }}>
                                     {getVersionDisplay(
                                         project.version,
                                         project.hasVersionMismatch || false,
                                         project.isOutdated || false
                                     )}
                                 </div>
-                                <div style={{ color: "var(--vscode-descriptionForeground)" }}>
+                                <div
+                                    style={{
+                                        color: "var(--vscode-descriptionForeground)",
+                                        flexShrink: 0,
+                                    }}
+                                >
                                     Modified{" "}
                                     {formatDistanceToNow(project.lastModified, { addSuffix: true })}
                                 </div>

@@ -27,6 +27,7 @@ interface ProjectManagerState {
     }> | null;
     isScanning: boolean;
     canInitializeProject: boolean;
+    workspaceIsOpen: boolean;
 }
 
 class ProjectManagerStore {
@@ -37,6 +38,7 @@ class ProjectManagerStore {
         projects: null,
         isScanning: false,
         canInitializeProject: false,
+        workspaceIsOpen: false,
     };
 
     private initialized = false;
@@ -351,6 +353,9 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 break;
             case "selectprimarySourceText":
                 await this.setprimarySourceText(message.data);
+                break;
+            case "refreshState":
+                await this.updateWebviewState();
                 break;
             default:
                 console.error(`Unknown command: ${message.command}`);
@@ -744,6 +749,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
 
             // Can initialize if we have a workspace but no metadata
             const canInitializeProject = hasWorkspace && !hasMetadata;
+            const workspaceIsOpen = hasWorkspace;
 
             const [projects, overview] = await Promise.all([
                 findAllCodexProjects(),
@@ -765,6 +771,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                     : null,
                 isScanning: false,
                 canInitializeProject,
+                workspaceIsOpen,
             });
         } catch (error) {
             console.error("Error refreshing state:", error);
@@ -792,7 +799,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 if (this._view?.visible) {
                     await this.refreshState();
                 }
-            }, 1000); // Poll every 1 second
+            }, 10000); // Poll every 10 seconds
         }
     }
 
@@ -800,6 +807,16 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
         if (this.refreshInterval) {
             clearInterval(this.refreshInterval);
             this.refreshInterval = null;
+        }
+    }
+
+    private async updateWebviewState() {
+        if (this._view) {
+            const state = this.store.getState();
+            this._view.webview.postMessage({
+                type: "stateUpdate",
+                state,
+            });
         }
     }
 }

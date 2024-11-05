@@ -118,6 +118,10 @@ export class QuillSpellChecker {
                 match,
                 match.replacements[replacementIndex].value
             );
+
+            // Trigger a text-change event to update the editor state
+            this.quill.updateContents([{ retain: this.quill.getLength() }], "api");
+
         }
     }
 

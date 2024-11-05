@@ -17,6 +17,8 @@ function getDefinitions(db: Database, word: string): string[] {
     return results;
 }
 
+const dictionaryDbPath = ["data", "dictionary.sqlite"];
+
 export async function lookupWord(db: Database) {
     try {
         const word = await vscode.window.showInputBox({ prompt: "Enter a word to look up" });
@@ -68,7 +70,7 @@ export const initializeSqlJs = async (context: vscode.ExtensionContext) => {
         vscode.window.showErrorMessage("No workspace folder found");
         return;
     }
-    const dbPath = vscode.Uri.joinPath(workspaceFolder.uri, "data", "dictionary.sqlite");
+    const dbPath = vscode.Uri.joinPath(workspaceFolder.uri, ...dictionaryDbPath);
 
     let fileBuffer: Uint8Array;
     console.log("dbPath", dbPath);
@@ -189,6 +191,14 @@ export async function importWiktionaryJSONL(db: Database) {
                     progress.report({ increment: 0, message: "Starting import..." });
                     await parseAndImportJSONL(jsonlFilePath, progress, db);
                     progress.report({ increment: 100, message: "Import completed!" });
+                    const fileBuffer = db.export();
+                    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                    if (!workspaceFolder) {
+                        vscode.window.showErrorMessage("No workspace folder found");
+                        return;
+                    }
+                    const dbPath = vscode.Uri.joinPath(workspaceFolder.uri, ...dictionaryDbPath);
+                    await vscode.workspace.fs.writeFile(dbPath, fileBuffer);
                     vscode.window.showInformationMessage("Wiktionary JSONL import completed.");
                 }
             );
