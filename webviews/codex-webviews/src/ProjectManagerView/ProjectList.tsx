@@ -4,8 +4,8 @@ import { formatDistanceToNow } from "date-fns";
 interface ProjectListItem {
     name: string;
     path: string;
-    lastOpened?: Date;
-    lastModified: Date;
+    lastOpened?: string | Date;
+    lastModified: string | Date;
     version: string;
     hasVersionMismatch?: boolean;
     isOutdated?: boolean;
@@ -36,10 +36,13 @@ export function ProjectList({
 }: ProjectListProps) {
     const sortedProjects = projects
         ? [...projects].sort((a, b) => {
-              if (!a?.lastOpened && !b?.lastOpened) return 0;
-              if (!a?.lastOpened) return 1;
-              if (!b?.lastOpened) return -1;
-              return b.lastOpened.getTime() - a.lastOpened.getTime();
+              const dateA = a?.lastOpened ? new Date(a.lastOpened) : null;
+              const dateB = b?.lastOpened ? new Date(b.lastOpened) : null;
+
+              if (!dateA && !dateB) return 0;
+              if (!dateA) return 1;
+              if (!dateB) return -1;
+              return dateB.getTime() - dateA.getTime();
           })
         : [];
 

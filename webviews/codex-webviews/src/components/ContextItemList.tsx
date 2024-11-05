@@ -14,7 +14,7 @@ export const ContextItemList: React.FC<ContextItemListProps> = ({
 }) => {
     const [isCollapsed, setIsCollapsed] = useState(true);
 
-    const toggleCollapse = () => setIsCollapsed(!isCollapsed);
+    const toggleCollapse = () => setIsCollapsed(isCollapsed);
 
     const openContextItem = (item: string) => {
         vscode.postMessage({
@@ -55,7 +55,9 @@ export const ContextItemList: React.FC<ContextItemListProps> = ({
             >
                 <VSCodeLink onClick={toggleCollapse}>
                     <i className="codicon codicon-quote" title="Context Items"></i>
-                    {isCollapsed ? "Show Context Items" : "Hide Context Items"}
+                    {isCollapsed && contextItems.length > 0
+                        ? "Source Cell Content"
+                        : "Hide Source Cell Content"}
                 </VSCodeLink>
                 {!isCollapsed && (
                     <div style={{ marginTop: "0.5em" }}>

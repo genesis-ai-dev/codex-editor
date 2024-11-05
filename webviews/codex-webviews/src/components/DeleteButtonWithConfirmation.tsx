@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import "@vscode/codicons/dist/codicon.css"; // Import codicons
+import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import "@vscode/codicons/dist/codicon.css";
 
 const DeleteButtonWithConfirmation: React.FC<{
     handleDeleteButtonClick: () => void;
@@ -20,42 +21,42 @@ const DeleteButtonWithConfirmation: React.FC<{
     };
 
     return (
-        <div style={{ display: "flex", gap: "10px" }}>
+        <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
             {!showConfirmation ? (
-                <button
+                <VSCodeButton
+                    appearance="icon"
                     aria-label="Delete"
                     title="Delete"
-                    onClick={handleDelete}
-                    className="vscode-button"
+                    onClick={() => setShowConfirmation(true)}
                 >
                     <i className="codicon codicon-close"></i>
-                </button>
+                </VSCodeButton>
             ) : (
                 <div
                     style={{
-                        borderRadius: "5px",
-                        backgroundColor: "var(--vscode-errorForeground)",
                         display: "flex",
-                        gap: "10px",
+                        gap: "4px",
                     }}
                 >
-                    <button
-                        aria-label="Confirm Delete"
-                        title="Confirm Delete"
-                        onClick={confirmDelete}
-                        className="vscode-button"
-                    >
-                        <i className="codicon codicon-check"></i>
-                        <i className="codicon codicon-trash"></i>
-                    </button>
-                    <button
+                    <VSCodeButton
+                        appearance="secondary"
                         aria-label="Cancel Delete"
                         title="Cancel Delete"
-                        onClick={cancelDelete}
-                        className="vscode-button"
+                        onClick={() => setShowConfirmation(false)}
                     >
                         <i className="codicon codicon-close"></i>
-                    </button>
+                    </VSCodeButton>
+                    <VSCodeButton
+                        appearance="primary"
+                        aria-label="Confirm Delete"
+                        title="Confirm Delete"
+                        onClick={() => {
+                            handleDeleteButtonClick();
+                            setShowConfirmation(false);
+                        }}
+                    >
+                        <i className="codicon codicon-trash"></i>
+                    </VSCodeButton>
                 </div>
             )}
         </div>

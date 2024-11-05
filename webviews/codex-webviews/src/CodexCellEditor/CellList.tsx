@@ -1,5 +1,5 @@
 import { EditorCellContent, QuillCellContent, SpellCheckResponse } from "../../../../types";
-import React, { useMemo, useCallback } from "react";
+import React, { useMemo, useCallback, useState, useEffect } from "react";
 import CellEditor from "./TextCellEditor";
 import CellContentDisplay from "./CellContentDisplay";
 import EmptyCellDisplay from "./EmptyCellDisplay";
@@ -19,11 +19,8 @@ interface CellListProps {
     isSourceText: boolean;
     windowHeight: number;
     headerHeight: number;
-    getAlertCodeFunction: (
-        text: string,
-        cellId: string
-    ) => Promise<{ alertColorCode: number; cellId: string }>;
     spellCheckResponse: SpellCheckResponse | null;
+    alertColorCodes: { [cellId: string]: number };
 }
 
 const CellList: React.FC<CellListProps> = ({
@@ -38,8 +35,8 @@ const CellList: React.FC<CellListProps> = ({
     isSourceText,
     windowHeight,
     headerHeight,
-    getAlertCodeFunction,
     spellCheckResponse,
+    alertColorCodes,
 }) => {
     const duplicateCellIds = useMemo(() => {
         const idCounts = new Map<string, number>();
@@ -85,7 +82,7 @@ const CellList: React.FC<CellListProps> = ({
                                     isSourceText={isSourceText}
                                     hasDuplicateId={hasDuplicateId}
                                     timestamps={timestamps}
-                                    getAlertCodeFunction={getAlertCodeFunction}
+                                    alertColorCode={alertColorCodes[cellId]}
                                 />
                             </div>
                         );
@@ -100,7 +97,6 @@ const CellList: React.FC<CellListProps> = ({
             vscode,
             isSourceText,
             duplicateCellIds,
-            getAlertCodeFunction,
         ]
     );
 
@@ -151,7 +147,6 @@ const CellList: React.FC<CellListProps> = ({
                             cellType={cellType}
                             cellLabel={cellLabel}
                             cellTimestamps={timestamps}
-                            getAlertCode={getAlertCodeFunction}
                             contentBeingUpdated={contentBeingUpdated}
                             setContentBeingUpdated={setContentBeingUpdated}
                             handleCloseEditor={handleCloseEditor}
@@ -194,7 +189,6 @@ const CellList: React.FC<CellListProps> = ({
         handleCloseEditor,
         handleSaveHtml,
         renderCellGroup,
-        getAlertCodeFunction,
         setContentBeingUpdated,
         textDirection,
         vscode,

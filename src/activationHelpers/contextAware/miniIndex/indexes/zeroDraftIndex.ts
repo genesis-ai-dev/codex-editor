@@ -1,9 +1,7 @@
 import MiniSearch from "minisearch";
 import * as vscode from "vscode";
-import { StatusBarHandler } from "../statusBarHandler";
 import { zeroDraftDocumentLoader } from "../../../../utils/zeroDraftUtils";
 import { verseRefRegex } from "../../../../utils/verseRefUtils";
-import { CustomNotebookDocument } from "../../../../../types";
 
 export interface ZeroDraftIndexRecord {
     id: string;

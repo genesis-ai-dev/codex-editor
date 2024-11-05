@@ -53,13 +53,15 @@ export class PromptedSmartEdits {
         }
 
         // Find similar cells
-        const similarCells = await this.findSimilarCells(text);
+        if (text) {
+            const similarCells = await this.findSimilarCells(text);
 
-        // Check if any similar cells have prompts
-        for (const cell of similarCells) {
-            const prompt = await this.getPromptFromCellId(cell.cellId);
-            if (prompt) {
-                return true; // Found a similar cell with a prompt
+            // Check if any similar cells have prompts
+            for (const cell of similarCells) {
+                const prompt = await this.getPromptFromCellId(cell.cellId);
+                if (prompt) {
+                    return true; // Found a similar cell with a prompt
+                }
             }
         }
 
@@ -96,7 +98,7 @@ export class PromptedSmartEdits {
 
     async getPromptFromCellId(cellId: string): Promise<string | null> {
         try {
-            console.log(`Getting prompt for cellId: ${cellId}`);
+            // console.log(`Getting prompt for cellId: ${cellId}`);
             const fileUri = vscode.Uri.file(this.smartPromptPath);
 
             try {
@@ -126,17 +128,17 @@ export class PromptedSmartEdits {
     }
 
     async getTopPrompts(cellId: string, text: string): Promise<string[]> {
-        console.log(`Getting top prompts for cellId: ${cellId}`);
+        // console.log(`Getting top prompts for cellId: ${cellId}`);
 
         // Find similar cells
         const similarCells = await this.findSimilarCells(text);
         const cellIds = [cellId, ...similarCells.map((cell) => cell.cellId)];
-        console.log(`Found ${similarCells.length} similar cells`);
+        // console.log(`Found ${similarCells.length} similar cells`);
 
         // Get prompt for current cell and similar cells
         const promptPromises = cellIds.map((id) => this.getPromptFromCellId(id));
         const allPrompts = await Promise.all(promptPromises);
-        console.log(`Retrieved ${allPrompts.length} pieces of prompt`);
+        // console.log(`Retrieved ${allPrompts.length} pieces of prompt`);
 
         // Filter out null values and return valid prompts
         const validPrompts = allPrompts.filter((prompt): prompt is string => prompt !== null);
@@ -149,7 +151,7 @@ export class PromptedSmartEdits {
         updateType: string
     ): Promise<void> {
         try {
-            console.log(`Saving prompt for cellId: ${cellId}`);
+            // console.log(`Saving prompt for cellId: ${cellId}`);
             let savedPrompts: { [key: string]: SavedPrompt } = {};
 
             try {
@@ -173,20 +175,20 @@ export class PromptedSmartEdits {
                 fileUri,
                 Buffer.from(JSON.stringify(savedPrompts, null, 2))
             );
-            console.log(`Saved prompt for cellId: ${cellId}`);
+            // console.log(`Saved prompt for cellId: ${cellId}`);
         } catch (error) {
             console.error("Error saving prompt:", error);
         }
     }
 
     private async findSimilarCells(text: string): Promise<TranslationPair[]> {
-        console.log("Finding similar cells for text:", text);
+        // console.log("Finding similar cells for text:", text);
         try {
             const results = await vscode.commands.executeCommand<TranslationPair[]>(
                 "translators-copilot.searchParallelCells",
                 text
             );
-            console.log(`Found ${results?.length || 0} similar cells`);
+            // console.log(`Found ${results?.length || 0} similar cells`);
             return results || [];
         } catch (error) {
             console.error("Error searching parallel cells:", error);
@@ -205,25 +207,25 @@ export class PromptedSmartEdits {
             const chapter = match[2];
             const verse = match[3];
             const cellId = `${book} ${chapter}:${verse}`;
-            console.log(`Processing cell reference: ${cellId}`);
+            // console.log(`Processing cell reference: ${cellId}`);
 
             try {
                 const targetCell = await vscode.commands.executeCommand<TargetCell>(
                     "translators-copilot.getTargetCellByCellId",
                     cellId
                 );
-                console.log(
-                    `Target cell for ${cellId}:`,
-                    targetCell
-                        ? {
-                              cellId: cellId,
-                              content: targetCell.targetContent,
-                          }
-                        : "Not found"
-                );
+                // console.log(
+                //     `Target cell for ${cellId}:`,
+                //     targetCell
+                //         ? {
+                //               cellId: cellId,
+                //               content: targetCell.targetContent,
+                //           }
+                //         : "Not found"
+                // );
 
                 if (targetCell?.targetContent) {
-                    console.log(`Found content for ${cellId}:`, targetCell.targetContent);
+                    // console.log(`Found content for ${cellId}:`, targetCell.targetContent);
                     processedPrompt = processedPrompt.replace(
                         match[0],
                         ` "${targetCell.targetContent}" `
@@ -236,7 +238,7 @@ export class PromptedSmartEdits {
             }
         }
 
-        console.log(`Final processed prompt: ${processedPrompt}`);
+        // console.log(`Final processed prompt: ${processedPrompt}`);
         return processedPrompt;
     }
 }

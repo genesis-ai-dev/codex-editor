@@ -1,7 +1,6 @@
 import MiniSearch from "minisearch";
 import * as vscode from "vscode";
 import { verseRefRegex } from "../../../../utils/verseRefUtils";
-import { StatusBarHandler } from "../statusBarHandler";
 import { getWorkSpaceUri } from "../../../../utils";
 import { FileData } from "./fileReaders";
 import { debounce } from "lodash";

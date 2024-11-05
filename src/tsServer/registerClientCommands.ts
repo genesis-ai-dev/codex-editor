@@ -1,3 +1,4 @@
+import { GetAlertCodes, AlertCodesServerResponse } from "@types";
 import * as vscode from "vscode";
 import { LanguageClient } from "vscode-languageclient/node";
 
@@ -19,11 +20,14 @@ export function registerClientCommands(
     );
     disposables.push(
         vscode.commands.registerCommand(
-            "translators-copilot.alertCode",
-            async (text: string, cellId: string) => {
+            "translators-copilot.alertCodes",
+            async (args: GetAlertCodes) => {
                 if (client) {
-                    const ret = client.sendRequest("spellcheck/getAlertCode", { text, cellId });
-                    console.log("RCC: ", ret);
+                    const ret = client.sendRequest<AlertCodesServerResponse>(
+                        "spellcheck/getAlertCodes",
+                        args
+                    );
+
                     return ret;
                 }
             }

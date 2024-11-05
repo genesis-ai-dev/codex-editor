@@ -16,13 +16,15 @@ export const WebviewHeader: React.FC<WebviewHeaderProps> = ({
         className="webview-header"
         style={{
             display: "flex",
-            justifyContent: "space-between",
+            justifyContent: "stretch",
             width: "100%",
             alignItems: "center",
             padding: "0.25em 1em",
+            gap: "0.25em",
             borderBottom: "2px solid var(--vscode-editorGroupHeader-tabsBorder)",
             backgroundColor: "var(--vscode-sideBar-background)",
             color: "var(--vscode-sideBar-foreground)",
+            minHeight: "2em",
         }}
     >
         {title && (

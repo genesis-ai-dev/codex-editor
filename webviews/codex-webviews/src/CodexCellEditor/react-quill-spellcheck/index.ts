@@ -165,8 +165,8 @@ export class QuillSpellChecker {
 
         if (!text) return;
 
-        this.boxes.removeSuggestionBoxes();
         const results = await this.getSpellCheckerResults(text);
+        this.boxes.removeSuggestionBoxes();
         debug("checkSpelling results", { results });
 
         if (results?.length) {

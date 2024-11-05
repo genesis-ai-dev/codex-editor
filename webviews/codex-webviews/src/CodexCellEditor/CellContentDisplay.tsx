@@ -18,10 +18,7 @@ interface CellContentDisplayProps {
     isSourceText: boolean;
     hasDuplicateId: boolean;
     timestamps: Timestamps | undefined;
-    getAlertCodeFunction?: (
-        text: string,
-        cellId: string
-    ) => Promise<{ alertColorCode: number; cellId: string }>;
+    alertColorCode: number | undefined;
 }
 
 const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
@@ -35,10 +32,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     isSourceText,
     hasDuplicateId,
     timestamps,
-    getAlertCodeFunction,
+    alertColorCode,
 }) => {
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
-    const [alertColorCode, setAlertColorCode] = useState<number>(-1);
 
     const cellRef = useRef<HTMLDivElement>(null);
     const { contentToScrollTo } = useContext(ScrollToContentContext);
@@ -54,21 +50,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         }
     }, [contentToScrollTo]);
 
-    useEffect(() => {
-        const checkContent = async () => {
-            if (alertColorCode !== -1) return;
-            try {
-                if (getAlertCodeFunction) {
-                    const result = await getAlertCodeFunction(cellContent, cellIds[0]);
-                    setAlertColorCode(result.alertColorCode);
-                }
-            } catch (error) {
-                console.error("Error checking content:", error);
-                setAlertColorCode(0);
-            }
-        };
-        checkContent();
-    }, [cellContent, cellIds]);
 
     const handleVerseClick = () => {
         if (unsavedChanges || isSourceText) {
@@ -120,7 +101,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         } as const;
         return (
             <AlertDot
-                color={colors[alertColorCode.toString() as keyof typeof colors] || "transparent"}
+                color={colors[alertColorCode?.toString() as keyof typeof colors] || "transparent"}
             />
         );
     };

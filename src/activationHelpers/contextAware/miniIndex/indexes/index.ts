@@ -1,7 +1,7 @@
 "use strict";
 import * as vscode from "vscode";
 import { getWorkSpaceFolder, getWorkSpaceUri } from "../../../../utils";
-import { StatusBarHandler } from "../statusBarHandler";
+import { IndexingStatusBarHandler } from "../statusBarHandler";
 import { createTranslationPairsIndex } from "./translationPairsIndex";
 import { createSourceTextIndex } from "./sourceTextIndex";
 import {
@@ -44,7 +44,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         return;
     }
 
-    const statusBarHandler = StatusBarHandler.getInstance();
+    const statusBarHandler = IndexingStatusBarHandler.getInstance();
     context.subscriptions.push(statusBarHandler);
 
     const translationPairsIndex = new MiniSearch({

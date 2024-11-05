@@ -7,6 +7,7 @@ import {
     EditorCellContent,
     SpellCheckResponse,
     CustomNotebookMetadata,
+    EditorReceiveMessages,
 } from "../../../../types";
 import ChapterNavigation from "./ChapterNavigation";
 import CellList from "./CellList";
@@ -31,6 +32,26 @@ export enum CELL_DISPLAY_MODES {
 
 const CodexCellEditor: React.FC = () => {
     const [translationUnits, setTranslationUnits] = useState<QuillCellContent[]>([]);
+    const [alertColorCodes, setAlertColorCodes] = useState<{
+        [cellId: string]: number;
+    }>({});
+
+    const checkAlertCodes = () => {
+        const cellContentAndId = translationUnits.map((unit) => ({
+            text: removeHtmlTags(unit.cellContent),
+            cellId: unit.cellMarkers[0],
+        }));
+
+        vscode.postMessage({
+            command: "getAlertCodes",
+            content: cellContentAndId,
+        } as EditorPostMessages);
+    };
+
+    useEffect(() => {
+        checkAlertCodes();
+    }, [translationUnits.length]);
+
     const [spellCheckResponse, setSpellCheckResponse] = useState<SpellCheckResponse | null>(null);
     const [contentBeingUpdated, setContentBeingUpdated] = useState<EditorCellContent>(
         {} as EditorCellContent
@@ -111,6 +132,10 @@ const CodexCellEditor: React.FC = () => {
         updateVideoUrl: (url: string) => {
             setTempVideoUrl(url);
         },
+        setAlertColorCodes: setAlertColorCodes,
+        recheckAlertCodes: () => {
+            checkAlertCodes();
+        },
     });
 
     useEffect(() => {
@@ -157,6 +182,7 @@ const CodexCellEditor: React.FC = () => {
             command: "saveHtml",
             content: contentBeingUpdated,
         } as EditorPostMessages);
+        checkAlertCodes();
         handleCloseEditor();
     };
 
@@ -373,41 +399,7 @@ const CodexCellEditor: React.FC = () => {
                         isSourceText={isSourceText}
                         windowHeight={windowHeight}
                         headerHeight={headerHeight}
-                        getAlertCodeFunction={(cellContent: string, cellId: string) => {
-                            if (isSourceText) {
-                                return Promise.resolve({
-                                    alertColorCode: -1,
-                                    cellId: cellId,
-                                });
-                            }
-
-                            vscode.postMessage({
-                                command: "getAlertCode",
-                                content: {
-                                    text: removeHtmlTags(cellContent),
-                                    cellId: cellId, // Include cellId in the message
-                                },
-                            } as EditorPostMessages);
-                            return new Promise((resolve) => {
-                                const handlegetAlertCodeResponse = (event: MessageEvent) => {
-                                    const message = event.data;
-                                    if (message.type === "providerSendsgetAlertCodeResponse") {
-                                        // Make sure we only resolve for the cell we requested
-                                        if (message.content.cellId === cellId) {
-                                            window.removeEventListener(
-                                                "message",
-                                                handlegetAlertCodeResponse
-                                            ); // Remove listener
-                                            resolve({
-                                                alertColorCode: message.content.code,
-                                                cellId: message.content.cellId,
-                                            });
-                                        }
-                                    }
-                                };
-                                window.addEventListener("message", handlegetAlertCodeResponse);
-                            });
-                        }}
+                        alertColorCodes={alertColorCodes}
                     />
                 </div>
             </div>
