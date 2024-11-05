@@ -354,6 +354,9 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             case "selectprimarySourceText":
                 await this.setprimarySourceText(message.data);
                 break;
+            case "refreshState":
+                await this.updateWebviewState();
+                break;
             default:
                 console.error(`Unknown command: ${message.command}`);
         }
@@ -796,7 +799,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 if (this._view?.visible) {
                     await this.refreshState();
                 }
-            }, 1000); // Poll every 1 second
+            }, 10000); // Poll every 10 seconds
         }
     }
 
@@ -804,6 +807,16 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
         if (this.refreshInterval) {
             clearInterval(this.refreshInterval);
             this.refreshInterval = null;
+        }
+    }
+
+    private async updateWebviewState() {
+        if (this._view) {
+            const state = this.store.getState();
+            this._view.webview.postMessage({
+                type: "stateUpdate",
+                state,
+            });
         }
     }
 }
