@@ -820,6 +820,37 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         );
                         return;
                     }
+                    case "exportVttFile": {
+                        try {
+                            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                            if (!workspaceFolder) {
+                                throw new Error("No workspace folder found");
+                            }
+
+                            // Get the notebook filename to use as base for the VTT filename
+                            const notebookName = path.parse(document.uri.fsPath).name;
+                            const vttFileName = `${notebookName}.vtt`;
+
+                            // Create the VTT file in the workspace
+                            const vttUri = vscode.Uri.joinPath(
+                                workspaceFolder.uri,
+                                "exports",
+                                vttFileName
+                            );
+                            await vscode.workspace.fs.writeFile(
+                                vttUri,
+                                Buffer.from(e.content.subtitleData, "utf-8")
+                            );
+
+                            vscode.window.showInformationMessage(
+                                `VTT file exported to ${vttFileName}`
+                            );
+                        } catch (error) {
+                            console.error("Error exporting VTT file:", error);
+                            vscode.window.showErrorMessage("Failed to export VTT file");
+                        }
+                        return;
+                    }
                 }
             } catch (error) {
                 console.error("Unexpected error in message handler:", error);

@@ -41,7 +41,7 @@ export default async function registerClientOnRequests(client: LanguageClient, d
         }
     );
 
-    client.onRequest("custom/getSuggestions", async (word: string) => {
+    client.onRequest(CustomRequests.GetSuggestions, async (word: string) => {
         try {
             if (!db) return [];
             const stmt = db.prepare("SELECT word FROM entries");
@@ -57,7 +57,7 @@ export default async function registerClientOnRequests(client: LanguageClient, d
         }
     });
 
-    client.onRequest("custom/addWords", async (words: string[]) => {
+    client.onRequest(CustomRequests.AddWords, async (words: string[]) => {
         try {
             if (!db) return false;
             const stmt = db.prepare(

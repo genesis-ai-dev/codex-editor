@@ -8,7 +8,7 @@ import {
 } from "@vscode/webview-ui-toolkit/react";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 import NotebookMetadataModal from "./NotebookMetadataModal";
-import { CustomNotebookMetadata } from "../../../../types";
+import { CustomNotebookMetadata, QuillCellContent } from "../../../../types";
 
 interface ChapterNavigationProps {
     chapterNumber: number;
@@ -32,6 +32,7 @@ interface ChapterNavigationProps {
     onPickFile: () => void;
     onUpdateVideoUrl: (url: string) => void;
     tempVideoUrl: string;
+    handleExportVtt: () => void;
 }
 
 const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
@@ -56,6 +57,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     onPickFile,
     onUpdateVideoUrl,
     tempVideoUrl,
+    handleExportVtt: onExportVtt,
 }) => {
     const [showConfirm, setShowConfirm] = useState(false);
     const [numberOfCellsToAutocomplete, setNumberOfCellsToAutocomplete] = useState(5);
@@ -208,6 +210,9 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                         <i className="codicon codicon-notebook"></i>
                     </VSCodeButton>
                 )}
+                <VSCodeButton appearance="icon" onClick={onExportVtt} title="Export VTT File">
+                    <i className="codicon codicon-export"></i>
+                </VSCodeButton>
             </div>
             {metadata && (
                 <NotebookMetadataModal

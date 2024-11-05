@@ -402,7 +402,8 @@ export type EditorPostMessages =
               cellId: string;
               editHistory: EditHistoryEntry[];
           };
-      };
+      }
+    | { command: "exportVttFile"; content: { subtitleData: string } };
 
 type EditorReceiveMessages =
     | {

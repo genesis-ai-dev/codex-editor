@@ -20,6 +20,7 @@ import SourceCellContext from "./contextProviders/SourceCellContext";
 import DuplicateCellResolver from "./DuplicateCellResolver";
 import TimelineEditor from "./TimelineEditor";
 import VideoTimelineEditor from "./VideoTimelineEditor";
+import { generateVttData } from "./utils/vttUtils";
 
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
@@ -147,7 +148,7 @@ const CodexCellEditor: React.FC = () => {
 
     useEffect(() => {
         // Initialize Quill and register SpellChecker and SmartEdits only once
-        registerQuillSpellChecker(Quill as any, vscode, );
+        registerQuillSpellChecker(Quill as any, vscode);
     }, []);
 
     const calculateTotalChapters = (units: QuillCellContent[]): number => {
@@ -281,6 +282,14 @@ const CodexCellEditor: React.FC = () => {
         setVideoUrl(url);
     };
 
+    const handleExportVtt = () => {
+        const subtitleData = generateVttData(translationUnitsWithCurrentEditorContent);
+        vscode.postMessage({
+            command: "exportVttFile",
+            content: { subtitleData },
+        } as EditorPostMessages);
+    };
+
     const [headerHeight, setHeaderHeight] = useState(0);
     const [windowHeight, setWindowHeight] = useState(window.innerHeight);
     const headerRef = useRef<HTMLDivElement>(null);
@@ -355,6 +364,7 @@ const CodexCellEditor: React.FC = () => {
                         onSaveMetadata={handleSaveMetadata}
                         onPickFile={handlePickFile}
                         onUpdateVideoUrl={handleUpdateVideoUrl}
+                        handleExportVtt={handleExportVtt}
                     />
                 </div>
                 {shouldShowVideoPlayer && videoUrl && (
