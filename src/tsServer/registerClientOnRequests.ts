@@ -44,8 +44,24 @@ export default async function registerClientOnRequests(client: LanguageClient, d
     client.onRequest(CustomRequests.GetSuggestions, async (word: string) => {
         try {
             if (!db) return [];
-            const stmt = db.prepare("SELECT word FROM entries");
+
+            // Use SQL's LIKE operator with wildcards to find similar words
+            // This query finds words that:
+            // 1. Start with the same letter
+            // 2. Have similar length (within 2 characters)
+            // 3. Share some common characters
+            const stmt = db.prepare(`
+                SELECT word 
+                FROM entries 
+                WHERE word LIKE ? || '%'
+                AND ABS(LENGTH(word) - LENGTH(?)) <= 2
+                AND word LIKE '%' || ? || '%'
+                LIMIT 10
+            `);
+
             const words: string[] = [];
+            stmt.bind([word[0], word, word.substring(1, word.length - 1)]);
+
             while (stmt.step()) {
                 words.push(stmt.getAsObject()["word"] as string);
             }
