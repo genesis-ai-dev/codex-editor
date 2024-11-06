@@ -104,11 +104,26 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
             switch (e.command) {
                 case "webviewTellsProviderToUpdateData": {
                     if (e.operation === "fetchPage" && e.pagination) {
-                        this.document = await this.handleFetchPage(
+                        const pageData = await this.handleFetchPage(
                             e.pagination.page,
                             e.pagination.pageSize,
                             e.pagination.searchQuery
                         );
+                        
+                        webviewPanel.webview.postMessage({
+                            command: "providerTellsWebviewToUpdateData",
+                            data: {
+                                dictionaryData: {
+                                    id: "",
+                                    label: "",
+                                    metadata: {}
+                                },
+                                entries: pageData.entries,
+                                total: pageData.total,
+                                page: pageData.page,
+                                pageSize: pageData.pageSize
+                            }
+                        } as DictionaryReceiveMessages);
                         break;
                     }
                     const db = (global as any).db as Database;
@@ -437,7 +452,6 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
                 headWord: word,
                 definition: definitions.join("\n"),
                 hash: this.generateHash(word),
-                // ... other default fields ...
             };
         });
 
@@ -447,15 +461,5 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
             page,
             pageSize,
         };
-
-        // webviewPanel.webview.postMessage({
-        //     command: "providerTellsWebviewToUpdateData",
-        //     data: {
-        //         entries,
-        //         total,
-        //         page,
-        //         pageSize,
-        //     },
-        // } as DictionaryReceiveMessages);
     }
 }

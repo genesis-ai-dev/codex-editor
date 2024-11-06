@@ -254,6 +254,7 @@ export type SourceUploadResponseMessages =
           transaction: DownloadBibleTransaction;
       }
     | { command: "bibleDownloadCancelled" };
+    
 type DictionaryPostMessages =
     | {
           command: "webviewTellsProviderToUpdateData";
