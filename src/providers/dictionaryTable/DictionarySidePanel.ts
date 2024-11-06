@@ -104,10 +104,10 @@ export class DictionarySummaryProvider implements vscode.WebviewViewProvider {
                 // Only update if the dictionary has changed
                 if (newDictionaryHash !== this.lastSentDictionaryHash) {
                     this.lastSentDictionaryHash = newDictionaryHash;
-                    this._view?.webview.postMessage({
-                        command: "providerSendsDataToWebview",
-                        data: dictionary,
-                    } as DictionarySummaryPostMessages);
+                    // this._view?.webview.postMessage({
+                    //     command: "providerSendsDataToWebview",
+                    //     data: dictionary,
+                    // } as DictionarySummaryPostMessages);
 
                     let wordFrequencies;
                     try {

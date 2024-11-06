@@ -1,5 +1,5 @@
 import * as fs from "fs";
-import { Dictionary, DictionaryEntry } from "codex-types";
+
 import { cleanWord } from "../cleaningUtils";
 import {
     serializeDictionaryEntries,
@@ -7,6 +7,7 @@ import {
     ensureCompleteEntry,
     createDictionaryEntry,
 } from "./common";
+import { Dictionary } from "../../../types";
 
 export async function readDictionaryServer(path: string): Promise<Dictionary> {
     try {

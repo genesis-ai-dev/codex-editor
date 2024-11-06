@@ -3,8 +3,12 @@ import { Table, Input, Button, Popconfirm, Tooltip, ConfigProvider, theme } from
 import type { ColumnsType } from "antd/es/table";
 import { vscode } from "./utilities/vscode";
 // import "./style.css";
-import { Dictionary, DictionaryEntry } from "codex-types";
-import { DictionaryPostMessages, DictionaryReceiveMessages } from "../../../../types";
+import {
+    DictionaryPostMessages,
+    DictionaryReceiveMessages,
+    DictionaryEntry, 
+    Dictionary,
+} from "../../../../types";
 import debounce from "lodash.debounce";
 import { isEqual } from "lodash";
 
@@ -104,42 +108,45 @@ const App: React.FC = () => {
         setVsCodeTheme(themeColors);
     }, []);
 
-    const debouncedUpdateDictionary = useRef(
-        debounce(() => {
-            const updatedDictionary: Dictionary = {
-                ...dictionaryRef.current,
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                entries: dataSourceRef.current.map(({ key, ...rest }) => rest as DictionaryEntry),
-            };
-
-            if (!isEqual(updatedDictionary, lastSentDataRef.current)) {
-                setDictionary(updatedDictionary);
-                vscode.postMessage({
-                    command: "webviewTellsProviderToUpdateData",
-                    data: updatedDictionary,
-                } as DictionaryPostMessages);
-                lastSentDataRef.current = updatedDictionary;
-            }
-        }, 500)
-    ).current;
-
-    useEffect(() => {
-        debouncedUpdateDictionary();
-    }, [dataSource, debouncedUpdateDictionary]);
-
-    const handleCellChange = useCallback((key: React.Key, dataIndex: string, value: any) => {
-        setDataSource((prevDataSource) =>
-            prevDataSource.map((item) => {
-                if (item.key === key) {
-                    return { ...item, [dataIndex]: value };
-                }
-                return item;
-            })
-        );
-    }, []);
+    const handleCellChange = useCallback(
+        (key: React.Key, dataIndex: string, value: any) => {
+            setDataSource((prevDataSource) =>
+                prevDataSource.map((item) => {
+                    if (item.key === key) {
+                        const updatedItem = { ...item, [dataIndex]: value };
+                        // Send only the changed entry
+                        vscode.postMessage({
+                            command: "webviewTellsProviderToUpdateData",
+                            operation: "update",
+                            entry: {
+                                headWord: updatedItem.headWord,
+                                definition: updatedItem.definition,
+                            },
+                        } as DictionaryPostMessages);
+                        return updatedItem;
+                    }
+                    return item;
+                })
+            );
+        },
+        [] // Remove dependencies as we're not using them anymore
+    );
 
     const handleDelete = useCallback((key: React.Key) => {
-        setDataSource((prevDataSource) => prevDataSource.filter((item) => item.key !== key));
+        setDataSource((prevDataSource) => {
+            const itemToDelete = prevDataSource.find((item) => item.key === key);
+            if (itemToDelete) {
+                vscode.postMessage({
+                    command: "webviewTellsProviderToUpdateData",
+                    operation: "delete",
+                    entry: {
+                        headWord: itemToDelete.headWord,
+                        definition: itemToDelete.definition,
+                    },
+                } as DictionaryPostMessages);
+            }
+            return prevDataSource.filter((item) => item.key !== key);
+        });
     }, []);
 
     const handleAdd = useCallback(() => {
@@ -147,13 +154,24 @@ const App: React.FC = () => {
             const newKey = prevDataSource.length
                 ? Math.max(...prevDataSource.map((item) => Number(item.key))) + 1
                 : 0;
-            const newEntry: DataType = { key: newKey };
-            columnNames.forEach((key) => {
-                newEntry[key] = "";
-            });
+            const newEntry: DataType = {
+                key: newKey,
+                headWord: "",
+                definition: "",
+            };
+
+            vscode.postMessage({
+                command: "webviewTellsProviderToUpdateData",
+                operation: "add",
+                entry: {
+                    headWord: newEntry.headWord,
+                    definition: newEntry.definition,
+                },
+            } as DictionaryPostMessages);
+
             return [...prevDataSource, newEntry];
         });
-    }, [columnNames]);
+    }, []);
 
     const getColumnIcon = useCallback((columnName: string): JSX.Element => {
         const iconMap: { [key: string]: string } = {
@@ -227,18 +245,18 @@ const App: React.FC = () => {
         const handleReceiveMessage = (event: MessageEvent<DictionaryReceiveMessages>) => {
             const message = event.data;
             if (message.command === "providerTellsWebviewToUpdateData") {
-                let newDictionary: Dictionary = message.data;
+                // let newDictionary: Dictionary = message.data;
 
-                if (!newDictionary.entries) {
-                    newDictionary = {
-                        ...newDictionary,
-                        entries: [],
-                    };
-                }
+                // if (!newDictionary.entries) {
+                //     newDictionary = {
+                //         ...newDictionary,
+                //         entries: [],
+                //     };
+                // }
 
-                setDictionary(newDictionary);
+                setDictionary({ ...dictionary, entries: message.data.entries });
 
-                const newDataSource = newDictionary.entries.map((entry, index) => ({
+                const newDataSource = message.data.entries.map((entry, index) => ({
                     key: index,
                     ...entry,
                 }));

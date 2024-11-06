@@ -1,6 +1,6 @@
 import { vscode } from "./utilities/vscode";
 import { useEffect, useState } from "react";
-import { Dictionary } from "codex-types";
+import { Dictionary } from "../../../../types";
 import { numberOfEntries } from "./utils";
 import "./App.css";
 import { DictionarySummaryPostMessages } from "../../../../types";

@@ -1,7 +1,12 @@
+import { fetchTranslationResource } from "./../../../webviews/obs/src/utilities/fetchTranslationResource";
 import * as vscode from "vscode";
-import { Dictionary, DictionaryEntry } from "codex-types";
 import { getNonce } from "./utilities/getNonce";
-import { DictionaryPostMessages, DictionaryReceiveMessages } from "../../../types";
+import {
+    DictionaryPostMessages,
+    DictionaryReceiveMessages,
+    Dictionary,
+    DictionaryEntry,
+} from "../../../types";
 import { getWorkSpaceUri } from "../../utils";
 import { isEqual } from "lodash";
 import { readDictionaryClient, saveDictionaryClient } from "../../utils/dictionaryUtils/client";
@@ -11,7 +16,15 @@ import {
     serializeDictionaryEntries,
     ensureCompleteEntry,
 } from "../../utils/dictionaryUtils/common";
+import { Database } from "sql.js";
+import { getWords, getDefinitions, getPagedWords } from "../../sqldb";
 
+type FetchPageResult = {
+    entries: DictionaryEntry[];
+    total: number;
+    page: number;
+    pageSize: number;
+};
 interface DictionaryDocument extends vscode.CustomDocument {
     content: Dictionary;
 }
@@ -20,7 +33,7 @@ type PartialDictionaryEntry = Partial<DictionaryEntry>;
 
 export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider {
     public static readonly viewType = "codex.dictionaryEditor";
-    private document: DictionaryDocument | undefined;
+    private document: FetchPageResult | undefined;
     private readonly onDidChangeCustomDocument = new vscode.EventEmitter<
         vscode.CustomDocumentEditEvent<DictionaryDocument>
     >();
@@ -43,18 +56,15 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
         webviewPanel: vscode.WebviewPanel,
         _token: vscode.CancellationToken
     ): Promise<void> {
-        this.document = {
-            uri: document.uri,
-            content: this.getDocumentAsJson(document),
-            dispose: () => {},
-        };
+        this.document = await this.handleFetchPage(1, 100);
         webviewPanel.webview.options = {
             enableScripts: true,
         };
         webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview);
 
         const updateWebview = () => {
-            const dictionaryContent = this.getDocumentAsJson(document);
+            const dictionaryContent = this.document;
+            console.log("sending dictionaryContent to webview", dictionaryContent);
             webviewPanel.webview.postMessage({
                 command: "providerTellsWebviewToUpdateData",
                 data: dictionaryContent,
@@ -92,17 +102,62 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
 
         webviewPanel.webview.onDidReceiveMessage(async (e: DictionaryPostMessages) => {
             switch (e.command) {
-                case "webviewTellsProviderToUpdateData":
-                    console.log("updateData received in DictionaryEditorProvider", e.data);
-                    if (this.hasDataChanged(e.data)) {
-                        await this.updateTextDocument(document, e.data, webviewPanel).then(
-                            async () => {
-                                await this.refreshEditor(webviewPanel);
-                            }
+                case "webviewTellsProviderToUpdateData": {
+                    if (e.operation === "fetchPage" && e.pagination) {
+                        this.document = await this.handleFetchPage(
+                            e.pagination.page,
+                            e.pagination.pageSize,
+                            e.pagination.searchQuery
                         );
-                        this.lastSentData = e.data;
+                        break;
                     }
-                    return;
+                    const db = (global as any).db as Database;
+                    if (!db) {
+                        throw new Error("SQLite database not initialized");
+                    }
+
+                    switch (e.operation) {
+                        case "update":
+                            db.run(
+                                `
+                                INSERT OR REPLACE INTO entries (word, definition)
+                                VALUES (?, ?)
+                            `,
+                                [e.entry.headWord, e.entry.definition]
+                            );
+                            break;
+
+                        case "delete":
+                            db.run(
+                                `
+                                DELETE FROM entries
+                                WHERE word = ?
+                            `,
+                                [e.entry.headWord]
+                            );
+                            break;
+
+                        case "add":
+                            if (e.entry.headWord) {
+                                // Only add if headWord is not empty
+                                db.run(
+                                    `
+                                    INSERT INTO entries (word, definition)
+                                    VALUES (?, ?)
+                                `,
+                                    [e.entry.headWord, e.entry.definition]
+                                );
+                            }
+                            break;
+                    }
+
+                    // Notify webview of successful update if needed
+                    webviewPanel.webview.postMessage({
+                        command: "providerTellsWebviewToUpdateData",
+                        data: this.document,
+                    } as DictionaryReceiveMessages);
+                    break;
+                }
                 case "webviewAsksProviderToConfirmRemove": {
                     console.log("confirmRemove received in DictionaryEditorProvider", e.count);
                     const confirmed = await vscode.window.showInformationMessage(
@@ -173,58 +228,81 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
             </html>`;
     }
 
-    private getDocumentAsJson(document: vscode.TextDocument): Dictionary {
-        const text = document.getText();
-        if (text.trim().length === 0) {
-            return { id: "", label: "", entries: [], metadata: {} };
-        }
+    // private getDictionaryEntries(): Dictionary {
+    //     const db = (global as any).db as Database;
+    //     if (!db) {
+    //         throw new Error("SQLite database not initialized");
+    //     }
 
-        try {
-            const repairedContent = repairDictionaryContent(text);
-            const entries = deserializeDictionaryEntries(repairedContent).map(ensureCompleteEntry);
-            return { id: "", label: "", entries, metadata: {} };
-        } catch (error) {
-            throw new Error("Could not parse document as JSONL. Content is not valid.");
-        }
-    }
+    //     const words = getWords(db);
+    //     const entries: DictionaryEntry[] = words.map((word) => {
+    //         const definitions = getDefinitions(db, word);
+    //         return {
+    //             id: word,
+    //             headWord: word,
+    //             definition: definitions.join("\n"),
+    //             // Set default values for other required fields
+    //             headForm: "",
+    //             variantForms: [],
+    //             partOfSpeech: "",
+    //             etymology: "",
+    //             usage: "",
+    //             notes: [],
+    //             examples: [],
+    //             translationEquivalents: [],
+    //             links: [],
+    //             linkedEntries: [],
+    //             metadata: {},
+    //             hash: this.generateHash(word),
+    //         };
+    //     });
+
+    //     return { id: "", label: "", entries, metadata: {} };
+    // }
 
     private async updateTextDocument(
         document: vscode.TextDocument,
         dictionary: Dictionary,
         webviewPanel: vscode.WebviewPanel
     ) {
-        const workspaceFolderUri = getWorkSpaceUri();
-        if (!workspaceFolderUri) {
-            throw new Error("Workspace folder not found.");
+        const db = (global as any).db as Database;
+        if (!db) {
+            throw new Error("SQLite database not initialized");
         }
-        const dictionaryUri = vscode.Uri.joinPath(
-            workspaceFolderUri,
-            "files",
-            "project.dictionary"
-        );
 
-        await saveDictionaryClient(dictionaryUri, dictionary);
-
-        // After updating the file, repair if needed and refresh the editor
-        await this.repairDictionaryIfNeeded(dictionaryUri);
-        await this.refreshEditor(webviewPanel);
-    }
-
-    private async repairDictionaryIfNeeded(dictionaryUri: vscode.Uri) {
-        try {
-            const dictionary = await readDictionaryClient(dictionaryUri);
-            const newContent = serializeDictionaryEntries(
-                dictionary.entries.map(ensureCompleteEntry)
+        // Update SQLite database instead of file
+        dictionary.entries.forEach((entry) => {
+            db.run(
+                `
+                INSERT OR REPLACE INTO entries (word, definition)
+                VALUES (?, ?)
+            `,
+                [entry.headWord, entry.definition]
             );
-            await saveDictionaryClient(dictionaryUri, {
-                ...dictionary,
-                entries: deserializeDictionaryEntries(newContent),
-            });
-            console.log("Dictionary repaired and saved.");
-        } catch (error) {
-            console.error("Error repairing dictionary:", error);
-        }
+        });
+
+        // Notify webview of updates
+        webviewPanel.webview.postMessage({
+            command: "providerTellsWebviewToUpdateData",
+            data: this.document,
+        } as DictionaryReceiveMessages);
     }
+
+    // private async repairDictionaryIfNeeded(dictionaryUri: vscode.Uri) {
+    //     try {
+    //         const dictionary = await readDictionaryClient(dictionaryUri);
+    //         const newContent = serializeDictionaryEntries(
+    //             dictionary.entries.map(ensureCompleteEntry)
+    //         );
+    //         await saveDictionaryClient(dictionaryUri, {
+    //             ...dictionary,
+    //             entries: deserializeDictionaryEntries(newContent),
+    //         });
+    //         console.log("Dictionary repaired and saved.");
+    //     } catch (error) {
+    //         console.error("Error repairing dictionary:", error);
+    //     }
+    // }
 
     private isValidDictionaryEntry(entry: any): entry is DictionaryEntry {
         return typeof entry === "object" && entry !== null && "headWord" in entry;
@@ -234,18 +312,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
         return {
             id: entry.id || "",
             headWord: entry.headWord || "",
-            headForm: entry.headForm || "",
-            variantForms: entry.variantForms || [],
             definition: entry.definition || "",
-            partOfSpeech: entry.partOfSpeech || "",
-            etymology: entry.etymology || "",
-            usage: entry.usage || "",
-            notes: entry.notes || [],
-            examples: entry.examples || [],
-            translationEquivalents: entry.translationEquivalents || [],
-            links: entry.links || [],
-            linkedEntries: entry.linkedEntries || [],
-            metadata: entry.metadata || {},
             hash: entry.hash || this.generateHash(entry.headWord || ""),
         };
     }
@@ -261,41 +328,29 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
     private async refreshEditor(webviewPanel: vscode.WebviewPanel) {
         if (this.document) {
             try {
-                const workspaceFolderUri = getWorkSpaceUri();
-                if (!workspaceFolderUri) {
-                    throw new Error("Workspace folder not found.");
-                }
-                const dictionaryUri = vscode.Uri.joinPath(
-                    workspaceFolderUri,
-                    "files",
-                    "project.dictionary"
-                );
-                const fileContent = await vscode.workspace.fs.readFile(dictionaryUri);
-                const content = new TextDecoder().decode(fileContent);
-
-                // Parse the file content
-                const newEntries = this.parseEntriesFromJsonl(content);
+                const updatedContent = this.document;
+                console.log("updatedContent", updatedContent);
 
                 // Compare with current entries
-                if (!this.areEntriesEqual(this.document.content.entries, newEntries)) {
+                if (!this.areEntriesEqual(this.document.entries, updatedContent.entries)) {
                     // Update only if there are changes
-                    this.document.content.entries = newEntries;
+                    this.document = updatedContent;
 
                     // Notify the webview of the updated content
                     webviewPanel.webview.postMessage({
                         command: "providerTellsWebviewToUpdateData",
-                        data: this.document.content,
+                        data: updatedContent,
                     } as DictionaryReceiveMessages);
 
-                    this.onDidChangeCustomDocument.fire({
-                        document: this.document,
-                        undo: () => {
-                            // Implement undo logic if needed
-                        },
-                        redo: () => {
-                            // Implement redo logic if needed
-                        },
-                    });
+                    // this.onDidChangeCustomDocument.fire({
+                    //     document: this.document,
+                    //     undo: () => {
+                    //         // Implement undo logic if needed
+                    //     },
+                    //     redo: () => {
+                    //         // Implement redo logic if needed
+                    //     },
+                    // });
                 }
             } catch (error) {
                 vscode.window.showErrorMessage(`Failed to refresh dictionary: ${error}`);
@@ -362,5 +417,45 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
             return true;
         }
         return !isEqual(this.lastSentData, newData);
+    }
+
+    private async handleFetchPage(
+        page: number,
+        pageSize: number,
+        searchQuery?: string
+    ): Promise<FetchPageResult> {
+        const db = (global as any).db as Database;
+        if (!db) {
+            throw new Error("SQLite database not initialized");
+        }
+
+        const { words, total } = getPagedWords(db, page, pageSize, searchQuery);
+        const entries: DictionaryEntry[] = words.map((word) => {
+            const definitions = getDefinitions(db, word);
+            return {
+                id: word,
+                headWord: word,
+                definition: definitions.join("\n"),
+                hash: this.generateHash(word),
+                // ... other default fields ...
+            };
+        });
+
+        return {
+            entries,
+            total,
+            page,
+            pageSize,
+        };
+
+        // webviewPanel.webview.postMessage({
+        //     command: "providerTellsWebviewToUpdateData",
+        //     data: {
+        //         entries,
+        //         total,
+        //         page,
+        //         pageSize,
+        //     },
+        // } as DictionaryReceiveMessages);
     }
 }

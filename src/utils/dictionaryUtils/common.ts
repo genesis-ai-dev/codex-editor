@@ -1,4 +1,4 @@
-import { DictionaryEntry } from "codex-types";
+import { DictionaryEntry } from "../../../types";
 
 export function serializeDictionaryEntries(entries: DictionaryEntry[]): string {
     return entries.map((entry) => JSON.stringify(ensureCompleteEntry(entry))).join("\n") + "\n";
@@ -18,27 +18,15 @@ export function repairDictionaryContent(content: string): string {
 
 export function ensureCompleteEntry(entry: Partial<DictionaryEntry>): DictionaryEntry {
     let headWord = entry.headWord || "";
-    let headForm = entry.headForm || "";
-    if (!headWord && !headForm) {
+    if (!headWord) {
         headWord = entry.id || "N/A";
-        headForm = entry.id || "N/A";
     }
 
     return {
         id: entry.id || generateUniqueId(),
         headWord: headWord,
-        headForm: headForm,
-        variantForms: entry.variantForms || [],
         definition: entry.definition || "",
-        partOfSpeech: entry.partOfSpeech || "",
-        etymology: entry.etymology || "",
-        usage: entry.usage || "",
-        notes: entry.notes || [],
-        examples: entry.examples || [],
-        translationEquivalents: entry.translationEquivalents || [],
-        links: entry.links || [],
-        linkedEntries: entry.linkedEntries || [],
-        metadata: entry.metadata || {},
+        hash: generateHash(headWord),
     };
 }
 
@@ -46,14 +34,7 @@ export function createDictionaryEntry(word: string): DictionaryEntry {
     return {
         id: generateUniqueId(),
         headWord: word,
-        headForm: word,
-        variantForms: [],
         definition: "",
-        translationEquivalents: [],
-        links: [],
-        linkedEntries: [],
-        notes: [],
-        metadata: {},
         hash: generateHash(word),
     };
 }

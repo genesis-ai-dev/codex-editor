@@ -1,6 +1,6 @@
 import * as fs from "fs"; // Need to use fs because the server uses this too
 import * as vscode from "vscode";
-import { Dictionary, DictionaryEntry } from "codex-types";
+import { Dictionary, DictionaryEntry } from "../../types";
 import { cleanWord } from "./cleaningUtils";
 
 // Server version (using fs)
@@ -83,20 +83,9 @@ export function repairDictionaryContent(content: string): string {
 export function ensureCompleteEntry(entry: Partial<DictionaryEntry>): DictionaryEntry {
     return {
         id: entry.id || generateUniqueId(),
-        headWord: entry.headWord || entry.headForm || "N/A",
-        headForm: entry.headForm || entry.headWord || "N/A",
-        variantForms: entry.variantForms || [],
+        headWord: entry.headWord || "N/A",
         definition: entry.definition || "",
-        partOfSpeech: entry.partOfSpeech || "",
-        etymology: entry.etymology || "",
-        usage: entry.usage || "",
-        notes: entry.notes || [],
-        examples: entry.examples || [],
-        translationEquivalents: entry.translationEquivalents || [],
-        links: entry.links || [],
-        linkedEntries: entry.linkedEntries || [],
-        metadata: entry.metadata || {},
-        hash: entry.hash || generateHash(entry.headWord || entry.headForm || ""),
+        hash: entry.hash || generateHash(entry.headWord || ""),
     };
 }
 
@@ -104,14 +93,7 @@ function createDictionaryEntry(word: string): DictionaryEntry {
     return {
         id: generateUniqueId(),
         headWord: word,
-        headForm: word,
-        variantForms: [],
         definition: "",
-        translationEquivalents: [],
-        links: [],
-        linkedEntries: [],
-        notes: [],
-        metadata: {},
         hash: generateHash(word),
     };
 }
