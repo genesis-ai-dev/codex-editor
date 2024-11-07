@@ -90,12 +90,12 @@ export async function performReflection( text_to_refine: string, text_context: s
       [
         {
           role: "system",
-          content:
-            "You are an AI tasked with summarizing suggested improvements according to a Christian perspective. List each suggested improvement as a concise bullet point. Maintain a clear and distinct list format without losing any specifics from each suggested improvement."
+          content:  //The comment about the original person is not available is to keep the reflection from fabricating a "personal" naritive to support a discussion.
+            "You are an AI tasked with summarizing suggested improvements according to a Christian perspective. List each suggested improvement as a concise bullet point. Maintain a clear and distinct list format without losing any specifics from each suggested improvement.  Drop any requests for personal testimony or stories, the original person is no longer available."
         },
         {
           role: "user",
-          content: `Context: ${text_context}\nReferenced answer: ${text}\nSuggestions to summarize: ${summarizedContent}\nSummary:`,
+          content: `Comments containing improvements: ${summarizedContent}\nSummary:`,
         },
       ],
       config
@@ -111,7 +111,7 @@ export async function performReflection( text_to_refine: string, text_context: s
           [
             {
               role: "system",
-              content: `You are an AI tasked with implementing the requested changes to a text from a Christian perspective.  Only lengthen or change the text as needed for implementing the listed improvements if any. The improvements requested are: "${result}".`,
+              content: `You are an AI tasked with implementing the requested changes to a text from a Christian perspective.  Don't lengthen or change the text except as needed for implementing the listed improvements if any. Do not comply with adding first-person naratives even if requested. The improvements requested are: "${result}".`,
             },
             {
               role: "user",
@@ -128,6 +128,28 @@ export async function performReflection( text_to_refine: string, text_context: s
     }
   }
 
+  async function distillText(textToDistill: string): Promise<string> {
+    return await callLLM(
+      [
+        {
+          role: "system",
+          content: `You are an AI tasked with distilling text from a Christian perspective.`,
+        },
+        {
+          role: "user",
+          content: `Text to distill: ${textToDistill}\nDistilled text: `,
+        },
+      ],
+      config
+    ).then((distilledText) => {
+      // Some basic post-processing to remove any trailing whitespace
+      return distilledText.trim();
+    }).catch((error) => {
+      console.error("Error implementing improvements:", error);
+      throw new Error("Failed to implement improvements");
+    });
+  }
+
   let text : string = text_to_refine;
 
   for (let i = 0; i < number_of_loops; i++) {
@@ -141,6 +163,9 @@ export async function performReflection( text_to_refine: string, text_context: s
         await generateSummary(improvements);
     text = await implementImprovements(text, summarized_improvements);
   }
+
+  //now distill the text back down.
+  text = await distillText(text);
 
   return text;
 }
