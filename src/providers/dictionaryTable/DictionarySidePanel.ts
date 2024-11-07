@@ -2,8 +2,7 @@ import * as vscode from "vscode";
 import { getUri } from "./utilities/getUri";
 import { getNonce } from "./utilities/getNonce";
 import { FileHandler } from "./utilities/FileHandler";
-import { Dictionary, DictionaryEntry } from "codex-types";
-import { DictionarySummaryPostMessages } from "../../../types";
+import { DictionarySummaryPostMessages, Dictionary, DictionaryEntry } from "../../../types";
 
 // Dictionary path constant
 const dictionaryPath = vscode.Uri.joinPath(

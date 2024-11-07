@@ -7,7 +7,7 @@ import { SuggestionBoxes } from "./SuggestionBoxes";
 import { MatchesEntity, SpellCheckerApi } from "./types";
 
 const DEBUG_MODE = false;
-const debug = (...args: any[]) => DEBUG_MODE && console.log(...args);
+const debug = (...args: any[]) => DEBUG_MODE && console.log("spell-checker-debug", ...args);
 
 export type QuillSpellCheckerParams = {
     disableNativeSpellcheck: boolean;
@@ -121,7 +121,6 @@ export class QuillSpellChecker {
 
             // Trigger a text-change event to update the editor state
             this.quill.updateContents([{ retain: this.quill.getLength() }], "api");
-
         }
     }
 

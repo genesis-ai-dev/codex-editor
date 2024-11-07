@@ -13,19 +13,30 @@ export default async function registerClientOnRequests(client: LanguageClient, d
     await client.start(); // Make sure client is started first
 
     // Register the handlers
-    client.onRequest(CustomRequests.CheckWord, async (word: string) => {
-        try {
-            if (!db) return { exists: false };
-            const stmt = db.prepare("SELECT word FROM entries WHERE word = ?");
-            stmt.bind([word]);
-            const exists = stmt.step();
-            stmt.free();
-            return { exists };
-        } catch (error) {
-            console.error("Error in checkWord:", error);
-            return { exists: false };
+    client.onRequest(
+        CustomRequests.CheckWord,
+        async ({ word, caseSensitive = false }: { word: string; caseSensitive: boolean }) => {
+            try {
+                if (!db) return { exists: false };
+
+                let query;
+                if (caseSensitive) {
+                    query = "SELECT word FROM entries WHERE word = ?";
+                } else {
+                    query = "SELECT word FROM entries WHERE word = ? COLLATE NOCASE";
+                }
+
+                const stmt = db.prepare(query);
+                stmt.bind([word]);
+                const exists = stmt.step();
+                stmt.free();
+                return { exists };
+            } catch (error) {
+                console.error("Error in checkWord:", error);
+                return { exists: false };
+            }
         }
-    });
+    );
 
     client.onRequest(
         "workspace/executeCommand",
@@ -45,22 +56,42 @@ export default async function registerClientOnRequests(client: LanguageClient, d
         try {
             if (!db) return [];
 
-            // Use SQL's LIKE operator with wildcards to find similar words
-            // This query finds words that:
-            // 1. Start with the same letter
-            // 2. Have similar length (within 2 characters)
-            // 3. Share some common characters
+            // First, create the Levenshtein function if it doesn't exist
+            db.create_function("levenshtein", (a: string, b: string) => {
+                if (a.length === 0) return b.length;
+                if (b.length === 0) return a.length;
+
+                const matrix = Array(b.length + 1)
+                    .fill(null)
+                    .map(() => Array(a.length + 1).fill(null));
+
+                for (let i = 0; i <= a.length; i++) matrix[0][i] = i;
+                for (let j = 0; j <= b.length; j++) matrix[j][0] = j;
+
+                for (let j = 1; j <= b.length; j++) {
+                    for (let i = 1; i <= a.length; i++) {
+                        const substitutionCost = a[i - 1] === b[j - 1] ? 0 : 1;
+                        matrix[j][i] = Math.min(
+                            matrix[j][i - 1] + 1,
+                            matrix[j - 1][i] + 1,
+                            matrix[j - 1][i - 1] + substitutionCost
+                        );
+                    }
+                }
+                return matrix[b.length][a.length];
+            });
+
+            // Use Levenshtein distance to find similar words
             const stmt = db.prepare(`
-                SELECT word 
+               SELECT word 
                 FROM entries 
-                WHERE word LIKE ? || '%'
-                AND ABS(LENGTH(word) - LENGTH(?)) <= 2
-                AND word LIKE '%' || ? || '%'
+                WHERE word LIKE '%' || ? || '%' COLLATE NOCASE
+                ORDER BY levenshtein(LOWER(word), LOWER(?)) 
                 LIMIT 10
             `);
 
             const words: string[] = [];
-            stmt.bind([word[0], word, word.substring(1, word.length - 1)]);
+            stmt.bind([word[0], word]);
 
             while (stmt.step()) {
                 words.push(stmt.getAsObject()["word"] as string);
