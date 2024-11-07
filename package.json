@@ -1041,6 +1041,12 @@
                         "default": false,
                         "description": "Enable or disable doctrine grading."
                     },
+                    "translators-copilot.enableChatReflection": {
+                        "title": "Enable Chat Reflection",
+                        "type": "boolean",
+                        "default": false,
+                        "description": "After giving an initial response in the chat, the Copilot will reflect on the response and replace it with a new one after a bit."
+                    },
                     "translators-copilot.textDirection": {
                         "type": "string",
                         "enum": [

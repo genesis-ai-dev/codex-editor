@@ -527,6 +527,8 @@ function App() {
                 case "updateSetting": {
                     if (message.setting === "enableDoctrineGrading") {
                         setEnableGrading(message.value.toLowerCase().startsWith("t"));
+                    }else if(message.setting === "enableChatReflection"){
+                        setEnableReflection(message.value.toLowerCase().startsWith("t"));
                     }
                     break;
                 }
@@ -557,7 +559,7 @@ function App() {
     useEffect(() => {
         vscode.postMessage({
             command: "subscribeSettings",
-            settingsToSubscribe: ["enableDoctrineGrading"],
+            settingsToSubscribe: ["enableDoctrineGrading","enableChatReflection"],
         } as ChatPostMessages);
     }, []);
 
