@@ -91,7 +91,7 @@ export async function performReflection( text_to_refine: string, text_context: s
         {
           role: "system",
           content:
-            "You are an AI tasked with summarizing suggested improvements according to a Christian perspective to an answer."
+            "You are an AI tasked with summarizing suggested improvements according to a Christian perspective. List each suggested improvement as a concise bullet point. Maintain a clear and distinct list format without losing any specifics from each suggested improvement."
         },
         {
           role: "user",
@@ -103,15 +103,15 @@ export async function performReflection( text_to_refine: string, text_context: s
     return summary.trim();
   }
 
-  async function implementImprovements(text: string, improvements: Promise<string>): Promise<string> {
+  async function implementImprovements(text: string, improvements: Promise<string> | string): Promise<string> {
     try {
-      const improvedText = improvements.then((result) => {
+      const improvedText = Promise.resolve(improvements).then((result) => {
         // Apply the improvement logic here. For simplicity, let's assume we append the improvements.
         return callLLM(
           [
             {
               role: "system",
-              content: `You are an AI tasked with implementing improvements to a text. The improvements requested for it are: "${result}".`,
+              content: `You are an AI tasked with implementing the requested changes to a text from a Christian perspective.  Only lengthen or change the text as needed for implementing the listed improvements if any. The improvements requested are: "${result}".`,
             },
             {
               role: "user",
@@ -133,12 +133,12 @@ export async function performReflection( text_to_refine: string, text_context: s
   for (let i = 0; i < number_of_loops; i++) {
     const improvements: Promise<string>[] = [];
     for (let j = 0; j < num_improvers; j++) {
-      improvements.push(generateImprovement(text));
+      improvements.push(Promise.resolve(await generateImprovement(text)));
     }
 
     const summarized_improvements = num_improvers == 1 ? 
-        improvements[0] : 
-        generateSummary(improvements);
+        Promise.resolve(improvements[0]) : 
+        await generateSummary(improvements);
     text = await implementImprovements(text, summarized_improvements);
   }
 
