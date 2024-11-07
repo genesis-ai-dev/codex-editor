@@ -155,17 +155,25 @@ export async function performReflection( text_to_refine: string, text_context: s
   for (let i = 0; i < number_of_loops; i++) {
     const improvements: Promise<string>[] = [];
     for (let j = 0; j < num_improvers; j++) {
-      improvements.push(Promise.resolve(await generateImprovement(text)));
+      //improvements.push(Promise.resolve(await generateImprovement(text)));
+      improvements.push(generateImprovement(text));
     }
 
     const summarized_improvements = num_improvers == 1 ? 
         Promise.resolve(improvements[0]) : 
         await generateSummary(improvements);
+
+    console.log("Reflection Iteration " + (i+1) + ": summarized_improvements", summarized_improvements);
+
     text = await implementImprovements(text, summarized_improvements);
+
+    console.log("Reflection Iteration " + (i+1) + ": improved_text", text);
   }
 
   //now distill the text back down.
   text = await distillText(text);
+
+  console.log( "Reflection Distilled text", text);
 
   return text;
 }
