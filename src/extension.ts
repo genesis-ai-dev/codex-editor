@@ -21,9 +21,6 @@ import {
 import { createIndexWithContext } from "./activationHelpers/contextAware/miniIndex/indexes";
 import { registerSourceUploadCommands } from "./providers/SourceUpload/registerCommands";
 import { migrateSourceFiles } from "./utils/codexNotebookUtils";
-import { VideoEditorProvider } from "./providers/VideoEditor/VideoEditorProvider";
-import { registerVideoPlayerCommands } from "./providers/VideoPlayer/registerCommands";
-import { SourceUploadProvider } from "./providers/SourceUpload/SourceUploadProvider";
 import { StatusBarItem } from "vscode";
 import { Database } from "sql.js";
 import { importWiktionaryJSONL, initializeSqlJs, registerLookupWordCommand } from "./sqldb";
@@ -121,7 +118,6 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     // Register these commands regardless of metadata existence
-    registerVideoPlayerCommands(context);
     registerSmartEditCommands(context); // For the language server onRequest stuff
     await registerSourceUploadCommands(context);
     registerProviders(context);
