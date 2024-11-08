@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { Dictionary } from "codex-types";
+import { Dictionary } from "../../../types";
 import { serializeDictionaryEntries, deserializeDictionaryEntries } from "./common";
 
 export async function readDictionaryClient(uri: vscode.Uri): Promise<Dictionary> {

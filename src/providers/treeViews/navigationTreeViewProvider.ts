@@ -9,7 +9,7 @@ import * as path from "path";
 
 export interface CodexNode {
     resource: vscode.Uri;
-    type: "corpus" | "document" | "section" | "cell";
+    type: "corpus" | "document" | "section" | "cell" | "dictionary";
     label: string;
     cellId?: string;
     sourceFileUri?: vscode.Uri;
@@ -94,9 +94,37 @@ export class CodexModel {
         try {
             this.isRefreshing = true;
             await this.ensureMetadataLoaded();
-            return this.processMetadataIntoCorpora();
+
+            const dictionaryFiles = await this.findDictionaryFiles();
+
+            const regularCorpora = this.processMetadataIntoCorpora();
+            return [...regularCorpora, ...dictionaryFiles];
         } finally {
             this.isRefreshing = false;
+        }
+    }
+
+    private async findDictionaryFiles(): Promise<CodexNode[]> {
+        if (!this.workspaceRoot) {
+            return [];
+        }
+
+        try {
+            const pattern = new vscode.RelativePattern(
+                this.workspaceRoot,
+                "**/files/**/*.dictionary"
+            );
+
+            const dictionaryFiles = await vscode.workspace.findFiles(pattern);
+
+            return dictionaryFiles.map((uri) => ({
+                resource: uri,
+                type: "dictionary",
+                label: path.basename(uri.fsPath, ".dictionary" + "dictionary"),
+            }));
+        } catch (error) {
+            console.error("Error finding dictionary files:", error);
+            return [];
         }
     }
 
@@ -350,9 +378,9 @@ export class CodexNotebookTreeViewProvider
         console.log("TreeView: Getting tree item for:", element.label);
         const treeItem = new vscode.TreeItem(
             element.label,
-            element.type !== "cell"
-                ? vscode.TreeItemCollapsibleState.Collapsed
-                : vscode.TreeItemCollapsibleState.None
+            element.type === "cell" || element.type === "dictionary"
+                ? vscode.TreeItemCollapsibleState.None
+                : vscode.TreeItemCollapsibleState.Collapsed
         );
 
         if (element.type === "document" || element.type === "section") {
@@ -383,6 +411,13 @@ export class CodexNotebookTreeViewProvider
                     treeItem.resourceUri = element.sourceFileUri;
                 }
             }
+        } else if (element.type === "dictionary") {
+            treeItem.iconPath = new vscode.ThemeIcon("book");
+            treeItem.command = {
+                command: "vscode.open",
+                title: "Open Dictionary",
+                arguments: [element.resource],
+            };
         }
 
         return treeItem;

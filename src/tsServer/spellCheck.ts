@@ -36,7 +36,11 @@ interface CheckWordResponse {
     exists: boolean;
 }
 
-const CheckWordRequest = new RequestType<string, CheckWordResponse, never>("custom/checkWord");
+const CheckWordRequest = new RequestType<
+    { word: string; caseSensitive: boolean },
+    CheckWordResponse,
+    never
+>("custom/checkWord");
 const GetSuggestionsRequest = new RequestType<string, string[], never>("custom/getSuggestions");
 const AddWordsRequest = new RequestType<string[], boolean, never>("custom/addWords");
 
@@ -53,7 +57,10 @@ export class SpellChecker {
 
         try {
             // Check if word exists in dictionary
-            const response = await this.connection.sendRequest(CheckWordRequest, cleanedWord);
+            const response = await this.connection.sendRequest(CheckWordRequest, {
+                word: cleanedWord,
+                caseSensitive: false,
+            });
 
             if (response.exists) {
                 return { word: originalWord, corrections: [] };

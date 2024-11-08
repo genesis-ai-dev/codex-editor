@@ -4,7 +4,7 @@ import path from "path";
 import vscode from "vscode";
 import { parseAndImportJSONL } from "./parseAndImportJSONL";
 
-function getDefinitions(db: Database, word: string): string[] {
+export function getDefinitions(db: Database, word: string): string[] {
     const stmt = db.prepare("SELECT definition FROM entries WHERE word = ?");
     stmt.bind([word]);
 
@@ -209,3 +209,74 @@ export async function importWiktionaryJSONL(db: Database) {
         vscode.window.showErrorMessage(`An error occurred: ${(error as Error).message}`);
     }
 }
+
+export const updateWord = (db: Database, word: string, definition: string) => {
+    const stmt = db.prepare(`
+        INSERT OR REPLACE INTO entries (word, definition)
+        VALUES (?, ?)
+    `);
+    try {
+        stmt.bind([word, definition]);
+        stmt.step();
+    } finally {
+        stmt.free();
+    }
+};
+
+export const deleteWord = (db: Database, word: string) => {
+    const stmt = db.prepare("DELETE FROM entries WHERE word = ?");
+    try {
+        stmt.bind([word]);
+        stmt.step();
+    } finally {
+        stmt.free();
+    }
+};
+
+export const getPagedWords = (
+    db: Database,
+    page: number,
+    pageSize: number,
+    searchQuery?: string
+): { words: string[]; total: number } => {
+    let total = 0;
+    const words: string[] = [];
+
+    // Get total count
+    const countStmt = searchQuery
+        ? db.prepare("SELECT COUNT(*) as count FROM entries WHERE word LIKE ?")
+        : db.prepare("SELECT COUNT(*) as count FROM entries");
+
+    try {
+        if (searchQuery) {
+            countStmt.bind([`%${searchQuery}%`]);
+        }
+        countStmt.step();
+        total = countStmt.getAsObject().count as number;
+    } finally {
+        countStmt.free();
+    }
+
+    // Get page of words
+    const offset = (page - 1) * pageSize;
+    const stmt = searchQuery
+        ? db.prepare("SELECT word FROM entries WHERE word LIKE ? ORDER BY word LIMIT ? OFFSET ?")
+        : db.prepare("SELECT word FROM entries ORDER BY word LIMIT ? OFFSET ?");
+
+    try {
+        if (searchQuery) {
+            stmt.bind([`%${searchQuery}%`, pageSize, offset]);
+        } else {
+            stmt.bind([pageSize, offset]);
+        }
+
+        while (stmt.step()) {
+            const row = stmt.getAsObject();
+            words.push(row.word as string);
+        }
+    } finally {
+        stmt.free();
+    }
+
+    return { words, total };
+};

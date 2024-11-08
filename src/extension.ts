@@ -28,21 +28,25 @@ import { StatusBarItem } from "vscode";
 import { Database } from "sql.js";
 import { importWiktionaryJSONL, initializeSqlJs, registerLookupWordCommand } from "./sqldb";
 
+declare global {
+    // eslint-disable-next-line
+    var db: Database | undefined;
+}
+
 let client: LanguageClient | undefined;
 let clientCommandsDisposable: vscode.Disposable;
 let autoCompleteStatusBarItem: StatusBarItem;
-let db: Database | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
-    db = await initializeSqlJs(context);
-    console.log("initializeSqlJs db", db);
-    if (db) {
+    global.db = await initializeSqlJs(context);
+    console.log("initializeSqlJs db", global.db);
+    if (global.db) {
         const importCommand = vscode.commands.registerCommand(
             "extension.importWiktionaryJSONL",
-            () => db && importWiktionaryJSONL(db)
+            () => global.db && importWiktionaryJSONL(global.db)
         );
         context.subscriptions.push(importCommand);
-        registerLookupWordCommand(db, context);
+        registerLookupWordCommand(global.db, context);
     }
 
     vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
@@ -52,6 +56,24 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.workspace.onDidGrantWorkspaceTrust(async () => {
             console.log("Workspace trust granted, reactivating extension");
             await vscode.commands.executeCommand("workbench.action.reloadWindow");
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-editor-extension.openDictionaryFile", async () => {
+            const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+            if (!workspaceUri) {
+                vscode.window.showErrorMessage(
+                    "No workspace found. Please open a workspace first."
+                );
+                return;
+            }
+            const dictionaryUri = vscode.Uri.joinPath(workspaceUri, "files", "project.dictionary");
+            try {
+                await vscode.commands.executeCommand("vscode.open", dictionaryUri);
+            } catch (error) {
+                vscode.window.showErrorMessage(`Failed to open dictionary: ${error}`);
+            }
         })
     );
 
@@ -144,9 +166,9 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
         await initializeBibleData(context);
 
         client = await registerLanguageServer(context);
-        if (client && db) {
+        if (client && global.db) {
             try {
-                await registerClientOnRequests(client, db);
+                await registerClientOnRequests(client, global.db);
                 // Start the client after registering handlers
                 await client.start();
             } catch (error) {
@@ -214,8 +236,8 @@ export function deactivate() {
     if (client) {
         return client.stop();
     }
-    if (db) {
-        db.close();
+    if (global.db) {
+        global.db.close();
     }
 }
 

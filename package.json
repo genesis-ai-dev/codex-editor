@@ -35,10 +35,6 @@
             {
                 "view": "codexNotebookTreeView",
                 "contents": "Welcome to the Codex Translation Editor! When you bookmark cells in your Codex notebook, you will see navigation shortcuts here."
-            },
-            {
-                "view": "dictionary-summary-panel",
-                "contents": "\n[Open Dictionary Table](command:dictionaryTable.showDictionaryTable)"
             }
         ],
         "notebookEditorDecorations": [
@@ -70,22 +66,6 @@
                     "visibility": "visible",
                     "initialSize": 1,
                     "icon": "$(compass)"
-                }
-            ],
-            "dictionary-summary": [
-                {
-                    "type": "webview",
-                    "id": "dictionary-summary-panel",
-                    "name": "Dictionary Summary",
-                    "icon": "$(notebook)",
-                    "contextualTitle": "Dictionary Summary"
-                },
-                {
-                    "type": "webview",
-                    "id": "semantic-sidebar",
-                    "name": "Thesaurus",
-                    "icon": "$(unfold)",
-                    "contextualTitle": "Semantic View"
                 }
             ],
             "genesis-translator-sidebar-view": [
@@ -144,11 +124,6 @@
                     "id": "semantic-view",
                     "title": "Semantic View",
                     "icon": "$(unfold)"
-                },
-                {
-                    "id": "dictionary-summary",
-                    "title": "Dictionary Summary",
-                    "icon": "$(notebook)"
                 },
                 {
                     "id": "genesis-translator-sidebar-view",
@@ -957,7 +932,8 @@
                         "title": "Rules for AI (System Message)",
                         "type": "string",
                         "default": "This is a chat between a helpful Bible translation assistant and a Bible translator. The assistant will provide helpful answers and suggestions to the translator, often relying on the translator's current project and reference resources. The translator will ask questions and provide context to the assistant. The translator's aim is to be consistent and faithful in a fairly literalistic rendering of the source text.",
-                        "description": "The system message controlling the behavior of the chat system and inline completion. You can customize this message to fit your needs, or ask the copilot to translate it for you into your preferred interface language."
+                        "description": "The system message controlling the behavior of the chat system and inline completion. You can customize this message to fit your needs, or ask the copilot to translate it for you into your preferred interface language.",
+                        "editPresentation": "multilineText"
                     },
                     "translators-copilot.sourceTextSelectionMode": {
                         "type": "string",
@@ -1039,6 +1015,18 @@
                         "type": "boolean",
                         "default": false,
                         "description": "Enable or disable doctrine grading."
+                    },
+                    "translators-copilot.enableChatReflection": {
+                        "title": "Enable Chat Reflection",
+                        "type": "boolean",
+                        "default": false,
+                        "description": "After giving an initial response in the chat, the Copilot will reflect on the response and replace it with a new one after a bit."
+                    },
+                    "translators-copilot.chatReflectionConcern": {
+                        "title": "Chat Reflection Concern",
+                        "type": "string",
+                        "default": "",
+                        "description": "This is an optional field to specify what the reflection should focus on in the chat response.  Use this to set a specific topic to focus on or perspective to keep in mind."
                     },
                     "translators-copilot.textDirection": {
                         "type": "string",
@@ -1182,6 +1170,7 @@
         "copy-webpack-plugin": "^12.0.2",
         "date-fns": "^2.30.0",
         "diff": "^7.0.0",
+        "events": "^3.3.0",
         "fitty": "^2.4.2",
         "hog-features": "^1.0.0",
         "i": "^0.3.7",

@@ -1,5 +1,4 @@
-import { PreviewContent } from "./index.d";
-import { Dictionary, LanguageMetadata, Project } from "codex-types";
+import { LanguageMetadata, Project } from "codex-types";
 import * as vscode from "vscode";
 import { ScriptureTSV } from "./TsvTypes";
 import { CodexCell } from "src/utils/codexNotebookUtils";
@@ -9,9 +8,17 @@ interface ChatMessage {
     content: string;
 }
 
+type Dictionary = {
+    id: string;
+    label: string;
+    entries: DictionaryEntry[];
+    metadata: DictionaryMetadata;
+};
+
 interface ChatMessageWithContext extends ChatMessage {
     context?: any; // FixMe: discuss what context could be. Cound it be a link to a note?
     createdAt: string;
+    preReflection?: string; //If reflection has happened for a chat message, preReflection will be set to the original message.
     grade?: number;
     gradeComment?: string;
 }
@@ -152,6 +159,8 @@ type ChatPostMessages =
       }
     | { command: "requestGradeResponse"; messages: string; lastMessageCreatedAt: string }
     | { command: "respondWithGrade"; content: string; lastMessageCreatedAt: string }
+    | { command: "performReflection"; messageToReflect: string; context: string; lastMessageCreatedAt: string }
+    | { command: "reflectionResponse"; reflectedMessage: string; lastMessageCreatedAt: string }
     | { command: "deleteThread"; threadId: string }
     | { command: "fetchThread" }
     | { command: "abort-fetch" }
@@ -248,10 +257,25 @@ export type SourceUploadResponseMessages =
           transaction: DownloadBibleTransaction;
       }
     | { command: "bibleDownloadCancelled" };
-
+    
 type DictionaryPostMessages =
-    | { command: "sendData"; data: Dictionary }
-    | { command: "webviewTellsProviderToUpdateData"; data: Dictionary }
+    | {
+          command: "webviewTellsProviderToUpdateData";
+          operation: "update" | "delete" | "add";
+          entry: {
+              headWord: string;
+              definition: string;
+          };
+      }
+    | {
+          command: "webviewTellsProviderToUpdateData";
+          operation: "fetchPage";
+          pagination: {
+              page: number;
+              pageSize: number;
+              searchQuery?: string;
+          };
+      }
     | { command: "webviewAsksProviderToConfirmRemove"; count: number; data: Dictionary }
     | { command: "updateEntryCount"; count: number }
     | { command: "updateFrequentWords"; words: string[] }
@@ -263,7 +287,15 @@ type DictionaryPostMessages =
 
 type DictionaryReceiveMessages =
     | { command: "providerTellsWebviewRemoveConfirmed" }
-    | { command: "providerTellsWebviewToUpdateData"; data: Dictionary };
+    | {
+          command: "providerTellsWebviewToUpdateData";
+          data: {
+              entries: DictionaryEntry[];
+              total: number;
+              page: number;
+              pageSize: number;
+          };
+      };
 
 type DictionarySummaryPostMessages =
     | { command: "providerSendsDataToWebview"; data: Dictionary }
@@ -294,6 +326,7 @@ type OBSRef = {
 type DictionaryEntry = {
     id: string;
     headWord: string;
+    definition: string;
     hash: string;
 };
 
@@ -402,7 +435,8 @@ export type EditorPostMessages =
               cellId: string;
               editHistory: EditHistoryEntry[];
           };
-      };
+      }
+    | { command: "exportVttFile"; content: { subtitleData: string } };
 
 type EditorReceiveMessages =
     | {

@@ -3,8 +3,12 @@ import { Table, Input, Button, Popconfirm, Tooltip, ConfigProvider, theme } from
 import type { ColumnsType } from "antd/es/table";
 import { vscode } from "./utilities/vscode";
 // import "./style.css";
-import { Dictionary, DictionaryEntry } from "codex-types";
-import { DictionaryPostMessages, DictionaryReceiveMessages } from "../../../../types";
+import {
+    DictionaryPostMessages,
+    DictionaryReceiveMessages,
+    DictionaryEntry,
+    Dictionary,
+} from "../../../../types";
 import debounce from "lodash.debounce";
 import { isEqual } from "lodash";
 
@@ -51,6 +55,11 @@ const App: React.FC = () => {
     });
     const [searchQuery, setSearchQuery] = useState("");
     const [vsCodeTheme, setVsCodeTheme] = useState({});
+    const [pagination, setPagination] = useState({
+        current: 1,
+        pageSize: 50,
+        total: 0,
+    });
 
     const dataSourceRef = useRef(dataSource);
     const dictionaryRef = useRef(dictionary);
@@ -104,42 +113,45 @@ const App: React.FC = () => {
         setVsCodeTheme(themeColors);
     }, []);
 
-    const debouncedUpdateDictionary = useRef(
-        debounce(() => {
-            const updatedDictionary: Dictionary = {
-                ...dictionaryRef.current,
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                entries: dataSourceRef.current.map(({ key, ...rest }) => rest as DictionaryEntry),
-            };
-
-            if (!isEqual(updatedDictionary, lastSentDataRef.current)) {
-                setDictionary(updatedDictionary);
-                vscode.postMessage({
-                    command: "webviewTellsProviderToUpdateData",
-                    data: updatedDictionary,
-                } as DictionaryPostMessages);
-                lastSentDataRef.current = updatedDictionary;
-            }
-        }, 500)
-    ).current;
-
-    useEffect(() => {
-        debouncedUpdateDictionary();
-    }, [dataSource, debouncedUpdateDictionary]);
-
-    const handleCellChange = useCallback((key: React.Key, dataIndex: string, value: any) => {
-        setDataSource((prevDataSource) =>
-            prevDataSource.map((item) => {
-                if (item.key === key) {
-                    return { ...item, [dataIndex]: value };
-                }
-                return item;
-            })
-        );
-    }, []);
+    const handleCellChange = useCallback(
+        (key: React.Key, dataIndex: string, value: any) => {
+            setDataSource((prevDataSource) =>
+                prevDataSource.map((item) => {
+                    if (item.key === key) {
+                        const updatedItem = { ...item, [dataIndex]: value };
+                        // Send only the changed entry
+                        vscode.postMessage({
+                            command: "webviewTellsProviderToUpdateData",
+                            operation: "update",
+                            entry: {
+                                headWord: updatedItem.headWord,
+                                definition: updatedItem.definition,
+                            },
+                        } as DictionaryPostMessages);
+                        return updatedItem;
+                    }
+                    return item;
+                })
+            );
+        },
+        [] // Remove dependencies as we're not using them anymore
+    );
 
     const handleDelete = useCallback((key: React.Key) => {
-        setDataSource((prevDataSource) => prevDataSource.filter((item) => item.key !== key));
+        setDataSource((prevDataSource) => {
+            const itemToDelete = prevDataSource.find((item) => item.key === key);
+            if (itemToDelete) {
+                vscode.postMessage({
+                    command: "webviewTellsProviderToUpdateData",
+                    operation: "delete",
+                    entry: {
+                        headWord: itemToDelete.headWord,
+                        definition: itemToDelete.definition,
+                    },
+                } as DictionaryPostMessages);
+            }
+            return prevDataSource.filter((item) => item.key !== key);
+        });
     }, []);
 
     const handleAdd = useCallback(() => {
@@ -147,13 +159,24 @@ const App: React.FC = () => {
             const newKey = prevDataSource.length
                 ? Math.max(...prevDataSource.map((item) => Number(item.key))) + 1
                 : 0;
-            const newEntry: DataType = { key: newKey };
-            columnNames.forEach((key) => {
-                newEntry[key] = "";
-            });
+            const newEntry: DataType = {
+                key: newKey,
+                headWord: "",
+                definition: "",
+            };
+
+            vscode.postMessage({
+                command: "webviewTellsProviderToUpdateData",
+                operation: "add",
+                entry: {
+                    headWord: newEntry.headWord,
+                    definition: newEntry.definition,
+                },
+            } as DictionaryPostMessages);
+
             return [...prevDataSource, newEntry];
         });
-    }, [columnNames]);
+    }, []);
 
     const getColumnIcon = useCallback((columnName: string): JSX.Element => {
         const iconMap: { [key: string]: string } = {
@@ -223,54 +246,72 @@ const App: React.FC = () => {
         return [...dataColumns, actionColumn];
     }, [columnNames, handleCellChange, handleDelete, getColumnIcon]);
 
+    // Function to fetch page data
+    const fetchPageData = useCallback((page: number, pageSize: number, search?: string) => {
+        vscode.postMessage({
+            command: "webviewTellsProviderToUpdateData",
+            operation: "fetchPage",
+            pagination: {
+                page,
+                pageSize,
+                searchQuery: search,
+            },
+        } as DictionaryPostMessages);
+    }, []);
+
+    // Handle table pagination change
+    const handleTableChange = (newPagination: any) => {
+        setPagination((prev) => ({
+            ...prev,
+            current: newPagination.current,
+            pageSize: newPagination.pageSize,
+        }));
+        fetchPageData(newPagination.current, newPagination.pageSize, searchQuery);
+    };
+
+    // Update the search handler to reset pagination
+    const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const newQuery = event.target.value;
+        setSearchQuery(newQuery);
+        setPagination((prev) => ({ ...prev, current: 1 }));
+        fetchPageData(1, pagination.pageSize, newQuery);
+    };
+
+    // Update the message handler
     useEffect(() => {
         const handleReceiveMessage = (event: MessageEvent<DictionaryReceiveMessages>) => {
             const message = event.data;
             if (message.command === "providerTellsWebviewToUpdateData") {
-                let newDictionary: Dictionary = message.data;
+                const { entries, total, page, pageSize } = message.data;
 
-                if (!newDictionary.entries) {
-                    newDictionary = {
-                        ...newDictionary,
-                        entries: [],
-                    };
-                }
-
-                setDictionary(newDictionary);
-
-                const newDataSource = newDictionary.entries.map((entry, index) => ({
-                    key: index,
+                const newDataSource = entries.map((entry, index) => ({
+                    key: (page - 1) * pageSize + index,
                     ...entry,
                 }));
-                setDataSource(newDataSource);
 
-                // Extract column names from the first entry
-                if (newDataSource.length > 0) {
-                    const newColumnNames = Object.keys(newDataSource[0]).filter(
-                        (key) => key !== "key"
-                    );
+                setDataSource(newDataSource);
+                setPagination((prev) => ({
+                    ...prev,
+                    total,
+                    current: page,
+                    pageSize,
+                }));
+
+                if (entries.length > 0) {
+                    const newColumnNames = Object.keys(entries[0]).filter((key) => key !== "key");
                     setColumnNames(newColumnNames);
                 }
             }
         };
 
         window.addEventListener("message", handleReceiveMessage);
+        // Initial data fetch
+        fetchPageData(pagination.current, pagination.pageSize);
 
         return () => {
             window.removeEventListener("message", handleReceiveMessage);
         };
     }, []);
-
-    const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        setSearchQuery(event.target.value);
-    };
-
-    const filteredData = dataSource.filter((row: DataType) => {
-        return Object.values(row).some(
-            (value) =>
-                typeof value === "string" && value.toLowerCase().includes(searchQuery.toLowerCase())
-        );
-    });
 
     return (
         <ConfigProvider
@@ -324,11 +365,16 @@ const App: React.FC = () => {
                 </Button>
 
                 <Table
-                    dataSource={filteredData}
+                    dataSource={dataSource}
                     columns={columns}
                     bordered
-                    pagination={false}
-                    rowKey="key"
+                    pagination={{
+                        ...pagination,
+                        showSizeChanger: true,
+                        showQuickJumper: true,
+                        showTotal: (total) => `Total ${total} items`,
+                    }}
+                    onChange={handleTableChange}
                     scroll={{ x: "max-content", y: "calc(100vh - 200px)" }}
                     style={{ flexGrow: 1, overflow: "auto" }}
                 />

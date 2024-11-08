@@ -11,10 +11,10 @@ export const useSubtitleData = (translationUnits: QuillCellContent[]) => {
     );
     const subtitleUrl = useMemo(() => URL.createObjectURL(subtitleBlob), [subtitleBlob]);
 
-    return { subtitleUrl };
+    return { subtitleUrl, subtitleData };
 };
 
-const generateVttData = (translationUnits: QuillCellContent[]): string => {
+export const generateVttData = (translationUnits: QuillCellContent[]): string => {
     if (!translationUnits.length) return "";
 
     const formatTime = (seconds: number): string => {

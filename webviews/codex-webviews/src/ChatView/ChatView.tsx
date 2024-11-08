@@ -26,11 +26,17 @@ function messageWithContext({
     contextItems?: string[];
     instructions?: string;
 }): ChatMessageWithContext {
-    let content = "## Instructions:\n";
-    if (!instructions) {
-        content += `Please use the context below to respond to the user's message. If you know the answer, be concise. If the answer is in the context, please quote the wording of the source. If the answer is not in the context, avoid making up anything, but you can use general knowledge from a devout Christian perspective.`;
-    } else {
-        content += instructions;
+    let content = "";
+
+    //Reflection needs to swap around the instructions, so passing in a space can suppress
+    //having the instructions block.
+    if( instructions != " " ){
+        content += "## Instructions:\n";
+        if (!instructions) {
+            content += `Please use the context below to respond to the user's message. If you know the answer, be concise. If the answer is in the context, please quote the wording of the source. If the answer is not in the context, avoid making up anything, but you can use general knowledge from a devout Christian perspective.`;
+        } else {
+            content += instructions;
+        }
     }
 
     if (selectedText || (contextItems && contextItems?.length > 0)) {
@@ -65,6 +71,8 @@ function messageWithContext({
 
 function App() {
     const [enableGrading, setEnableGrading] = useState<boolean>(false);
+    const [enableReflection, setEnableReflection] = useState<boolean>(true);
+    const [currentlyReflecting, setCurrentlyReflecting] = useState<boolean>(false);
     const [pendingMessage, setPendingMessage] = useState<ChatMessageWithContext>();
     const [selectedTextContext, setSelectedTextContext] = useState<string>("");
     const [currentlyActiveCellId, setCurrentlyActiveCellId] = useState<string>("");
@@ -204,6 +212,7 @@ function App() {
     }
 
     const requestGradeDebounceRef = useRef(0);
+    const requestReflectionDebounceRef = useRef(0);
     useEffect(() => {
         function requestGradeDebounced() {
             if (messageLog.length === 0) {
@@ -260,7 +269,7 @@ function App() {
 
             const latestMessage = messageLog[messageLog.length - 1];
 
-            //if the laser message isn't a copiolot response
+            //if the last message isn't a copiolot response
             //we don't need to grade.
             if (latestMessage?.role != "assistant") {
                 return false;
@@ -271,6 +280,12 @@ function App() {
                 return false;
             }
 
+            //if reflection is enabled and the preReflection key doesn't exist yet
+            //we don't need a grade because we want to wait for reflection to happen.
+            if (enableReflection && !latestMessage?.preReflection) {
+                return false;
+            }
+
             //K, we need a grade.
             return true;
         }
@@ -278,7 +293,89 @@ function App() {
         if (needsGrade()) {
             requestGrade();
         }
-    }, [messageLog, messageLog.length, contextItems, selectedTextContext]);
+
+        function requestReflectionDebounced() {
+            if (messageLog.length === 0) {
+                return;
+            }
+
+            const contextItemsFromState = contextItems;
+
+            const reflectionBlankInstruction: string = " ";
+
+            //strip out the message we are going to reflect from the context
+            //so that it can be handled separately.
+            const messages: ChatMessageWithContext[] = [
+                messageWithContext({
+                    messageHistory:formatMessageLogToString(messageLog.slice(0, messageLog.length - 1)),
+                    instructions: reflectionBlankInstruction,
+                    selectedText: selectedTextContext,
+                    contextItems: contextItemsFromState,
+                }),
+            ];
+            const context = messages[0].content;
+
+            console.log("JoshTest: requestReflectionDebounced: messages", messages);
+            console.log("JoshTest: requestReflectionDebounced: context", context);
+
+            //send with performReflection
+            vscode.postMessage({
+                command: "performReflection",
+                messageToReflect: messageLog[messageLog.length - 1].content,
+                context,
+                lastMessageCreatedAt: messageLog[messageLog.length - 1].createdAt,
+            } as ChatPostMessages);
+        }
+
+        function needsReflection(): boolean {
+            //if reflection is turned off we don't need reflection.
+            if (!enableReflection) {
+                return false;
+            }
+
+            //if the message queue isn't even set we don't need reflection.
+            if (!messageLog) {
+                return false;
+            }
+
+            //If there are no messages we don't need reflection.
+            if (messageLog.length === 0) {
+                return false;
+            }
+
+            const latestMessage = messageLog[messageLog.length - 1];
+
+            //if the last message isn't a copiolot response
+            //we don't need reflection.
+            if (latestMessage?.role != "assistant") {
+                return false;
+            }
+
+            //if the reflection has already happened we don't need it.
+            if (latestMessage?.preReflection) {
+                return false;
+            }
+
+            //K, we need reflection.
+            return true;
+        }
+
+        function requestReflection() {
+            const REFLECTION_DEBOUNCE_TIME_MS = 1000;
+            clearTimeout(requestReflectionDebounceRef.current);
+
+            requestReflectionDebounceRef.current = setTimeout(() => {
+                requestReflectionDebounced();
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            }, REFLECTION_DEBOUNCE_TIME_MS) as any;
+        }
+
+
+        if (needsReflection()) {
+            requestReflection();
+            setCurrentlyReflecting(true);
+        }
+    }, [messageLog, messageLog.length, contextItems, selectedTextContext, enableGrading, enableReflection]);
 
     // FIXME: use loading state to show/hide a progress ring while
     useEffect(() => {
@@ -369,6 +466,31 @@ function App() {
                     }
                     break;
                 }
+                case "reflectionResponse": {
+                    console.log("JoshDebug: ChatView: reflectionResponse", message);
+                    try {
+                        if (message.reflectedMessage) {
+                            let changedSomething = false;
+                            const modifiedMessageLog = messageLog.map((m) => {
+                                if (m.createdAt === message?.lastMessageCreatedAt) {
+                                    changedSomething = true;
+                                    //The reflection message gets put in as content and the preReflection is set to the original message.
+                                    //We reset any grade or gradeComment if they exist
+                                    return { ...m, content: message.reflectedMessage, preReflection: m.content, grade: undefined, gradeComment: undefined };
+                                }
+                                return m;
+                            });
+
+                            if (changedSomething) {
+                                setCurrentlyReflecting(false);
+                                setMessageLog(modifiedMessageLog);
+                            }
+                        }
+                    } catch (e) {
+                        console.log("Error receiving reflection", e);
+                    }
+                    break;
+                }
                 case "threadsFromWorkspace":
                     if (message.content) {
                         const messageThreadArray = message.content;
@@ -408,6 +530,8 @@ function App() {
                 case "updateSetting": {
                     if (message.setting === "enableDoctrineGrading") {
                         setEnableGrading(message.value.toLowerCase().startsWith("t"));
+                    }else if(message.setting === "enableChatReflection"){
+                        setEnableReflection(message.value.toLowerCase().startsWith("t"));
                     }
                     break;
                 }
@@ -438,7 +562,7 @@ function App() {
     useEffect(() => {
         vscode.postMessage({
             command: "subscribeSettings",
-            settingsToSubscribe: ["enableDoctrineGrading"],
+            settingsToSubscribe: ["enableDoctrineGrading","enableChatReflection"],
         } as ChatPostMessages);
     }, []);
 
@@ -530,9 +654,11 @@ function App() {
 
         //Now also remove the grade on the last message.
         //Removing the grade will make it so that it will get regraded.
+        //Also remove the preReflection, so that reflection can be retriggered
         if (updatedMessageLog.length > 0 && messageChanged) {
             updatedMessageLog[updatedMessageLog.length - 1].grade = undefined;
             updatedMessageLog[updatedMessageLog.length - 1].gradeComment = undefined;
+            updatedMessageLog[updatedMessageLog.length - 1].preReflection = undefined;
         }
 
         setMessageLog(updatedMessageLog);
@@ -603,7 +729,7 @@ function App() {
                     width: "100%",
                     boxSizing: "border-box",
                 }}
-            >
+            > 
                 {messageLog.map((messageLogItem, index) => (
                     <MessageItem
                         key={index}
@@ -616,6 +742,12 @@ function App() {
                     <MessageItem messageItem={pendingMessage} />
                 ) : null}
             </div>
+            {currentlyReflecting && (
+                <div style={{ padding: "1em", display: "flex", alignItems: "center" }}>
+                    <div className="quill-spck-loading-indicator-spinner" />
+                    <span style={{ marginLeft: "0.5em" }}>Reflecting...</span>
+                </div>
+            )}
             {gradeExists() ? (
                 <div style={{ padding: "1em", fontWeight: "bold" }}>
                     <div title={getGradeComment()} style={{ cursor: "help" }}>
