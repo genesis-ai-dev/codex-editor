@@ -72,6 +72,7 @@ function messageWithContext({
 function App() {
     const [enableGrading, setEnableGrading] = useState<boolean>(false);
     const [enableReflection, setEnableReflection] = useState<boolean>(true);
+    const [currentlyReflecting, setCurrentlyReflecting] = useState<boolean>(false);
     const [pendingMessage, setPendingMessage] = useState<ChatMessageWithContext>();
     const [selectedTextContext, setSelectedTextContext] = useState<string>("");
     const [currentlyActiveCellId, setCurrentlyActiveCellId] = useState<string>("");
@@ -372,6 +373,7 @@ function App() {
 
         if (needsReflection()) {
             requestReflection();
+            setCurrentlyReflecting(true);
         }
     }, [messageLog, messageLog.length, contextItems, selectedTextContext, enableGrading, enableReflection]);
 
@@ -480,6 +482,7 @@ function App() {
                             });
 
                             if (changedSomething) {
+                                setCurrentlyReflecting(false);
                                 setMessageLog(modifiedMessageLog);
                             }
                         }
@@ -726,7 +729,7 @@ function App() {
                     width: "100%",
                     boxSizing: "border-box",
                 }}
-            >
+            > 
                 {messageLog.map((messageLogItem, index) => (
                     <MessageItem
                         key={index}
@@ -739,6 +742,12 @@ function App() {
                     <MessageItem messageItem={pendingMessage} />
                 ) : null}
             </div>
+            {currentlyReflecting && (
+                <div style={{ padding: "1em", display: "flex", alignItems: "center" }}>
+                    <div className="quill-spck-loading-indicator-spinner" />
+                    <span style={{ marginLeft: "0.5em" }}>Reflecting...</span>
+                </div>
+            )}
             {gradeExists() ? (
                 <div style={{ padding: "1em", fontWeight: "bold" }}>
                     <div title={getGradeComment()} style={{ cursor: "help" }}>
