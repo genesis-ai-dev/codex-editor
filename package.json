@@ -1047,6 +1047,12 @@
                         "default": false,
                         "description": "After giving an initial response in the chat, the Copilot will reflect on the response and replace it with a new one after a bit."
                     },
+                    "translators-copilot.chatReflectionConcern": {
+                        "title": "Chat Reflection Concern",
+                        "type": "string",
+                        "default": "",
+                        "description": "This is an optional field to specify what the reflection should focus on in the chat response.  Use this to set a specific topic to focus on or perspective to keep in mind."
+                    },
                     "translators-copilot.textDirection": {
                         "type": "string",
                         "enum": [

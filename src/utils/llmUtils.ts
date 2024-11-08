@@ -61,17 +61,20 @@ export async function callLLM(messages: ChatMessage[], config: CompletionConfig)
 
 
 
-export async function performReflection( text_to_refine: string, text_context: string, num_improvers: number, number_of_loops: number, config: CompletionConfig ): Promise<string> {
+export async function performReflection( text_to_refine: string, text_context: string, num_improvers: number, number_of_loops: number, chatReflectionConcern: string, config: CompletionConfig ): Promise<string> {
 
   async function generateImprovement(text: string): Promise<string> {
-    //const response = callLLM([
-    //awaiting right now until we can debug this.
+    let systemContent = "";
+    systemContent += "You are an AI that is responsible for grading an answer according to a Christian perspective.\n";
+    if( chatReflectionConcern ) {
+      systemContent += "Specified Concern: " + chatReflectionConcern + "\n";
+    }
+    systemContent += "Provide a grade from 0 to 100 where 0 is the lowest grade and 100 is the highest grade and a grade comment.\n";
+    
     const response = await callLLM([
       {
         role: "system",
-        content:
-          "You are an AI that is responsible for grading an answer according to a Christian perspective. " +
-          "Provide a grade from 0 to 100 where 0 is the lowest grade and 100 is the highest grade and a grade comment.",
+        content: systemContent
       },
       {
         role: "user",
@@ -79,7 +82,6 @@ export async function performReflection( text_to_refine: string, text_context: s
       },
     ], config);
 
-    //if we just return the promise instead of resolving it, then we can make all the requests in parallel
     return response;
   }
 
