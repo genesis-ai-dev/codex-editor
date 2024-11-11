@@ -84,10 +84,6 @@ codex-editor % cd webviews/codex-webviews
 codex-webviews % pnpm i
 codex-webviews % pnpm run build:all
 
-## build the dictionary-side-panel
-codex-webviews % cd ../dictionary-side-panel
-dictionary-side-panel % pnpm i
-dictionary-side-panel % pnpm run build
 
 ## build the editable-react-table
 #FIXME: if you get this error -
@@ -98,11 +94,6 @@ dictionary-side-panel % pnpm run build
 dictionary-side-panel % cd ../editable-react-table
 editable-react-table % pnpm i
 editable-react-table % pnpm run build
-
-## build the obs
-editable-react-table % cd ../obs
-dictionary-side-panel % pnpm i
-dictionary-side-panel % pnpm run build
 
 # Now, let's go back to the root of the project and start the extension
 ChatSideBar % cd ../..

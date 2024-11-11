@@ -1,11 +1,10 @@
 import * as vscode from "vscode";
-import { CellIdGlobalState, SelectedTextDataWithContext, OBSRef } from "../types";
+import { CellIdGlobalState, SelectedTextDataWithContext } from "../types";
 type StateStoreUpdate =
     | { key: "cellId"; value: CellIdGlobalState }
     | { key: "uri"; value: string | null }
     | { key: "currentLineSelection"; value: SelectedTextDataWithContext }
     | { key: "plainTextNotes"; value: string }
-    | { key: "obsRef"; value: OBSRef }
     | { key: "apiKey"; value: string }
     | { key: "verseRef"; value: { verseRef: string; uri: string } }
     | { key: "cellId"; value: CellIdGlobalState }

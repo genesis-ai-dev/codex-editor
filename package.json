@@ -1066,15 +1066,6 @@
                 "priority": "default"
             },
             {
-                "viewType": "codex.obs.editor",
-                "displayName": "Obs Editor",
-                "selector": [
-                    {
-                        "filenamePattern": "**/ingredients/??.md"
-                    }
-                ]
-            },
-            {
                 "viewType": "codex.translationNotesEditor",
                 "displayName": "Translation Note TSV Editor",
                 "selector": [
@@ -1105,7 +1096,7 @@
         "pretest": "npm run compile && npm run lint",
         "test": "node ./out/test/runTest.js",
         "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
-        "build:webviews": "cd webviews/codex-webviews && pnpm run build:all && cd ../usfm-viewer && pnpm run build && cd ../.."
+        "build:webviews": "cd webviews/codex-webviews && pnpm run build && cd ../.."
     },
     "devDependencies": {
         "@babel/plugin-proposal-private-property-in-object": "^7.16.7",
@@ -1204,7 +1195,6 @@
     },
     "extensionDependencies": [
         "project-accelerate.shared-state-store",
-        "sevenx-codex.codex-resources",
         "vscode.git"
     ]
 }

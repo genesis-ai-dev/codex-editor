@@ -1,7 +1,6 @@
 //scm/git.ts
 import { getFromConfig, updateConfig } from "../../utils/appConfig";
 import { projectFileExists } from "../../utils/fileUtils";
-import { fileExists } from "../obs/CreateProject/utilities/obs";
 import { API, Git, GitExtension } from "./git.d";
 import * as vscode from "vscode";
 
@@ -69,8 +68,12 @@ export const initProject = async (name: string, email: string, projectUri?: vsco
 
     // Create .gitignore file
     const gitIgnoreUri = vscode.Uri.joinPath(projectUri ?? workspaceFolders[0].uri, ".gitignore");
+    const fileExists = await vscode.workspace.fs.stat(gitIgnoreUri).then(
+        () => true,
+        () => false
+    );
 
-    if (!(await fileExists(gitIgnoreUri))) {
+    if (!fileExists) {
         await vscode.workspace.fs.writeFile(gitIgnoreUri, Buffer.from(GIT_IGNORE_CONTENT));
     }
 

@@ -159,7 +159,12 @@ type ChatPostMessages =
       }
     | { command: "requestGradeResponse"; messages: string; lastMessageCreatedAt: string }
     | { command: "respondWithGrade"; content: string; lastMessageCreatedAt: string }
-    | { command: "performReflection"; messageToReflect: string; context: string; lastMessageCreatedAt: string }
+    | {
+          command: "performReflection";
+          messageToReflect: string;
+          context: string;
+          lastMessageCreatedAt: string;
+      }
     | { command: "reflectionResponse"; reflectedMessage: string; lastMessageCreatedAt: string }
     | { command: "deleteThread"; threadId: string }
     | { command: "fetchThread" }
@@ -257,7 +262,7 @@ export type SourceUploadResponseMessages =
           transaction: DownloadBibleTransaction;
       }
     | { command: "bibleDownloadCancelled" };
-    
+
 type DictionaryPostMessages =
     | {
           command: "webviewTellsProviderToUpdateData";
@@ -317,11 +322,6 @@ type TranslationNotePostMessages =
 type ScripturePostMessages =
     | { command: "sendScriptureData"; data: ScriptureContent }
     | { command: "fetchScriptureData" };
-
-type OBSRef = {
-    storyId: string;
-    paragraph: string;
-};
 
 type DictionaryEntry = {
     id: string;

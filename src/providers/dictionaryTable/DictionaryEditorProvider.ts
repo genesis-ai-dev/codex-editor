@@ -1,4 +1,3 @@
-import { fetchTranslationResource } from "./../../../webviews/obs/src/utilities/fetchTranslationResource";
 import * as vscode from "vscode";
 import { getNonce } from "./utilities/getNonce";
 import {
@@ -9,13 +8,7 @@ import {
 } from "../../../types";
 import { getWorkSpaceUri } from "../../utils";
 import { isEqual } from "lodash";
-import { readDictionaryClient, saveDictionaryClient } from "../../utils/dictionaryUtils/client";
-import {
-    repairDictionaryContent,
-    deserializeDictionaryEntries,
-    serializeDictionaryEntries,
-    ensureCompleteEntry,
-} from "../../utils/dictionaryUtils/common";
+import { ensureCompleteEntry } from "../../utils/dictionaryUtils/common";
 import { Database } from "sql.js";
 import { getWords, getDefinitions, getPagedWords } from "../../sqldb";
 
@@ -109,20 +102,20 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
                             e.pagination.pageSize,
                             e.pagination.searchQuery
                         );
-                        
+
                         webviewPanel.webview.postMessage({
                             command: "providerTellsWebviewToUpdateData",
                             data: {
                                 dictionaryData: {
                                     id: "",
                                     label: "",
-                                    metadata: {}
+                                    metadata: {},
                                 },
                                 entries: pageData.entries,
                                 total: pageData.total,
                                 page: pageData.page,
-                                pageSize: pageData.pageSize
-                            }
+                                pageSize: pageData.pageSize,
+                            },
                         } as DictionaryReceiveMessages);
                         break;
                     }

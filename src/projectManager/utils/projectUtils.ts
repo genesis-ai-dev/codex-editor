@@ -5,11 +5,9 @@ import { getAllBookRefs } from "../../utils";
 import * as vscode from "vscode";
 import * as path from "path";
 import semver from "semver";
-import ProjectTemplate from "../../providers/obs/data/TextTemplate.json";
 import { ProjectMetadata, ProjectOverview } from "../../../types";
 import { initializeProject } from "../projectInitializers";
 import { getProjectMetadata } from "../../utils";
-import { CodexContentSerializer } from "../../serializer";
 
 export interface ProjectDetails {
     projectName?: string;
@@ -564,9 +562,10 @@ export async function isValidCodexProject(folderPath: string): Promise<{
         const metadataPath = vscode.Uri.file(path.join(folderPath, "metadata.json"));
         const metadata = await vscode.workspace.fs.readFile(metadataPath);
         const metadataJson = JSON.parse(Buffer.from(metadata).toString("utf-8")) as CodexMetadata;
-        
-        const currentVersion = vscode.extensions.getExtension("project-accelerate.codex-editor-extension")
-            ?.packageJSON.version || "0.0.0";
+
+        const currentVersion =
+            vscode.extensions.getExtension("project-accelerate.codex-editor-extension")?.packageJSON
+                .version || "0.0.0";
 
         if (metadataJson.meta?.generator?.softwareName !== "Codex Editor") {
             return { isValid: false };
@@ -578,21 +577,23 @@ export async function isValidCodexProject(folderPath: string): Promise<{
         return {
             isValid: true,
             version: projectVersion,
-            hasVersionMismatch
+            hasVersionMismatch,
         };
     } catch {
         return { isValid: false };
     }
 }
 
-export async function findAllCodexProjects(): Promise<Array<{
-    name: string;
-    path: string;
-    lastOpened?: Date;
-    lastModified: Date;
-    version: string;
-    hasVersionMismatch?: boolean;
-}>> {
+export async function findAllCodexProjects(): Promise<
+    Array<{
+        name: string;
+        path: string;
+        lastOpened?: Date;
+        lastModified: Date;
+        version: string;
+        hasVersionMismatch?: boolean;
+    }>
+> {
     const config = vscode.workspace.getConfiguration("codex-project-manager");
     const watchedFolders = config.get<string[]>("watchedFolders") || [];
     const projectHistory = config.get<Record<string, string>>("projectHistory") || {};
@@ -613,16 +614,18 @@ export async function findAllCodexProjects(): Promise<Array<{
                 if (type === vscode.FileType.Directory) {
                     const projectPath = path.join(folder, name);
                     const projectStatus = await isValidCodexProject(projectPath);
-                    
+
                     if (projectStatus.isValid) {
                         const stats = await vscode.workspace.fs.stat(vscode.Uri.file(projectPath));
                         projects.push({
                             name,
                             path: projectPath,
-                            lastOpened: projectHistory[projectPath] ? new Date(projectHistory[projectPath]) : undefined,
+                            lastOpened: projectHistory[projectPath]
+                                ? new Date(projectHistory[projectPath])
+                                : undefined,
                             lastModified: new Date(stats.mtime),
                             version: projectStatus.version || "unknown",
-                            hasVersionMismatch: projectStatus.hasVersionMismatch
+                            hasVersionMismatch: projectStatus.hasVersionMismatch,
                         });
                     }
                 }

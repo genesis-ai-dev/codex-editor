@@ -12,8 +12,6 @@ import {
     searchVerseRefPositionIndex,
     indexVerseRefsInSourceText,
 } from "../../commands/indexVrefsCommand";
-import { DownloadedResource } from "../../providers/obs/resources/types";
-import { translationAcademy } from "../../providers/translationAcademy/provider";
 import { setTargetFont } from "../../projectManager/projectInitializers";
 
 import { CodexNotebookTreeViewProvider } from "../../providers/treeViews/navigationTreeViewProvider";
@@ -59,13 +57,6 @@ export async function registerCommands(context: vscode.ExtensionContext) {
     const indexVrefsCommand = vscode.commands.registerCommand(
         "codex-editor-extension.indexVrefs",
         indexVerseRefsInSourceText
-    );
-
-    const openTnAcademyCommand = vscode.commands.registerCommand(
-        "codex-editor-extension.openTnAcademy",
-        async (resource: DownloadedResource) => {
-            await translationAcademy(context, resource);
-        }
     );
 
     const searchIndexCommand = vscode.commands.registerCommand(
@@ -299,7 +290,6 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         navigationTreeViewProvider,
         navigationExplorerRefreshCommand,
         indexVrefsCommand,
-        openTnAcademyCommand,
         searchIndexCommand,
         notebookSerializer,
         codexKernel,
