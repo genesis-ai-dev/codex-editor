@@ -101,6 +101,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const MAX_VISIBLE_PROMPTS = 5;
     const [editingPromptIndex, setEditingPromptIndex] = useState<number | null>(null);
     const [editingPromptText, setEditingPromptText] = useState("");
+    const [isPromptsExpanded, setIsPromptsExpanded] = useState(false);
+    const [showPromptsSection, setShowPromptsSection] = useState(true);
 
     useEffect(() => {
         setEditableLabel(cellLabel || "");
@@ -204,8 +206,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
             window.vscodeApi.postMessage(messageContent);
 
-            // Clear the prompt input
+            // Clear the prompt input and hide entire prompts section
             setPrompt("");
+            setShowPromptsSection(false);
+            setSelectedPrompts(new Set());
         } catch (error) {
             console.error("Error sending prompt:", error);
         }
@@ -407,7 +411,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     const handleApplySelectedPrompts = async () => {
         for (const prompt of selectedPrompts) {
-            // Reuse existing prompt sending logic
             const messageContent: EditorPostMessages = {
                 command: "applyPromptedEdit",
                 content: {
@@ -418,7 +421,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
             };
             window.vscodeApi.postMessage(messageContent);
         }
-        setSelectedPrompts(new Set()); // Clear selections after applying
+        // Clear selections and hide entire prompts section
+        setSelectedPrompts(new Set());
+        setShowPromptsSection(false);
     };
 
     const handlePromptEdit = (index: number, event: React.MouseEvent) => {
@@ -540,66 +545,91 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     </div>
                 </div>
             </div>
-            {visiblePrompts.length > 0 && (
+            {visiblePrompts.length > 0 && showPromptsSection && (
                 <div className="suggested-prompts">
-                    <div className="prompts-header">
-                        <h3>Suggested Prompts</h3>
-                        {selectedPrompts.size > 0 && (
-                            <VSCodeButton onClick={handleApplySelectedPrompts}>
-                                Apply Selected ({selectedPrompts.size})
+                    <div
+                        className="prompts-header"
+                        onClick={() => setIsPromptsExpanded(!isPromptsExpanded)}
+                        style={{ cursor: "pointer" }}
+                    >
+                        <div className="header-content">
+                            <i
+                                className={`codicon codicon-chevron-${
+                                    isPromptsExpanded ? "down" : "right"
+                                }`}
+                            ></i>
+                            <h3>Suggested Prompts</h3>
+                            {selectedPrompts.size > 0 && (
+                                <span className="selected-count">
+                                    ({selectedPrompts.size} selected)
+                                </span>
+                            )}
+                        </div>
+                        {isPromptsExpanded && selectedPrompts.size > 0 && (
+                            <VSCodeButton
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleApplySelectedPrompts();
+                                }}
+                            >
+                                Apply Selected
                             </VSCodeButton>
                         )}
                     </div>
-                    <div className="prompts-list">
-                        {visiblePrompts.map((prompt, index) => (
-                            <div key={index} className="prompt-item">
-                                {editingPromptIndex === index ? (
-                                    <div className="prompt-edit-container">
-                                        <textarea
-                                            value={editingPromptText}
-                                            onChange={(e) => setEditingPromptText(e.target.value)}
-                                            className="prompt-edit-input"
-                                            autoFocus
-                                        />
-                                        <div className="prompt-edit-buttons">
-                                            <VSCodeButton
-                                                appearance="icon"
-                                                onClick={handlePromptEditSave}
-                                                title="Save"
-                                            >
-                                                <i className="codicon codicon-check"></i>
-                                            </VSCodeButton>
-                                            <VSCodeButton
-                                                appearance="icon"
-                                                onClick={handlePromptEditCancel}
-                                                title="Cancel"
-                                            >
-                                                <i className="codicon codicon-close"></i>
-                                            </VSCodeButton>
+                    {isPromptsExpanded && (
+                        <div className="prompts-list">
+                            {visiblePrompts.map((prompt, index) => (
+                                <div key={index} className="prompt-item">
+                                    {editingPromptIndex === index ? (
+                                        <div className="prompt-edit-container">
+                                            <textarea
+                                                value={editingPromptText}
+                                                onChange={(e) =>
+                                                    setEditingPromptText(e.target.value)
+                                                }
+                                                className="prompt-edit-input"
+                                                autoFocus
+                                            />
+                                            <div className="prompt-edit-buttons">
+                                                <VSCodeButton
+                                                    appearance="icon"
+                                                    onClick={handlePromptEditSave}
+                                                    title="Save"
+                                                >
+                                                    <i className="codicon codicon-check"></i>
+                                                </VSCodeButton>
+                                                <VSCodeButton
+                                                    appearance="icon"
+                                                    onClick={handlePromptEditCancel}
+                                                    title="Cancel"
+                                                >
+                                                    <i className="codicon codicon-close"></i>
+                                                </VSCodeButton>
+                                            </div>
                                         </div>
-                                    </div>
-                                ) : (
-                                    <div className="prompt-display">
-                                        <VSCodeCheckbox
-                                            checked={selectedPrompts.has(prompt)}
-                                            onChange={(e) => {
-                                                e.stopPropagation(); // Stop event from reaching the span
-                                                handlePromptSelect(prompt);
-                                            }}
-                                        >
-                                            <span
-                                                className="prompt-text"
-                                                onClick={(e) => handlePromptEdit(index, e)}
-                                                title="Click to edit"
+                                    ) : (
+                                        <div className="prompt-display">
+                                            <VSCodeCheckbox
+                                                checked={selectedPrompts.has(prompt)}
+                                                onChange={(e) => {
+                                                    e.stopPropagation(); // Stop event from reaching the span
+                                                    handlePromptSelect(prompt);
+                                                }}
                                             >
-                                                {prompt}
-                                            </span>
-                                        </VSCodeCheckbox>
-                                    </div>
-                                )}
-                            </div>
-                        ))}
-                    </div>
+                                                <span
+                                                    className="prompt-text"
+                                                    onClick={(e) => handlePromptEdit(index, e)}
+                                                    title="Click to edit"
+                                                >
+                                                    {prompt}
+                                                </span>
+                                            </VSCodeCheckbox>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             )}
             <div className={`text-editor ${showFlashingBorder ? "flashing-border" : ""}`}>
