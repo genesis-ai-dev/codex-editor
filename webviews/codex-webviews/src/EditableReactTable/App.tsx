@@ -11,6 +11,7 @@ import {
 } from "../../../../types";
 import debounce from "lodash.debounce";
 import { isEqual } from "lodash";
+import { useMeasure } from "@uidotdev/usehooks";
 
 interface DataType {
     key: React.Key;
@@ -45,6 +46,11 @@ const EditableCell: React.FC<EditableCellProps> = ({ value, recordKey, dataIndex
 };
 
 const App: React.FC = () => {
+    const [outerContainer, { height: outerContainerHeight }] = useMeasure();
+    const [tableRef, { height: tableHeight }] = useMeasure();
+    const [inputRef, { height: inputHeight }] = useMeasure();
+    const [buttonRef, { height: buttonHeight }] = useMeasure();
+
     const [dataSource, setDataSource] = useState<DataType[]>([]);
     const [columnNames, setColumnNames] = useState<string[]>([]);
     const [dictionary, setDictionary] = useState<Dictionary>({
@@ -57,7 +63,7 @@ const App: React.FC = () => {
     const [vsCodeTheme, setVsCodeTheme] = useState({});
     const [pagination, setPagination] = useState({
         current: 1,
-        pageSize: 50,
+        pageSize: 10,
         total: 0,
     });
 
@@ -327,6 +333,7 @@ const App: React.FC = () => {
             }}
         >
             <div
+                ref={outerContainer}
                 style={{
                     width: "100vw",
                     height: "100vh",
@@ -336,26 +343,18 @@ const App: React.FC = () => {
                     overflow: "hidden",
                 }}
             >
-                <div
-                    style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        marginBottom: "20px",
-                    }}
-                >
-                    <h1>Dictionary</h1>
+                <div ref={inputRef}>
+                    <Input
+                        placeholder="Search..."
+                        value={searchQuery}
+                        onChange={handleSearchChange}
+                        style={{ marginBottom: "16px" }}
+                        prefix={<span className="codicon codicon-search"></span>}
+                    />
                 </div>
 
-                <Input
-                    placeholder="Search..."
-                    value={searchQuery}
-                    onChange={handleSearchChange}
-                    style={{ marginBottom: "16px" }}
-                    prefix={<span className="codicon codicon-search"></span>}
-                />
-
                 <Button
+                    ref={buttonRef}
                     onClick={handleAdd}
                     type="primary"
                     style={{ marginBottom: "16px", alignSelf: "flex-start" }}
@@ -363,21 +362,29 @@ const App: React.FC = () => {
                 >
                     Add a row
                 </Button>
-
-                <Table
-                    dataSource={dataSource}
-                    columns={columns}
-                    bordered
-                    pagination={{
-                        ...pagination,
-                        showSizeChanger: true,
-                        showQuickJumper: true,
-                        showTotal: (total) => `Total ${total} items`,
-                    }}
-                    onChange={handleTableChange}
-                    scroll={{ x: "max-content", y: "calc(100vh - 200px)" }}
-                    style={{ flexGrow: 1, overflow: "auto" }}
-                />
+                <div ref={tableRef}>
+                    <Table
+                        dataSource={dataSource}
+                        columns={columns}
+                        bordered
+                        pagination={{
+                            ...pagination,
+                            showSizeChanger: true,
+                            showQuickJumper: true,
+                            showTotal: (total) => `Total ${total} items`,
+                        }}
+                        onChange={handleTableChange}
+                        scroll={{
+                            x: "max-content",
+                            y: `calc(${
+                                (outerContainerHeight || 0) -
+                                (inputHeight || 0) -
+                                (buttonHeight || 0)
+                            }px - 180px)`,
+                        }}
+                        style={{ flexGrow: 1, overflow: "auto" }}
+                    />
+                </div>
             </div>
         </ConfigProvider>
     );
