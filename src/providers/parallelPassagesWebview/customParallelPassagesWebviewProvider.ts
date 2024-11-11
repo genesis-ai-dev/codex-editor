@@ -18,7 +18,9 @@ async function simpleOpen(uri: string) {
 async function openFileAtLocation(uri: string, cellId: string) {
     try {
         const parsedUri = vscode.Uri.parse(uri);
-        if (parsedUri.toString().includes(".codex")) {
+        const stringUri = parsedUri.toString();
+        // This is a quick fix to open the correct uri.
+        if (stringUri.includes(".codex") || stringUri.includes(".source")) {
             await vscode.commands.executeCommand("vscode.openWith", parsedUri, "codex.cellEditor");
             // After opening the file, we need to navigate to the specific cell
             // This might require an additional step or command

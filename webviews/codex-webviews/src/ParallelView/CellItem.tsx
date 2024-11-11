@@ -5,12 +5,23 @@ import { VSCodeButton, VSCodeBadge } from "@vscode/webview-ui-toolkit/react";
 interface CellItemProps {
     item: TranslationPair;
     onUriClick: (uri: string, word: string) => void;
-    onSaveClick: (index: number, before: string, after: string, uri: string) => void;
 }
 
 const CellItem: React.FC<CellItemProps> = ({ item, onUriClick }) => {
     const handleCopy = (text: string) => {
         navigator.clipboard.writeText(text);
+    };
+
+    const getTargetUri = (uri: string): string => {
+        // FIXME: This should not be needed.
+        if (!uri) {
+            return "";
+        }
+        // Convert source file path to target file path
+        // Example: /sourceText/file.source -> /files/target/file.codex
+        return uri
+            .replace(".source", ".codex") // Change file extension
+            .replace(".project/sourceTexts/", "files/target/"); // Change directory path
     };
 
     return (
@@ -55,7 +66,9 @@ const CellItem: React.FC<CellItemProps> = ({ item, onUriClick }) => {
                     <VSCodeButton
                         appearance="icon"
                         aria-label="Open Target"
-                        onClick={() => onUriClick(item.targetCell.uri || "", `${item.cellId}`)}
+                        onClick={() =>
+                            onUriClick(getTargetUri(item.targetCell.uri || ""), `${item.cellId}`)
+                        }
                     >
                         <span className="codicon codicon-open-preview"></span>
                     </VSCodeButton>

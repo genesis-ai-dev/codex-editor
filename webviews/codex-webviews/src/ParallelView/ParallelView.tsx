@@ -34,8 +34,9 @@ function ParallelView() {
     }, []);
 
     const handleUriClick = (uri: string, word: string) => {
+        console.log("handleUriClick", uri, word);
         vscode.postMessage({
-            command: "openFileAtLocation",
+            command: "webviews/codex-webviews/src/ParallelView/CellItem.tsx",
             uri,
             word: word,
         } as OpenFileMessage);
@@ -51,32 +52,6 @@ function ParallelView() {
             database: "both",
             query: query,
         });
-    };
-
-    const handleSaveClick = (index: number, before: string, after: string, uri: string) => {
-        vscode.postMessage({
-            command: "applyEdit",
-            uri: uri,
-            before: before,
-            after: after,
-        });
-
-        setVerses((prevVerses) => {
-            const newVerses = [...prevVerses];
-            newVerses[index] = {
-                ...newVerses[index],
-                targetCell: { ...newVerses[index].targetCell, content: after },
-            };
-            return newVerses;
-        });
-    };
-
-    const handleSendMessage = () => {
-        if (chatInput.trim()) {
-            // TODO: Implement send message functionality
-            console.log("Sending message:", chatInput);
-            setChatInput("");
-        }
     };
 
     return (
@@ -95,12 +70,7 @@ function ParallelView() {
                     {verses.length > 0 ? (
                         <div className="verses-container">
                             {verses.map((item, index) => (
-                                <VerseItem
-                                    key={index}
-                                    item={item}
-                                    onUriClick={handleUriClick}
-                                    onSaveClick={handleSaveClick}
-                                />
+                                <VerseItem key={index} item={item} onUriClick={handleUriClick} />
                             ))}
                         </div>
                     ) : (
