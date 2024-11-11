@@ -18,6 +18,7 @@ const vscode = acquireVsCodeApi();
 
 function ParallelView() {
     const [verses, setVerses] = useState<TranslationPair[]>([]);
+    const [lockedVerses, setLockedVerses] = useState<TranslationPair[]>([]);
     const [lastQuery, setLastQuery] = useState<string>("");
     const [chatInput, setChatInput] = useState<string>("");
 
@@ -25,13 +26,13 @@ function ParallelView() {
         const handleMessage = (event: MessageEvent) => {
             const message = event.data;
             if (message.command === "searchResults") {
-                setVerses(message.data as TranslationPair[]);
+                setVerses([...lockedVerses, ...(message.data as TranslationPair[])]);
             }
         };
 
         window.addEventListener("message", handleMessage);
         return () => window.removeEventListener("message", handleMessage);
-    }, []);
+    }, [lockedVerses]);
 
     const handleUriClick = (uri: string, word: string) => {
         console.log("handleUriClick", uri, word);
@@ -54,6 +55,14 @@ function ParallelView() {
         });
     };
 
+    const handleLockToggle = (item: TranslationPair, isLocked: boolean) => {
+        if (isLocked) {
+            setLockedVerses([...lockedVerses, item]);
+        } else {
+            setLockedVerses(lockedVerses.filter((v) => v.cellId !== item.cellId));
+        }
+    };
+
     return (
         <VSCodePanels>
             <VSCodePanelTab id="tab1">Parallel Passages</VSCodePanelTab>
@@ -70,7 +79,13 @@ function ParallelView() {
                     {verses.length > 0 ? (
                         <div className="verses-container">
                             {verses.map((item, index) => (
-                                <VerseItem key={index} item={item} onUriClick={handleUriClick} />
+                                <VerseItem
+                                    key={index}
+                                    item={item}
+                                    onUriClick={handleUriClick}
+                                    isLocked={lockedVerses.some((v) => v.cellId === item.cellId)}
+                                    onLockToggle={handleLockToggle}
+                                />
                             ))}
                         </div>
                     ) : (

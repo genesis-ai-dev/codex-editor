@@ -5,9 +5,11 @@ import { VSCodeButton, VSCodeBadge } from "@vscode/webview-ui-toolkit/react";
 interface CellItemProps {
     item: TranslationPair;
     onUriClick: (uri: string, word: string) => void;
+    isLocked: boolean;
+    onLockToggle: (item: TranslationPair, isLocked: boolean) => void;
 }
 
-const CellItem: React.FC<CellItemProps> = ({ item, onUriClick }) => {
+const CellItem: React.FC<CellItemProps> = ({ item, onUriClick, isLocked, onLockToggle }) => {
     const handleCopy = (text: string) => {
         navigator.clipboard.writeText(text);
     };
@@ -25,8 +27,17 @@ const CellItem: React.FC<CellItemProps> = ({ item, onUriClick }) => {
     };
 
     return (
-        <div className="verse-item">
-            <VSCodeBadge>{item.cellId}</VSCodeBadge>
+        <div className={`verse-item ${isLocked ? "locked" : ""}`}>
+            <div className="cell-header-container">
+                <VSCodeBadge>{item.cellId}</VSCodeBadge>
+                <VSCodeButton
+                    appearance="icon"
+                    aria-label={isLocked ? "Unlock" : "Lock"}
+                    onClick={() => onLockToggle(item, !isLocked)}
+                >
+                    <span className={`codicon codicon-${isLocked ? "lock" : "unlock"}`}></span>
+                </VSCodeButton>
+            </div>
             <div className="cell-header">
                 <div className="verse-content">
                     <p className="verse-text">{item.sourceCell.content}</p>
