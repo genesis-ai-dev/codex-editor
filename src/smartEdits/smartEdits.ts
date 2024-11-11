@@ -45,7 +45,6 @@ export class SmartEdits {
     constructor(workspaceUri: vscode.Uri) {
         this.chatbot = new Chatbot(SYSTEM_MESSAGE);
         this.smartEditsPath = path.join(workspaceUri.fsPath, "files", "smart_edits.json");
-        console.log("SmartEdits initialized with path:", this.smartEditsPath);
     }
 
     async getEdits(text: string, cellId: string): Promise<SmartSuggestion[]> {
@@ -87,7 +86,6 @@ export class SmartEdits {
             }));
         }
 
-        console.log(`Generated ${suggestions.length} suggestions`);
         await this.saveSuggestions(firstResultCellId, text, suggestions);
         this.lastProcessedCellId = firstResultCellId;
         this.lastSuggestions = suggestions;
@@ -137,20 +135,17 @@ export class SmartEdits {
                 fileUri,
                 Buffer.from(JSON.stringify(savedEdits, null, 2))
             );
-            console.log(`Saved suggestions for cellId: ${cellId}`);
         } catch (error) {
             console.error("Error saving suggestions:", error);
         }
     }
 
     private async findSimilarEntries(text: string): Promise<TranslationPair[]> {
-        console.log("Finding similar entries for text:", text);
         try {
             const results = await vscode.commands.executeCommand<TranslationPair[]>(
                 "translators-copilot.searchParallelCells",
                 text
             );
-            console.log(`Found ${results?.length || 0} similar entries`);
             return results || [];
         } catch (error) {
             console.error("Error searching parallel cells:", error);
@@ -195,12 +190,10 @@ export class SmartEdits {
                 console.log(`No valid URI found for cellId: ${entry.cellId}`);
             }
         }
-        console.log(`Retrieved ${similarTexts.length} similar texts`);
         return similarTexts;
     }
 
     private formatSimilarTexts(similarTexts: SmartEditContext[]): string {
-        console.log(`Formatting ${similarTexts.length} similar texts`);
         const formattedTexts = similarTexts
             .map((context) => {
                 const edits = context.edits;
@@ -270,6 +263,5 @@ export class SmartEdits {
 
     async updateEditHistory(cellId: string, history: EditHistoryEntry[]): Promise<void> {
         this.editHistory[cellId] = history;
-        console.log(`Updated edit history for cellId: ${cellId}`);
     }
 }
