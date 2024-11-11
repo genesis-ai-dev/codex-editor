@@ -36,7 +36,7 @@ function ParallelView() {
     const handleUriClick = (uri: string, word: string) => {
         console.log("handleUriClick", uri, word);
         vscode.postMessage({
-            command: "webviews/codex-webviews/src/ParallelView/CellItem.tsx",
+            command: "openFileAtLocation",
             uri,
             word: word,
         } as OpenFileMessage);
