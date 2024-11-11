@@ -1,0 +1,70 @@
+.verse-item {
+    padding: 12px;
+    margin: 8px 0;
+    background-color: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-widget-border);
+    border-radius: 6px;
+    box-shadow: 0 2px 4px var(--vscode-widget-shadow);
+}
+
+.verse-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.verse-badges {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.verse-badge {
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+.locked-text {
+    color: var(--vscode-textLink-foreground);
+    font-size: 12px;
+}
+
+.verse-content {
+    margin-top: 12px;
+}
+
+.verse-section {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 12px;
+}
+
+.verse-text-container {
+    flex: 1;
+}
+
+.verse-label {
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
+    margin-bottom: 4px;
+}
+
+.verse-text {
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--vscode-editor-foreground);
+    white-space: pre-wrap;
+}
+
+.verse-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.button-icon {
+    margin-right: 4px;
+}

@@ -1,6 +1,7 @@
 import React from "react";
 import { TranslationPair } from "../../../../types";
-import { VSCodeButton, VSCodeBadge } from "@vscode/webview-ui-toolkit/react";
+import { VSCodeButton, VSCodeBadge, VSCodeDivider } from "@vscode/webview-ui-toolkit/react";
+import "./cellItem.css";
 
 interface CellItemProps {
     item: TranslationPair;
@@ -15,21 +16,17 @@ const CellItem: React.FC<CellItemProps> = ({ item, onUriClick, isLocked, onLockT
     };
 
     const getTargetUri = (uri: string): string => {
-        // FIXME: This should not be needed.
-        if (!uri) {
-            return "";
-        }
-        // Convert source file path to target file path
-        // Example: /sourceText/file.source -> /files/target/file.codex
-        return uri
-            .replace(".source", ".codex") // Change file extension
-            .replace(".project/sourceTexts/", "files/target/"); // Change directory path
+        if (!uri) return "";
+        return uri.replace(".source", ".codex").replace(".project/sourceTexts/", "files/target/");
     };
 
     return (
         <div className={`verse-item ${isLocked ? "locked" : ""}`}>
-            <div className="cell-header-container">
-                <VSCodeBadge>{item.cellId}</VSCodeBadge>
+            <div className="verse-header">
+                <div className="verse-badges">
+                    <VSCodeBadge className="verse-badge">{item.cellId}</VSCodeBadge>
+                    {isLocked && <span className="locked-text">Locked</span>}
+                </div>
                 <VSCodeButton
                     appearance="icon"
                     aria-label={isLocked ? "Unlock" : "Lock"}
@@ -38,51 +35,64 @@ const CellItem: React.FC<CellItemProps> = ({ item, onUriClick, isLocked, onLockT
                     <span className={`codicon codicon-${isLocked ? "lock" : "unlock"}`}></span>
                 </VSCodeButton>
             </div>
-            <div className="cell-header">
-                <div className="verse-content">
-                    <p className="verse-text">{item.sourceCell.content}</p>
+
+            <VSCodeDivider />
+
+            <div className="verse-content">
+                <div className="verse-section">
+                    <div className="verse-text-container">
+                        <div className="verse-label">Source Text</div>
+                        <p className="verse-text">{item.sourceCell.content}</p>
+                    </div>
+                    <div className="verse-buttons">
+                        <VSCodeButton
+                            appearance="secondary"
+                            onClick={() => handleCopy(item.sourceCell.content || "")}
+                        >
+                            <span className="codicon codicon-copy button-icon"></span>
+                            Copy
+                        </VSCodeButton>
+                        <VSCodeButton
+                            appearance="secondary"
+                            onClick={() => onUriClick(item.sourceCell.uri || "", `${item.cellId}`)}
+                        >
+                            <span className="codicon codicon-open-preview button-icon"></span>
+                            Open
+                        </VSCodeButton>
+                    </div>
                 </div>
-                <div className="verse-actions">
-                    <VSCodeButton
-                        appearance="icon"
-                        aria-label="Copy Source"
-                        onClick={() => handleCopy(item.sourceCell.content || "")}
-                    >
-                        <span className="codicon codicon-copy"></span>
-                    </VSCodeButton>
-                    <VSCodeButton
-                        appearance="icon"
-                        aria-label="Open Source"
-                        onClick={() => onUriClick(item.sourceCell.uri || "", `${item.cellId}`)}
-                    >
-                        <span className="codicon codicon-open-preview"></span>
-                    </VSCodeButton>
-                </div>
-            </div>
-            <div className="cell-header">
-                <div className="verse-content">
-                    <p
-                        className="verse-text"
-                        dangerouslySetInnerHTML={{ __html: item.targetCell.content || "" }}
-                    ></p>
-                </div>
-                <div className="verse-actions">
-                    <VSCodeButton
-                        appearance="icon"
-                        aria-label="Copy Target"
-                        onClick={() => handleCopy(item.targetCell.content || "")}
-                    >
-                        <span className="codicon codicon-copy"></span>
-                    </VSCodeButton>
-                    <VSCodeButton
-                        appearance="icon"
-                        aria-label="Open Target"
-                        onClick={() =>
-                            onUriClick(getTargetUri(item.targetCell.uri || ""), `${item.cellId}`)
-                        }
-                    >
-                        <span className="codicon codicon-open-preview"></span>
-                    </VSCodeButton>
+
+                <VSCodeDivider />
+
+                <div className="verse-section">
+                    <div className="verse-text-container">
+                        <div className="verse-label">Target Text</div>
+                        <p
+                            className="verse-text"
+                            dangerouslySetInnerHTML={{ __html: item.targetCell.content || "" }}
+                        ></p>
+                    </div>
+                    <div className="verse-buttons">
+                        <VSCodeButton
+                            appearance="secondary"
+                            onClick={() => handleCopy(item.targetCell.content || "")}
+                        >
+                            <span className="codicon codicon-copy button-icon"></span>
+                            Copy
+                        </VSCodeButton>
+                        <VSCodeButton
+                            appearance="secondary"
+                            onClick={() =>
+                                onUriClick(
+                                    getTargetUri(item.targetCell.uri || ""),
+                                    `${item.cellId}`
+                                )
+                            }
+                        >
+                            <span className="codicon codicon-open-preview button-icon"></span>
+                            Open
+                        </VSCodeButton>
+                    </div>
                 </div>
             </div>
         </div>
