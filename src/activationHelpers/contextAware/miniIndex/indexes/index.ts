@@ -539,6 +539,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     vscode.window.showInformationMessage(`No translation pair found for ${cellId}`);
                 }
             }
+            return result;
         }
     );
 
