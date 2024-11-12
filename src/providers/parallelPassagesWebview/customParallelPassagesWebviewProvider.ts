@@ -33,24 +33,35 @@ async function openFileAtLocation(uri: string, cellId: string) {
     }
 }
 
-async function handleChat(webviewView: vscode.WebviewView, cellIds: string[], query: string) {
+async function handleChatStream(webviewView: vscode.WebviewView, cellIds: string[], query: string) {
     try {
-        const response = await vscode.commands.executeCommand<string>(
-            "codex-smart-edits.chat",
-            cellIds,
-            query
-        );
-        if (response) {
-            webviewView.webview.postMessage({
-                command: "chatResponse",
-                data: response,
+        await vscode.commands
+            .executeCommand<void>(
+                "codex-smart-edits.chatStream",
+                cellIds,
+                query,
+                // Callback function to handle chunks
+                (chunk: string) => {
+                    webviewView.webview.postMessage({
+                        command: "chatResponseStream",
+                        data: chunk,
+                    });
+                }
+            )
+            .then(() => {
+                // Signal completion of streaming
+                webviewView.webview.postMessage({
+                    command: "chatResponseComplete",
+                });
             });
-        }
     } catch (error) {
-        console.error("Error in chat:", error);
+        console.error("Error in chat stream:", error);
         webviewView.webview.postMessage({
-            command: "chatResponse",
+            command: "chatResponseStream",
             data: "Error: Failed to process chat request.",
+        });
+        webviewView.webview.postMessage({
+            command: "chatResponseComplete",
         });
     }
 }
@@ -134,8 +145,8 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
             case "openFileAtLocation":
                 await openFileAtLocation(message.uri, message.word);
                 break;
-            case "chat":
-                await handleChat(webviewView, message.context, message.query);
+            case "chatStream":
+                await handleChatStream(webviewView, message.context, message.query);
                 break;
             case "search":
                 if (message.database === "both") {
@@ -174,6 +185,9 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             switch (message.command) {
                 case "openFileAtLocation":
                     await openFileAtLocation(message.uri, message.word);
+                    break;
+                case "chatStream":
+                    await handleChatStream(webviewView, message.context, message.query);
                     break;
                 // ... other cases ...
             }

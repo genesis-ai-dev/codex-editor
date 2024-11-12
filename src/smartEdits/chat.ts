@@ -15,7 +15,7 @@ class Chatbot {
             baseURL: this.config.get("llmEndpoint") || "https://api.openai.com/v1",
         });
         this.messages = [{ role: "system", content: systemMessage }];
-        this.maxBuffer = 20;
+        this.maxBuffer = 50;
     }
 
     private getApiKey(): string {
@@ -34,6 +34,7 @@ class Chatbot {
                 messages: messages,
                 max_tokens: this.config.get("max_tokens") || 2048,
                 temperature: this.config.get("temperature") || 0.8,
+                stream: false,
             });
 
             if (
@@ -51,6 +52,38 @@ class Chatbot {
                     "Authentication failed. Please add a valid API key for the copilot if you are using a remote LLM."
                 );
                 return "";
+            }
+            throw error;
+        }
+    }
+
+    private async *streamLLM(messages: ChatMessage[]): AsyncGenerator<string> {
+        try {
+            let model = this.config.get("model") as string;
+            if (model === "custom") {
+                model = this.config.get("customModel") as string;
+            }
+
+            const stream = await this.openai.chat.completions.create({
+                model: model,
+                messages: messages,
+                max_tokens: this.config.get("max_tokens") || 2048,
+                temperature: this.config.get("temperature") || 0.8,
+                stream: true,
+            });
+
+            for await (const chunk of stream) {
+                const content = chunk.choices[0]?.delta?.content || "";
+                if (content) {
+                    yield content;
+                }
+            }
+        } catch (error: any) {
+            if (error.response && error.response.status === 401) {
+                vscode.window.showErrorMessage(
+                    "Authentication failed. Please add a valid API key for the copilot if you are using a remote LLM."
+                );
+                return;
             }
             throw error;
         }
@@ -80,6 +113,51 @@ class Chatbot {
             this.messages.shift();
         }
         return response;
+    }
+
+    async sendMessageStream(message: string, onChunk: (chunk: string) => void): Promise<string> {
+        await this.addMessage("user", message);
+        let fullResponse = "";
+        let buffer = "";
+        let chunkIndex = 0;
+
+        for await (const chunk of this.streamLLM(this.messages)) {
+            buffer += chunk;
+
+            // Send complete sentences instead of words
+            const sentences = buffer.split(/([.!?]+\s+)/);
+
+            if (sentences.length > 1) {
+                buffer = sentences.pop() || "";
+                const completeSentences = sentences.join("");
+                fullResponse += completeSentences;
+
+                // Send chunk with index
+                onChunk(
+                    JSON.stringify({
+                        index: chunkIndex++,
+                        content: completeSentences,
+                    })
+                );
+            }
+        }
+
+        // Send remaining content
+        if (buffer) {
+            fullResponse += buffer;
+            onChunk(
+                JSON.stringify({
+                    index: chunkIndex,
+                    content: buffer,
+                })
+            );
+        }
+
+        await this.addMessage("assistant", fullResponse);
+        if (this.messages.length > this.maxBuffer) {
+            this.messages.shift();
+        }
+        return fullResponse;
     }
 
     async getCompletion(prompt: string): Promise<string> {

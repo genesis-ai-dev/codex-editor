@@ -20,6 +20,7 @@ import ChatInput from "./ChatInput";
 interface ChatMessage {
     role: "user" | "assistant";
     content: string;
+    isStreaming?: boolean;
 }
 
 const vscode = acquireVsCodeApi();
@@ -30,15 +31,65 @@ function ParallelView() {
     const [lastQuery, setLastQuery] = useState<string>("");
     const [chatInput, setChatInput] = useState<string>("");
     const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+    const [pendingChunks, setPendingChunks] = useState<{ index: number; content: string }[]>([]);
+    const [nextChunkIndex, setNextChunkIndex] = useState(0);
+
+    // Helper function to process pending chunks in order
+    const processNextChunk = () => {
+        const nextChunk = pendingChunks.find((chunk) => chunk.index === nextChunkIndex);
+        if (nextChunk) {
+            setChatHistory((prev) => {
+                const newHistory = [...prev];
+                if (newHistory.length === 0 || !newHistory[newHistory.length - 1].isStreaming) {
+                    return [
+                        ...prev,
+                        {
+                            role: "assistant",
+                            content: nextChunk.content,
+                            isStreaming: true,
+                        },
+                    ];
+                }
+
+                const lastMessage = newHistory[newHistory.length - 1];
+                lastMessage.content = lastMessage.content + nextChunk.content;
+                return [...newHistory];
+            });
+
+            // Remove processed chunk and increment next expected index
+            setPendingChunks((prev) => prev.filter((chunk) => chunk.index !== nextChunkIndex));
+            setNextChunkIndex((prev) => prev + 1);
+        }
+    };
+
+    // Process pending chunks whenever they change
+    useEffect(() => {
+        processNextChunk();
+    }, [pendingChunks, nextChunkIndex]);
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             const message = event.data;
             if (message.command === "searchResults") {
                 setVerses([...lockedVerses, ...(message.data as TranslationPair[])]);
-            } else if (message.command === "chatResponse") {
-                // Add both user message and assistant response to history
-                setChatHistory((prev) => [...prev, { role: "assistant", content: message.data }]);
+            } else if (message.command === "chatResponseStream") {
+                try {
+                    const chunk = JSON.parse(message.data);
+                    setPendingChunks((prev) => [...prev, chunk]);
+                } catch (error) {
+                    console.error("Error parsing chunk:", error);
+                }
+            } else if (message.command === "chatResponseComplete") {
+                setChatHistory((prev) => {
+                    const newHistory = [...prev];
+                    if (newHistory.length > 0) {
+                        newHistory[newHistory.length - 1].isStreaming = false;
+                    }
+                    return newHistory;
+                });
+                // Reset indices for next stream
+                setNextChunkIndex(0);
+                setPendingChunks([]);
             }
         };
 
@@ -79,10 +130,16 @@ function ParallelView() {
         if (!chatInput.trim()) return;
 
         // Add user message to history immediately
-        setChatHistory((prev) => [...prev, { role: "user", content: chatInput }]);
+        setChatHistory((prev) => [
+            ...prev,
+            {
+                role: "user",
+                content: chatInput,
+            },
+        ]);
 
         vscode.postMessage({
-            command: "chat",
+            command: "chatStream",
             query: chatInput,
             context: verses.map((verse) => verse.cellId),
         });

@@ -152,5 +152,23 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
         )
     );
 
+    // Add new command for SmartPassages chat with streaming
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-smart-edits.chatStream",
+            async (cellIds: string[], query: string, onChunk: (chunk: string) => void) => {
+                try {
+                    await smartPassages.chatStream(cellIds, query, onChunk);
+                } catch (error) {
+                    console.error("Error in smart passages chat stream:", error);
+                    vscode.window.showErrorMessage(
+                        "Failed to process chat request. Please check the console for more details."
+                    );
+                    onChunk("Error processing request.");
+                }
+            }
+        )
+    );
+
     console.log("Smart Edit commands registered");
 };

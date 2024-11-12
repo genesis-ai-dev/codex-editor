@@ -22,6 +22,12 @@ export class SmartPassages {
         return response;
     }
 
+    async chatStream(cellIds: string[], query: string, onChunk: (chunk: string) => void) {
+        const formattedQuery = await this.formatQuery(cellIds, query);
+        const response = await this.chatbot.sendMessageStream(formattedQuery, onChunk);
+        return response;
+    }
+
     async formatQuery(cellIds: string[], query: string) {
         const cells: TranslationPair[] = [];
 
