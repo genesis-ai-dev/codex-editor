@@ -1157,7 +1157,6 @@
         "@vscode/python-extension": "^1.0.5",
         "@vscode/webview-ui-toolkit": "^1.4.0",
         "bible-reference-range": "^1.1.1",
-        "react-markdown": "^8.0.0",
         "codex-types": "^0.0.4",
         "copy-webpack-plugin": "^12.0.2",
         "date-fns": "^2.30.0",
