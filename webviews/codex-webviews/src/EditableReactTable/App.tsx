@@ -3,15 +3,12 @@ import { Table, Input, Button, Popconfirm, Tooltip, ConfigProvider, theme } from
 import type { ColumnsType } from "antd/es/table";
 import { vscode } from "./utilities/vscode";
 // import "./style.css";
-import {
-    DictionaryPostMessages,
-    DictionaryReceiveMessages,
-    DictionaryEntry,
-    Dictionary,
-} from "../../../../types";
+import { DictionaryPostMessages, DictionaryReceiveMessages, Dictionary } from "../../../../types";
 import debounce from "lodash.debounce";
 import { isEqual } from "lodash";
 import { useMeasure } from "@uidotdev/usehooks";
+import AddWordForm from "./AddWordForm";
+import { ConfirmDeleteButton } from "./ConfirmDeleteButton";
 
 interface DataType {
     key: React.Key;
@@ -50,6 +47,7 @@ const App: React.FC = () => {
     const [tableRef, { height: tableHeight }] = useMeasure();
     const [inputRef, { height: inputHeight }] = useMeasure();
     const [buttonRef, { height: buttonHeight }] = useMeasure();
+    const [addWordVisible, setAddWordVisible] = useState(false);
 
     const [dataSource, setDataSource] = useState<DataType[]>([]);
     const [columnNames, setColumnNames] = useState<string[]>([]);
@@ -151,8 +149,7 @@ const App: React.FC = () => {
                     command: "webviewTellsProviderToUpdateData",
                     operation: "delete",
                     entry: {
-                        headWord: itemToDelete.headWord,
-                        definition: itemToDelete.definition,
+                        id: itemToDelete.id,
                     },
                 } as DictionaryPostMessages);
             }
@@ -208,6 +205,7 @@ const App: React.FC = () => {
 
         const dataColumns = columnNames
             .filter((key) => key !== "id") // Hide the 'id' column
+            .filter((key) => key !== "isUserEntry") // Hide the 'isUserEntry' column
             .map((key) => ({
                 title: (
                     <Tooltip title={key}>
@@ -239,13 +237,7 @@ const App: React.FC = () => {
             fixed: "right" as const,
             width: 100,
             render: (_: any, record: DataType) => (
-                <Popconfirm
-                    title="Sure to delete?"
-                    onConfirm={() => handleDelete(record.key)}
-                    icon={<span className="codicon codicon-trash"></span>}
-                >
-                    <Button type="text" icon={<span className="codicon codicon-trash"></span>} />
-                </Popconfirm>
+                <ConfirmDeleteButton onConfirm={() => handleDelete(record.key)} />
             ),
         };
 
@@ -353,15 +345,37 @@ const App: React.FC = () => {
                     />
                 </div>
 
-                <Button
-                    ref={buttonRef}
-                    onClick={handleAdd}
-                    type="primary"
-                    style={{ marginBottom: "16px", alignSelf: "flex-start" }}
-                    icon={<span className="codicon codicon-add"></span>}
+                <div
+                    style={{
+                        display: "flex",
+                        flexDirection: "row",
+                        gap: "10px",
+                        justifyContent: "flex-end",
+                    }}
                 >
-                    Add a row
-                </Button>
+                    <Button
+                        ref={buttonRef}
+                        onClick={() =>
+                            vscode.postMessage({
+                                command: "callCommand",
+                                vscodeCommandName: "extension.importWiktionaryJSONL",
+                                args: [],
+                            } as DictionaryPostMessages)
+                        }
+                        type="primary"
+                        style={{ marginBottom: "16px", alignSelf: "flex-start" }}
+                        icon={<span className="codicon codicon-replace-all"></span>}
+                    ></Button>
+                    <Button
+                        ref={buttonRef}
+                        onClick={() => setAddWordVisible(true)}
+                        type="primary"
+                        style={{ marginBottom: "16px", alignSelf: "flex-start" }}
+                        icon={<span className="codicon codicon-replace"></span>}
+                    ></Button>
+                </div>
+
+                <AddWordForm visible={addWordVisible} onCancel={() => setAddWordVisible(false)} />
                 <div ref={tableRef}>
                     <Table
                         dataSource={dataSource}

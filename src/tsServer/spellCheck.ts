@@ -17,17 +17,8 @@ import {
 } from "vscode-languageserver/node";
 import { verseRefRegex } from "./types";
 import { SpellCheckResult } from "./types";
-import { Dictionary, DictionaryEntry } from "codex-types";
-import * as fs from "fs";
-import * as path from "path";
 import { URI } from "vscode-uri";
 import { cleanWord } from "../utils/cleaningUtils";
-import {
-    readDictionaryServer,
-    saveDictionaryServer,
-    addWordsToDictionary,
-} from "../utils/dictionaryUtils/server";
-import { Database } from "sql.js";
 
 let folderUri: URI | undefined;
 

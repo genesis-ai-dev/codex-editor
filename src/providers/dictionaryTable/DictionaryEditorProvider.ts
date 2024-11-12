@@ -8,9 +8,15 @@ import {
 } from "../../../types";
 import { getWorkSpaceUri } from "../../utils";
 import { isEqual } from "lodash";
-import { ensureCompleteEntry } from "../../utils/dictionaryUtils/common";
 import { Database } from "sql.js";
-import { getWords, getDefinitions, getPagedWords } from "../../sqldb";
+import {
+    getWords,
+    getDefinitions,
+    getPagedWords,
+    addWord,
+    deleteWord,
+    updateWord,
+} from "../../sqldb";
 
 type FetchPageResult = {
     entries: DictionaryEntry[];
@@ -126,35 +132,33 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
 
                     switch (e.operation) {
                         case "update":
-                            db.run(
-                                `
-                                INSERT OR REPLACE INTO entries (word, definition)
-                                VALUES (?, ?)
-                            `,
-                                [e.entry.headWord, e.entry.definition]
-                            );
+                            // TODO: this is not updating the database because the table is not sending updates here
+                            updateWord({
+                                db,
+                                id: e.entry.id,
+                                headWord: e.entry.headWord,
+                                definition: e.entry.definition,
+                                authorId: "", // TODO: get authorId
+                            });
+                            vscode.window.showInformationMessage(`✏️ "${e.entry.headWord}"`);
                             break;
 
                         case "delete":
-                            db.run(
-                                `
-                                DELETE FROM entries
-                                WHERE word = ?
-                            `,
-                                [e.entry.headWord]
-                            );
+                            deleteWord({ db, id: e.entry.id });
+                            vscode.window.showInformationMessage(`🗑️ ✅`);
+                            // );
                             break;
 
                         case "add":
                             if (e.entry.headWord) {
                                 // Only add if headWord is not empty
-                                db.run(
-                                    `
-                                    INSERT INTO entries (word, definition)
-                                    VALUES (?, ?)
-                                `,
-                                    [e.entry.headWord, e.entry.definition]
-                                );
+                                addWord({
+                                    db,
+                                    headWord: e.entry.headWord,
+                                    definition: e.entry.definition,
+                                    authorId: "", // TODO: get authorId
+                                });
+                                vscode.window.showInformationMessage(`"${e.entry.headWord}" → 📖`);
                             }
                             break;
                     }
@@ -180,6 +184,10 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
                             command: "providerTellsWebviewRemoveConfirmed",
                         } as DictionaryReceiveMessages);
                     }
+                    break;
+                }
+                case "callCommand": {
+                    await vscode.commands.executeCommand(e.vscodeCommandName, ...e.args);
                     break;
                 }
             }
@@ -236,38 +244,6 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
             </html>`;
     }
 
-    // private getDictionaryEntries(): Dictionary {
-    //     const db = (global as any).db as Database;
-    //     if (!db) {
-    //         throw new Error("SQLite database not initialized");
-    //     }
-
-    //     const words = getWords(db);
-    //     const entries: DictionaryEntry[] = words.map((word) => {
-    //         const definitions = getDefinitions(db, word);
-    //         return {
-    //             id: word,
-    //             headWord: word,
-    //             definition: definitions.join("\n"),
-    //             // Set default values for other required fields
-    //             headForm: "",
-    //             variantForms: [],
-    //             partOfSpeech: "",
-    //             etymology: "",
-    //             usage: "",
-    //             notes: [],
-    //             examples: [],
-    //             translationEquivalents: [],
-    //             links: [],
-    //             linkedEntries: [],
-    //             metadata: {},
-    //             hash: this.generateHash(word),
-    //         };
-    //     });
-
-    //     return { id: "", label: "", entries, metadata: {} };
-    // }
-
     private async updateTextDocument(
         document: vscode.TextDocument,
         dictionary: Dictionary,
@@ -285,7 +261,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
                 INSERT OR REPLACE INTO entries (word, definition)
                 VALUES (?, ?)
             `,
-                [entry.headWord, entry.definition]
+                [entry.headWord, entry.definition || ""]
             );
         });
 
@@ -321,16 +297,9 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
             id: entry.id || "",
             headWord: entry.headWord || "",
             definition: entry.definition || "",
-            hash: entry.hash || this.generateHash(entry.headWord || ""),
+            isUserEntry: entry.isUserEntry || false,
+            authorId: entry.authorId || "",
         };
-    }
-
-    private generateHash(word: string): string {
-        // Simple hash function for demonstration
-        return word
-            .split("")
-            .reduce((acc, char) => acc + char.charCodeAt(0), 0)
-            .toString();
     }
 
     private async refreshEditor(webviewPanel: vscode.WebviewPanel) {
@@ -366,12 +335,12 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
         }
     }
 
-    private parseEntriesFromJsonl(content: string): DictionaryEntry[] {
-        return content
-            .split("\n")
-            .filter((line) => line.trim() !== "")
-            .map((line) => ensureCompleteEntry(JSON.parse(line) as PartialDictionaryEntry));
-    }
+    // private parseEntriesFromJsonl(content: string): DictionaryEntry[] {
+    //     return content
+    //         .split("\n")
+    //         .filter((line) => line.trim() !== "")
+    //         .map((line) => ensureCompleteEntry(JSON.parse(line) as PartialDictionaryEntry));
+    // }
 
     private areEntriesEqual(entries1: DictionaryEntry[], entries2: DictionaryEntry[]): boolean {
         if (entries1.length !== entries2.length) return false;
@@ -437,14 +406,15 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
             throw new Error("SQLite database not initialized");
         }
 
-        const { words, total } = getPagedWords(db, page, pageSize, searchQuery);
+        const { words, total } = getPagedWords({ db, page, pageSize, searchQuery });
         const entries: DictionaryEntry[] = words.map((word) => {
             const definitions = getDefinitions(db, word);
             return {
                 id: word,
                 headWord: word,
                 definition: definitions.join("\n"),
-                hash: this.generateHash(word),
+                isUserEntry: false,
+                authorId: "",
             };
         });
 

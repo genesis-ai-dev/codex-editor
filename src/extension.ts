@@ -35,8 +35,12 @@ let clientCommandsDisposable: vscode.Disposable;
 let autoCompleteStatusBarItem: StatusBarItem;
 
 export async function activate(context: vscode.ExtensionContext) {
-    global.db = await initializeSqlJs(context);
-    console.log("initializeSqlJs db", global.db);
+    try {
+        global.db = await initializeSqlJs(context);
+        console.log("initializeSqlJs db", global.db);
+    } catch (error) {
+        console.error("Error initializing SqlJs:", error);
+    }
     if (global.db) {
         const importCommand = vscode.commands.registerCommand(
             "extension.importWiktionaryJSONL",

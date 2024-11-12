@@ -9,7 +9,6 @@ import {
     deserializeDictionaryEntries,
     serializeDictionaryEntries,
     repairDictionaryContent,
-    ensureCompleteEntry,
 } from "./dictionaryUtils/common";
 import { readDictionaryClient, saveDictionaryClient } from "./dictionaryUtils/client";
 import { CustomNotebookMetadata } from "../../types";

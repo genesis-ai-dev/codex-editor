@@ -266,8 +266,9 @@ export type SourceUploadResponseMessages =
 type DictionaryPostMessages =
     | {
           command: "webviewTellsProviderToUpdateData";
-          operation: "update" | "delete" | "add";
+          operation: "update" | "add";
           entry: {
+              id: string;
               headWord: string;
               definition: string;
           };
@@ -281,6 +282,13 @@ type DictionaryPostMessages =
               searchQuery?: string;
           };
       }
+    | {
+          command: "webviewTellsProviderToUpdateData";
+          operation: "delete";
+          entry: {
+              id: string;
+          };
+      }
     | { command: "webviewAsksProviderToConfirmRemove"; count: number; data: Dictionary }
     | { command: "updateEntryCount"; count: number }
     | { command: "updateFrequentWords"; words: string[] }
@@ -288,7 +296,8 @@ type DictionaryPostMessages =
           command: "updateWordFrequencies";
           wordFrequencies: { [key: string]: number };
       }
-    | { command: "updateDictionary"; content: Dictionary };
+    | { command: "updateDictionary"; content: Dictionary }
+    | { command: "callCommand"; vscodeCommandName: string; args: any[] };
 
 type DictionaryReceiveMessages =
     | { command: "providerTellsWebviewRemoveConfirmed" }
@@ -326,8 +335,9 @@ type ScripturePostMessages =
 type DictionaryEntry = {
     id: string;
     headWord: string;
-    definition: string;
-    hash: string;
+    definition?: string;
+    isUserEntry: boolean;
+    authorId?: string;
 };
 
 type SpellCheckResult = {

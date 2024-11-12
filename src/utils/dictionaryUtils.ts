@@ -85,7 +85,8 @@ export function ensureCompleteEntry(entry: Partial<DictionaryEntry>): Dictionary
         id: entry.id || generateUniqueId(),
         headWord: entry.headWord || "N/A",
         definition: entry.definition || "",
-        hash: entry.hash || generateHash(entry.headWord || ""),
+        isUserEntry: entry.isUserEntry || false,
+        authorId: entry.authorId || "",
     };
 }
 
@@ -94,17 +95,11 @@ function createDictionaryEntry(word: string): DictionaryEntry {
         id: generateUniqueId(),
         headWord: word,
         definition: "",
-        hash: generateHash(word),
+        isUserEntry: false,
+        authorId: "",
     };
 }
 
 function generateUniqueId(): string {
     return Math.random().toString(36).substr(2, 9);
-}
-
-function generateHash(word: string): string {
-    return word
-        .split("")
-        .reduce((acc, char) => acc + char.charCodeAt(0), 0)
-        .toString();
 }
