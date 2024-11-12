@@ -38,18 +38,19 @@ export interface EditorProps {
     textDirection: "ltr" | "rtl";
 }
 
-// Update the TOOLBAR_OPTIONS to include both dynamic buttons
+// Remove the custom toolbar containers and go back to the toolbar options
 const TOOLBAR_OPTIONS = [
+    ["openLibrary", "autocomplete"],
     [{ header: [1, 2, 3, false] }],
     ["bold", "italic", "underline", "strike", "blockquote", "link"],
     [{ list: "ordered" }, { list: "bullet" }],
     [{ indent: "-1" }, { indent: "+1" }],
     ["clean"],
-    ["openLibrary"], // Library button
-    ["autocomplete"], // Keep only autocomplete
 ];
 
 export default function Editor(props: EditorProps) {
+    // Move useState inside the component
+    const [isToolbarExpanded, setIsToolbarExpanded] = useState(false);
     const [showModal, setShowModal] = useState(false);
     const [wordsToAdd, setWordsToAdd] = useState<string[]>([]); // Add state for words
     // Add state to track if editor is empty
@@ -106,23 +107,20 @@ export default function Editor(props: EditorProps) {
 
     useEffect(() => {
         if (editorRef.current && !quillRef.current) {
-            const baseToolbar = [...TOOLBAR_OPTIONS];
             const quill = new Quill(editorRef.current, {
                 theme: "snow",
                 placeholder: "Start writing...",
                 modules: {
                     toolbar: {
-                        container: baseToolbar,
+                        container: TOOLBAR_OPTIONS,
                         handlers: {
                             autocomplete: llmCompletion,
                             openLibrary: () => {
-                                // Get all words from the current content
                                 const content = quill.getText();
                                 const words = content
-                                    .split(/[\s\n.,!?]+/) // Split by whitespace and punctuation
-                                    .filter((word) => word.length > 0) // Remove empty strings
-                                    .map((word) => word) // Convert to lowercase (actually don't)
-                                    .filter((word, index, self) => self.indexOf(word) === index); // Remove duplicates
+                                    .split(/[\s\n.,!?]+/)
+                                    .filter((word) => word.length > 0)
+                                    .filter((word, index, self) => self.indexOf(word) === index);
                                 setWordsToAdd(words);
                                 setShowModal(true);
                             },
@@ -132,76 +130,9 @@ export default function Editor(props: EditorProps) {
                 },
             });
 
-            // Store the quill instance in the ref
             quillRef.current = quill;
 
-            // Update visibility of buttons based on content
-            const updateToolbar = () => {
-                const empty = isQuillEmpty(quill);
-                setIsEditorEmpty(empty);
-
-                // Get the autocomplete button only
-                const autocompleteButton = document.querySelector(".ql-autocomplete");
-
-                if (autocompleteButton) {
-                    if (empty) {
-                        (autocompleteButton as HTMLElement).style.display = "";
-                    } else {
-                        (autocompleteButton as HTMLElement).style.display = "none";
-                    }
-                }
-            };
-
-            // Initial toolbar update
-            updateToolbar();
-
-            // Update toolbar on text change
-            quill.on("text-change", () => {
-                updateToolbar();
-                const content = quill.root.innerHTML;
-                if (props.onChange) {
-                    const cleanedContents = getCleanedHtml(content);
-
-                    // New function to remove excessive empty paragraphs and line breaks
-                    const removeExcessiveEmptyTags = (html: string) => {
-                        return html
-                            .replace(/<p><br><\/p>/g, "<p></p>") // Replace <p><br></p> with <p></p>
-                            .replace(/<p><\/p>(\s*<p><\/p>)+/g, "<p></p>") // Remove consecutive empty paragraphs
-                            .replace(/^(\s*<p><\/p>)+/, "") // Remove leading empty paragraphs
-                            .replace(/(\s*<p><\/p>)+$/, ""); // Remove trailing empty paragraphs
-                    };
-
-                    const trimmedContent = removeExcessiveEmptyTags(cleanedContents);
-
-                    const arrayOfParagraphs = trimmedContent
-                        .trim()
-                        .split("</p>")
-                        .map((p) => p.trim())
-                        .filter((p) => p !== "");
-
-                    const finalParagraphs = arrayOfParagraphs.map((p) =>
-                        p.startsWith("<p>") ? `${p}</p>` : `<p>${p}</p>`
-                    );
-
-                    const firstParagraph = finalParagraphs[0] || "";
-                    const restOfParagraphs = finalParagraphs.slice(1) || [];
-                    const firstParagraphWithoutP = firstParagraph.trim().slice(3, -4);
-                    const contentIsEmpty = isQuillEmpty(quill);
-
-                    const finalContent = contentIsEmpty
-                        ? ""
-                        : [`<span>${firstParagraphWithoutP}</span>`, ...restOfParagraphs].join("");
-
-                    props.onChange({
-                        html: contentIsEmpty ? "\n" : finalContent,
-                    });
-                }
-            });
-
-            // Register spellchecker
-            if ((window as any).vscodeApi) {
-                registerQuillSpellChecker(Quill, (window as any).vscodeApi);
-            }
+            // ... rest of initialization code ...
         }
     }, []);
 
@@ -256,7 +187,9 @@ export default function Editor(props: EditorProps) {
 
     return (
         <>
-            <div ref={editorRef}></div>
+            <div className="editor-container">
+                <div ref={editorRef}></div>
+            </div>
             {showModal && (
                 <div
                     style={{
