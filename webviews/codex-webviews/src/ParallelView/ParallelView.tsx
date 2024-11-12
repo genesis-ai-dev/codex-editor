@@ -16,6 +16,12 @@ import SearchBar from "./SearchBar";
 import VerseItem from "./CellItem";
 import ChatInput from "./ChatInput";
 
+// Add new interface for chat messages
+interface ChatMessage {
+    role: "user" | "assistant";
+    content: string;
+}
+
 const vscode = acquireVsCodeApi();
 
 function ParallelView() {
@@ -23,7 +29,7 @@ function ParallelView() {
     const [lockedVerses, setLockedVerses] = useState<TranslationPair[]>([]);
     const [lastQuery, setLastQuery] = useState<string>("");
     const [chatInput, setChatInput] = useState<string>("");
-    const [chatResponse, setChatResponse] = useState<string | null>(null);
+    const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
@@ -31,7 +37,8 @@ function ParallelView() {
             if (message.command === "searchResults") {
                 setVerses([...lockedVerses, ...(message.data as TranslationPair[])]);
             } else if (message.command === "chatResponse") {
-                setChatResponse(message.data);
+                // Add both user message and assistant response to history
+                setChatHistory((prev) => [...prev, { role: "assistant", content: message.data }]);
             }
         };
 
@@ -70,6 +77,9 @@ function ParallelView() {
 
     const handleChatSubmit = () => {
         if (!chatInput.trim()) return;
+
+        // Add user message to history immediately
+        setChatHistory((prev) => [...prev, { role: "user", content: chatInput }]);
 
         vscode.postMessage({
             command: "chat",
@@ -114,17 +124,26 @@ function ParallelView() {
                         </p>
                     )}
                     <VSCodeDivider />
-                    {chatResponse && (
-                        <div
-                            className="chat-response"
-                            style={{
-                                padding: "12px",
-                                margin: "12px 0",
-                                background: "var(--vscode-editor-background)",
-                                borderRadius: "6px",
-                            }}
-                        >
-                            <ReactMarkdown>{chatResponse}</ReactMarkdown>
+                    {chatHistory.length > 0 && (
+                        <div className="chat-history">
+                            {chatHistory.map((message, index) => (
+                                <div
+                                    key={index}
+                                    className={`chat-message ${message.role}`}
+                                    style={{
+                                        padding: "12px",
+                                        margin: "12px 0",
+                                        background: "var(--vscode-editor-background)",
+                                        borderRadius: "6px",
+                                        borderLeft:
+                                            message.role === "assistant"
+                                                ? "4px solid var(--vscode-textLink-foreground)"
+                                                : "none",
+                                    }}
+                                >
+                                    <ReactMarkdown>{message.content}</ReactMarkdown>
+                                </div>
+                            ))}
                         </div>
                     )}
                     <VSCodeDivider />

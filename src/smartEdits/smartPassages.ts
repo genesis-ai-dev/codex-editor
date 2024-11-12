@@ -31,7 +31,28 @@ export class SmartPassages {
                 cellId
             );
             console.log(`Pair: ${JSON.stringify(pair)}`);
-            if (pair) {
+            if (pair && pair.targetCell.uri) {
+                try {
+                    // Get the file content similar to SmartEdits
+                    let filePath = pair.targetCell.uri
+                        .toString()
+                        .replace(".source", ".codex")
+                        .replace(".project/sourceTexts/", "files/target/");
+                    filePath = filePath.replace(".source", ".codex");
+                    const fileUri = vscode.Uri.parse(filePath);
+                    const fileContent = await vscode.workspace.fs.readFile(fileUri);
+                    const jsonContent = JSON.parse(fileContent.toString());
+
+                    // Find the cell and get its edits
+                    const cell = jsonContent.cells.find(
+                        (cell: any) => cell.metadata.id === pair.cellId
+                    );
+                    if (cell) {
+                        pair.edits = cell.metadata.edits || [];
+                    }
+                } catch (error) {
+                    console.error(`Error reading file for cellId ${pair.cellId}:`, error);
+                }
                 cells.push(pair);
             }
         }
