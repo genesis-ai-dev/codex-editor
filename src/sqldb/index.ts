@@ -128,12 +128,12 @@ export const registerLookupWordCommand = (db: Database, context: vscode.Extensio
     context.subscriptions.push(disposable);
 };
 
-export const addWord = ({
+export const addWord = async ({
     db,
     headWord,
     definition,
     authorId,
-    isUserEntry = false,
+    isUserEntry = true,
 }: {
     db: Database;
     headWord: string;
@@ -154,12 +154,16 @@ export const addWord = ({
         const id = crypto.randomUUID(); // You'll need to import crypto
         stmt.bind([id, headWord, definition, isUserEntry ? 1 : 0, authorId]);
         stmt.step();
+
+        if (isUserEntry) {
+            await exportUserEntries(db);
+        }
     } finally {
         stmt.free();
     }
 };
 
-export const bulkAddWords = (db: Database, entries: DictionaryEntry[]) => {
+export const bulkAddWords = async (db: Database, entries: DictionaryEntry[]) => {
     const stmt = db.prepare(
         `INSERT INTO entries (id, head_word, definition, is_user_entry, author_id) 
          VALUES (?, ?, ?, ?, ?)
@@ -183,19 +187,13 @@ export const bulkAddWords = (db: Database, entries: DictionaryEntry[]) => {
             stmt.reset();
         });
         db.run("COMMIT");
+        await exportUserEntries(db);
     } catch (error) {
         db.run("ROLLBACK");
         throw error;
     } finally {
         stmt.free();
     }
-};
-
-export const removeWord = ({ db, id }: { db: Database; id: string }) => {
-    const stmt = db.prepare("DELETE FROM entries WHERE id = ?");
-    stmt.bind([id]);
-    stmt.step();
-    stmt.free();
 };
 
 export const getWords = (db: Database) => {
@@ -252,7 +250,7 @@ export async function importWiktionaryJSONL(db: Database) {
     }
 }
 
-export const updateWord = ({
+export const updateWord = async ({
     db,
     id,
     definition,
@@ -284,18 +282,40 @@ export const updateWord = ({
             id,
         ]);
         stmt.step();
+
+        if (isUserEntry) {
+            await exportUserEntries(db);
+        }
     } finally {
         stmt.free();
     }
 };
 
-export const deleteWord = ({ db, id }: { db: Database; id: string }) => {
-    const stmt = db.prepare("DELETE FROM entries WHERE id = ?");
+export const deleteWord = async ({ db, id }: { db: Database; id: string }) => {
+    // First check if it's a user entry
+    const checkStmt = db.prepare("SELECT is_user_entry FROM entries WHERE id = ?");
+    let isUserEntry = false;
     try {
-        stmt.bind([id]);
-        stmt.step();
+        checkStmt.bind([id]);
+        if (checkStmt.step()) {
+            isUserEntry = !!checkStmt.get()[0];
+        }
     } finally {
-        stmt.free();
+        checkStmt.free();
+    }
+
+    // Delete the entry
+    const deleteStmt = db.prepare("DELETE FROM entries WHERE id = ?");
+    try {
+        deleteStmt.bind([id]);
+        deleteStmt.step();
+
+        // If it was a user entry, trigger export
+        if (isUserEntry) {
+            await exportUserEntries(db);
+        }
+    } finally {
+        deleteStmt.free();
     }
 };
 
@@ -359,4 +379,40 @@ export const getPagedWords = ({
     }
 
     return { words, total };
+};
+
+export const exportUserEntries = (db: Database) => {
+    const stmt = db.prepare(
+        "SELECT head_word, definition, author_id, is_user_entry FROM entries WHERE is_user_entry = 1"
+    );
+    const entries: DictionaryEntry[] = [];
+
+    try {
+        while (stmt.step()) {
+            const row = stmt.getAsObject();
+            entries.push({
+                headWord: row.head_word as string,
+                definition: row.definition as string,
+                authorId: row.author_id as string,
+                isUserEntry: row.is_user_entry === 1,
+                id: row.id as string,
+            });
+        }
+    } finally {
+        stmt.free();
+    }
+
+    // Convert entries to JSONL format
+    const jsonlContent = entries.map((entry) => JSON.stringify(entry)).join("\n");
+
+    // Save to file in workspace
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (workspaceFolder) {
+        const exportPath = vscode.Uri.joinPath(workspaceFolder.uri, "files", "project.dictionary");
+
+        vscode.workspace.fs.writeFile(exportPath, Buffer.from(jsonlContent, "utf-8"));
+        vscode.window.showInformationMessage("User dictionary entries exported successfully");
+    } else {
+        vscode.window.showErrorMessage("No workspace folder found");
+    }
 };
