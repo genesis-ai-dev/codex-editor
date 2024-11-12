@@ -27,7 +27,7 @@ const vscode = acquireVsCodeApi();
 
 function ParallelView() {
     const [verses, setVerses] = useState<TranslationPair[]>([]);
-    const [lockedVerses, setLockedVerses] = useState<TranslationPair[]>([]);
+    const [pinnedVerses, setPinnedVerses] = useState<TranslationPair[]>([]);
     const [lastQuery, setLastQuery] = useState<string>("");
     const [chatInput, setChatInput] = useState<string>("");
     const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
@@ -71,7 +71,7 @@ function ParallelView() {
         const handleMessage = (event: MessageEvent) => {
             const message = event.data;
             if (message.command === "searchResults") {
-                setVerses([...lockedVerses, ...(message.data as TranslationPair[])]);
+                setVerses([...pinnedVerses, ...(message.data as TranslationPair[])]);
             } else if (message.command === "chatResponseStream") {
                 try {
                     const chunk = JSON.parse(message.data);
@@ -95,7 +95,7 @@ function ParallelView() {
 
         window.addEventListener("message", handleMessage);
         return () => window.removeEventListener("message", handleMessage);
-    }, [lockedVerses]);
+    }, [pinnedVerses]);
 
     const handleUriClick = (uri: string, word: string) => {
         console.log("handleUriClick", uri, word);
@@ -118,11 +118,11 @@ function ParallelView() {
         });
     };
 
-    const handleLockToggle = (item: TranslationPair, isLocked: boolean) => {
-        if (isLocked) {
-            setLockedVerses([...lockedVerses, item]);
+    const handlePinToggle = (item: TranslationPair, isPinned: boolean) => {
+        if (isPinned) {
+            setPinnedVerses([...pinnedVerses, item]);
         } else {
-            setLockedVerses(lockedVerses.filter((v) => v.cellId !== item.cellId));
+            setPinnedVerses(pinnedVerses.filter((v) => v.cellId !== item.cellId));
         }
     };
 
@@ -147,69 +147,98 @@ function ParallelView() {
     };
 
     const handleChatFocus = () => {
-        setVerses([...lockedVerses]);
+        setVerses([...pinnedVerses]);
     };
 
     return (
         <VSCodePanels>
             <VSCodePanelTab id="tab1">Parallel Passages</VSCodePanelTab>
             <VSCodePanelView id="view1">
-                <div className="container">
-                    <SearchBar
-                        query={lastQuery}
-                        onQueryChange={setLastQuery}
-                        onSearch={(event) => {
-                            searchBoth(lastQuery, event);
+                <div
+                    className="container"
+                    style={{ display: "flex", flexDirection: "column", height: "100%" }}
+                >
+                    <div
+                        style={{
+                            backgroundColor: "var(--vscode-editor-background)",
+                            flexShrink: 0, // Prevent search bar from shrinking
                         }}
-                    />
-                    <VSCodeDivider />
-                    {verses.length > 0 ? (
-                        <div className="verses-container">
-                            {verses.map((item, index) => (
-                                <VerseItem
-                                    key={index}
-                                    item={item}
-                                    onUriClick={handleUriClick}
-                                    isLocked={lockedVerses.some((v) => v.cellId === item.cellId)}
-                                    onLockToggle={handleLockToggle}
-                                />
-                            ))}
-                        </div>
-                    ) : (
-                        <p className="no-results">
-                            No results found. Try a different search query.
-                        </p>
-                    )}
-                    <VSCodeDivider />
-                    {chatHistory.length > 0 && (
-                        <div className="chat-history">
-                            {chatHistory.map((message, index) => (
-                                <div
-                                    key={index}
-                                    className={`chat-message ${message.role}`}
-                                    style={{
-                                        padding: "12px",
-                                        margin: "12px 0",
-                                        background: "var(--vscode-editor-background)",
-                                        borderRadius: "6px",
-                                        borderLeft:
-                                            message.role === "assistant"
-                                                ? "4px solid var(--vscode-textLink-foreground)"
-                                                : "none",
-                                    }}
-                                >
-                                    <ReactMarkdown>{message.content}</ReactMarkdown>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                    <VSCodeDivider />
-                    <ChatInput
-                        value={chatInput}
-                        onChange={setChatInput}
-                        onSubmit={handleChatSubmit}
-                        onFocus={handleChatFocus}
-                    />
+                    >
+                        <SearchBar
+                            query={lastQuery}
+                            onQueryChange={setLastQuery}
+                            onSearch={(event) => {
+                                searchBoth(lastQuery, event);
+                            }}
+                        />
+                        <VSCodeDivider />
+                    </div>
+
+                    {/* Main scrollable content area */}
+                    <div
+                        style={{
+                            flex: 1,
+                            overflowY: "auto",
+                            minHeight: 0, // Important! Allows flex child to scroll
+                        }}
+                    >
+                        {verses.length > 0 ? (
+                            <div className="verses-container">
+                                {verses.map((item, index) => (
+                                    <VerseItem
+                                        key={index}
+                                        item={item}
+                                        onUriClick={handleUriClick}
+                                        isPinned={pinnedVerses.some(
+                                            (v) => v.cellId === item.cellId
+                                        )}
+                                        onPinToggle={handlePinToggle}
+                                    />
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="no-results">
+                                No results found. Try a different search query.
+                            </p>
+                        )}
+                        {chatHistory.length > 0 && (
+                            <div className="chat-history">
+                                {chatHistory.map((message, index) => (
+                                    <div
+                                        key={index}
+                                        className={`chat-message ${message.role}`}
+                                        style={{
+                                            padding: "12px",
+                                            margin: "12px 0",
+                                            background: "var(--vscode-editor-background)",
+                                            borderRadius: "6px",
+                                            borderLeft:
+                                                message.role === "assistant"
+                                                    ? "4px solid var(--vscode-textLink-foreground)"
+                                                    : "none",
+                                        }}
+                                    >
+                                        <ReactMarkdown>{message.content}</ReactMarkdown>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    <div
+                        style={{
+                            backgroundColor: "var(--vscode-editor-background)",
+                            flexShrink: 0, // Prevent chat input from shrinking
+                        }}
+                    >
+                        <VSCodeDivider />
+                        <ChatInput
+                            value={chatInput}
+                            onChange={setChatInput}
+                            onSubmit={handleChatSubmit}
+                            onFocus={handleChatFocus}
+                        />
+                    </div>
                 </div>
             </VSCodePanelView>
         </VSCodePanels>

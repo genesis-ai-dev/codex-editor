@@ -6,11 +6,11 @@ import "./cellItem.css";
 interface CellItemProps {
     item: TranslationPair;
     onUriClick: (uri: string, word: string) => void;
-    isLocked: boolean;
-    onLockToggle: (item: TranslationPair, isLocked: boolean) => void;
+    isPinned: boolean;
+    onPinToggle: (item: TranslationPair, isPinned: boolean) => void;
 }
 
-const CellItem: React.FC<CellItemProps> = ({ item, onUriClick, isLocked, onLockToggle }) => {
+const CellItem: React.FC<CellItemProps> = ({ item, onUriClick, isPinned, onPinToggle }) => {
     const handleCopy = (text: string) => {
         navigator.clipboard.writeText(text);
     };
@@ -21,18 +21,18 @@ const CellItem: React.FC<CellItemProps> = ({ item, onUriClick, isLocked, onLockT
     };
 
     return (
-        <div className={`verse-item ${isLocked ? "locked" : ""}`}>
+        <div className={`verse-item ${isPinned ? "pinned" : ""}`}>
             <div className="verse-header">
                 <div className="verse-badges">
                     <VSCodeBadge className="verse-badge">{item.cellId}</VSCodeBadge>
-                    {isLocked && <span className="locked-text">Locked</span>}
+                    {isPinned && <span className="locked-text">Pinned</span>}
                 </div>
                 <VSCodeButton
                     appearance="icon"
-                    aria-label={isLocked ? "Unlock" : "Lock"}
-                    onClick={() => onLockToggle(item, !isLocked)}
+                    aria-label={isPinned ? "Unpin" : "Pin"}
+                    onClick={() => onPinToggle(item, !isPinned)}
                 >
-                    <span className={`codicon codicon-${isLocked ? "lock" : "unlock"}`}></span>
+                    <span className={`codicon codicon-${isPinned ? "pinned" : "pin"}`}></span>
                 </VSCodeButton>
             </div>
 
