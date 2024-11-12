@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { SmartEdits } from "./smartEdits";
 import { PromptedSmartEdits } from "./smartPrompts";
 import { getWorkSpaceFolder } from "../utils";
+import { SmartPassages } from "./smartPassages";
 
 export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
     const workspaceFolder = getWorkSpaceFolder();
@@ -12,6 +13,7 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
 
     const smartEdits = new SmartEdits(vscode.Uri.file(workspaceFolder));
     const promptedSmartEdits = new PromptedSmartEdits(vscode.Uri.file(workspaceFolder));
+    const smartPassages = new SmartPassages();
 
     context.subscriptions.push(
         vscode.commands.registerCommand(
@@ -126,6 +128,25 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
                 } catch (error) {
                     console.error("Error updating edit history:", error);
                     return false;
+                }
+            }
+        )
+    );
+
+    // Add new command for SmartPassages chat
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-smart-edits.chat",
+            async (cellIds: string[], query: string) => {
+                try {
+                    const response = await smartPassages.chat(cellIds, query);
+                    return response;
+                } catch (error) {
+                    console.error("Error in smart passages chat:", error);
+                    vscode.window.showErrorMessage(
+                        "Failed to process chat request. Please check the console for more details."
+                    );
+                    return null;
                 }
             }
         )

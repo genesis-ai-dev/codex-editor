@@ -10,9 +10,11 @@ import {
 import "./App.css";
 import { OpenFileMessage } from "./types";
 import { TranslationPair } from "../../../../types";
+import ReactMarkdown from "react-markdown";
 
 import SearchBar from "./SearchBar";
 import VerseItem from "./CellItem";
+import ChatInput from "./ChatInput";
 
 const vscode = acquireVsCodeApi();
 
@@ -21,12 +23,15 @@ function ParallelView() {
     const [lockedVerses, setLockedVerses] = useState<TranslationPair[]>([]);
     const [lastQuery, setLastQuery] = useState<string>("");
     const [chatInput, setChatInput] = useState<string>("");
+    const [chatResponse, setChatResponse] = useState<string | null>(null);
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             const message = event.data;
             if (message.command === "searchResults") {
                 setVerses([...lockedVerses, ...(message.data as TranslationPair[])]);
+            } else if (message.command === "chatResponse") {
+                setChatResponse(message.data);
             }
         };
 
@@ -63,6 +68,21 @@ function ParallelView() {
         }
     };
 
+    const handleChatSubmit = () => {
+        if (!chatInput.trim()) return;
+
+        vscode.postMessage({
+            command: "chat",
+            query: chatInput,
+            context: verses.map((verse) => verse.cellId),
+        });
+        setChatInput("");
+    };
+
+    const handleChatFocus = () => {
+        setVerses([...lockedVerses]);
+    };
+
     return (
         <VSCodePanels>
             <VSCodePanelTab id="tab1">Parallel Passages</VSCodePanelTab>
@@ -94,6 +114,26 @@ function ParallelView() {
                         </p>
                     )}
                     <VSCodeDivider />
+                    {chatResponse && (
+                        <div
+                            className="chat-response"
+                            style={{
+                                padding: "12px",
+                                margin: "12px 0",
+                                background: "var(--vscode-editor-background)",
+                                borderRadius: "6px",
+                            }}
+                        >
+                            <ReactMarkdown>{chatResponse}</ReactMarkdown>
+                        </div>
+                    )}
+                    <VSCodeDivider />
+                    <ChatInput
+                        value={chatInput}
+                        onChange={setChatInput}
+                        onSubmit={handleChatSubmit}
+                        onFocus={handleChatFocus}
+                    />
                 </div>
             </VSCodePanelView>
         </VSCodePanels>

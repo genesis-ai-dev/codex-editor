@@ -106,3 +106,19 @@ vscode-badge {
         align-self: flex-end;
     }
 }
+
+.chat-input-container {
+    padding: 16px;
+}
+
+.default-prompts {
+    margin-bottom: 8px;
+    display: flex;
+    gap: 8px;
+}
+
+.input-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+}

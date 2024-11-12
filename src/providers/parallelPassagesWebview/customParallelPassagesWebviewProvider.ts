@@ -33,6 +33,28 @@ async function openFileAtLocation(uri: string, cellId: string) {
     }
 }
 
+async function handleChat(webviewView: vscode.WebviewView, cellIds: string[], query: string) {
+    try {
+        const response = await vscode.commands.executeCommand<string>(
+            "codex-smart-edits.chat",
+            cellIds,
+            query
+        );
+        if (response) {
+            webviewView.webview.postMessage({
+                command: "chatResponse",
+                data: response,
+            });
+        }
+    } catch (error) {
+        console.error("Error in chat:", error);
+        webviewView.webview.postMessage({
+            command: "chatResponse",
+            data: "Error: Failed to process chat request.",
+        });
+    }
+}
+
 const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.Uri) => {
     webviewView.webview.options = {
         enableScripts: true,
@@ -111,6 +133,9 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
         switch (message.command) {
             case "openFileAtLocation":
                 await openFileAtLocation(message.uri, message.word);
+                break;
+            case "chat":
+                await handleChat(webviewView, message.context, message.query);
                 break;
             case "search":
                 if (message.database === "both") {

@@ -2,20 +2,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 import Chatbot from "./chat";
 import { TranslationPair } from "../../types";
-
-interface SavedPrompt {
-    cellId: string;
-    prompt: string;
-    lastUpdated: number;
-    updateCount: number;
-}
-interface TargetCell {
-    cellId: string;
-    targetContent: string;
-    id?: string;
-    score?: number;
-    sourceContent?: string;
-}
+import { SavedPrompt, TargetCell } from "./types";
 
 const SYSTEM_MESSAGE = `You are a helpful assistant that modifies text and manages prompts.
 Your response should follow this json format:
