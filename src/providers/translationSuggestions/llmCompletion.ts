@@ -42,7 +42,7 @@ export async function llmCompletion(
         // Get similar source cells
         const similarSourceCells: TranslationPair[] = await vscode.commands.executeCommand(
             "translators-copilot.getTranslationPairsFromSourceCellQuery",
-            sourceContent,
+            sourceContent || "empty",
             numberOfFewShotExamples
         );
 
