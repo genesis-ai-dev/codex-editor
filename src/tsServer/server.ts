@@ -18,11 +18,10 @@ import {
     ReplacementsEntity,
 } from "../../webviews/codex-webviews/src/CodexCellEditor/react-quill-spellcheck/types";
 import { RequestType } from "vscode-languageserver";
-import { debug } from "console";
 import { tokenizeText } from "../utils/nlpUtils";
 import { GetAlertCodes, AlertCodesServerResponse } from "@types";
 
-const DEBUG_MODE = true; // Flag for debug mode
+const DEBUG_MODE = false; // Flag for debug mode
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
