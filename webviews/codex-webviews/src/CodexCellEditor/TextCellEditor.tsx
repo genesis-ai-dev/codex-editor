@@ -410,28 +410,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
         });
     };
 
-    const handleApplySelectedPrompts = async () => {
-        for (const prompt of selectedPrompts) {
-            const messageContent: EditorPostMessages = {
-                command: "applyPromptedEdit",
-                content: {
-                    text: contentBeingUpdated.cellContent,
-                    prompt: prompt,
-                    cellId: cellMarkers[0],
-                },
-            };
-            window.vscodeApi.postMessage(messageContent);
-        }
-        // Clear selections and hide entire prompts section
-        setSelectedPrompts(new Set());
-        setShowPromptsSection(false);
-    };
-
     const handlePromptEdit = (index: number, event: React.MouseEvent) => {
-        // Stop the event from reaching the checkbox
         event.preventDefault();
         event.stopPropagation();
-
         setEditingPromptIndex(index);
         setEditingPromptText(visiblePrompts[index]);
     };
@@ -440,11 +421,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
         if (editingPromptIndex !== null) {
             const newPrompts = [...visiblePrompts];
             newPrompts[editingPromptIndex] = editingPromptText;
-
-            // Update visible prompts
             setVisiblePrompts(newPrompts);
 
-            // Update selected prompts
             setSelectedPrompts((prev) => {
                 const newSet = new Set(prev);
                 newSet.delete(visiblePrompts[editingPromptIndex]);
@@ -460,6 +438,22 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const handlePromptEditCancel = () => {
         setEditingPromptIndex(null);
         setEditingPromptText("");
+    };
+
+    const handleApplySelectedPrompts = async () => {
+        for (const prompt of selectedPrompts) {
+            const messageContent: EditorPostMessages = {
+                command: "applyPromptedEdit",
+                content: {
+                    text: contentBeingUpdated.cellContent,
+                    prompt: prompt,
+                    cellId: cellMarkers[0],
+                },
+            };
+            window.vscodeApi.postMessage(messageContent);
+        }
+        setSelectedPrompts(new Set());
+        setShowPromptsSection(false);
     };
 
     return (
@@ -582,6 +576,78 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     textDirection={textDirection}
                 />
             </div>
+
+            {showPromptsSection && visiblePrompts.length > 0 && (
+                <div className="top-prompts-section">
+                    <div className="prompts-header">
+                        <h4>Suggested Prompts</h4>
+                        <VSCodeButton
+                            appearance="icon"
+                            onClick={() => setIsPromptsExpanded(!isPromptsExpanded)}
+                        >
+                            <i
+                                className={`codicon codicon-chevron-${
+                                    isPromptsExpanded ? "up" : "down"
+                                }`}
+                            ></i>
+                        </VSCodeButton>
+                    </div>
+
+                    {isPromptsExpanded && (
+                        <>
+                            <ul className="prompts-list">
+                                {visiblePrompts.map((prompt, index) => (
+                                    <li key={index} className="prompt-item">
+                                        {editingPromptIndex === index ? (
+                                            <div className="prompt-edit-container">
+                                                <input
+                                                    type="text"
+                                                    value={editingPromptText}
+                                                    onChange={(e) =>
+                                                        setEditingPromptText(e.target.value)
+                                                    }
+                                                    className="edit-prompt-input"
+                                                />
+                                                <div className="prompt-edit-buttons">
+                                                    <VSCodeButton onClick={handlePromptEditSave}>
+                                                        Save
+                                                    </VSCodeButton>
+                                                    <VSCodeButton onClick={handlePromptEditCancel}>
+                                                        Cancel
+                                                    </VSCodeButton>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="prompt-display-container">
+                                                <VSCodeCheckbox
+                                                    checked={selectedPrompts.has(prompt)}
+                                                    onChange={() => handlePromptSelect(prompt)}
+                                                >
+                                                    {prompt}
+                                                </VSCodeCheckbox>
+                                                <VSCodeButton
+                                                    appearance="icon"
+                                                    onClick={(e) => handlePromptEdit(index, e)}
+                                                >
+                                                    <i className="codicon codicon-edit"></i>
+                                                </VSCodeButton>
+                                            </div>
+                                        )}
+                                    </li>
+                                ))}
+                            </ul>
+                            <div className="prompts-actions">
+                                <VSCodeButton
+                                    onClick={handleApplySelectedPrompts}
+                                    disabled={selectedPrompts.size === 0}
+                                >
+                                    Apply Selected Prompts
+                                </VSCodeButton>
+                            </div>
+                        </>
+                    )}
+                </div>
+            )}
         </div>
     );
 };
