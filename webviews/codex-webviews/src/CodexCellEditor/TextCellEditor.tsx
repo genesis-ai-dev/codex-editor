@@ -676,7 +676,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     key={`${cellIndex}-quill`}
                     initialValue={editorContent}
                     spellCheckResponse={spellCheckResponse}
-                    onChange={debounce(({ html }) => {
+                    onChange={({ html }) => {
                         setEditorContent(html);
                         setContentBeingUpdated({
                             cellMarkers,
@@ -684,7 +684,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             cellChanged: true,
                             cellLabel: editableLabel,
                         });
-                    }, 300)}
+                    }}
                     textDirection={textDirection}
                 />
             </div>
