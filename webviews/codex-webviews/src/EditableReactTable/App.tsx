@@ -243,7 +243,6 @@ const App: React.FC = () => {
             const message = event.data;
             if (message.command === "providerTellsWebviewToUpdateData") {
                 const { entries, total, page, pageSize } = message.data;
-                console.log("entries in app", entries);
                 const newDataSource = entries.map((entry, index) => ({
                     key: (page - 1) * pageSize + index,
                     ...entry,
