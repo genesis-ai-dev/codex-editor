@@ -114,13 +114,6 @@
 .prompt-text:hover {
     text-decoration: underline;
 }
-/* 
-.ql-toolbar .ql-picker-options {
-    z-index: 0;
-    top: auto !important;
-    bottom: 100% !important;
-} */
-
 .quill {
     width: 100%;
     margin: 0;
