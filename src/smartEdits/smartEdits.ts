@@ -160,12 +160,8 @@ export class SmartEdits {
                 try {
                     let filePath = entry.targetCell.uri
                         .toString()
-                        .split(path.sep)
-                        .join("/") // Normalize path separators
-                        .replace(
-                            path.join(".project", "sourceTexts").split(path.sep).join("/"),
-                            path.join("files", "target").split(path.sep).join("/")
-                        );
+                        .replace(".source", ".codex")
+                        .replace(".project/sourceTexts/", "files/target/");
                     filePath = filePath.replace(".source", ".codex");
                     const fileUri = vscode.Uri.parse(filePath);
                     const fileContent = await vscode.workspace.fs.readFile(fileUri);
