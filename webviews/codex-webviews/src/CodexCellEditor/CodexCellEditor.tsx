@@ -179,9 +179,19 @@ const CodexCellEditor: React.FC = () => {
     };
 
     const handleSaveHtml = () => {
+        const content = contentBeingUpdated;
+        // Remove <quill-...> tags and <p> tags, then enclose in a <span>
+        const filteredContent = content.cellContent
+            .replace(/<quill[^>]*>.*?<\/quill[^>]*>/g, "") // Remove <quill-...> tags
+            .replace(/<p>/g, "") // Remove opening <p> tags
+            .replace(/<\/p>/g, "") // Remove closing </p> tags
+            .trim(); // Trim whitespace
+
+        const wrappedContent = `<span>${filteredContent}</span>`; // Enclose in <span>
+
         vscode.postMessage({
             command: "saveHtml",
-            content: contentBeingUpdated,
+            content: { ...content, cellContent: wrappedContent }, // Update content with wrapped content
         } as EditorPostMessages);
         checkAlertCodes();
         handleCloseEditor();
