@@ -47,7 +47,6 @@ export const initializeSqlJs = async (context: vscode.ExtensionContext) => {
     let SQL: SqlJsStatic | undefined;
     try {
         const sqlWasmPath = vscode.Uri.joinPath(context.extensionUri, "out", "sql-wasm.wasm");
-        console.log("SQL WASM Path:", sqlWasmPath.fsPath);
 
         SQL = await initSqlJs({
             locateFile: (file: string) => {
@@ -78,10 +77,9 @@ export const initializeSqlJs = async (context: vscode.ExtensionContext) => {
     const dbPath = vscode.Uri.joinPath(workspaceFolder.uri, ...dictionaryDbPath);
 
     let fileBuffer: Uint8Array;
-    console.log("dbPath", dbPath);
+
     try {
-        // Use a stream to read the database file
-        console.log("Trying to read existing database using stream");
+        // NOTE: Use a stream to read the database file to avoid memory issues that can arise from large files and crashes the app
         const fileStream = fs.createReadStream(dbPath.fsPath);
         const chunks: Buffer[] = [];
 
