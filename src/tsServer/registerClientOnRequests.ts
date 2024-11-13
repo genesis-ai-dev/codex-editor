@@ -25,7 +25,7 @@ export default async function registerClientOnRequests(client: LanguageClient, d
                 if (!db) return { exists: false };
 
                 const entry = getEntry(db, word, caseSensitive);
-                return { exists: entry !== undefined };
+                return { exists: entry };
             } catch (error) {
                 console.error("Error in checkWord:", error);
                 return { exists: false };

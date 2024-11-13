@@ -160,12 +160,13 @@ connection.onRequest("spellcheck/check", async (params: { text: string; cellChan
     for (const word of words) {
         if (!word) continue; // Skip empty words
         const spellCheckResult = await spellChecker.spellCheck(word);
+        debugLog("SERVER: spellCheckResult:", { spellCheckResult });
         if (!spellCheckResult) continue;
 
         const offset = text.indexOf(word, 0);
         if (offset === -1) continue;
 
-        if (spellCheckResult.corrections && spellCheckResult.corrections.length > 0) {
+        if (spellCheckResult.wordIsFoundInDictionary === false) {
             matches.push({
                 id: `UNKNOWN_WORD_${matches.length}`,
                 text: word,

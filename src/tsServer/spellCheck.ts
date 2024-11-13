@@ -54,14 +54,14 @@ export class SpellChecker {
             });
 
             if (response.exists) {
-                return { word: originalWord, corrections: [] };
+                return { word: originalWord, wordIsFoundInDictionary: true, corrections: [] };
             }
 
             const suggestions = await this.getSuggestions(originalWord);
-            return { word: originalWord, corrections: suggestions };
+            return { word: originalWord, wordIsFoundInDictionary: false, corrections: suggestions };
         } catch (error) {
             console.error("Error in spellCheck:", error);
-            return { word: originalWord, corrections: [] };
+            return { word: originalWord, wordIsFoundInDictionary: false, corrections: [] };
         }
     }
 
