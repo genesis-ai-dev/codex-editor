@@ -15,6 +15,7 @@ import { useVSCodeMessageHandler } from "./hooks/useVSCodeMessageHandler";
 import { VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
 import VideoPlayer from "./VideoPlayer";
 import registerQuillSpellChecker from "./react-quill-spellcheck";
+import { getCleanedHtml } from "./react-quill-spellcheck/SuggestionBoxes";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import SourceCellContext from "./contextProviders/SourceCellContext";
 import DuplicateCellResolver from "./DuplicateCellResolver";
@@ -180,17 +181,17 @@ const CodexCellEditor: React.FC = () => {
 
     const handleSaveHtml = () => {
         const content = contentBeingUpdated;
-        // Remove <quill-...> tags and <p> tags, then enclose in a <span>
-        const filteredContent = content.cellContent
-            .replace(/<quill[^>]*>(.*?)<\/quill[^>]*>/g, "$1") // Keep text inside <quill-...> tags
-            .replace(/<p>(.*?)<\/p>/g, "$1") // Keep text inside <p> tags
-            .trim(); // Trim whitespace
+        // First clean spellcheck tags, then remove p tags, then wrap in span
+        const filteredContent = getCleanedHtml(content.cellContent)
+            .replace(/<\/?p>/g, "") // Remove all opening and closing p tags
+            .trim();
 
-        const wrappedContent = `<span>${filteredContent}</span>`; // Enclose in <span>
+        // Wrap the entire content in a span tag
+        const wrappedContent = `<span>${filteredContent}</span>`;
 
         vscode.postMessage({
             command: "saveHtml",
-            content: { ...content, cellContent: wrappedContent }, // Update content with wrapped content
+            content: { ...content, cellContent: wrappedContent },
         } as EditorPostMessages);
         checkAlertCodes();
         handleCloseEditor();
