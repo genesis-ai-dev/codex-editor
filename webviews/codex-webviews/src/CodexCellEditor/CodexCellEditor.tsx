@@ -182,9 +182,8 @@ const CodexCellEditor: React.FC = () => {
         const content = contentBeingUpdated;
         // Remove <quill-...> tags and <p> tags, then enclose in a <span>
         const filteredContent = content.cellContent
-            .replace(/<quill[^>]*>.*?<\/quill[^>]*>/g, "") // Remove <quill-...> tags
-            .replace(/<p>/g, "") // Remove opening <p> tags
-            .replace(/<\/p>/g, "") // Remove closing </p> tags
+            .replace(/<quill[^>]*>(.*?)<\/quill[^>]*>/g, "$1") // Keep text inside <quill-...> tags
+            .replace(/<p>(.*?)<\/p>/g, "$1") // Keep text inside <p> tags
             .trim(); // Trim whitespace
 
         const wrappedContent = `<span>${filteredContent}</span>`; // Enclose in <span>
