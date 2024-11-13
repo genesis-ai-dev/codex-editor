@@ -82,7 +82,11 @@ const CellList: React.FC<CellListProps> = ({
                                     isSourceText={isSourceText}
                                     hasDuplicateId={hasDuplicateId}
                                     timestamps={timestamps}
-                                    alertColorCode={alertColorCodes[cellId]}
+                                    alertColorCode={
+                                        cellDisplayMode === CELL_DISPLAY_MODES.INLINE
+                                            ? -1
+                                            : alertColorCodes[cellId]
+                                    }
                                 />
                             </div>
                         );

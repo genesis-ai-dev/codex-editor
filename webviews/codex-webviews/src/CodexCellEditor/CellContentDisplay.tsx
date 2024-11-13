@@ -50,7 +50,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         }
     }, [contentToScrollTo]);
 
-
     const handleVerseClick = () => {
         if (unsavedChanges || isSourceText) {
             toggleFlashingBorder();
@@ -92,8 +91,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     );
 
     const getAlertDot = () => {
+        if (alertColorCode === -1) return null;
+
         const colors = {
-            "-1": "transparent",
             "0": "transparent",
             "1": "#FF6B6B",
             "2": "purple",
