@@ -2,12 +2,15 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import { Table, Input, Button, Popconfirm, Tooltip, ConfigProvider, theme } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { vscode } from "./utilities/vscode";
-// import "./style.css";
-import { DictionaryPostMessages, DictionaryReceiveMessages, Dictionary } from "../../../../types";
-import debounce from "lodash.debounce";
-import { isEqual } from "lodash";
+import {
+    DictionaryPostMessages,
+    DictionaryReceiveMessages,
+    Dictionary,
+    DictionaryEntry,
+} from "../../../../types";
 import { useMeasure } from "@uidotdev/usehooks";
 import AddWordForm from "./AddWordForm";
+import EditWordForm from "./EditWordForm";
 import { ConfirmDeleteButton } from "./ConfirmDeleteButton";
 
 interface DataType {
@@ -15,39 +18,13 @@ interface DataType {
     [key: string]: any;
 }
 
-interface EditableCellProps {
-    value: string;
-    recordKey: React.Key;
-    dataIndex: string;
-    onChange: (key: React.Key, dataIndex: string, value: any) => void;
-}
-
-const EditableCell: React.FC<EditableCellProps> = ({ value, recordKey, dataIndex, onChange }) => {
-    const [editingValue, setEditingValue] = useState(value);
-
-    useEffect(() => {
-        setEditingValue(value);
-    }, [value]);
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setEditingValue(e.target.value);
-    };
-
-    const handleBlur = () => {
-        if (editingValue !== value) {
-            onChange(recordKey, dataIndex, editingValue);
-        }
-    };
-
-    return <Input value={editingValue} onChange={handleChange} onBlur={handleBlur} />;
-};
-
 const App: React.FC = () => {
     const [outerContainer, { height: outerContainerHeight }] = useMeasure();
     const [tableRef, { height: tableHeight }] = useMeasure();
     const [inputRef, { height: inputHeight }] = useMeasure();
     const [buttonRef, { height: buttonHeight }] = useMeasure();
     const [addWordVisible, setAddWordVisible] = useState(false);
+    const [entryToEdit, setEntryToEdit] = useState<DictionaryEntry | null>(null);
 
     const [dataSource, setDataSource] = useState<DataType[]>([]);
     const [columnNames, setColumnNames] = useState<string[]>([]);
@@ -117,30 +94,6 @@ const App: React.FC = () => {
         setVsCodeTheme(themeColors);
     }, []);
 
-    const handleCellChange = useCallback(
-        (key: React.Key, dataIndex: string, value: any) => {
-            setDataSource((prevDataSource) =>
-                prevDataSource.map((item) => {
-                    if (item.key === key) {
-                        const updatedItem = { ...item, [dataIndex]: value };
-                        // Send only the changed entry
-                        vscode.postMessage({
-                            command: "webviewTellsProviderToUpdateData",
-                            operation: "update",
-                            entry: {
-                                headWord: updatedItem.headWord,
-                                definition: updatedItem.definition,
-                            },
-                        } as DictionaryPostMessages);
-                        return updatedItem;
-                    }
-                    return item;
-                })
-            );
-        },
-        [] // Remove dependencies as we're not using them anymore
-    );
-
     const handleDelete = useCallback((key: React.Key) => {
         setDataSource((prevDataSource) => {
             const itemToDelete = prevDataSource.find((item) => item.key === key);
@@ -157,29 +110,29 @@ const App: React.FC = () => {
         });
     }, []);
 
-    const handleAdd = useCallback(() => {
-        setDataSource((prevDataSource) => {
-            const newKey = prevDataSource.length
-                ? Math.max(...prevDataSource.map((item) => Number(item.key))) + 1
-                : 0;
-            const newEntry: DataType = {
-                key: newKey,
-                headWord: "",
-                definition: "",
-            };
+    // const handleAdd = useCallback(() => {
+    //     setDataSource((prevDataSource) => {
+    //         const newKey = prevDataSource.length
+    //             ? Math.max(...prevDataSource.map((item) => Number(item.key))) + 1
+    //             : 0;
+    //         const newEntry: DataType = {
+    //             key: newKey,
+    //             headWord: "",
+    //             definition: "",
+    //         };
 
-            vscode.postMessage({
-                command: "webviewTellsProviderToUpdateData",
-                operation: "add",
-                entry: {
-                    headWord: newEntry.headWord,
-                    definition: newEntry.definition,
-                },
-            } as DictionaryPostMessages);
+    //         vscode.postMessage({
+    //             command: "webviewTellsProviderToUpdateData",
+    //             operation: "add",
+    //             entry: {
+    //                 headWord: newEntry.headWord,
+    //                 definition: newEntry.definition,
+    //             },
+    //         } as DictionaryPostMessages);
 
-            return [...prevDataSource, newEntry];
-        });
-    }, []);
+    //         return [...prevDataSource, newEntry];
+    //     });
+    // }, []);
 
     const getColumnIcon = useCallback((columnName: string): JSX.Element => {
         const iconMap: { [key: string]: string } = {
@@ -204,8 +157,9 @@ const App: React.FC = () => {
         }
 
         const dataColumns = columnNames
-            .filter((key) => key !== "id") // Hide the 'id' column
-            .filter((key) => key !== "isUserEntry") // Hide the 'isUserEntry' column
+            .filter((key) => key !== "id")
+            .filter((key) => key !== "isUserEntry")
+            .filter((key) => key !== "authorId")
             .map((key) => ({
                 title: (
                     <Tooltip title={key}>
@@ -216,14 +170,7 @@ const App: React.FC = () => {
                 ),
                 dataIndex: key,
                 key: key,
-                render: (text: string, record: DataType) => (
-                    <EditableCell
-                        value={text}
-                        recordKey={record.key}
-                        dataIndex={key}
-                        onChange={handleCellChange}
-                    />
-                ),
+                render: (text: string) => <span>{text}</span>,
                 fixed: key === columnNames[0] ? ("left" as const) : undefined,
             }));
 
@@ -237,12 +184,27 @@ const App: React.FC = () => {
             fixed: "right" as const,
             width: 100,
             render: (_: any, record: DataType) => (
-                <ConfirmDeleteButton onConfirm={() => handleDelete(record.key)} />
+                <div
+                    style={{
+                        display: "flex",
+                        flexDirection: "row",
+                        gap: "10px",
+                        flexWrap: "nowrap",
+                    }}
+                >
+                    <ConfirmDeleteButton onConfirm={() => handleDelete(record.key)} />
+                    <Button
+                        onClick={() => {
+                            setEntryToEdit(record as unknown as DictionaryEntry);
+                        }}
+                        icon={<span className="codicon codicon-edit"></span>}
+                    />
+                </div>
             ),
         };
 
         return [...dataColumns, actionColumn];
-    }, [columnNames, handleCellChange, handleDelete, getColumnIcon]);
+    }, [columnNames, handleDelete, getColumnIcon]);
 
     // Function to fetch page data
     const fetchPageData = useCallback((page: number, pageSize: number, search?: string) => {
@@ -281,7 +243,7 @@ const App: React.FC = () => {
             const message = event.data;
             if (message.command === "providerTellsWebviewToUpdateData") {
                 const { entries, total, page, pageSize } = message.data;
-
+                console.log("entries in app", entries);
                 const newDataSource = entries.map((entry, index) => ({
                     key: (page - 1) * pageSize + index,
                     ...entry,
@@ -376,6 +338,13 @@ const App: React.FC = () => {
                 </div>
 
                 <AddWordForm visible={addWordVisible} onCancel={() => setAddWordVisible(false)} />
+                {entryToEdit && (
+                    <EditWordForm
+                        entry={entryToEdit}
+                        visible={entryToEdit !== null}
+                        onCancel={() => setEntryToEdit(null)}
+                    />
+                )}
                 <div ref={tableRef}>
                     <Table
                         dataSource={dataSource}

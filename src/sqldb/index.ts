@@ -102,7 +102,9 @@ export const initializeSqlJs = async (context: vscode.ExtensionContext) => {
                 head_word TEXT NOT NULL DEFAULT '',
                 definition TEXT,
                 is_user_entry INTEGER NOT NULL DEFAULT 0,
-                author_id TEXT
+                author_id TEXT,
+                createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+                updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
             );
     
             CREATE INDEX idx_entries_head_word ON entries(head_word);
@@ -115,7 +117,32 @@ export const initializeSqlJs = async (context: vscode.ExtensionContext) => {
     }
 
     // Create/load the database
-    return new SQL.Database(fileBuffer);
+    const db = new SQL.Database(fileBuffer);
+
+    // After loading the database
+    try {
+        const columnCheckStmt = db.prepare("PRAGMA table_info(entries)");
+        const columns = [];
+        while (columnCheckStmt.step()) {
+            const columnInfo = columnCheckStmt.getAsObject();
+            columns.push(columnInfo.name);
+        }
+        columnCheckStmt.free();
+
+        if (!columns.includes("createdAt")) {
+            db.run("ALTER TABLE entries ADD COLUMN createdAt TEXT");
+            db.run("UPDATE entries SET createdAt = datetime('now') WHERE createdAt IS NULL");
+        }
+        if (!columns.includes("updatedAt")) {
+            db.run("ALTER TABLE entries ADD COLUMN updatedAt TEXT");
+            db.run("UPDATE entries SET updatedAt = datetime('now') WHERE updatedAt IS NULL");
+        }
+    } catch (error) {
+        console.error("Error checking/adding columns to entries table:", error);
+        vscode.window.showErrorMessage(`Failed to update database schema: ${error}`);
+    }
+
+    return db;
 };
 
 export const registerLookupWordCommand = (db: Database, context: vscode.ExtensionContext) => {
@@ -143,15 +170,16 @@ export const addWord = async ({
 }) => {
     console.log("addWord called", { headWord, definition, authorId, isUserEntry });
     const stmt = db.prepare(
-        `INSERT INTO entries (id, head_word, definition, is_user_entry, author_id) 
-         VALUES (?, ?, ?, ?, ?)
+        `INSERT INTO entries (id, head_word, definition, is_user_entry, author_id, createdAt, updatedAt) 
+         VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
          ON CONFLICT(id) DO UPDATE SET 
-         definition = excluded.definition,
-         is_user_entry = excluded.is_user_entry,
-         author_id = excluded.author_id`
+             definition = excluded.definition,
+             is_user_entry = excluded.is_user_entry,
+             author_id = excluded.author_id,
+             updatedAt = datetime('now')`
     );
     try {
-        const id = crypto.randomUUID(); // You'll need to import crypto
+        const id = crypto.randomUUID();
         stmt.bind([id, headWord, definition, isUserEntry ? 1 : 0, authorId]);
         stmt.step();
 
@@ -165,23 +193,25 @@ export const addWord = async ({
 
 export const bulkAddWords = async (db: Database, entries: DictionaryEntry[]) => {
     const stmt = db.prepare(
-        `INSERT INTO entries (id, head_word, definition, is_user_entry, author_id) 
-         VALUES (?, ?, ?, ?, ?)
+        `INSERT INTO entries (id, head_word, definition, is_user_entry, author_id, createdAt, updatedAt) 
+            VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET 
-         definition = excluded.definition,
-         is_user_entry = excluded.is_user_entry,
-         author_id = excluded.author_id`
+             definition = excluded.definition,
+             is_user_entry = excluded.is_user_entry,
+             author_id = excluded.author_id,
+             updatedAt = datetime('now')`
     );
     try {
         db.run("BEGIN TRANSACTION");
         entries.forEach((entry) => {
-            const id = crypto.randomUUID();
             stmt.bind([
-                id,
+                entry.id,
                 entry.headWord,
                 entry.definition ?? "",
                 entry.isUserEntry ? 1 : 0,
                 entry.authorId ?? "",
+                entry.createdAt ?? "",
+                entry.updatedAt ?? "",
             ]);
             stmt.step();
             stmt.reset();
@@ -204,6 +234,18 @@ export const getWords = (db: Database) => {
     }
     stmt.free();
     return words;
+};
+
+export const getEntry = (db: Database, headWord: string, caseSensitive = false) => {
+    let query = "SELECT * FROM entries WHERE head_word = ?";
+    if (!caseSensitive) {
+        query += " COLLATE NOCASE";
+    }
+    const stmt = db.prepare(query);
+    stmt.bind([headWord]);
+    const entry = stmt.step();
+    stmt.free();
+    return entry;
 };
 
 export async function importWiktionaryJSONL(db: Database) {
@@ -256,7 +298,7 @@ export const updateWord = async ({
     definition,
     headWord,
     authorId,
-    isUserEntry,
+    isUserEntry = true,
 }: {
     db: Database;
     id: string;
@@ -265,29 +307,32 @@ export const updateWord = async ({
     authorId: string;
     isUserEntry?: boolean;
 }) => {
+    console.log("updateWord called", { headWord, definition, authorId, isUserEntry, id });
     const stmt = db.prepare(`
         UPDATE entries 
         SET head_word = ?,
             definition = ?,
-            is_user_entry = COALESCE(?, is_user_entry),
-            author_id = COALESCE(?, author_id)
+            is_user_entry = ?,
+            author_id = ?,
+            updatedAt = datetime('now')
         WHERE id = ?
     `);
     try {
-        stmt.bind([
-            headWord,
-            definition,
-            isUserEntry === undefined ? null : isUserEntry ? 1 : 0,
-            authorId,
-            id,
-        ]);
-        stmt.step();
-
-        if (isUserEntry) {
-            await exportUserEntries(db);
+        stmt.bind([headWord, definition, isUserEntry ? 1 : 0, authorId, id]);
+        const result = stmt.step();
+        console.log("Update result:", result);
+        const rowsModified = db.getRowsModified();
+        console.log("Rows modified:", rowsModified);
+        if (rowsModified === 0) {
+            console.warn(`No rows were updated. Check if the id ${id} exists.`);
         }
+    } catch (error) {
+        console.error("Error executing update statement:", error);
     } finally {
         stmt.free();
+    }
+    if (isUserEntry) {
+        await exportUserEntries(db);
     }
 };
 
@@ -329,9 +374,9 @@ export const getPagedWords = ({
     page: number;
     pageSize: number;
     searchQuery?: string;
-}): { words: string[]; total: number } => {
+}): { entries: DictionaryEntry[]; total: number } => {
     let total = 0;
-    const words: string[] = [];
+    const entries: DictionaryEntry[] = [];
 
     // Get total count
     const countStmt = searchQuery
@@ -372,18 +417,24 @@ export const getPagedWords = ({
 
         while (stmt.step()) {
             const row = stmt.getAsObject();
-            words.push(row.head_word as string);
+            entries.push({
+                id: row.id as string,
+                headWord: row.head_word as string,
+                definition: row.definition as string,
+                authorId: row.author_id as string,
+                isUserEntry: row.is_user_entry === 1,
+            });
         }
     } finally {
         stmt.free();
     }
 
-    return { words, total };
+    return { entries, total };
 };
 
 export const exportUserEntries = (db: Database) => {
     const stmt = db.prepare(
-        "SELECT head_word, definition, author_id, is_user_entry FROM entries WHERE is_user_entry = 1"
+        "SELECT id, head_word, definition, author_id, is_user_entry, createdAt, updatedAt FROM entries WHERE is_user_entry = 1"
     );
     const entries: DictionaryEntry[] = [];
 
@@ -391,11 +442,13 @@ export const exportUserEntries = (db: Database) => {
         while (stmt.step()) {
             const row = stmt.getAsObject();
             entries.push({
+                id: row.id as string,
                 headWord: row.head_word as string,
                 definition: row.definition as string,
                 authorId: row.author_id as string,
                 isUserEntry: row.is_user_entry === 1,
-                id: row.id as string,
+                createdAt: row.createdAt as string,
+                updatedAt: row.updatedAt as string,
             });
         }
     } finally {
@@ -405,14 +458,33 @@ export const exportUserEntries = (db: Database) => {
     // Convert entries to JSONL format
     const jsonlContent = entries.map((entry) => JSON.stringify(entry)).join("\n");
 
-    // Save to file in workspace
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-    if (workspaceFolder) {
-        const exportPath = vscode.Uri.joinPath(workspaceFolder.uri, "files", "project.dictionary");
-
+    if (!workspaceFolder) {
+        vscode.window.showErrorMessage("No workspace folder found");
+        return;
+    }
+    const exportPath = vscode.Uri.joinPath(workspaceFolder.uri, "files", "project.dictionary");
+    if (exportPath) {
         vscode.workspace.fs.writeFile(exportPath, Buffer.from(jsonlContent, "utf-8"));
         vscode.window.showInformationMessage("User dictionary entries exported successfully");
     } else {
         vscode.window.showErrorMessage("No workspace folder found");
     }
+};
+
+export const ingestJsonlDictionaryEntries = (db: Database) => {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+        vscode.window.showErrorMessage("No workspace folder found");
+        return;
+    }
+    const exportPath = vscode.Uri.joinPath(workspaceFolder.uri, "files", "project.dictionary");
+    if (!exportPath) {
+        return;
+    }
+    const jsonlContent = fs.readFileSync(exportPath.fsPath, "utf-8");
+    const entries = jsonlContent.split("\n").map((line) => JSON.parse(line));
+    console.log({ entries });
+
+    bulkAddWords(db, entries);
 };

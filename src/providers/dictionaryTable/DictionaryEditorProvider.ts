@@ -133,7 +133,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
                     switch (e.operation) {
                         case "update":
                             // TODO: this is not updating the database because the table is not sending updates here
-                            updateWord({
+                            await updateWord({
                                 db,
                                 id: e.entry.id,
                                 headWord: e.entry.headWord,
@@ -144,15 +144,18 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
                             break;
 
                         case "delete":
-                            deleteWord({ db, id: e.entry.id });
-                            vscode.window.showInformationMessage(`🗑️ ✅`);
-                            // );
+                            try {
+                                await deleteWord({ db, id: e.entry.id });
+                                vscode.window.showInformationMessage(`🗑️ ✅`);
+                            } catch (error) {
+                                vscode.window.showErrorMessage(`Error deleting word: ${error}`);
+                            }
                             break;
 
                         case "add":
                             if (e.entry.headWord) {
                                 // Only add if headWord is not empty
-                                addWord({
+                                await addWord({
                                     db,
                                     headWord: e.entry.headWord,
                                     definition: e.entry.definition,
@@ -164,9 +167,12 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
                     }
 
                     // Notify webview of successful update if needed
+                    // FIXME: this is not updating the webview because it is stale
+                    const pageData = await this.handleFetchPage(1, 100);
+                    this.document = pageData;
                     webviewPanel.webview.postMessage({
                         command: "providerTellsWebviewToUpdateData",
-                        data: this.document,
+                        data: pageData,
                     } as DictionaryReceiveMessages);
                     break;
                 }
@@ -406,17 +412,17 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
             throw new Error("SQLite database not initialized");
         }
 
-        const { words, total } = getPagedWords({ db, page, pageSize, searchQuery });
-        const entries: DictionaryEntry[] = words.map((word) => {
-            const definitions = getDefinitions(db, word);
-            return {
-                id: word,
-                headWord: word,
-                definition: definitions.join("\n"),
-                isUserEntry: false,
-                authorId: "",
-            };
-        });
+        const { entries, total } = getPagedWords({ db, page, pageSize, searchQuery });
+        // const entries: DictionaryEntry[] = words.map((word) => {
+        //     const definitions = getDefinitions(db, word);
+        //     return {
+        //         id: word,
+        //         headWord: word,
+        //         definition: definitions.join("\n"),
+        //         isUserEntry: false,
+        //         authorId: "",
+        //     };
+        // });
 
         return {
             entries,

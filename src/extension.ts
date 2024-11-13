@@ -23,7 +23,12 @@ import { registerSourceUploadCommands } from "./providers/SourceUpload/registerC
 import { migrateSourceFiles } from "./utils/codexNotebookUtils";
 import { StatusBarItem } from "vscode";
 import { Database } from "sql.js";
-import { importWiktionaryJSONL, initializeSqlJs, registerLookupWordCommand } from "./sqldb";
+import {
+    importWiktionaryJSONL,
+    ingestJsonlDictionaryEntries,
+    initializeSqlJs,
+    registerLookupWordCommand,
+} from "./sqldb";
 
 declare global {
     // eslint-disable-next-line
@@ -48,6 +53,7 @@ export async function activate(context: vscode.ExtensionContext) {
         );
         context.subscriptions.push(importCommand);
         registerLookupWordCommand(global.db, context);
+        ingestJsonlDictionaryEntries(global.db);
     }
 
     vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
@@ -167,6 +173,8 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
 
         client = await registerLanguageServer(context);
         if (client && global.db) {
+            clientCommandsDisposable = registerClientCommands(context, client);
+            context.subscriptions.push(clientCommandsDisposable);
             try {
                 await registerClientOnRequests(client, global.db);
                 // Start the client after registering handlers
@@ -174,8 +182,6 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
             } catch (error) {
                 console.error("Error registering client requests:", error);
             }
-            clientCommandsDisposable = registerClientCommands(context, client);
-            context.subscriptions.push(clientCommandsDisposable);
         }
 
         await indexVerseRefsInSourceText();

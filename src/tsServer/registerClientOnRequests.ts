@@ -1,12 +1,17 @@
 import { LanguageClient } from "vscode-languageclient/node";
 import { Database } from "sql.js";
 import * as vscode from "vscode";
+import { getEntry, bulkAddWords } from "../sqldb";
 // Define message types
 export const CustomRequests = {
     CheckWord: "custom/checkWord",
     GetSuggestions: "custom/getSuggestions",
     AddWords: "custom/addWords",
 } as const;
+
+const generateId = () => {
+    return Date.now().toString(36) + Math.random().toString(36).substring(2, 15);
+};
 
 export default async function registerClientOnRequests(client: LanguageClient, db: Database) {
     // Register handlers
@@ -19,18 +24,8 @@ export default async function registerClientOnRequests(client: LanguageClient, d
             try {
                 if (!db) return { exists: false };
 
-                let query;
-                if (caseSensitive) {
-                    query = "SELECT word FROM entries WHERE word = ?";
-                } else {
-                    query = "SELECT word FROM entries WHERE word = ? COLLATE NOCASE";
-                }
-
-                const stmt = db.prepare(query);
-                stmt.bind([word]);
-                const exists = stmt.step();
-                stmt.free();
-                return { exists };
+                const entry = getEntry(db, word, caseSensitive);
+                return { exists: entry !== undefined };
             } catch (error) {
                 console.error("Error in checkWord:", error);
                 return { exists: false };
@@ -83,10 +78,10 @@ export default async function registerClientOnRequests(client: LanguageClient, d
 
             // Use Levenshtein distance to find similar words
             const stmt = db.prepare(`
-               SELECT word 
+               SELECT head_word 
                 FROM entries 
-                WHERE word LIKE '%' || ? || '%' COLLATE NOCASE
-                ORDER BY levenshtein(LOWER(word), LOWER(?)) 
+                WHERE head_word LIKE '%' || ? || '%' COLLATE NOCASE
+                ORDER BY levenshtein(LOWER(head_word), LOWER(?)) 
                 LIMIT 10
             `);
 
@@ -94,7 +89,7 @@ export default async function registerClientOnRequests(client: LanguageClient, d
             stmt.bind([word[0], word]);
 
             while (stmt.step()) {
-                words.push(stmt.getAsObject()["word"] as string);
+                words.push(stmt.getAsObject()["head_word"] as string);
             }
             stmt.free();
             return words;
@@ -107,23 +102,21 @@ export default async function registerClientOnRequests(client: LanguageClient, d
     client.onRequest(CustomRequests.AddWords, async (words: string[]) => {
         try {
             if (!db) return false;
-            const stmt = db.prepare(
-                "INSERT OR IGNORE INTO entries (word, definition) VALUES (?, ?)"
-            );
+
             try {
-                db.run("BEGIN TRANSACTION");
-                words.forEach((word) => {
-                    stmt.bind([word, ""]);
-                    stmt.step();
-                    stmt.reset();
-                });
-                db.run("COMMIT");
+                await bulkAddWords(
+                    db,
+                    words.map((word) => ({
+                        headWord: word,
+                        definition: "",
+                        authorId: "",
+                        isUserEntry: true,
+                        id: generateId(),
+                    }))
+                );
                 return true;
             } catch (error) {
-                db.run("ROLLBACK");
                 return false;
-            } finally {
-                stmt.free();
             }
         } catch (error) {
             console.error("Error in addWords:", error);

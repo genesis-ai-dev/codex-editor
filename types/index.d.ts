@@ -338,6 +338,8 @@ type DictionaryEntry = {
     definition?: string;
     isUserEntry: boolean;
     authorId?: string;
+    createdAt?: string;
+    updatedAt?: string;
 };
 
 type SpellCheckResult = {

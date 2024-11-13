@@ -23,7 +23,6 @@ export const ConfirmDeleteButton: React.FC<{ onConfirm: () => void }> = ({ onCon
                 >
                     <Button
                         onClick={() => onConfirm()}
-                        type="text"
                         icon={<span className="codicon codicon-pass"></span>}
                     />
                 </div>
@@ -37,7 +36,6 @@ export const ConfirmDeleteButton: React.FC<{ onConfirm: () => void }> = ({ onCon
                 >
                     <Button
                         onClick={() => setIsDeleting(false)}
-                        type="text"
                         icon={<span className="codicon codicon-error"></span>}
                     />
                 </div>
@@ -46,7 +44,6 @@ export const ConfirmDeleteButton: React.FC<{ onConfirm: () => void }> = ({ onCon
     }
     return (
         <Button
-            type="text"
             icon={<span className="codicon codicon-trash"></span>}
             onClick={() => setIsDeleting(true)}
         />
