@@ -31,6 +31,10 @@ interface DictionaryDocument extends vscode.CustomDocument {
 type PartialDictionaryEntry = Partial<DictionaryEntry>;
 
 export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider {
+    private page: number = 1;
+    private pageSize: number = 100;
+    private searchQuery: string | undefined = undefined;
+
     public static readonly viewType = "codex.dictionaryEditor";
     private document: FetchPageResult | undefined;
     private readonly onDidChangeCustomDocument = new vscode.EventEmitter<
@@ -55,7 +59,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
         webviewPanel: vscode.WebviewPanel,
         _token: vscode.CancellationToken
     ): Promise<void> {
-        this.document = await this.handleFetchPage(1, 100);
+        this.document = await this.handleFetchPage(this.page, this.pageSize, this.searchQuery);
         webviewPanel.webview.options = {
             enableScripts: true,
         };
@@ -103,6 +107,9 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
             switch (e.command) {
                 case "webviewTellsProviderToUpdateData": {
                     if (e.operation === "fetchPage" && e.pagination) {
+                        this.page = e.pagination.page;
+                        this.pageSize = e.pagination.pageSize;
+                        this.searchQuery = e.pagination.searchQuery;
                         const pageData = await this.handleFetchPage(
                             e.pagination.page,
                             e.pagination.pageSize,
@@ -168,7 +175,11 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
 
                     // Notify webview of successful update if needed
                     // FIXME: this is not updating the webview because it is stale
-                    const pageData = await this.handleFetchPage(1, 100);
+                    const pageData = await this.handleFetchPage(
+                        this.page,
+                        this.pageSize,
+                        this.searchQuery
+                    );
                     this.document = pageData;
                     webviewPanel.webview.postMessage({
                         command: "providerTellsWebviewToUpdateData",
