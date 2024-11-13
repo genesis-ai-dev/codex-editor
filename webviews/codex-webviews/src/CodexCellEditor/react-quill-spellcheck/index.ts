@@ -24,6 +24,10 @@ export class QuillSpellChecker {
     public matches: MatchesEntity[] = [];
     protected onRequestComplete: () => void = () => null;
     private cellChanged: boolean = false;
+    private typingTimer: number | undefined;
+    private typingDelay = 500; // Delay in milliseconds
+    private lastSpellCheckTime: number = 0;
+    private spellCheckCooldown: number = 1000; // Minimum time between spellchecks in ms
 
     constructor(
         public quill: Quill,
@@ -146,12 +150,16 @@ export class QuillSpellChecker {
 
     private onTextChange() {
         debug("onTextChange");
-        if (this.loopPreventionCooldown) return;
-        if (this.typingCooldown) clearTimeout(this.typingCooldown);
-        this.typingCooldown = window.setTimeout(
-            () => this.checkSpelling(),
-            this.params.cooldownTime
-        );
+
+        // Clear the previous timer
+        if (this.typingTimer) {
+            clearTimeout(this.typingTimer);
+        }
+
+        // Set a new timer
+        this.typingTimer = window.setTimeout(() => {
+            this.checkSpelling();
+        }, this.typingDelay);
     }
 
     public setOnRequestComplete(callback: () => void) {
@@ -161,6 +169,13 @@ export class QuillSpellChecker {
 
     public async checkSpelling() {
         debug("checkSpelling");
+        const now = Date.now();
+        if (now - this.lastSpellCheckTime < this.spellCheckCooldown) {
+            return;
+        }
+
+        this.lastSpellCheckTime = now;
+
         if (document.querySelector("spck-toolbar")) return;
 
         const text = this.quill.getText().trim();

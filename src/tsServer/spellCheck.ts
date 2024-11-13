@@ -37,12 +37,19 @@ const AddWordsRequest = new RequestType<string[], boolean, never>("custom/addWor
 
 export class SpellChecker {
     private connection: Connection;
+    private wordCache: Map<string, SpellCheckResult> = new Map();
 
     constructor(connection: Connection) {
         this.connection = connection;
     }
 
     async spellCheck(word: string): Promise<SpellCheckResult> {
+        if (this.wordCache.has(word)) {
+            const cachedResult = this.wordCache.get(word);
+            if (cachedResult) {
+                return cachedResult;
+            }
+        }
         const originalWord = word;
         const cleanedWord = cleanWord(word);
 
@@ -54,14 +61,33 @@ export class SpellChecker {
             });
 
             if (response.exists) {
-                return { word: originalWord, wordIsFoundInDictionary: true, corrections: [] };
+                const result: SpellCheckResult = {
+                    word: originalWord,
+                    wordIsFoundInDictionary: true,
+                    corrections: [],
+                };
+
+                this.wordCache.set(word, result);
+                return result;
             }
 
             const suggestions = await this.getSuggestions(originalWord);
-            return { word: originalWord, wordIsFoundInDictionary: false, corrections: suggestions };
+            const result: SpellCheckResult = {
+                word: originalWord,
+                wordIsFoundInDictionary: false,
+                corrections: suggestions,
+            };
+            this.wordCache.set(word, result);
+            return result;
         } catch (error) {
             console.error("Error in spellCheck:", error);
-            return { word: originalWord, wordIsFoundInDictionary: false, corrections: [] };
+            const result: SpellCheckResult = {
+                word: originalWord,
+                wordIsFoundInDictionary: false,
+                corrections: [],
+            };
+            this.wordCache.set(word, result);
+            return result;
         }
     }
 
