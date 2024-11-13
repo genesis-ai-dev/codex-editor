@@ -58,7 +58,11 @@ const CellList: React.FC<CellListProps> = ({
             <span
                 key={`group-${startIndex}`}
                 className={`verse-group cell-display-${cellDisplayMode}`}
-                style={{ direction: textDirection }}
+                style={{
+                    direction: textDirection,
+                    display: cellDisplayMode === CELL_DISPLAY_MODES.INLINE ? "inline" : "block",
+                    backgroundColor: "transparent",
+                }}
             >
                 {group.map(
                     ({ cellMarkers, cellContent, cellType, cellLabel, timestamps }, index) => {
@@ -66,9 +70,16 @@ const CellList: React.FC<CellListProps> = ({
                         const hasDuplicateId = duplicateCellIds.has(cellId);
 
                         return (
-                            <div
+                            <span
                                 key={startIndex + index}
-                                style={{ display: "flex", alignItems: "center" }}
+                                style={{
+                                    display:
+                                        cellDisplayMode === CELL_DISPLAY_MODES.INLINE
+                                            ? "inline"
+                                            : "block",
+                                    verticalAlign: "middle",
+                                    backgroundColor: "transparent",
+                                }}
                             >
                                 <CellContentDisplay
                                     cellIds={cellMarkers}
@@ -88,7 +99,7 @@ const CellList: React.FC<CellListProps> = ({
                                             : alertColorCodes[cellId]
                                     }
                                 />
-                            </div>
+                            </span>
                         );
                     }
                 )}
@@ -138,9 +149,9 @@ const CellList: React.FC<CellListProps> = ({
                 }
                 const cellIsChild = checkIfCurrentCellIsChild();
                 result.push(
-                    <div
+                    <span
                         key={cellMarkers.join(" ")}
-                        style={{ display: "flex", alignItems: "center" }}
+                        style={{ display: "inline-flex", alignItems: "center" }}
                     >
                         <CellEditor
                             spellCheckResponse={spellCheckResponse}
@@ -157,7 +168,7 @@ const CellList: React.FC<CellListProps> = ({
                             handleSaveHtml={handleSaveHtml}
                             textDirection={textDirection}
                         />
-                    </div>
+                    </span>
                 );
                 groupStartIndex = i + 1;
             } else if (cellContent?.trim()?.length === 0) {
@@ -204,6 +215,9 @@ const CellList: React.FC<CellListProps> = ({
             style={{
                 direction: textDirection,
                 overflowY: "auto",
+                display: cellDisplayMode === CELL_DISPLAY_MODES.INLINE ? "inline-block" : "block",
+                width: "100%",
+                backgroundColor: "transparent",
             }}
         >
             {renderCells()}

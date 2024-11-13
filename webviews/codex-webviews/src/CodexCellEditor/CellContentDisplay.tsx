@@ -113,7 +113,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                 cellType === CodexCellTypes.TEXT ? "canonical-display" : "paratext-display"
             } cell-content ${hasDuplicateId ? "duplicate-id" : ""}`}
             onClick={handleVerseClick}
-            style={{ direction: textDirection }}
+            style={{ direction: textDirection, backgroundColor: "transparent" }}
         >
             {hasDuplicateId && (
                 <span className="duplicate-id-alert">
@@ -130,7 +130,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                 <span className="paratext-indicator">[Paratext]</span>
             )}
             <span
-                style={{ direction: textDirection }}
+                style={{ direction: textDirection, backgroundColor: "transparent" }}
                 dangerouslySetInnerHTML={{
                     __html: HACKY_removeContiguousSpans(cellContent),
                 }}
