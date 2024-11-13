@@ -3,6 +3,7 @@ import { Database } from "sql.js";
 import * as vscode from "vscode";
 import { bulkAddWords } from ".";
 import { DictionaryEntry } from "types";
+import crypto from "crypto";
 
 interface WiktionaryEntry {
     word: string;
