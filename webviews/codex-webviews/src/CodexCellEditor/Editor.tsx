@@ -132,7 +132,14 @@ export default function Editor(props: EditorProps) {
 
             quillRef.current = quill;
 
-            // ... rest of initialization code ...
+            // Add text-change event listener
+            quill.on("text-change", () => {
+                if (props.onChange) {
+                    props.onChange({
+                        html: quill.root.innerHTML,
+                    });
+                }
+            });
         }
     }, []);
 
