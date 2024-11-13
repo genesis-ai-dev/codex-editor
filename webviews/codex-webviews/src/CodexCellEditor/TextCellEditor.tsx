@@ -103,6 +103,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [editingPromptText, setEditingPromptText] = useState("");
     const [isPromptsExpanded, setIsPromptsExpanded] = useState(false);
     const [showPromptsSection, setShowPromptsSection] = useState(true);
+    const [isEditorControlsExpanded, setIsEditorControlsExpanded] = useState(false);
 
     useEffect(() => {
         setEditableLabel(cellLabel || "");
@@ -464,64 +465,51 @@ const CellEditor: React.FC<CellEditorProps> = ({
     return (
         <div ref={cellEditorRef} className="cell-editor" style={{ direction: textDirection }}>
             <div className="cell-header">
-                <div className="header-controls">
-                    <div className="input-group">
-                        <div className="label-container">
-                            <input
-                                type="text"
-                                value={editableLabel}
-                                onChange={handleLabelChange}
-                                onBlur={handleLabelBlur}
-                                placeholder="Label"
-                                className="label-input"
-                            />
-                            <VSCodeButton
-                                onClick={handleLabelSave}
-                                appearance="icon"
-                                title="Save Label"
-                            >
-                                <i className="codicon codicon-save"></i>
-                            </VSCodeButton>
-                        </div>
-                        <div className="prompt-container">
-                            <textarea
-                                value={prompt}
-                                onChange={handlePromptChange}
-                                onKeyDown={handleKeyDown}
-                                placeholder="Prompt"
-                                rows={1}
-                                className="prompt-input"
-                            />
-                            <div className="prompt-preview">
-                                {formatPromptWithHighlights(prompt)}
-                            </div>
-                            {showSuggestions && similarCells.length > 0 && (
-                                <div className="suggestions-dropdown">
-                                    {similarCells.map((cell) => (
-                                        <div
-                                            key={cell.cellId}
-                                            className="suggestion-item"
-                                            onClick={() => insertCellId(cell.cellId)}
-                                        >
-                                            {cell.cellId}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                            <VSCodeButton
-                                onClick={handlePromptSend}
-                                appearance="icon"
-                                title="Send Prompt"
-                            >
-                                <i className="codicon codicon-send"></i>
-                            </VSCodeButton>
+                <div className="editor-controls-header">
+                    <div
+                        className="controls-wrapper"
+                        onClick={() => setIsEditorControlsExpanded(!isEditorControlsExpanded)}
+                    >
+                        <div className="header-content">
+                            <i
+                                className={`codicon codicon-chevron-${
+                                    isEditorControlsExpanded ? "down" : "right"
+                                }`}
+                            ></i>
+                            <h3>More</h3>
                         </div>
                     </div>
                     <div className="action-buttons">
+                        <VSCodeButton
+                            onClick={addParatextCell}
+                            appearance="icon"
+                            title="Add Paratext Cell"
+                        >
+                            <i className="codicon codicon-diff-added"></i>
+                        </VSCodeButton>
+                        {cellType !== CodexCellTypes.PARATEXT && !cellIsChild && (
+                            <VSCodeButton
+                                onClick={makeChild}
+                                appearance="icon"
+                                title="Add Child Cell"
+                            >
+                                <i className="codicon codicon-type-hierarchy-sub"></i>
+                            </VSCodeButton>
+                        )}
+                        {!sourceCellContent && (
+                            <ConfirmationButton
+                                icon="trash"
+                                onClick={deleteCell}
+                                disabled={cellHasContent}
+                            />
+                        )}
                         {unsavedChanges ? (
                             <>
                                 <VSCodeButton
-                                    onClick={handleSaveHtml}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleSaveHtml();
+                                    }}
                                     appearance="primary"
                                     className={`save-button ${
                                         showFlashingBorder ? "flashing-border" : ""
@@ -535,7 +523,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             </>
                         ) : (
                             <VSCodeButton
-                                onClick={handleCloseEditor}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleCloseEditor();
+                                }}
                                 appearance="icon"
                                 className="close-button"
                             >
@@ -544,94 +535,141 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         )}
                     </div>
                 </div>
-            </div>
-            {visiblePrompts.length > 0 && showPromptsSection && (
-                <div className="suggested-prompts">
-                    <div
-                        className="prompts-header"
-                        onClick={() => setIsPromptsExpanded(!isPromptsExpanded)}
-                        style={{ cursor: "pointer" }}
-                    >
-                        <div className="header-content">
-                            <i
-                                className={`codicon codicon-chevron-${
-                                    isPromptsExpanded ? "down" : "right"
-                                }`}
-                            ></i>
-                            <h3>Suggested Prompts</h3>
-                            {selectedPrompts.size > 0 && (
-                                <span className="selected-count">
-                                    ({selectedPrompts.size} selected)
-                                </span>
-                            )}
-                        </div>
-                        {isPromptsExpanded && selectedPrompts.size > 0 && (
-                            <VSCodeButton
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleApplySelectedPrompts();
-                                }}
-                            >
-                                Apply Selected
-                            </VSCodeButton>
-                        )}
-                    </div>
-                    {isPromptsExpanded && (
-                        <div className="prompts-list">
-                            {visiblePrompts.map((prompt, index) => (
-                                <div key={index} className="prompt-item">
-                                    {editingPromptIndex === index ? (
-                                        <div className="prompt-edit-container">
-                                            <textarea
-                                                value={editingPromptText}
-                                                onChange={(e) =>
-                                                    setEditingPromptText(e.target.value)
-                                                }
-                                                className="prompt-edit-input"
-                                                autoFocus
-                                            />
-                                            <div className="prompt-edit-buttons">
-                                                <VSCodeButton
-                                                    appearance="icon"
-                                                    onClick={handlePromptEditSave}
-                                                    title="Save"
+
+                {isEditorControlsExpanded && (
+                    <>
+                        <div className="header-controls">
+                            <div className="input-group">
+                                <div className="label-container">
+                                    <input
+                                        type="text"
+                                        value={editableLabel}
+                                        onChange={handleLabelChange}
+                                        onBlur={handleLabelBlur}
+                                        placeholder="Label"
+                                        className="label-input"
+                                    />
+                                    <VSCodeButton
+                                        onClick={handleLabelSave}
+                                        appearance="icon"
+                                        title="Save Label"
+                                    >
+                                        <i className="codicon codicon-save"></i>
+                                    </VSCodeButton>
+                                </div>
+                                <div className="prompt-container">
+                                    <textarea
+                                        value={prompt}
+                                        onChange={handlePromptChange}
+                                        onKeyDown={handleKeyDown}
+                                        placeholder="Prompt"
+                                        rows={1}
+                                        className="prompt-input"
+                                    />
+                                    <div className="prompt-preview">
+                                        {formatPromptWithHighlights(prompt)}
+                                    </div>
+                                    {showSuggestions && similarCells.length > 0 && (
+                                        <div className="suggestions-dropdown">
+                                            {similarCells.map((cell) => (
+                                                <div
+                                                    key={cell.cellId}
+                                                    className="suggestion-item"
+                                                    onClick={() => insertCellId(cell.cellId)}
                                                 >
-                                                    <i className="codicon codicon-check"></i>
-                                                </VSCodeButton>
-                                                <VSCodeButton
-                                                    appearance="icon"
-                                                    onClick={handlePromptEditCancel}
-                                                    title="Cancel"
-                                                >
-                                                    <i className="codicon codicon-close"></i>
-                                                </VSCodeButton>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="prompt-display">
-                                            <VSCodeCheckbox
-                                                checked={selectedPrompts.has(prompt)}
-                                                onChange={(e) => {
-                                                    e.stopPropagation(); // Stop event from reaching the span
-                                                    handlePromptSelect(prompt);
-                                                }}
-                                            >
-                                                <span
-                                                    className="prompt-text"
-                                                    onClick={(e) => handlePromptEdit(index, e)}
-                                                    title="Click to edit"
-                                                >
-                                                    {prompt}
-                                                </span>
-                                            </VSCodeCheckbox>
+                                                    {cell.cellId}
+                                                </div>
+                                            ))}
                                         </div>
                                     )}
+                                    <VSCodeButton
+                                        onClick={handlePromptSend}
+                                        appearance="icon"
+                                        title="Send Prompt"
+                                    >
+                                        <i className="codicon codicon-send"></i>
+                                    </VSCodeButton>
                                 </div>
-                            ))}
+                            </div>
                         </div>
-                    )}
-                </div>
-            )}
+                        {visiblePrompts.length > 0 && showPromptsSection && (
+                            <div className="suggested-prompts">
+                                <div className="prompts-header">
+                                    <div className="prompts-header-top">
+                                        <h4>Suggested Prompts</h4>
+                                        <span className="selected-count">
+                                            {selectedPrompts.size > 0 &&
+                                                `(${selectedPrompts.size} selected)`}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div className="prompts-list">
+                                    {visiblePrompts.map((prompt, index) => (
+                                        <div key={index} className="prompt-item">
+                                            {editingPromptIndex === index ? (
+                                                <div className="prompt-edit-container">
+                                                    <textarea
+                                                        value={editingPromptText}
+                                                        onChange={(e) =>
+                                                            setEditingPromptText(e.target.value)
+                                                        }
+                                                        className="prompt-edit-input"
+                                                        autoFocus
+                                                    />
+                                                    <div className="prompt-edit-buttons">
+                                                        <VSCodeButton
+                                                            appearance="icon"
+                                                            onClick={handlePromptEditSave}
+                                                            title="Save"
+                                                        >
+                                                            <i className="codicon codicon-check"></i>
+                                                        </VSCodeButton>
+                                                        <VSCodeButton
+                                                            appearance="icon"
+                                                            onClick={handlePromptEditCancel}
+                                                            title="Cancel"
+                                                        >
+                                                            <i className="codicon codicon-close"></i>
+                                                        </VSCodeButton>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="prompt-display">
+                                                    <VSCodeCheckbox
+                                                        checked={selectedPrompts.has(prompt)}
+                                                        onChange={(e) => {
+                                                            e.stopPropagation(); // Stop event from reaching the span
+                                                            handlePromptSelect(prompt);
+                                                        }}
+                                                    >
+                                                        <span
+                                                            className="prompt-text"
+                                                            onClick={(e) =>
+                                                                handlePromptEdit(index, e)
+                                                            }
+                                                            title="Click to edit"
+                                                        >
+                                                            {prompt}
+                                                        </span>
+                                                    </VSCodeCheckbox>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                                {selectedPrompts.size > 0 && (
+                                    <VSCodeButton
+                                        onClick={handleApplySelectedPrompts}
+                                        className="apply-selected-button"
+                                    >
+                                        Apply Selected
+                                    </VSCodeButton>
+                                )}
+                            </div>
+                        )}
+                    </>
+                )}
+            </div>
             <div className={`text-editor ${showFlashingBorder ? "flashing-border" : ""}`}>
                 <Editor
                     currentLineId={cellMarkers[0]}
@@ -649,29 +687,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     }, 300)}
                     textDirection={textDirection}
                 />
-            </div>
-            <div className="cell-footer">
-                <div className="footer-buttons">
-                    <VSCodeButton
-                        onClick={addParatextCell}
-                        appearance="icon"
-                        title="Add Paratext Cell"
-                    >
-                        <i className="codicon codicon-diff-added"></i>
-                    </VSCodeButton>
-                    {cellType !== CodexCellTypes.PARATEXT && !cellIsChild && (
-                        <VSCodeButton onClick={makeChild} appearance="icon" title="Add Child Cell">
-                            <i className="codicon codicon-type-hierarchy-sub"></i>
-                        </VSCodeButton>
-                    )}
-                    {!sourceCellContent && (
-                        <ConfirmationButton
-                            icon="trash"
-                            onClick={deleteCell}
-                            disabled={cellHasContent}
-                        />
-                    )}
-                </div>
             </div>
         </div>
     );

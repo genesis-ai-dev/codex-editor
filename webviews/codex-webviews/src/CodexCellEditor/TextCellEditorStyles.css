@@ -6,34 +6,31 @@
 
 .header-controls {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 1rem;
+    flex-direction: column;
+    gap: 12px;
+    padding: 8px;
 }
 
 .input-group {
     display: flex;
-    gap: 1rem;
-    flex-grow: 1;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
 }
 
 .label-container,
 .prompt-container {
     display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    background: var(--vscode-input-background);
-    border: 1px solid var(--vscode-input-border);
-    padding: 2px;
+    gap: 8px;
+    width: 100%;
 }
 
 .label-input {
-    width: 200px;
+    flex: 1;
 }
 
 .prompt-input {
-    width: 250px;
-    resize: none;
+    flex: 1;
 }
 
 .label-input,
@@ -186,5 +183,107 @@ vscode-checkbox {
 }
 
 .prompt-display {
+    width: 100%;
+}
+
+.editor-controls-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 8px;
+    background-color: var(--vscode-editor-background);
+    width: 100%;
+}
+
+.header-content {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.header-content h3 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: normal;
+    color: var(--vscode-foreground);
+}
+
+.action-buttons {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+/* Ensure the chevron icon is visible */
+.codicon-chevron-right,
+.codicon-chevron-down {
+    font-size: 14px;
+    color: var(--vscode-foreground);
+}
+
+.suggested-prompts {
+    margin-top: 8px;
+    padding: 8px;
+    background-color: var(--vscode-editor-background);
+    display: flex;
+    flex-direction: column;
+}
+
+.prompts-header {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.prompts-header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.apply-selected-button {
+    margin-top: 12px;
+    align-self: flex-end;
+}
+
+/* Update existing styles */
+.cell-header {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border: none;
+}
+
+/* Move footer buttons to header */
+.action-buttons {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+/* Remove cell footer since buttons are moved */
+.cell-footer {
+    display: none;
+}
+
+/* Update text editor styles */
+.text-editor {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+/* Remove Quill editor borders */
+.text-editor .ql-container {
+    border: none !important;
+}
+
+.text-editor .ql-toolbar {
+    border: none !important;
+}
+
+/* Ensure editor takes full width */
+.ql-container {
     width: 100%;
 }
