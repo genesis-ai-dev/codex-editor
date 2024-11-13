@@ -502,9 +502,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     handleSaveHtml();
                                 }}
                                 appearance="primary"
-                                className={`save-button ${
-                                    showFlashingBorder ? "flashing-border" : ""
-                                }`}
+                                className="save-button"
                             >
                                 <i className="codicon codicon-save"></i>
                             </VSCodeButton>
@@ -528,58 +526,40 @@ const CellEditor: React.FC<CellEditorProps> = ({
             </div>
 
             {isEditorControlsExpanded && (
-                <div className="header-controls">
-                    <div className="input-group">
-                        <div className="label-container">
-                            <input
-                                type="text"
-                                value={editableLabel}
-                                onChange={handleLabelChange}
-                                onBlur={handleLabelBlur}
-                                placeholder="Label"
-                                className="label-input"
-                            />
-                            <VSCodeButton
-                                onClick={handleLabelSave}
-                                appearance="icon"
-                                title="Save Label"
-                            >
-                                <i className="codicon codicon-save"></i>
-                            </VSCodeButton>
-                        </div>
-                        <div className="prompt-container">
-                            <textarea
-                                value={prompt}
-                                onChange={handlePromptChange}
-                                onKeyDown={handleKeyDown}
-                                placeholder="Prompt"
-                                rows={1}
-                                className="prompt-input"
-                            />
-                            <div className="prompt-preview">
-                                {formatPromptWithHighlights(prompt)}
-                            </div>
-                            {showSuggestions && similarCells.length > 0 && (
-                                <div className="suggestions-dropdown">
-                                    {similarCells.map((cell) => (
-                                        <div
-                                            key={cell.cellId}
-                                            className="suggestion-item"
-                                            onClick={() => insertCellId(cell.cellId)}
-                                        >
-                                            {cell.cellId}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                            <VSCodeButton
-                                onClick={handlePromptSend}
-                                appearance="icon"
-                                title="Send Prompt"
-                            >
-                                <i className="codicon codicon-send"></i>
-                            </VSCodeButton>
-                        </div>
+                <div className="input-group">
+                    <div className="input-row">
+                        <input
+                            type="text"
+                            value={editableLabel}
+                            onChange={handleLabelChange}
+                            onBlur={handleLabelBlur}
+                            placeholder="Label"
+                            className="label-input"
+                        />
+                        <VSCodeButton
+                            onClick={handleLabelSave}
+                            appearance="icon"
+                            title="Save Label"
+                        >
+                            <i className="codicon codicon-save"></i>
+                        </VSCodeButton>
+                    </div>
+                    <div className="input-row">
+                        <textarea
+                            value={prompt}
+                            onChange={handlePromptChange}
+                            onKeyDown={handleKeyDown}
+                            placeholder="Prompt"
+                            rows={1}
+                            className="prompt-input"
+                        />
+                        <VSCodeButton
+                            onClick={handlePromptSend}
+                            appearance="icon"
+                            title="Send Prompt"
+                        >
+                            <i className="codicon codicon-send"></i>
+                        </VSCodeButton>
                     </div>
                 </div>
             )}

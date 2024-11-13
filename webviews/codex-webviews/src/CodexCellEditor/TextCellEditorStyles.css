@@ -1,179 +1,32 @@
 .cell-editor {
     display: flex;
     flex-direction: column;
-    gap: 0;
-    width: 100%;
+    width: 100%; /* Ensure it takes the full width of the parent */
+    min-width: 100%; /* Ensure it takes the full width of the parent */
+    max-width: 100%; /* Prevent it from growing beyond the parent */
+    gap: 8px;
+    padding: 8px;
     margin: 0;
-    padding: 0;
+    box-sizing: border-box;
+    flex-shrink: 0; /* Prevent it from shrinking */
 }
 
-.header-controls {
+.flex-row {
     display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 2px 4px;
-    width: 100%;
-}
-
-.input-group {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    width: 100%;
-}
-
-.label-container,
-.prompt-container {
-    display: flex;
-    gap: 8px;
-    width: 100%;
     align-items: center;
+    gap: 8px;
 }
 
-.label-input {
-    flex: 0 1 200px;
-    min-width: 0;
-    height: 24px;
-}
-
-.prompt-input {
-    flex: 1;
-    position: absolute;
-    width: 70%;
-    resize: none;
-    background: transparent;
-    color: transparent;
-    caret-color: var(--vscode-input-foreground);
-}
-
-.prompt-preview {
-    width: 100%;
-    white-space: pre-wrap;
-    pointer-events: none;
-}
-
-.cell-reference {
-    color: var(--vscode-textLink-foreground);
-}
-
-.suggestions-dropdown {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    background: var(--vscode-input-background);
-    border: 1px solid var(--vscode-input-border);
-    max-height: 200px;
-    overflow-y: auto;
-    z-index: 1000;
-}
-
-.suggestion-item {
-    padding: 4px 8px;
-    cursor: pointer;
-}
-
-.suggestion-item:hover {
-    background: var(--vscode-list-hoverBackground);
-}
-
-.suggested-prompts {
-    background: var(--vscode-input-background);
-    border: 1px solid var(--vscode-input-border);
-    border-radius: 4px;
-    padding: 2px 4px;
-    margin-top: 2px;
-}
-
-.prompts-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 4px;
-}
-
-.prompts-header h3 {
-    margin: 0;
-    font-size: 14px;
-    color: var(--vscode-foreground);
-}
-
-.prompts-list {
+.flex-col {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    max-width: 100%;
-}
-
-.prompt-item {
-    display: flex;
-    align-items: flex-start;
-    margin-bottom: 4px;
-}
-
-.prompt-text {
-    display: inline-block;
-    word-break: break-word;
-    white-space: normal;
-    margin-left: 4px;
-    line-height: 1.4;
-}
-
-vscode-checkbox {
-    width: 100%;
-}
-
-.prompt-item vscode-checkbox::part(control) {
-    flex-shrink: 0;
-}
-
-.prompt-item vscode-checkbox::part(label) {
-    flex: 1;
-    min-width: 0;
-}
-.prompt-edit-container {
-    display: flex;
-    gap: 8px;
-    width: 100%;
-    align-items: flex-start;
-}
-
-.prompt-edit-input {
-    flex: 1;
-    min-height: 60px;
-    padding: 4px 8px;
-    background: var(--vscode-input-background);
-    border: 1px solid var(--vscode-input-border);
-    color: var(--vscode-input-foreground);
-    border-radius: 2px;
-    resize: vertical;
-}
-
-.prompt-edit-buttons {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.prompt-text {
-    cursor: pointer;
-}
-
-.prompt-text:hover {
-    text-decoration: underline;
-}
-
-.prompt-display {
-    width: 100%;
 }
 
 .editor-controls-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 2px 4px;
-    background-color: var(--vscode-editor-background);
-    width: 100%;
     min-height: 32px;
 }
 
@@ -186,7 +39,6 @@ vscode-checkbox {
 .header-content h3 {
     margin: 0;
     font-size: 13px;
-    font-weight: normal;
     color: var(--vscode-foreground);
 }
 
@@ -196,87 +48,122 @@ vscode-checkbox {
     align-items: center;
 }
 
-/* Ensure the chevron icon is visible */
-.codicon-chevron-right,
-.codicon-chevron-down {
-    font-size: 14px;
-    color: var(--vscode-foreground);
-}
-
-.suggested-prompts {
-    margin-top: 2px;
-    padding: 2px 4px;
-    background-color: var(--vscode-editor-background);
-    display: flex;
-    flex-direction: column;
-}
-
-.prompts-header {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    margin-bottom: 4px;
-}
-
-.prompts-header-top {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.apply-selected-button {
-    margin-top: 8px;
-    align-self: flex-end;
-}
-
-/* Update existing styles */
-.cell-header {
+.input-group {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    border: none;
 }
 
-/* Move footer buttons to header */
-.action-buttons {
+.input-row {
     display: flex;
     gap: 4px;
     align-items: center;
+    position: relative;
 }
 
-/* Remove cell footer since buttons are moved */
-.cell-footer {
-    display: none;
+.prompt-input,
+.label-input {
+    width: 100%;
+    background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border);
+    color: var(--vscode-input-foreground);
+    border-radius: 2px;
+    padding: 4px 8px;
+    min-height: 28px;
 }
 
-/* Update text editor styles */
+.prompt-input {
+    resize: none;
+}
+
+.input-row vscode-button {
+    flex-shrink: 0;
+}
+
 .text-editor {
     width: 100%;
-    margin: 0;
-    padding: 0;
     flex: 1;
-    border: none;
+    position: relative;
 }
 
-/* Remove Quill editor borders and adjust spacing */
-.text-editor .ql-container,
-.text-editor .ql-toolbar {
+.ql-container,
+.ql-toolbar {
     border: none !important;
 }
 
-.text-editor .ql-toolbar {
+.ql-toolbar {
     padding: 2px 4px !important;
-    border: none !important;
     min-height: 32px;
+    position: relative;
+    z-index: 0;
+    background-color: var(--vscode-editor-background);
 }
 
-/* Ensure editor takes full width and height */
-.ql-container {
-    width: 100%;
-    height: 100%;
-}
-
-/* Ensure no extra margins on editor elements */
 .ql-editor {
     padding: 4px !important;
+}
+
+.cell-reference {
+    color: var(--vscode-textLink-foreground);
+}
+
+.prompt-text {
+    cursor: pointer;
+}
+
+.prompt-text:hover {
+    text-decoration: underline;
+}
+/* 
+.ql-toolbar .ql-picker-options {
+    z-index: 0;
+    top: auto !important;
+    bottom: 100% !important;
+} */
+
+.quill {
+    width: 100%;
+    margin: 0;
+}
+
+/* Header style controls */
+.ql-headerStyleLeft,
+.ql-headerStyleRight {
+    padding: 3px 5px;
+    cursor: pointer;
+    color: var(--vscode-editor-foreground);
+}
+
+.ql-headerStyleLabel {
+    min-width: 64px;
+    text-align: center;
+    padding: 3px 5px;
+    user-select: none;
+    color: var(--vscode-editor-foreground);
+}
+
+.header-style-label {
+    font-size: 13px;
+}
+
+/* Hover states */
+.ql-headerStyleLeft:hover,
+.ql-headerStyleRight:hover {
+    background-color: var(--vscode-toolbar-hoverBackground);
+    border-radius: 3px;
+}
+
+/* Optional: Add active state */
+.ql-headerStyleLeft:active,
+.ql-headerStyleRight:active {
+    background-color: var(--vscode-toolbar-activeBackground);
+}
+
+/* Ensure arrows and label are aligned */
+.ql-headerStyleLeft,
+.ql-headerStyleLabel,
+.ql-headerStyleRight {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
