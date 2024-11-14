@@ -22,8 +22,18 @@ export class SmartPassages {
         return response;
     }
 
-    async chatStream(cellIds: string[], query: string, onChunk: (chunk: string) => void) {
+    async chatStream(
+        cellIds: string[],
+        query: string,
+        onChunk: (chunk: string) => void,
+        editIndex?: number
+    ) {
         const formattedQuery = await this.formatQuery(cellIds, query);
+        if (editIndex !== undefined) {
+            await this.chatbot.editMessage(editIndex, formattedQuery);
+            const response = await this.chatbot.sendMessageStream(formattedQuery, onChunk);
+            return response;
+        }
         const response = await this.chatbot.sendMessageStream(formattedQuery, onChunk);
         return response;
     }

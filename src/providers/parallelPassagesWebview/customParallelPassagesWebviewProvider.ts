@@ -33,7 +33,12 @@ async function openFileAtLocation(uri: string, cellId: string) {
     }
 }
 
-async function handleChatStream(webviewView: vscode.WebviewView, cellIds: string[], query: string) {
+async function handleChatStream(
+    webviewView: vscode.WebviewView,
+    cellIds: string[],
+    query: string,
+    editIndex?: number
+) {
     try {
         await vscode.commands
             .executeCommand<void>(
@@ -46,10 +51,10 @@ async function handleChatStream(webviewView: vscode.WebviewView, cellIds: string
                         command: "chatResponseStream",
                         data: chunk,
                     });
-                }
+                },
+                editIndex
             )
             .then(() => {
-                // Signal completion of streaming
                 webviewView.webview.postMessage({
                     command: "chatResponseComplete",
                 });
@@ -139,37 +144,6 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
   </html>`;
 
     webviewView.webview.html = html;
-    webviewView.webview.onDidReceiveMessage(async (message: any) => {
-        // Changed the type to any to handle multiple message types
-        switch (message.command) {
-            case "openFileAtLocation":
-                await openFileAtLocation(message.uri, message.word);
-                break;
-            case "chatStream":
-                await handleChatStream(webviewView, message.context, message.query);
-                break;
-            case "search":
-                if (message.database === "both") {
-                    try {
-                        const results = await vscode.commands.executeCommand<TranslationPair[]>(
-                            "translators-copilot.searchParallelCells",
-                            message.query
-                        );
-                        if (results) {
-                            webviewView.webview.postMessage({
-                                command: "searchResults",
-                                data: results,
-                            });
-                        }
-                    } catch (error) {
-                        console.error("Error searching parallel cells:", error);
-                    }
-                }
-                break;
-            default:
-                console.error(`Unknown command: ${message.command}`);
-        }
-    });
 };
 
 export class CustomWebviewProvider implements vscode.WebviewViewProvider {
@@ -187,9 +161,33 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                     await openFileAtLocation(message.uri, message.word);
                     break;
                 case "chatStream":
-                    await handleChatStream(webviewView, message.context, message.query);
+                    await handleChatStream(
+                        webviewView,
+                        message.context,
+                        message.query,
+                        message.editIndex
+                    );
                     break;
-                // ... other cases ...
+                case "search":
+                    if (message.database === "both") {
+                        try {
+                            const results = await vscode.commands.executeCommand<TranslationPair[]>(
+                                "translators-copilot.searchParallelCells",
+                                message.query
+                            );
+                            if (results) {
+                                webviewView.webview.postMessage({
+                                    command: "searchResults",
+                                    data: results,
+                                });
+                            }
+                        } catch (error) {
+                            console.error("Error searching parallel cells:", error);
+                        }
+                    }
+                    break;
+                default:
+                    console.error(`Unknown command: ${message.command}`);
             }
         });
     }

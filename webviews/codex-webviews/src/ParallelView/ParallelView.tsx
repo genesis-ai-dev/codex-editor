@@ -11,7 +11,6 @@ import "./App.css";
 import { OpenFileMessage } from "./types";
 import { TranslationPair } from "../../../../types";
 import ReactMarkdown from "react-markdown";
-
 import SearchBar from "./SearchBar";
 import VerseItem from "./CellItem";
 import ChatInput from "./ChatInput";
@@ -21,9 +20,32 @@ interface ChatMessage {
     role: "user" | "assistant";
     content: string;
     isStreaming?: boolean;
+    isEditing?: boolean;
 }
 
 const vscode = acquireVsCodeApi();
+
+// Add these CSS changes to your App.css file or create them inline in the component
+const messageStyles = {
+    user: {
+        backgroundColor: "var(--vscode-editor-background)",
+        borderRadius: "12px 12px 12px 0",
+        padding: "12px 16px",
+        marginBottom: "16px",
+        maxWidth: "85%",
+        alignSelf: "flex-start",
+        border: "1px solid var(--vscode-widget-border)",
+    },
+    assistant: {
+        backgroundColor: "var(--vscode-button-background)",
+        borderRadius: "12px 12px 0 12px",
+        padding: "12px 16px",
+        marginBottom: "16px",
+        maxWidth: "85%",
+        alignSelf: "flex-end",
+        color: "var(--vscode-button-foreground)",
+    },
+};
 
 function ParallelView() {
     const [verses, setVerses] = useState<TranslationPair[]>([]);
@@ -33,6 +55,7 @@ function ParallelView() {
     const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
     const [pendingChunks, setPendingChunks] = useState<{ index: number; content: string }[]>([]);
     const [nextChunkIndex, setNextChunkIndex] = useState(0);
+    const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
 
     // Helper function to process pending chunks in order
     const processNextChunk = () => {
@@ -126,23 +149,53 @@ function ParallelView() {
         }
     };
 
+    const handleEditMessage = (index: number) => {
+        if (chatHistory[index].role === "user") {
+            setEditingMessageIndex(index);
+            setChatInput(chatHistory[index].content);
+        }
+    };
+
     const handleChatSubmit = () => {
         if (!chatInput.trim()) return;
 
-        // Add user message to history immediately
-        setChatHistory((prev) => [
-            ...prev,
-            {
-                role: "user",
-                content: chatInput,
-            },
-        ]);
+        if (editingMessageIndex !== null) {
+            // Update the edited message
+            setChatHistory((prev) => {
+                const newHistory = prev.slice(0, editingMessageIndex + 1);
+                newHistory[editingMessageIndex] = {
+                    ...newHistory[editingMessageIndex],
+                    content: chatInput,
+                };
+                return newHistory;
+            });
 
-        vscode.postMessage({
-            command: "chatStream",
-            query: chatInput,
-            context: verses.map((verse) => verse.cellId),
-        });
+            // Send edit request
+            vscode.postMessage({
+                command: "chatStream",
+                query: chatInput,
+                context: verses.map((verse) => verse.cellId),
+                editIndex: editingMessageIndex,
+            });
+
+            setEditingMessageIndex(null);
+        } else {
+            // Normal message submission
+            setChatHistory((prev) => [
+                ...prev,
+                {
+                    role: "user",
+                    content: chatInput,
+                },
+            ]);
+
+            vscode.postMessage({
+                command: "chatStream",
+                query: chatInput,
+                context: verses.map((verse) => verse.cellId),
+            });
+        }
+
         setChatInput("");
     };
 
@@ -150,94 +203,190 @@ function ParallelView() {
         setVerses([...pinnedVerses]);
     };
 
-    return (
-        // <VSCodePanels>
-        //     <VSCodePanelTab id="tab1">Parallel Passages</VSCodePanelTab>
-        //     <VSCodePanelView id="view1">
-        <div
-            className="container"
-            style={{ display: "flex", flexDirection: "column", height: "100%" }}
-        >
-            <div
-                style={{
-                    backgroundColor: "var(--vscode-editor-background)",
-                    flexShrink: 0, // Prevent search bar from shrinking
-                }}
-            >
-                <SearchBar
-                    query={lastQuery}
-                    onQueryChange={setLastQuery}
-                    onSearch={(event) => {
-                        searchBoth(lastQuery, event);
-                    }}
-                />
-                <VSCodeDivider />
-            </div>
+    const handleCopy = async (content: string) => {
+        try {
+            await navigator.clipboard.writeText(content);
+            // Optional: Show some feedback that the copy was successful
+            vscode.postMessage({
+                command: "showInfo",
+                text: "Copied to clipboard",
+            });
+        } catch (err) {
+            console.error("Failed to copy text: ", err);
+        }
+    };
 
-            {/* Main scrollable content area */}
-            <div
-                style={{
-                    flex: 1,
-                    overflowY: "auto",
-                    minHeight: 0, // Important! Allows flex child to scroll
-                }}
-            >
-                {verses.length > 0 ? (
-                    <div className="verses-container">
-                        {verses.map((item, index) => (
-                            <VerseItem
-                                key={index}
-                                item={item}
-                                onUriClick={handleUriClick}
-                                isPinned={pinnedVerses.some((v) => v.cellId === item.cellId)}
-                                onPinToggle={handlePinToggle}
-                            />
-                        ))}
+    return (
+        <VSCodePanels>
+            <VSCodePanelTab id="tab-search">Search</VSCodePanelTab>
+            <VSCodePanelTab id="tab-chat">Chat</VSCodePanelTab>
+
+            {/* Search Tab */}
+            <VSCodePanelView id="view-search">
+                <div
+                    className="container"
+                    style={{ display: "flex", flexDirection: "column", height: "100%" }}
+                >
+                    <div
+                        style={{
+                            backgroundColor: "var(--vscode-editor-background)",
+                            flexShrink: 0,
+                        }}
+                    >
+                        <SearchBar
+                            query={lastQuery}
+                            onQueryChange={setLastQuery}
+                            onSearch={(event) => searchBoth(lastQuery, event)}
+                        />
+                        <VSCodeDivider />
                     </div>
-                ) : (
-                    <p className="no-results">No results found. Try a different search query.</p>
-                )}
-                {chatHistory.length > 0 && (
-                    <div className="chat-history">
-                        {chatHistory.map((message, index) => (
+
+                    <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+                        {verses.length > 0 ? (
+                            <div className="verses-container">
+                                {verses.map((item, index) => (
+                                    <VerseItem
+                                        key={index}
+                                        item={item}
+                                        onUriClick={handleUriClick}
+                                        isPinned={pinnedVerses.some(
+                                            (v) => v.cellId === item.cellId
+                                        )}
+                                        onPinToggle={handlePinToggle}
+                                    />
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="no-results">
+                                No results found. Try a different search query.
+                            </p>
+                        )}
+                    </div>
+                </div>
+            </VSCodePanelView>
+
+            {/* Chat Tab */}
+            <VSCodePanelView id="view-chat">
+                <div
+                    className="container"
+                    style={{ display: "flex", flexDirection: "column", height: "100%" }}
+                >
+                    {/* Context Display - Changed to only show pinnedVerses */}
+                    {pinnedVerses.length > 0 && (
+                        <div
+                            style={{
+                                backgroundColor: "var(--vscode-editor-background)",
+                                padding: "8px",
+                                marginBottom: "8px",
+                                borderRadius: "4px",
+                                fontSize: "12px",
+                                color: "var(--vscode-descriptionForeground)",
+                            }}
+                        >
+                            <div style={{ marginBottom: "4px" }}>
+                                Context from {pinnedVerses.length} pinned results:
+                            </div>
                             <div
-                                key={index}
-                                className={`chat-message ${message.role}`}
                                 style={{
-                                    padding: "12px",
-                                    margin: "12px 0",
-                                    background: "var(--vscode-editor-background)",
-                                    borderRadius: "6px",
-                                    borderLeft:
-                                        message.role === "assistant"
-                                            ? "4px solid var(--vscode-textLink-foreground)"
-                                            : "none",
+                                    display: "flex",
+                                    flexWrap: "wrap",
+                                    gap: "4px",
                                 }}
                             >
-                                <ReactMarkdown>{message.content}</ReactMarkdown>
+                                {pinnedVerses.map((verse) => (
+                                    <span
+                                        key={verse.cellId}
+                                        style={{
+                                            background: "var(--vscode-badge-background)",
+                                            color: "var(--vscode-badge-foreground)",
+                                            padding: "3px 8px",
+                                            borderRadius: "4px",
+                                            fontSize: "12px",
+                                            fontWeight: "500",
+                                            letterSpacing: "0.3px",
+                                        }}
+                                    >
+                                        {verse.cellId}
+                                    </span>
+                                ))}
                             </div>
-                        ))}
-                    </div>
-                )}
-            </div>
+                        </div>
+                    )}
 
-            <div
-                style={{
-                    backgroundColor: "var(--vscode-editor-background)",
-                    flexShrink: 0, // Prevent chat input from shrinking
-                }}
-            >
-                <VSCodeDivider />
-                <ChatInput
-                    value={chatInput}
-                    onChange={setChatInput}
-                    onSubmit={handleChatSubmit}
-                    onFocus={handleChatFocus}
-                />
-            </div>
-        </div>
-        //     </VSCodePanelView>
-        // </VSCodePanels>
+                    {/* Existing Chat History */}
+                    <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+                        {chatHistory.length > 0 && (
+                            <div className="chat-history">
+                                {chatHistory.map((message, index) => (
+                                    <div
+                                        key={index}
+                                        className={`chat-message ${message.role}`}
+                                        style={{
+                                            display: "flex",
+                                            flexDirection: "column",
+                                            ...(message.role === "user"
+                                                ? messageStyles.user
+                                                : messageStyles.assistant),
+                                        }}
+                                    >
+                                        <div style={{ flex: 1 }}>
+                                            <ReactMarkdown>{message.content}</ReactMarkdown>
+                                        </div>
+                                        <div
+                                            style={{
+                                                display: "flex",
+                                                justifyContent:
+                                                    message.role === "user"
+                                                        ? "flex-start"
+                                                        : "flex-end",
+                                                marginTop: "8px",
+                                                gap: "4px",
+                                            }}
+                                        >
+                                            {message.role === "user" && (
+                                                <VSCodeButton
+                                                    appearance="icon"
+                                                    onClick={() => handleEditMessage(index)}
+                                                    title="Edit message"
+                                                >
+                                                    <span className="codicon codicon-edit" />
+                                                </VSCodeButton>
+                                            )}
+                                            {message.role === "assistant" &&
+                                                !message.isStreaming && (
+                                                    <VSCodeButton
+                                                        appearance="icon"
+                                                        onClick={() => handleCopy(message.content)}
+                                                        title="Copy response"
+                                                    >
+                                                        <span className="codicon codicon-copy" />
+                                                    </VSCodeButton>
+                                                )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Existing Chat Input */}
+                    <div
+                        style={{
+                            backgroundColor: "var(--vscode-editor-background)",
+                            flexShrink: 0,
+                        }}
+                    >
+                        <VSCodeDivider />
+                        <ChatInput
+                            value={chatInput}
+                            onChange={setChatInput}
+                            onSubmit={handleChatSubmit}
+                            onFocus={handleChatFocus}
+                        />
+                    </div>
+                </div>
+            </VSCodePanelView>
+        </VSCodePanels>
     );
 }
 

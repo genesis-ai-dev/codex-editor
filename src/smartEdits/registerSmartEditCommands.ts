@@ -156,9 +156,14 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
     context.subscriptions.push(
         vscode.commands.registerCommand(
             "codex-smart-edits.chatStream",
-            async (cellIds: string[], query: string, onChunk: (chunk: string) => void) => {
+            async (
+                cellIds: string[],
+                query: string,
+                onChunk: (chunk: string) => void,
+                editIndex?: number
+            ) => {
                 try {
-                    await smartPassages.chatStream(cellIds, query, onChunk);
+                    await smartPassages.chatStream(cellIds, query, onChunk, editIndex);
                 } catch (error) {
                     console.error("Error in smart passages chat stream:", error);
                     vscode.window.showErrorMessage(
