@@ -210,8 +210,8 @@ suite("CodexCellEditorProvider Test Suite", () => {
             new vscode.CancellationTokenSource().token
         );
         const cellId = "newCellId";
-        const cellIdOfCellBeforeNewCell = codexSubtitleContent.cells[0].metadata.id;
-        document.addCell(cellId, cellIdOfCellBeforeNewCell, CodexCellTypes.PARATEXT, {});
+        const referenceCellId = codexSubtitleContent.cells[0].metadata.id;
+        document.addCell(cellId, referenceCellId, CodexCellTypes.PARATEXT, {});
         const updatedContent = await document.getText();
         const cells = JSON.parse(updatedContent).cells;
         // cells should contain the new cell
@@ -233,12 +233,12 @@ suite("CodexCellEditorProvider Test Suite", () => {
             new vscode.CancellationTokenSource().token
         );
         const cellId = "newCellId";
-        const cellIdOfCellBeforeNewCell = codexSubtitleContent.cells[0].metadata.id;
+        const referenceCellId = codexSubtitleContent.cells[0].metadata.id;
         const timestamps: Timestamps = {
             startTime: new Date().getTime(),
             endTime: new Date().getTime(),
         };
-        document.addCell(cellId, cellIdOfCellBeforeNewCell, CodexCellTypes.PARATEXT, {
+        document.addCell(cellId, referenceCellId, CodexCellTypes.PARATEXT, {
             ...timestamps,
         });
         const updatedContent = await document.getText();
@@ -483,7 +483,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             command: "makeChildOfCell",
             content: {
                 newCellId: childCellId,
-                cellIdOfCellBeforeNewCell: codexSubtitleContent.cells[0].metadata.id,
+                referenceCellId: codexSubtitleContent.cells[0].metadata.id,
                 cellType: CodexCellTypes.PARATEXT,
                 data: {},
             },

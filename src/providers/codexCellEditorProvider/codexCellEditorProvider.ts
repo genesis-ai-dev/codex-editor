@@ -160,6 +160,7 @@ class CodexCellDocument implements vscode.CustomDocument {
         this.addCell(
             content.cellMarkers[0],
             cellMarkerOfCellBeforeNewCell,
+            "below",
             content.cellType,
             {
                 endTime: content.timestamps?.endTime,
@@ -264,26 +265,27 @@ class CodexCellDocument implements vscode.CustomDocument {
     // Method to add a new cell
     public addCell(
         newCellId: string,
-        cellIdOfCellBeforeNewCell: string | null,
+        referenceCellId: string | null,
+        direction: "above" | "below",
         cellType: CodexCellTypes,
         data: CustomNotebookCellData["metadata"]["data"],
         content?: QuillCellContent
     ) {
         let insertIndex: number;
 
-        if (cellIdOfCellBeforeNewCell === null) {
-            // If cellIdOfCellBeforeNewCell is null, insert at the beginning
+        if (referenceCellId === null) {
+            // If referenceCellId is null, insert at the beginning
             insertIndex = 0;
         } else {
-            const indexOfParentCell = this._documentData.cells.findIndex(
-                (cell) => cell.metadata?.id === cellIdOfCellBeforeNewCell
+            const indexOfReferenceCell = this._documentData.cells.findIndex(
+                (cell) => cell.metadata?.id === referenceCellId
             );
 
-            if (indexOfParentCell === -1) {
+            if (indexOfReferenceCell === -1) {
                 throw new Error("Could not find cell to insert after");
             }
 
-            insertIndex = indexOfParentCell + 1;
+            insertIndex = direction === "above" ? indexOfReferenceCell : indexOfReferenceCell + 1;
         }
 
         // Add new cell at the determined position
@@ -304,7 +306,7 @@ class CodexCellDocument implements vscode.CustomDocument {
         this._edits.push({
             type: "addCell",
             newCellId,
-            cellIdOfCellBeforeNewCell,
+            referenceCellId,
             cellType,
             data,
         });
@@ -312,7 +314,7 @@ class CodexCellDocument implements vscode.CustomDocument {
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
         this._onDidChangeDocument.fire({
-            edits: [{ newCellId, cellIdOfCellBeforeNewCell, cellType, data }],
+            edits: [{ newCellId, referenceCellId, cellType, data }],
         });
     }
 
@@ -667,7 +669,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         try {
                             document.addCell(
                                 e.content.newCellId,
-                                e.content.cellIdOfCellBeforeNewCell,
+                                e.content.referenceCellId,
+                                e.content.direction,
                                 e.content.cellType,
                                 e.content.data
                             );
