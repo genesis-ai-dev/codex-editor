@@ -115,14 +115,12 @@ class Chatbot {
         return response;
     }
 
-    async editMessage(messageIndex: number, newContent: string): Promise<string> {
+    async editMessage(messageIndex: number, newContent: string): Promise<void> {
         if (messageIndex >= this.messages.length - 1) {
             throw new Error("Invalid message index");
         }
 
         this.messages = this.messages.slice(0, messageIndex + 1);
-
-        // return await this.sendMessage(newContent);
     }
 
     async sendMessageStream(message: string, onChunk: (chunk: string) => void): Promise<string> {
