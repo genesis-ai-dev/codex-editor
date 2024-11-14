@@ -38,51 +38,6 @@ interface CellEditorProps {
     cellIsChild: boolean;
 }
 
-const AddParatextButton: React.FC<{ addParatextCell: (direction: "above" | "below") => void }> = ({
-    addParatextCell,
-}) => {
-    const [buttonsVisible, setButtonsVisible] = useState(false);
-    if (!buttonsVisible) {
-        return (
-            <VSCodeButton
-                onClick={() => setButtonsVisible(true)}
-                appearance="icon"
-                title="Add Paratext Cell"
-            >
-                <i className="codicon codicon-diff-added"></i>
-            </VSCodeButton>
-        );
-    }
-
-    return (
-        <div
-            style={{
-                display: "flex",
-                flexDirection: "row",
-                gap: "0.5rem",
-                flexWrap: "nowrap",
-                border: "1px solid gray",
-                borderRadius: "4px",
-            }}
-        >
-            <VSCodeButton
-                onClick={() => addParatextCell("above")}
-                appearance="icon"
-                title="Add Paratext Cell"
-            >
-                <i className="codicon codicon-arrow-circle-up"></i>
-            </VSCodeButton>
-            <VSCodeButton
-                onClick={() => addParatextCell("below")}
-                appearance="icon"
-                title="Add Paratext Cell"
-            >
-                <i className="codicon codicon-arrow-circle-down"></i>
-            </VSCodeButton>
-        </div>
-    );
-};
-
 const CellEditor: React.FC<CellEditorProps> = ({
     cellMarkers,
     cellContent,
@@ -296,8 +251,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
             command: "makeChildOfCell",
             content: {
                 newCellId: newChildId,
-                referenceCellId: parentCellId,
-                direction: "below",
+                cellIdOfCellBeforeNewCell: parentCellId,
                 cellType: cellType,
                 data: {
                     startTime: childStartTime,
@@ -308,7 +262,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
         window.vscodeApi.postMessage(messageContent);
     };
 
-    const addParatextCell = (addDirection: "above" | "below") => {
+    const addParatextCell = () => {
         const parentCellId = cellMarkers[0];
 
         const newChildId = `${parentCellId}:paratext-${Date.now()}-${Math.random()
@@ -339,8 +293,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
             command: "makeChildOfCell",
             content: {
                 newCellId: newChildId,
-                referenceCellId: parentCellId,
-                direction: addDirection,
+                cellIdOfCellBeforeNewCell: parentCellId,
                 cellType: CodexCellTypes.PARATEXT,
                 data: {
                     startTime: childStartTime,
@@ -509,7 +462,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     <i className="codicon codicon-menu"></i>
                 </div>
                 <div className="action-buttons">
-                    <AddParatextButton addParatextCell={addParatextCell} />
+                    <VSCodeButton
+                        onClick={addParatextCell}
+                        appearance="icon"
+                        title="Add Paratext Cell"
+                    >
+                        <i className="codicon codicon-diff-added"></i>
+                    </VSCodeButton>
                     {cellType !== CodexCellTypes.PARATEXT && !cellIsChild && (
                         <VSCodeButton onClick={makeChild} appearance="icon" title="Add Child Cell">
                             <i className="codicon codicon-type-hierarchy-sub"></i>

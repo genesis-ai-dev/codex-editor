@@ -420,8 +420,7 @@ export type EditorPostMessages =
           command: "makeChildOfCell";
           content: {
               newCellId: string;
-              referenceCellId: string;
-              direction: "above" | "below";
+              cellIdOfCellBeforeNewCell: string;
               cellType: CodexCellTypes;
               data: CustomNotebookCellData["metadata"]["data"];
           };
