@@ -513,7 +513,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             const response = await vscode.commands.executeCommand(
                                 "translators-copilot.spellCheckText",
                                 e.content.cellContent,
-                                e.content.cellChanged
                             );
                             this.postMessageToWebview(webviewPanel, {
                                 type: "providerSendsSpellCheckResponse",

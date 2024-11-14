@@ -87,7 +87,6 @@ connection.onInitialize((params: InitializeParams) => {
         },
     } as InitializeResult;
 });
-let lastCellChanged: boolean = false;
 connection.onRequest(
     "spellcheck/getAlertCodes",
     async (params: GetAlertCodes): Promise<AlertCodesServerResponse> => {
@@ -142,7 +141,7 @@ connection.onRequest(
     }
 );
 
-connection.onRequest("spellcheck/check", async (params: { text: string; cellChanged: boolean }) => {
+connection.onRequest("spellcheck/check", async (params: { text: string }) => {
     debugLog("SERVER: Received spellcheck/check request:", { params });
 
     const text = params.text;
@@ -181,11 +180,11 @@ connection.onRequest("spellcheck/check", async (params: { text: string; cellChan
     }
 
     // Only process smart edits if there are no spelling errors
-    if (!hasSpellingErrors && params.cellChanged !== lastCellChanged) {
+    if (!hasSpellingErrors) {
         specialPhrases = [];
         const smartEditSuggestions = await connection.sendRequest(ExecuteCommandRequest, {
             command: "codex-smart-edits.getEdits",
-            args: [params.text, params.cellChanged],
+            args: [params.text],
         });
 
         debugLog("Received smart edit suggestions:", smartEditSuggestions);
@@ -198,9 +197,6 @@ connection.onRequest("spellcheck/check", async (params: { text: string; cellChan
                 color: "purple", // Use a different color for smart edit suggestions
             });
         });
-
-        // Update the last processed cellId
-        lastCellChanged = params.cellChanged;
 
         // Handle special phrases
         specialPhrases.forEach(({ phrase, replacement, color }, index) => {
