@@ -135,27 +135,24 @@ export function searchParallelCells(
     translationPairsIndex: MiniSearch,
     sourceTextIndex: MiniSearch,
     query: string,
-    k: number = 5
+    k: number = 15
 ): TranslationPair[] {
     // console.log("Searching for parallel cells with query:", query);
 
-    // Search target cells
+    // Check if the query is a verse reference
+    const isVerseReference = /:\d+/.test(query) && /\d+/.test(query);
+
+    // Search target cells with boosted search for verse references
     const targetResults = translationPairsIndex.search(query, {
         fields: ["targetContent"],
         combineWith: "OR",
         prefix: true,
         fuzzy: 0.2,
-        boost: { targetContent: 2, cellId: 1 },
+        boost: {
+            targetContent: isVerseReference ? 1 : 2,
+            cellId: isVerseReference ? 5 : 1,
+        },
     });
-
-    // console.log(
-    //     "Raw target search results:",
-    //     JSON.stringify(
-    //         targetResults.map((r) => ({ cellId: r.cellId })),
-    //         null,
-    //         2
-    //     )
-    // );
 
     const translationPairs: TranslationPair[] = targetResults
         .slice(0, k)
