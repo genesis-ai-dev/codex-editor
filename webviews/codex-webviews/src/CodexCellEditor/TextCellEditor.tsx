@@ -99,23 +99,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
     cellTimestamps,
     cellIsChild,
 }) => {
-    const { unsavedChanges, setUnsavedChanges, showFlashingBorder } =
+    const { setUnsavedChanges, showFlashingBorder, unsavedChanges } =
         useContext(UnsavedChangesContext);
     const { contentToScrollTo } = useContext(ScrollToContentContext);
     const { sourceCellMap } = useContext(SourceCellContext);
     const cellEditorRef = useRef<HTMLDivElement>(null);
     const sourceCellContent = sourceCellMap?.[cellMarkers[0]];
     const [editorContent, setEditorContent] = useState(cellContent);
-
-    const unsavedChangesState = !!(
-        contentBeingUpdated.cellContent &&
-        getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !==
-            cellContent.replace(/\s/g, "")
-    );
-
-    useEffect(() => {
-        setUnsavedChanges(unsavedChangesState);
-    }, [unsavedChangesState, setUnsavedChanges]);
+    const isFirstChange = useRef(true);
 
     useEffect(() => {
         if (showFlashingBorder && cellEditorRef.current) {
@@ -128,7 +119,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
             contentToScrollTo &&
             contentToScrollTo === cellMarkers[0] &&
             cellEditorRef.current &&
-            !unsavedChanges
+            !setUnsavedChanges
         ) {
             cellEditorRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
         }
@@ -603,8 +594,24 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     key={`${cellIndex}-quill`}
                     initialValue={editorContent}
                     spellCheckResponse={spellCheckResponse}
+                    setUnsavedChanges={setUnsavedChanges}
                     onChange={({ html }) => {
                         setEditorContent(html);
+
+                        // Calculate unsaved changes state here
+                        const hasUnsavedChanges = !!(
+                            html &&
+                            getCleanedHtml(html).replace(/\s/g, "") !==
+                                cellContent.replace(/\s/g, "")
+                        );
+
+                        // Only set unsaved changes if it's not the first change
+                        if (isFirstChange.current) {
+                            isFirstChange.current = false;
+                        } else {
+                            setUnsavedChanges(hasUnsavedChanges);
+                        }
+
                         setContentBeingUpdated({
                             cellMarkers,
                             cellContent: html,

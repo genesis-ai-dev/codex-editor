@@ -37,6 +37,7 @@ export interface EditorProps {
     onChange?: (changes: EditorContentChanged) => void;
     spellCheckResponse?: SpellCheckResponse | null;
     textDirection: "ltr" | "rtl";
+    setUnsavedChanges: (unsavedChanges: boolean) => void;
 }
 
 // Fix the imports with correct typing
@@ -249,9 +250,11 @@ export default function Editor(props: EditorProps) {
                 const quill = quillRef.current;
                 if (event.data.type === "providerSendsPromptedEditResponse") {
                     quill.root.innerHTML = event.data.content;
+                    props.setUnsavedChanges(true);
                 } else if (event.data.type === "providerSendsLLMCompletionResponse") {
                     const completionText = event.data.content.completion;
                     quill.root.innerHTML = completionText; // Clear existing content
+                    props.setUnsavedChanges(true);
                 }
                 updateHeaderLabel(); // Update header label after external changes
             }
