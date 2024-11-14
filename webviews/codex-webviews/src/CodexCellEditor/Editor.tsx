@@ -37,6 +37,7 @@ export interface EditorProps {
     onChange?: (changes: EditorContentChanged) => void;
     spellCheckResponse?: SpellCheckResponse | null;
     textDirection: "ltr" | "rtl";
+    setShouldSave: (shouldSave: boolean) => void;
 }
 
 // Fix the imports with correct typing
@@ -59,6 +60,11 @@ Quill.register({
     "formats/openLibrary": OpenLibraryFormat,
 });
 
+// Add this helper function near the top of the file
+const stripHtml = (html: string) => {
+    return html.replace(/<[^>]*>/g, "").trim();
+};
+
 export default function Editor(props: EditorProps) {
     const [isToolbarExpanded, setIsToolbarExpanded] = useState(false);
     const [showModal, setShowModal] = useState(false);
@@ -67,6 +73,7 @@ export default function Editor(props: EditorProps) {
     const [editHistory, setEditHistory] = useState<EditHistoryEntry[]>([]);
     const initialContentRef = useRef<string>("");
     const [headerLabel, setHeaderLabel] = useState<string>("Normal"); // Track header label
+    const isFirstChangeRef = useRef(true);
 
     const quillRef = useRef<Quill | null>(null);
     const editorRef = useRef<HTMLDivElement>(null);
@@ -123,14 +130,25 @@ export default function Editor(props: EditorProps) {
             quillRef.current = quill;
 
             // Store initial content when editor is mounted
-            initialContentRef.current = quill.root.innerHTML;
+            initialContentRef.current = getCleanedHtml(quill.root.innerHTML);
 
-            // Add text-change event listener
+            // Update text-change event listener to compare with initial content
             quill.on("text-change", () => {
                 if (props.onChange) {
+                    // Ignore the first change
+                    if (isFirstChangeRef.current) {
+                        isFirstChangeRef.current = false;
+                        return;
+                    }
+
+                    const currentContent = quill.root.innerHTML;
+                    const currentTextContent = stripHtml(currentContent);
+                    const initialTextContent = stripHtml(initialContentRef.current);
+
                     props.onChange({
-                        html: quill.root.innerHTML,
+                        html: currentContent,
                     });
+                    props.setShouldSave(currentTextContent !== initialTextContent);
                 }
 
                 updateHeaderLabel();
@@ -140,14 +158,16 @@ export default function Editor(props: EditorProps) {
             return () => {
                 if (quillRef.current) {
                     const finalContent = quillRef.current.root.innerHTML;
-                    if (finalContent !== initialContentRef.current) {
+                    const finalTextContent = stripHtml(finalContent);
+                    const initialTextContent = stripHtml(initialContentRef.current);
+
+                    if (finalTextContent !== initialTextContent) {
                         setEditHistory((prev) => {
                             const newEntry = {
                                 before: initialContentRef.current,
                                 after: finalContent,
                                 timestamp: Date.now(),
                             };
-                            // Keep only the last 7 entries
                             return [...prev, newEntry].slice(-7);
                         });
                     }
@@ -250,6 +270,7 @@ export default function Editor(props: EditorProps) {
                 if (event.data.type === "providerSendsPromptedEditResponse") {
                     quill.root.innerHTML = event.data.content;
                 } else if (event.data.type === "providerSendsLLMCompletionResponse") {
+                    props.setShouldSave(true);
                     const completionText = event.data.content.completion;
                     quill.root.innerHTML = completionText; // Clear existing content
                 }

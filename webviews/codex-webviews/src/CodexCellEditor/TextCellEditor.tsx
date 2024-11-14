@@ -9,7 +9,6 @@ import Editor from "./Editor";
 import CloseButtonWithConfirmation from "../components/CloseButtonWithConfirmation";
 import { getCleanedHtml } from "./react-quill-spellcheck";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
-import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import { CodexCellTypes } from "../../../../types/enums";
 import SourceCellContext from "./contextProviders/SourceCellContext";
 import ConfirmationButton from "./ConfirmationButton";
@@ -99,36 +98,31 @@ const CellEditor: React.FC<CellEditorProps> = ({
     cellTimestamps,
     cellIsChild,
 }) => {
-    const { unsavedChanges, setUnsavedChanges, showFlashingBorder } =
-        useContext(UnsavedChangesContext);
     const { contentToScrollTo } = useContext(ScrollToContentContext);
     const { sourceCellMap } = useContext(SourceCellContext);
     const cellEditorRef = useRef<HTMLDivElement>(null);
     const sourceCellContent = sourceCellMap?.[cellMarkers[0]];
     const [editorContent, setEditorContent] = useState(cellContent);
+    const [shouldSave, setShouldSave] = useState(false);
 
-    const unsavedChangesState = !!(
-        contentBeingUpdated.cellContent &&
-        getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !==
-            cellContent.replace(/\s/g, "")
-    );
+    // const unsavedChangesState = !!(
+    //     contentBeingUpdated.cellContent &&
+    //     getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !==
+    //         cellContent.replace(/\s/g, "")
+    // );
 
-    useEffect(() => {
-        setUnsavedChanges(unsavedChangesState);
-    }, [unsavedChangesState, setUnsavedChanges]);
-
-    useEffect(() => {
-        if (showFlashingBorder && cellEditorRef.current) {
-            cellEditorRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
-        }
-    }, [showFlashingBorder]);
+    // useEffect(() => {
+    //     if (showFlashingBorder && cellEditorRef.current) {
+    //         cellEditorRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    //     }
+    // }, [showFlashingBorder]); fxm
 
     useEffect(() => {
         if (
             contentToScrollTo &&
             contentToScrollTo === cellMarkers[0] &&
             cellEditorRef.current &&
-            !unsavedChanges
+            !shouldSave
         ) {
             cellEditorRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
         }
@@ -498,6 +492,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 },
             };
             window.vscodeApi.postMessage(messageContent);
+            setShouldSave(true);
         }
         setSelectedPrompts(new Set());
         setShowPromptsSection(false);
@@ -527,12 +522,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             disabled={cellHasContent}
                         />
                     )}
-                    {unsavedChanges ? (
+                    {shouldSave ? (
                         <>
                             <VSCodeButton
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     handleSaveHtml();
+                                    setShouldSave(false);
                                 }}
                                 appearance="primary"
                                 className="save-button"
@@ -600,6 +596,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
             <div className="text-editor">
                 <Editor
                     currentLineId={cellMarkers[0]}
+                    setShouldSave={setShouldSave}
                     key={`${cellIndex}-quill`}
                     initialValue={editorContent}
                     spellCheckResponse={spellCheckResponse}
