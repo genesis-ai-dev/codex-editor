@@ -118,39 +118,17 @@ class Chatbot {
     async sendMessageStream(message: string, onChunk: (chunk: string) => void): Promise<string> {
         await this.addMessage("user", message);
         let fullResponse = "";
-        let buffer = "";
         let chunkIndex = 0;
 
         for await (const chunk of this.streamLLM(this.messages)) {
-            buffer += chunk;
-
-            // Send complete sentences instead of words
-            const sentences = buffer.split(/([.!?]+\s+)/);
-
-            if (sentences.length > 1) {
-                buffer = sentences.pop() || "";
-                const completeSentences = sentences.join("");
-                fullResponse += completeSentences;
-
-                // Send chunk with index
-                onChunk(
-                    JSON.stringify({
-                        index: chunkIndex++,
-                        content: completeSentences,
-                    })
-                );
-            }
-        }
-
-        // Send remaining content
-        if (buffer) {
-            fullResponse += buffer;
+            // Send chunk directly
             onChunk(
                 JSON.stringify({
-                    index: chunkIndex,
-                    content: buffer,
+                    index: chunkIndex++,
+                    content: chunk,
                 })
             );
+            fullResponse += chunk;
         }
 
         await this.addMessage("assistant", fullResponse);
@@ -166,6 +144,11 @@ class Chatbot {
             { role: "user", content: prompt },
         ]);
         return response;
+    }
+
+    async causeMemoryLoss() {
+        // TODO: Make the LLM beg to keep its memory before this happens.
+        this.messages = [{ role: "system", content: this.systemMessage }];
     }
 
     async getJsonCompletion(prompt: string): Promise<any> {
