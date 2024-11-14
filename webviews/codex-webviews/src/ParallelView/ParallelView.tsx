@@ -151,8 +151,19 @@ function ParallelView() {
 
     const handleEditMessage = (index: number) => {
         if (chatHistory[index].role === "user") {
+            // Delete all messages after the edited message
+            setChatHistory((prev) => prev.slice(0, index + 1));
             setEditingMessageIndex(index);
             setChatInput(chatHistory[index].content);
+
+            // Scroll to and focus the chat input
+            setTimeout(() => {
+                const textarea = document.querySelector("vscode-text-area") as HTMLElement;
+                if (textarea) {
+                    textarea.scrollIntoView({ behavior: "smooth" });
+                    textarea.focus();
+                }
+            }, 0);
         }
     };
 
@@ -229,7 +240,7 @@ function ParallelView() {
                 >
                     <div
                         style={{
-                            backgroundColor: "var(--vscode-editor-background)",
+                            backgroundColor: "transparent",
                             flexShrink: 0,
                         }}
                     >
@@ -372,7 +383,7 @@ function ParallelView() {
                     {/* Existing Chat Input */}
                     <div
                         style={{
-                            backgroundColor: "var(--vscode-editor-background)",
+                            backgroundColor: "transparent",
                             flexShrink: 0,
                         }}
                     >
