@@ -82,7 +82,7 @@ export default async function registerClientOnRequests(client: LanguageClient, d
                 FROM entries 
                 WHERE head_word LIKE '%' || ? || '%' COLLATE NOCASE
                 ORDER BY levenshtein(LOWER(head_word), LOWER(?)) 
-                LIMIT 10
+                LIMIT 100
             `);
 
             const words: string[] = [];

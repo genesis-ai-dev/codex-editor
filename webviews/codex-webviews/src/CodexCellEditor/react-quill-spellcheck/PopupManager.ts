@@ -79,7 +79,7 @@ export default class PopupManager {
         actionsDiv.className = "quill-spck-match-popup-actions";
 
         // Only add replacement suggestions if they exist
-        match.replacements?.slice(0, 3).forEach((replacement, index) => {
+        match.replacements?.slice(0, 5).forEach((replacement, index) => {
             const button = this.createActionButton(replacement.value, () =>
                 this.applySuggestion(match, replacement.value, index)
             );

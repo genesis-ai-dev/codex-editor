@@ -27,6 +27,14 @@ interface CheckWordResponse {
     exists: boolean;
 }
 
+const DEBUG_MODE = false; // Flag for debug mode
+
+// Custom debug function
+function debugLog(...args: any[]) {
+    if (DEBUG_MODE) {
+        console.log(new Date().toISOString(), ...args);
+    }
+}
 const CheckWordRequest = new RequestType<
     { word: string; caseSensitive: boolean },
     CheckWordResponse,
@@ -59,6 +67,7 @@ export class SpellChecker {
                 word: cleanedWord,
                 caseSensitive: false,
             });
+            debugLog("SERVER: CheckWordRequest response:", { response });
 
             if (response.exists) {
                 const result: SpellCheckResult = {
@@ -72,6 +81,7 @@ export class SpellChecker {
             }
 
             const suggestions = await this.getSuggestions(originalWord);
+            debugLog("SERVER: getSuggestions response:", { suggestions });
             const result: SpellCheckResult = {
                 word: originalWord,
                 wordIsFoundInDictionary: false,
@@ -103,15 +113,16 @@ export class SpellChecker {
 
             // Get all words from the dictionary
             const dictWords = await this.connection.sendRequest(GetSuggestionsRequest, cleanedWord);
+            debugLog("SERVER: GetSuggestionsRequest response:", { dictWords });
 
             const suggestions = dictWords.map((dictWord) => ({
                 word: dictWord,
                 distance: this.levenshteinDistance(cleanedWord, dictWord),
             }));
-
+            debugLog("SERVER: suggestions:", { suggestions });
             return suggestions
                 .sort((a, b) => a.distance - b.distance)
-                .slice(0, 3)
+                .slice(0, 5)
                 .map((suggestion) => {
                     let result = suggestion.word;
 
