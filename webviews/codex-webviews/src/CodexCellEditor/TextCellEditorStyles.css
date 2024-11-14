@@ -33,7 +33,12 @@
 .header-content {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 4px;
+    padding: 4px;
+}
+
+.header-content:hover {
+    background-color: var(--vscode-toolbar-hoverBackground);
 }
 
 .header-content h3 {

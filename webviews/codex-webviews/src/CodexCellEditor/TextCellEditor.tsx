@@ -459,14 +459,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
     return (
         <div ref={cellEditorRef} className="cell-editor" style={{ direction: textDirection }}>
             <div className="editor-controls-header">
-                <div className="header-content">
-                    <i
-                        className={`codicon codicon-chevron-${
-                            isEditorControlsExpanded ? "down" : "right"
-                        }`}
-                        onClick={() => setIsEditorControlsExpanded(!isEditorControlsExpanded)}
-                    ></i>
-                    <h3>More</h3>
+                <div
+                    className="header-content"
+                    onClick={() => setIsEditorControlsExpanded(!isEditorControlsExpanded)}
+                    style={{ cursor: "pointer" }}
+                >
+                    <i className="codicon codicon-menu"></i>
                 </div>
                 <div className="action-buttons">
                     <VSCodeButton
