@@ -83,24 +83,26 @@ export class SmartPassages {
                 const targetText = pair.targetCell.content || "";
                 const edits = pair.edits || [];
 
-                const editHistory = edits
-                    .map((edit, index) => {
-                        const plainText = edit.cellValue
-                            .replace(/<[^>]*>/g, "")
-                            .replace(/&nbsp;|&amp;|&lt;|&gt;|&quot;|&#39;/g, "")
-                            .replace(/&#\d+;/g, "")
-                            .replace(/&[a-zA-Z]+;/g, "");
+                // Only include edit history if there are edits
+                const editHistory =
+                    edits.length > 0
+                        ? edits
+                              .map((edit, index) => {
+                                  const plainText = edit.cellValue
+                                      .replace(/<[^>]*>/g, "")
+                                      .replace(/&nbsp;|&amp;|&lt;|&gt;|&quot;|&#39;/g, "")
+                                      .replace(/&#\d+;/g, "")
+                                      .replace(/&[a-zA-Z]+;/g, "");
 
-                        return `    revision ${index + 1} (${new Date(edit.timestamp).toISOString()}):
+                                  return `    revision ${index + 1} (${new Date(edit.timestamp).toISOString()}):
         ${plainText}`;
-                    })
-                    .join("\n");
+                              })
+                              .join("\n")
+                        : "";
 
                 return `"${pair.cellId}": {
     source text: ${sourceText}
-    target text: ${targetText}
-    edit history:
-${editHistory}
+    target text: ${targetText}${editHistory ? "\n    edit history:\n" + editHistory : ""}
 }`;
             })
             .filter((text) => text !== "");
