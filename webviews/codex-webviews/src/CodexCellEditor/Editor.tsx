@@ -39,6 +39,26 @@ export interface EditorProps {
     textDirection: "ltr" | "rtl";
 }
 
+// Fix the imports with correct typing
+const Inline = Quill.import("blots/inline") as any;
+
+// Update class definitions
+class AutocompleteFormat extends Inline {
+    static blotName = "autocomplete";
+    static tagName = "span";
+}
+
+class OpenLibraryFormat extends Inline {
+    static blotName = "openLibrary";
+    static tagName = "span";
+}
+
+// Register formats
+Quill.register({
+    "formats/autocomplete": AutocompleteFormat,
+    "formats/openLibrary": OpenLibraryFormat,
+});
+
 export default function Editor(props: EditorProps) {
     const [isToolbarExpanded, setIsToolbarExpanded] = useState(false);
     const [showModal, setShowModal] = useState(false);
@@ -64,6 +84,23 @@ export default function Editor(props: EditorProps) {
                             headerStyleLeft: () => handleHeaderChange("prev"),
                             headerStyleRight: () => handleHeaderChange("next"),
                             headerStyleLabel: () => {}, // No-op handler for the label
+                            autocomplete: () => {
+                                window.vscodeApi.postMessage({
+                                    command: "llmCompletion",
+                                    content: {
+                                        currentLineId: props.currentLineId,
+                                    },
+                                });
+                            },
+                            openLibrary: () => {
+                                const content = quill.getText();
+                                const words = content
+                                    .split(/[\s\n.,!?]+/)
+                                    .filter((word) => word.length > 0)
+                                    .filter((word, index, self) => self.indexOf(word) === index);
+                                setWordsToAdd(words);
+                                setShowModal(true);
+                            },
                         },
                     },
                     spellChecker: {},
