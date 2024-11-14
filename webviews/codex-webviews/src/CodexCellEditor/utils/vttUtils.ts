@@ -23,6 +23,7 @@ export const generateVttData = (translationUnits: QuillCellContent[]): string =>
     };
 
     const cues = translationUnits
+        .filter((unit) => !!unit.timestamps)
         .map((unit, index) => {
             const startTime = unit.timestamps?.startTime ?? index;
             const endTime = unit.timestamps?.endTime ?? index + 1;
