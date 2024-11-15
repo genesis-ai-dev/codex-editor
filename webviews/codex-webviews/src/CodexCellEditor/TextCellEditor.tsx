@@ -651,9 +651,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
             {/* Add source text display before prompts section */}
             {sourceText && (
                 <div className="source-text-section">
-                    <div className="source-text-header">
-                        <h4>Source Text</h4>
-                    </div>
                     <div className="source-text-content">{sourceText}</div>
                 </div>
             )}
