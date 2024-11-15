@@ -107,6 +107,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const sourceCellContent = sourceCellMap?.[cellMarkers[0]];
     const [editorContent, setEditorContent] = useState(cellContent);
     const isFirstChange = useRef(true);
+    const [sourceText, setSourceText] = useState<string | null>(null);
 
     useEffect(() => {
         if (showFlashingBorder && cellEditorRef.current) {
@@ -494,6 +495,30 @@ const CellEditor: React.FC<CellEditorProps> = ({
         setShowPromptsSection(false);
     };
 
+    // Add effect to fetch source text
+    useEffect(() => {
+        const messageContent: EditorPostMessages = {
+            command: "getSourceText",
+            content: {
+                cellId: cellMarkers[0],
+            },
+        };
+        window.vscodeApi.postMessage(messageContent);
+    }, [cellMarkers]);
+
+    // Add effect to handle source text response
+    useEffect(() => {
+        const handleSourceTextResponse = (event: MessageEvent) => {
+            const message = event.data;
+            if (message.type === "providerSendsSourceText") {
+                setSourceText(message.content);
+            }
+        };
+
+        window.addEventListener("message", handleSourceTextResponse);
+        return () => window.removeEventListener("message", handleSourceTextResponse);
+    }, []);
+
     return (
         <div ref={cellEditorRef} className="cell-editor" style={{ direction: textDirection }}>
             <div className="editor-controls-header">
@@ -622,6 +647,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     textDirection={textDirection}
                 />
             </div>
+
+            {/* Add source text display before prompts section */}
+            {sourceText && (
+                <div className="source-text-section">
+                    <div className="source-text-header">
+                        <h4>Source Text</h4>
+                    </div>
+                    <div className="source-text-content">{sourceText}</div>
+                </div>
+            )}
 
             {showPromptsSection && visiblePrompts.length > 0 && (
                 <div className="top-prompts-section">

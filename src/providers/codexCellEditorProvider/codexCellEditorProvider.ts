@@ -512,7 +512,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         try {
                             const response = await vscode.commands.executeCommand(
                                 "translators-copilot.spellCheckText",
-                                e.content.cellContent,
+                                e.content.cellContent
                             );
                             this.postMessageToWebview(webviewPanel, {
                                 type: "providerSendsSpellCheckResponse",
@@ -631,6 +631,23 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         } catch (error) {
                             console.error("Error updating notebook text direction:", error);
                             vscode.window.showErrorMessage("Failed to update text direction.");
+                        }
+                        return;
+                    }
+                    case "getSourceText": {
+                        try {
+                            const sourceText = (await vscode.commands.executeCommand(
+                                "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
+                                e.content.cellId
+                            )) as { cellId: string; content: string };
+                            console.log("providerSendsSourceText", { sourceText });
+                            this.postMessageToWebview(webviewPanel, {
+                                type: "providerSendsSourceText",
+                                content: sourceText.content,
+                            });
+                        } catch (error) {
+                            console.error("Error getting source text:", error);
+                            vscode.window.showErrorMessage("Failed to get source text.");
                         }
                         return;
                     }
