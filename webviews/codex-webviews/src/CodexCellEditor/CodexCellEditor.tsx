@@ -181,17 +181,10 @@ const CodexCellEditor: React.FC = () => {
 
     const handleSaveHtml = () => {
         const content = contentBeingUpdated;
-        // First clean spellcheck tags, then remove p tags, then wrap in span
-        const filteredContent = getCleanedHtml(content.cellContent)
-            .replace(/<\/?p>/g, "") // Remove all opening and closing p tags
-            .trim();
-
-        // Wrap the entire content in a span tag
-        const wrappedContent = `<span>${filteredContent}</span>`;
 
         vscode.postMessage({
             command: "saveHtml",
-            content: { ...content, cellContent: wrappedContent },
+            content: content,
         } as EditorPostMessages);
         checkAlertCodes();
         handleCloseEditor();

@@ -413,11 +413,13 @@ export type EditorPostMessages =
     | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata }
     | { command: "pickVideoFile" }
     | { command: "from-quill-spellcheck-getSpellCheckResponse"; content: EditorCellContent }
+    | { command: "getSourceText"; content: { cellId: string } }
     | { command: "searchSimilarCellIds"; content: { cellId: string } }
     | { command: "updateCellTimestamps"; content: { cellId: string; timestamps: Timestamps } }
     | { command: "deleteCell"; content: { cellId: string } }
     | { command: "addWord"; words: string[] }
     | { command: "getAlertCodes"; content: GetAlertCodes }
+    | { command: "executeCommand"; content: { command: string; args: any[] } }
     | {
           command: "makeChildOfCell";
           content: {
@@ -477,7 +479,8 @@ type EditorReceiveMessages =
     | { type: "updateVideoUrlInWebview"; content: string }
     | { type: "providerSendsPromptedEditResponse"; content: string }
     | { type: "providerSendsSimilarCellIdsResponse"; content: { cellId: string; score: number }[] }
-    | { type: "providerSendsTopPrompts"; content: string[] };
+    | { type: "providerSendsTopPrompts"; content: string[] }
+    | { type: "providerSendsSourceText"; content: string };
 
 type AlertCodesServerResponse = {
     code: number;

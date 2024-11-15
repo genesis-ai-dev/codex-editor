@@ -219,3 +219,26 @@
     display: flex;
     justify-content: flex-end;
 }
+
+.source-text-section {
+    background: var(--vscode-editor-inactiveSelectionBackground);
+    border-radius: 6px;
+    padding: 12px;
+    margin: 8px 0;
+}
+
+/* .source-text-header {
+    margin-bottom: 8px;
+}
+
+.source-text-header h4 {
+    margin: 0;
+    color: var(--vscode-editor-foreground);
+} */
+
+.source-text-content {
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--vscode-editor-font-size);
+    line-height: 1.4;
+    white-space: pre-wrap;
+}

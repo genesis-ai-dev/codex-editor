@@ -23,7 +23,6 @@ export class QuillSpellChecker {
     public boxes = new SuggestionBoxes(this);
     public matches: MatchesEntity[] = [];
     protected onRequestComplete: () => void = () => null;
-    private cellChanged: boolean = false;
     private typingTimer: number | undefined;
     private typingDelay = 500; // Delay in milliseconds
     private lastSpellCheckTime: number = 0;
@@ -80,7 +79,6 @@ export class QuillSpellChecker {
 
     private handleEditorChange = (eventName: string, ...args: any[]) => {
         debug("editor-change event", { eventName, args });
-        this.cellChanged = !this.cellChanged;
         this.popups.initialize();
     };
 
@@ -220,7 +218,7 @@ export class QuillSpellChecker {
 
                 (window as any).vscodeApi.postMessage({
                     command: "from-quill-spellcheck-getSpellCheckResponse",
-                    content: { cellContent: text, cellChanged: this.cellChanged },
+                    content: { cellContent: text },
                 });
 
                 setTimeout(() => {

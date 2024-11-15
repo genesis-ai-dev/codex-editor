@@ -7,6 +7,9 @@ const SYSTEM_MESSAGE = `You are a helpful assistant translation assistant.
 You will be given large amounts of parallel texts between two languages.
 Your job is to help the user understand the texts and make sense of them.
 You will also be given historical edits of the texts, and other relevant information.
+- If the user asks for the original language, you should respond with the original language of the text within a codeblock for clarity.
+- If the user asks for technical help with "codex", respond that you are not capable of that yet, but you will be able to soon. Feel free to attempt to help them with other technical questions.
+- Steer the user towards translating texts in culturally appropriate ways, focus on maintaining the meaning of the text.
 Always respond in markdown format.
 `;
 
@@ -22,8 +25,18 @@ export class SmartPassages {
         return response;
     }
 
-    async chatStream(cellIds: string[], query: string, onChunk: (chunk: string) => void) {
+    async chatStream(
+        cellIds: string[],
+        query: string,
+        onChunk: (chunk: string) => void,
+        editIndex?: number
+    ) {
         const formattedQuery = await this.formatQuery(cellIds, query);
+        if (editIndex !== undefined) {
+            await this.chatbot.editMessage(editIndex, formattedQuery);
+            const response = await this.chatbot.sendMessageStream(formattedQuery, onChunk);
+            return response;
+        }
         const response = await this.chatbot.sendMessageStream(formattedQuery, onChunk);
         return response;
     }
@@ -70,24 +83,26 @@ export class SmartPassages {
                 const targetText = pair.targetCell.content || "";
                 const edits = pair.edits || [];
 
-                const editHistory = edits
-                    .map((edit, index) => {
-                        const plainText = edit.cellValue
-                            .replace(/<[^>]*>/g, "")
-                            .replace(/&nbsp;|&amp;|&lt;|&gt;|&quot;|&#39;/g, "")
-                            .replace(/&#\d+;/g, "")
-                            .replace(/&[a-zA-Z]+;/g, "");
+                // Only include edit history if there are edits
+                const editHistory =
+                    edits.length > 0
+                        ? edits
+                              .map((edit, index) => {
+                                  const plainText = edit.cellValue
+                                      .replace(/<[^>]*>/g, "")
+                                      .replace(/&nbsp;|&amp;|&lt;|&gt;|&quot;|&#39;/g, "")
+                                      .replace(/&#\d+;/g, "")
+                                      .replace(/&[a-zA-Z]+;/g, "");
 
-                        return `    revision ${index + 1} (${new Date(edit.timestamp).toISOString()}):
+                                  return `    revision ${index + 1} (${new Date(edit.timestamp).toISOString()}):
         ${plainText}`;
-                    })
-                    .join("\n");
+                              })
+                              .join("\n")
+                        : "";
 
                 return `"${pair.cellId}": {
     source text: ${sourceText}
-    target text: ${targetText}
-    edit history:
-${editHistory}
+    target text: ${targetText}${editHistory ? "\n    edit history:\n" + editHistory : ""}
 }`;
             })
             .filter((text) => text !== "");

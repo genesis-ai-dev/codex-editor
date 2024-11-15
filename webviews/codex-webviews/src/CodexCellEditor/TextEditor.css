@@ -68,7 +68,7 @@
 /* Remove default Quill borders */
 .ql-toolbar.ql-snow {
     border: none !important;
-    padding: 4px !important;
+    padding: 2px !important;
 }
 
 .ql-container.ql-snow {
@@ -78,7 +78,7 @@
 
 /* Make toolbar more compact */
 .ql-toolbar.ql-snow {
-    padding: 4px !important;
+    padding: 2px !important;
 }
 
 /* Reduce size of toolbar buttons */

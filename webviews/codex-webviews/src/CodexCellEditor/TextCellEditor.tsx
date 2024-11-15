@@ -106,7 +106,18 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const cellEditorRef = useRef<HTMLDivElement>(null);
     const sourceCellContent = sourceCellMap?.[cellMarkers[0]];
     const [editorContent, setEditorContent] = useState(cellContent);
-    const isFirstChange = useRef(true);
+    const [sourceText, setSourceText] = useState<string | null>(null);
+
+    const unsavedChangesState = !!(
+        contentBeingUpdated.cellContent &&
+        getCleanedHtml(contentBeingUpdated.cellContent) &&
+        getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !==
+            cellContent.replace(/\s/g, "")
+    );
+
+    useEffect(() => {
+        setUnsavedChanges(unsavedChangesState);
+    }, [unsavedChangesState, setUnsavedChanges]);
 
     useEffect(() => {
         if (showFlashingBorder && cellEditorRef.current) {
@@ -140,6 +151,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [isPromptsExpanded, setIsPromptsExpanded] = useState(false);
     const [showPromptsSection, setShowPromptsSection] = useState(true);
     const [isEditorControlsExpanded, setIsEditorControlsExpanded] = useState(false);
+    const [isPinned, setIsPinned] = useState(false);
 
     useEffect(() => {
         setEditableLabel(cellLabel || "");
@@ -494,6 +506,41 @@ const CellEditor: React.FC<CellEditorProps> = ({
         setShowPromptsSection(false);
     };
 
+    // Add effect to fetch source text
+    useEffect(() => {
+        const messageContent: EditorPostMessages = {
+            command: "getSourceText",
+            content: {
+                cellId: cellMarkers[0],
+            },
+        };
+        window.vscodeApi.postMessage(messageContent);
+    }, [cellMarkers]);
+
+    // Add effect to handle source text response
+    useEffect(() => {
+        const handleSourceTextResponse = (event: MessageEvent) => {
+            const message = event.data;
+            if (message.type === "providerSendsSourceText") {
+                setSourceText(message.content);
+            }
+        };
+
+        window.addEventListener("message", handleSourceTextResponse);
+        return () => window.removeEventListener("message", handleSourceTextResponse);
+    }, []);
+
+    const handlePinCell = () => {
+        setIsPinned(!isPinned);
+        window.vscodeApi.postMessage({
+            command: "executeCommand",
+            content: {
+                command: "parallelPassages.pinCellById",
+                args: [cellMarkers[0]],
+            },
+        });
+    };
+
     return (
         <div ref={cellEditorRef} className="cell-editor" style={{ direction: textDirection }}>
             <div className="editor-controls-header">
@@ -518,6 +565,22 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             disabled={cellHasContent}
                         />
                     )}
+                    <VSCodeButton
+                        onClick={handlePinCell}
+                        appearance="icon"
+                        title={isPinned ? "Unpin from Parallel View" : "Pin in Parallel View"}
+                        style={{
+                            backgroundColor: isPinned
+                                ? "var(--vscode-button-background)"
+                                : "transparent",
+                            color: isPinned
+                                ? "var(--vscode-button-foreground)"
+                                : "var(--vscode-editor-foreground)",
+                            marginLeft: "auto", // This pushes it to the right
+                        }}
+                    >
+                        <i className={`codicon ${isPinned ? "codicon-pinned" : "codicon-pin"}`}></i>
+                    </VSCodeButton>
                     {unsavedChanges ? (
                         <>
                             <VSCodeButton
@@ -594,7 +657,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     key={`${cellIndex}-quill`}
                     initialValue={editorContent}
                     spellCheckResponse={spellCheckResponse}
-                    setUnsavedChanges={setUnsavedChanges}
                     onChange={({ html }) => {
                         setEditorContent(html);
 
@@ -604,13 +666,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             getCleanedHtml(html).replace(/\s/g, "") !==
                                 cellContent.replace(/\s/g, "")
                         );
-
-                        // Only set unsaved changes if it's not the first change
-                        if (isFirstChange.current) {
-                            isFirstChange.current = false;
-                        } else {
-                            setUnsavedChanges(hasUnsavedChanges);
-                        }
 
                         setContentBeingUpdated({
                             cellMarkers,
@@ -622,6 +677,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     textDirection={textDirection}
                 />
             </div>
+
+            {/* Add source text display before prompts section */}
+            {sourceText && (
+                <div className="source-text-section">
+                    <div className="source-text-content">{sourceText}</div>
+                </div>
+            )}
 
             {showPromptsSection && visiblePrompts.length > 0 && (
                 <div className="top-prompts-section">
