@@ -3,6 +3,8 @@ import ReactPlayer from "react-player";
 import VideoPlayer from "./VideoPlayer";
 import TimelineEditor from "./TimelineEditor";
 import { QuillCellContent, TimeBlock } from "../../../../types";
+import { useMouse } from "@uidotdev/usehooks";
+import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 
 interface VideoTimelineEditorProps {
     videoUrl: string;
@@ -17,6 +19,41 @@ const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
     vscode,
     playerRef,
 }) => {
+    const [playerHeight, setPlayerHeight] = useState<number>(300);
+    const [isDragging, setIsDragging] = useState(false);
+    const [mouse] = useMouse();
+    const [startY, setStartY] = useState(0);
+    const [startHeight, setStartHeight] = useState(0);
+
+    const handleMouseDown = (e: React.MouseEvent) => {
+        setIsDragging(true);
+        setStartY(e.clientY);
+        setStartHeight(playerHeight || 0);
+    };
+
+    useEffect(() => {
+        const handleMouseMove = () => {
+            if (isDragging) {
+                const deltaY = mouse.y - startY;
+                const newHeight = Math.max(200, startHeight + deltaY); // Minimum height of 200px
+                setPlayerHeight(newHeight);
+            }
+        };
+
+        const handleMouseUp = () => {
+            setIsDragging(false);
+        };
+
+        if (isDragging) {
+            document.addEventListener("mousemove", handleMouseMove);
+            document.addEventListener("mouseup", handleMouseUp);
+        }
+
+        return () => {
+            document.removeEventListener("mousemove", handleMouseMove);
+            document.removeEventListener("mouseup", handleMouseUp);
+        };
+    }, [isDragging, mouse.y, startY, startHeight]);
     // const playerRef = useRef<ReactPlayer>(null);
     const [autoPlay, setAutoPlay] = useState(true);
     const [currentTime, setCurrentTime] = useState(0);
@@ -54,6 +91,7 @@ const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
                 translationUnitsForSection={translationUnitsForSection}
                 autoPlay={autoPlay}
                 onTimeUpdate={handleTimeUpdate}
+                playerHeight={playerHeight}
             />
             <TimelineEditor
                 autoPlay={autoPlay}
@@ -63,6 +101,24 @@ const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
                 setAutoPlay={setAutoPlay}
                 currentTime={currentTime}
             />
+            <div
+                style={{
+                    width: "100%",
+                    backgroundColor: "var(--vscode-scrollbar-shadow)",
+                    cursor: "ns-resize",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                }}
+                onMouseDown={handleMouseDown}
+            >
+                <VSCodeButton
+                    appearance="icon"
+                    style={{ padding: 0, width: "100%", height: "100%", borderRadius: 0 }}
+                >
+                    <i className="codicon codicon-grabber" />
+                </VSCodeButton>
+            </div>
         </div>
     );
 };

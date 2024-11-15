@@ -106,6 +106,7 @@ connection.onRequest(
                     // spellcheck
                     for (const word of words) {
                         const spellCheckResult = await spellChecker.spellCheck(word);
+                        debugLog("SERVER: Spell check result:", { spellCheckResult });
                         if (spellCheckResult?.corrections?.length > 0) {
                             return {
                                 code: 1,
@@ -131,6 +132,8 @@ connection.onRequest(
                     };
                 })
             );
+
+            debugLog("SERVER: Returning results:", { results });
 
             return results;
         } catch (error) {

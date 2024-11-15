@@ -10,6 +10,7 @@ interface VideoPlayerProps {
     showSubtitles?: boolean;
     onTimeUpdate?: (time: number) => void;
     autoPlay: boolean;
+    playerHeight: number;
 }
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -19,6 +20,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     showSubtitles = true,
     onTimeUpdate,
     autoPlay,
+    playerHeight,
 }) => {
     const { subtitleUrl } = useSubtitleData(translationUnitsForSection);
     let file: Config["file"] = undefined;
@@ -35,16 +37,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             ],
         };
     }
-    const [playerHeight, setPlayerHeight] = useState<number | undefined>(undefined);
     const [error, setError] = useState<string | null>(null);
-
-    useEffect(() => {
-        if (playerRef.current) {
-            // @ts-expect-error: wrapper is not typed
-            const height = playerRef.current.wrapper.clientHeight;
-            setPlayerHeight(height);
-        }
-    }, [playerRef]);
 
     const handleError = (e: any) => {
         console.error("Video player error:", e);
@@ -62,30 +55,33 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
 
     return (
-        <div
-            className="player-wrapper"
-            style={{ height: playerHeight || "auto", backgroundColor: "black" }}
-        >
-            {error ? (
-                <div className="error-message" style={{ color: "white", padding: "20px" }}>
-                    {error}
-                </div>
-            ) : (
-                <ReactPlayer
-                    key={subtitleUrl}
-                    ref={playerRef}
-                    url={videoUrl}
-                    playing={autoPlay}
-                    volume={0}
-                    controls={true}
-                    width="100%"
-                    onError={handleError}
-                    config={{
-                        file: file,
-                    }}
-                    onProgress={handleProgress}
-                />
-            )}
+        <div style={{ position: "relative" }}>
+            <div
+                className="player-wrapper"
+                style={{ height: playerHeight || "auto", backgroundColor: "black" }}
+            >
+                {error ? (
+                    <div className="error-message" style={{ color: "white", padding: "20px" }}>
+                        {error}
+                    </div>
+                ) : (
+                    <ReactPlayer
+                        key={subtitleUrl}
+                        ref={playerRef}
+                        url={videoUrl}
+                        playing={autoPlay}
+                        volume={0}
+                        controls={true}
+                        width="100%"
+                        height={playerHeight}
+                        onError={handleError}
+                        config={{
+                            file: file,
+                        }}
+                        onProgress={handleProgress}
+                    />
+                )}
+            </div>
         </div>
     );
 };

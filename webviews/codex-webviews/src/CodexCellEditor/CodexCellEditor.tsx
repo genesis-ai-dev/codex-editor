@@ -22,7 +22,7 @@ import DuplicateCellResolver from "./DuplicateCellResolver";
 import TimelineEditor from "./TimelineEditor";
 import VideoTimelineEditor from "./VideoTimelineEditor";
 import { generateVttData } from "./utils/vttUtils";
-
+import { useQuillTextExtractor } from "./hooks/useQuillTextExtractor";
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
 
@@ -76,11 +76,10 @@ const CodexCellEditor: React.FC = () => {
     const playerRef = useRef<ReactPlayer>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     const { setSourceCellMap } = useContext(SourceCellContext);
+    const extractTextFromHtml = useQuillTextExtractor();
+
     const removeHtmlTags = (text: string) => {
-        return text
-            .replace(/<[^>]*>?/g, "")
-            .replace(/\n/g, " ")
-            .replace(/&nbsp;/g, " ");
+        return extractTextFromHtml(text);
     };
     // A "temp" video URL that is used to update the video URL in the metadata modal.
     // We need to use the client-side file picker, so we need to then pass the picked
@@ -391,7 +390,9 @@ const CodexCellEditor: React.FC = () => {
                 className="scrollable-content"
                 style={{ height: `calc(100vh - ${headerHeight}px)` }}
             >
-                <h1>{translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0]}</h1>
+                <h1 style={{ marginBottom: "1rem" }}>
+                    {translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0]}
+                </h1>
                 <div className="editor-container">
                     {autocompletionProgress !== null && (
                         <div className="autocompletion-progress">
