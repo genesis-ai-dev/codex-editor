@@ -174,6 +174,23 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
             }
         )
     );
-
+    // Add command for toggling pin status of prompts
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-smart-edits.togglePinPrompt",
+            async (cellId: string, promptText: string) => {
+                try {
+                    const isPinned = await promptedSmartEdits.togglePinPrompt(cellId, promptText);
+                    return isPinned;
+                } catch (error) {
+                    console.error("Error toggling pin status:", error);
+                    vscode.window.showErrorMessage(
+                        "Failed to toggle pin status. Please check the console for more details."
+                    );
+                    return false;
+                }
+            }
+        )
+    );
     console.log("Smart Edit commands registered");
 };

@@ -4,6 +4,7 @@ export interface SavedPrompt {
     generatedText: string;
     lastUpdated: number;
     updateCount: number;
+    isPinned: boolean;
 }
 export interface TargetCell {
     cellId: string;

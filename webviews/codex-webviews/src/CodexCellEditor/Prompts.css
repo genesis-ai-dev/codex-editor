@@ -118,3 +118,16 @@
 .prompts-actions {
     margin-top: 15px;
 }
+
+.prompt-display-container .codicon-pin {
+    transform: rotate(0deg);
+    transition: transform 0.3s ease, color 0.3s ease;
+}
+
+.prompt-display-container .codicon-pin.pinned {
+    transform: rotate(-90deg);
+}
+
+.prompt-display-container .vscode-button.pinned {
+    background-color: var(--vscode-inputValidation-infoBorder);
+}

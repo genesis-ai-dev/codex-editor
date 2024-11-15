@@ -77,7 +77,8 @@ export class PromptedSmartEdits {
                     cellId,
                     response.updatedPrompt,
                     response.modifiedText,
-                    response.updateType
+                    response.updateType,
+                    false // Default isPinned to false when applying a new edit
                 );
                 return response.modifiedText;
             }
@@ -119,22 +120,74 @@ export class PromptedSmartEdits {
         }
     }
 
-    async getTopPrompts(cellId: string, text: string): Promise<string[]> {
+    async getTopPrompts(
+        cellId: string,
+        text: string
+    ): Promise<Array<{ prompt: string; isPinned: boolean }>> {
         const similarCells = await this.findSimilarCells(text);
         const cellIds = [cellId, ...similarCells.map((cell) => cell.cellId)];
-        // Get prompt for current cell and similar cells
-        const promptPromises = cellIds.map((id) => this.getPromptFromCellId(id));
-        const allPrompts = await Promise.all(promptPromises);
-        // Filter out null values and return valid prompts
-        const validPrompts = allPrompts.filter((prompt): prompt is string => prompt !== null);
-        return validPrompts;
+
+        // Read the saved prompts file
+        const fileUri = vscode.Uri.file(this.smartPromptPath);
+        let savedPrompts: { [key: string]: SavedPrompt } = {};
+        try {
+            const fileContent = await vscode.workspace.fs.readFile(fileUri);
+            savedPrompts = JSON.parse(fileContent.toString());
+        } catch (error) {
+            console.log("Error reading saved prompts:", error);
+        }
+
+        // Get all pinned prompts
+        const pinnedPrompts = Object.values(savedPrompts)
+            .filter((prompt) => prompt.isPinned)
+            .map((prompt) => ({ prompt: prompt.prompt, isPinned: true }));
+
+        // Get prompt and pinned status for current cell and similar cells
+        const promptsWithPinStatus = await Promise.all(
+            cellIds.map(async (id) => {
+                const savedPrompt = savedPrompts[id];
+                if (savedPrompt) {
+                    return { prompt: savedPrompt.prompt, isPinned: savedPrompt.isPinned };
+                }
+                return null;
+            })
+        );
+
+        // Combine pinned prompts and filtered prompts, then remove duplicates
+        const allPrompts = [
+            ...pinnedPrompts,
+            ...promptsWithPinStatus.filter(
+                (item): item is { prompt: string; isPinned: boolean } => item !== null
+            ),
+        ];
+
+        // Remove duplicates based on prompt text
+        const uniquePrompts = allPrompts.reduce(
+            (acc, current) => {
+                const x = acc.find((item) => item.prompt === current.prompt);
+                if (!x) {
+                    return acc.concat([current]);
+                } else {
+                    // If duplicate, keep the pinned version if either is pinned
+                    return acc.map((item) =>
+                        item.prompt === current.prompt
+                            ? { ...item, isPinned: item.isPinned || current.isPinned }
+                            : item
+                    );
+                }
+            },
+            [] as Array<{ prompt: string; isPinned: boolean }>
+        );
+
+        return uniquePrompts;
     }
 
     private async savePromptAndTextToCellId(
         cellId: string,
         prompt: string,
         generatedText: string,
-        updateType: string
+        updateType: string,
+        isPinned: boolean
     ): Promise<void> {
         try {
             let savedPrompts: { [key: string]: SavedPrompt } = {};
@@ -147,6 +200,11 @@ export class PromptedSmartEdits {
                 console.log("No existing saved prompt found, starting with empty object");
             }
 
+            // Check if any existing prompt with the same text is pinned
+            const existingPinnedState = Object.values(savedPrompts).some(
+                (savedPrompt) => savedPrompt.prompt === prompt && savedPrompt.isPinned
+            );
+
             // Update or initialize the prompt and generated text
             savedPrompts[cellId] = {
                 cellId,
@@ -154,6 +212,8 @@ export class PromptedSmartEdits {
                 generatedText,
                 lastUpdated: Date.now(),
                 updateCount: (savedPrompts[cellId]?.updateCount || 0) + 1,
+                isPinned:
+                    existingPinnedState || isPinned || savedPrompts[cellId]?.isPinned || false,
             };
 
             const fileUri = vscode.Uri.file(this.smartPromptPath);
@@ -210,5 +270,47 @@ export class PromptedSmartEdits {
         }
 
         return processedPrompt;
+    }
+
+    // Add a new method to handle pinning/unpinning prompts
+    async togglePinPrompt(cellId: string, promptText: string): Promise<boolean> {
+        try {
+            const fileUri = vscode.Uri.file(this.smartPromptPath);
+            const fileContent = await vscode.workspace.fs.readFile(fileUri);
+            const savedPrompts: { [key: string]: SavedPrompt } = JSON.parse(fileContent.toString());
+
+            // Find if any existing prompt with the same text is pinned
+            const isPinned = Object.values(savedPrompts).some(
+                (prompt) => prompt.prompt === promptText && prompt.isPinned
+            );
+
+            // Toggle pin state for all prompts with matching text
+            for (const key in savedPrompts) {
+                if (savedPrompts[key].prompt === promptText) {
+                    savedPrompts[key].isPinned = !isPinned;
+                }
+            }
+
+            // If the prompt doesn't exist for this cellId, add it
+            if (!savedPrompts[cellId]) {
+                savedPrompts[cellId] = {
+                    cellId,
+                    prompt: promptText,
+                    generatedText: "",
+                    lastUpdated: Date.now(),
+                    updateCount: 1,
+                    isPinned: !isPinned,
+                };
+            }
+
+            await vscode.workspace.fs.writeFile(
+                fileUri,
+                Buffer.from(JSON.stringify(savedPrompts, null, 2))
+            );
+            return !isPinned;
+        } catch (error) {
+            console.error("Error toggling pin status:", error);
+            return false;
+        }
     }
 }

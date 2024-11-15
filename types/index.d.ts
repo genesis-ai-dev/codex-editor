@@ -412,6 +412,7 @@ export type EditorPostMessages =
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string } }
     | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata }
     | { command: "pickVideoFile" }
+    | { command: "togglePinPrompt"; content: { cellId: string; promptText: string } }
     | { command: "from-quill-spellcheck-getSpellCheckResponse"; content: EditorCellContent }
     | { command: "getSourceText"; content: { cellId: string } }
     | { command: "searchSimilarCellIds"; content: { cellId: string } }
@@ -479,7 +480,7 @@ type EditorReceiveMessages =
     | { type: "updateVideoUrlInWebview"; content: string }
     | { type: "providerSendsPromptedEditResponse"; content: string }
     | { type: "providerSendsSimilarCellIdsResponse"; content: { cellId: string; score: number }[] }
-    | { type: "providerSendsTopPrompts"; content: string[] }
+    | { type: "providerSendsTopPrompts"; content: Array<{ prompt: string; isPinned: boolean }> }
     | { type: "providerSendsSourceText"; content: string };
 
 type AlertCodesServerResponse = {

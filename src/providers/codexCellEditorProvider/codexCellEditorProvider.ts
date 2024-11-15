@@ -822,7 +822,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             console.log("providerSendsTopPrompts", { result });
                             this.postMessageToWebview(webviewPanel, {
                                 type: "providerSendsTopPrompts",
-                                content: result as string[],
+                                content: result as Array<{ prompt: string; isPinned: boolean }>,
                             });
                         } catch (error) {
                             console.error("Error getting and applying prompted edit:", error);
@@ -881,6 +881,15 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                 `Failed to execute command: ${e.content.command}`
                             );
                         }
+                        return;
+                    }
+                    case "togglePinPrompt": {
+                        console.log("togglePinPrompt message received", { e });
+                        await vscode.commands.executeCommand(
+                            "codex-smart-edits.togglePinPrompt",
+                            e.content.cellId,
+                            e.content.promptText
+                        );
                         return;
                     }
                 }

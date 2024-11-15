@@ -6,6 +6,7 @@ import "./Prompts.css";
 interface Prompt {
     text: string;
     isSelected: boolean;
+    isPinned?: boolean;
 }
 
 interface PromptsProps {
@@ -38,11 +39,14 @@ const Prompts: React.FC<PromptsProps> = ({ cellId, cellContent, onContentUpdate 
         const handleTopPromptsResponse = (event: MessageEvent) => {
             const message = event.data;
             if (message.type === "providerSendsTopPrompts" && Array.isArray(message.content)) {
-                const uniquePrompts = Array.from(new Set(message.content));
                 setPrompts(
-                    uniquePrompts.map((prompt) => ({
-                        text: typeof prompt === "string" ? prompt : String(prompt),
+                    message.content.map((prompt: { prompt: string; isPinned: boolean }) => ({
+                        text:
+                            typeof prompt.prompt === "string"
+                                ? prompt.prompt
+                                : String(prompt.prompt),
                         isSelected: true,
+                        isPinned: prompt.isPinned,
                     }))
                 );
             }
@@ -124,8 +128,31 @@ const Prompts: React.FC<PromptsProps> = ({ cellId, cellContent, onContentUpdate 
                 },
             };
             window.vscodeApi.postMessage(messageContent);
+
+            setPrompts((prevPrompts) => [
+                { text: customPrompt.trim(), isSelected: true },
+                ...prevPrompts,
+            ]);
+
             setCustomPrompt("");
         }
+    };
+
+    const handlePinPrompt = (promptText: string) => {
+        const messageContent: EditorPostMessages = {
+            command: "togglePinPrompt",
+            content: {
+                cellId: cellId,
+                promptText: promptText,
+            },
+        };
+        window.vscodeApi.postMessage(messageContent);
+
+        setPrompts((prevPrompts) =>
+            prevPrompts.map((prompt) =>
+                prompt.text === promptText ? { ...prompt, isPinned: !prompt.isPinned } : prompt
+            )
+        );
     };
 
     return (
@@ -153,6 +180,7 @@ const Prompts: React.FC<PromptsProps> = ({ cellId, cellContent, onContentUpdate 
                                 onEditSave={handlePromptEditSave}
                                 onEditCancel={handlePromptEditCancel}
                                 setEditingPromptText={setEditingPromptText}
+                                onPin={handlePinPrompt}
                             />
                             <PromptsActions
                                 onApply={() =>
@@ -191,6 +219,7 @@ const PromptsList: React.FC<{
     onEditSave: () => void;
     onEditCancel: () => void;
     setEditingPromptText: (text: string) => void;
+    onPin: (promptText: string) => void;
 }> = ({
     prompts,
     editingPromptIndex,
@@ -200,6 +229,7 @@ const PromptsList: React.FC<{
     onEditSave,
     onEditCancel,
     setEditingPromptText,
+    onPin,
 }) => (
     <ul className="prompts-list">
         {prompts.map((prompt, index) => (
@@ -216,6 +246,7 @@ const PromptsList: React.FC<{
                         prompt={prompt}
                         onSelect={() => onSelect(index)}
                         onEdit={() => onEdit(index)}
+                        onPin={() => onPin(prompt.text)}
                     />
                 )}
             </li>
@@ -247,12 +278,21 @@ const PromptDisplay: React.FC<{
     prompt: Prompt;
     onSelect: () => void;
     onEdit: () => void;
-}> = ({ prompt, onSelect, onEdit }) => (
+    onPin: () => void;
+}> = ({ prompt, onSelect, onEdit, onPin }) => (
     <div className="prompt-display-container">
         <VSCodeCheckbox checked={prompt.isSelected} onChange={onSelect} />
         <span>{prompt.text}</span>
         <VSCodeButton appearance="icon" onClick={onEdit}>
             <i className="codicon codicon-edit"></i>
+        </VSCodeButton>
+        <VSCodeButton
+            appearance="icon"
+            onClick={onPin}
+            title={prompt.isPinned ? "Unpin" : "Pin"}
+            className={prompt.isPinned ? "pinned" : ""}
+        >
+            <i className={`codicon codicon-pin ${prompt.isPinned ? "pinned" : ""}`}></i>
         </VSCodeButton>
     </div>
 );
