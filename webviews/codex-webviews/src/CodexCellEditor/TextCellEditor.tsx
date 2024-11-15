@@ -106,8 +106,18 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const cellEditorRef = useRef<HTMLDivElement>(null);
     const sourceCellContent = sourceCellMap?.[cellMarkers[0]];
     const [editorContent, setEditorContent] = useState(cellContent);
-    const isFirstChange = useRef(true);
     const [sourceText, setSourceText] = useState<string | null>(null);
+
+    const unsavedChangesState = !!(
+        contentBeingUpdated.cellContent &&
+        getCleanedHtml(contentBeingUpdated.cellContent) &&
+        getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !==
+            cellContent.replace(/\s/g, "")
+    );
+
+    useEffect(() => {
+        setUnsavedChanges(unsavedChangesState);
+    }, [unsavedChangesState, setUnsavedChanges]);
 
     useEffect(() => {
         if (showFlashingBorder && cellEditorRef.current) {
@@ -647,7 +657,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     key={`${cellIndex}-quill`}
                     initialValue={editorContent}
                     spellCheckResponse={spellCheckResponse}
-                    setUnsavedChanges={setUnsavedChanges}
                     onChange={({ html }) => {
                         setEditorContent(html);
 
@@ -657,13 +666,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             getCleanedHtml(html).replace(/\s/g, "") !==
                                 cellContent.replace(/\s/g, "")
                         );
-
-                        // Only set unsaved changes if it's not the first change
-                        if (isFirstChange.current) {
-                            isFirstChange.current = false;
-                        } else {
-                            setUnsavedChanges(hasUnsavedChanges);
-                        }
 
                         setContentBeingUpdated({
                             cellMarkers,

@@ -37,7 +37,6 @@ export interface EditorProps {
     onChange?: (changes: EditorContentChanged) => void;
     spellCheckResponse?: SpellCheckResponse | null;
     textDirection: "ltr" | "rtl";
-    setUnsavedChanges: (unsavedChanges: boolean) => void;
 }
 
 // Fix the imports with correct typing
@@ -128,12 +127,44 @@ export default function Editor(props: EditorProps) {
 
             // Add text-change event listener
             quill.on("text-change", () => {
+                const content = quill.root.innerHTML;
                 if (props.onChange) {
+                    const cleanedContents = getCleanedHtml(content);
+
+                    // New function to remove excessive empty paragraphs and line breaks
+                    const removeExcessiveEmptyTags = (html: string) => {
+                        return html
+                            .replace(/<p><br><\/p>/g, "<p></p>") // Replace <p><br></p> with <p></p>
+                            .replace(/<p><\/p>(\s*<p><\/p>)+/g, "<p></p>") // Remove consecutive empty paragraphs
+                            .replace(/^(\s*<p><\/p>)+/, "") // Remove leading empty paragraphs
+                            .replace(/(\s*<p><\/p>)+$/, ""); // Remove trailing empty paragraphs
+                    };
+
+                    const trimmedContent = removeExcessiveEmptyTags(cleanedContents);
+
+                    const arrayOfParagraphs = trimmedContent
+                        .trim()
+                        .split("</p>")
+                        .map((p) => p.trim())
+                        .filter((p) => p !== "");
+
+                    const finalParagraphs = arrayOfParagraphs.map((p) =>
+                        p.startsWith("<p>") ? `${p}</p>` : `<p>${p}</p>`
+                    );
+
+                    const firstParagraph = finalParagraphs[0] || "";
+                    const restOfParagraphs = finalParagraphs.slice(1) || [];
+                    const firstParagraphWithoutP = firstParagraph.trim().slice(3, -4);
+                    const contentIsEmpty = isQuillEmpty(quill);
+
+                    const finalContent = contentIsEmpty
+                        ? ""
+                        : [`<span>${firstParagraphWithoutP}</span>`, ...restOfParagraphs].join("");
+
                     props.onChange({
-                        html: quill.root.innerHTML,
+                        html: finalContent,
                     });
                 }
-
                 updateHeaderLabel();
             });
 
@@ -250,11 +281,9 @@ export default function Editor(props: EditorProps) {
                 const quill = quillRef.current;
                 if (event.data.type === "providerSendsPromptedEditResponse") {
                     quill.root.innerHTML = event.data.content;
-                    props.setUnsavedChanges(true);
                 } else if (event.data.type === "providerSendsLLMCompletionResponse") {
                     const completionText = event.data.content.completion;
                     quill.root.innerHTML = completionText; // Clear existing content
-                    props.setUnsavedChanges(true);
                 }
                 updateHeaderLabel(); // Update header label after external changes
             }
