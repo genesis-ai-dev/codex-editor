@@ -1,6 +1,7 @@
 export interface SavedPrompt {
     cellId: string;
     prompt: string;
+    generatedText: string;
     lastUpdated: number;
     updateCount: number;
 }

@@ -72,8 +72,13 @@ export class PromptedSmartEdits {
             const response = await this.chatbot.getJsonCompletion(message);
 
             if (response && response.modifiedText) {
-                // Save the updated prompt based on LLM's decision
-                await this.savePromptToCellId(cellId, response.updatedPrompt, response.updateType);
+                // Save the updated prompt and generated text based on LLM's decision
+                await this.savePromptAndTextToCellId(
+                    cellId,
+                    response.updatedPrompt,
+                    response.modifiedText,
+                    response.updateType
+                );
                 return response.modifiedText;
             }
             return text;
@@ -125,9 +130,10 @@ export class PromptedSmartEdits {
         return validPrompts;
     }
 
-    private async savePromptToCellId(
+    private async savePromptAndTextToCellId(
         cellId: string,
         prompt: string,
+        generatedText: string,
         updateType: string
     ): Promise<void> {
         try {
@@ -141,10 +147,11 @@ export class PromptedSmartEdits {
                 console.log("No existing saved prompt found, starting with empty object");
             }
 
-            // Update or initialize the prompt
+            // Update or initialize the prompt and generated text
             savedPrompts[cellId] = {
                 cellId,
                 prompt,
+                generatedText,
                 lastUpdated: Date.now(),
                 updateCount: (savedPrompts[cellId]?.updateCount || 0) + 1,
             };
@@ -155,7 +162,7 @@ export class PromptedSmartEdits {
                 Buffer.from(JSON.stringify(savedPrompts, null, 2))
             );
         } catch (error) {
-            console.error("Error saving prompt:", error);
+            console.error("Error saving prompt and generated text:", error);
         }
     }
 
