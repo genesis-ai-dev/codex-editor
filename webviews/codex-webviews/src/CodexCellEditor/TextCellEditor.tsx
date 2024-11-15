@@ -95,18 +95,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
     }, [contentToScrollTo]);
 
     const [editableLabel, setEditableLabel] = useState(cellLabel || "");
-    const [prompt, setPrompt] = useState("");
     const [similarCells, setSimilarCells] = useState<SimilarCell[]>([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [cursorPosition, setCursorPosition] = useState(0);
     const [activeSearchPosition, setActiveSearchPosition] = useState<number | null>(null);
-    const [topPrompts, setTopPrompts] = useState<string[]>([]);
-    const [selectedPrompts, setSelectedPrompts] = useState<Set<string>>(new Set());
-    const [visiblePrompts, setVisiblePrompts] = useState<string[]>([]);
-    const MAX_VISIBLE_PROMPTS = 5;
-    const [editingPromptIndex, setEditingPromptIndex] = useState<number | null>(null);
-    const [editingPromptText, setEditingPromptText] = useState("");
-    const [isPromptsExpanded, setIsPromptsExpanded] = useState(false);
     const [showPromptsSection, setShowPromptsSection] = useState(true);
     const [isEditorControlsExpanded, setIsEditorControlsExpanded] = useState(false);
     const [isPinned, setIsPinned] = useState(false);
@@ -139,87 +131,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     const handleLabelSave = () => {
         handleLabelBlur();
-    };
-
-    const handlePromptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-        const newValue = e.target.value;
-        setPrompt(newValue);
-        setCursorPosition(e.target.selectionStart);
-
-        // Only search if we're in an active @ search
-        if (activeSearchPosition !== null) {
-            const textAfterAt = newValue.slice(activeSearchPosition + 1, e.target.selectionStart);
-            if (textAfterAt.length > 0) {
-                const messageContent: EditorPostMessages = {
-                    command: "searchSimilarCellIds",
-                    content: {
-                        cellId: textAfterAt,
-                    },
-                };
-                window.vscodeApi.postMessage(messageContent);
-                setShowSuggestions(true);
-            }
-        } else {
-            // Check for new @ symbol
-            const lastAtSymbolIndex = newValue.lastIndexOf("@", e.target.selectionStart);
-            if (lastAtSymbolIndex !== -1 && lastAtSymbolIndex === e.target.selectionStart - 1) {
-                setActiveSearchPosition(lastAtSymbolIndex);
-                setShowSuggestions(true);
-            }
-        }
-    };
-
-    const insertCellId = (cellId: string) => {
-        if (activeSearchPosition !== null) {
-            // Get the text before and after the current search
-            const textBefore = prompt.slice(0, activeSearchPosition);
-            const textAfter = prompt.slice(cursorPosition).trimLeft();
-
-            // Create new prompt with exactly one space after the cell ID if there's more text
-            const newPrompt = `${textBefore}@${cellId}${textAfter ? " " + textAfter : ""}`;
-
-            // Calculate new cursor position (right after the cell ID, before the space)
-            const newCursorPosition = activeSearchPosition + cellId.length + 1; // +1 for @ only
-
-            setPrompt(newPrompt);
-
-            // Need to wait for the state update before setting cursor position
-            setTimeout(() => {
-                const textarea = document.querySelector(".prompt-input") as HTMLTextAreaElement;
-                if (textarea) {
-                    textarea.focus();
-                    textarea.setSelectionRange(newCursorPosition, newCursorPosition);
-                }
-            }, 0);
-
-            setActiveSearchPosition(null);
-            setShowSuggestions(false);
-            setCursorPosition(newCursorPosition);
-        }
-    };
-
-    const handlePromptSend = async () => {
-        if (!prompt.trim()) return;
-
-        try {
-            const messageContent: EditorPostMessages = {
-                command: "applyPromptedEdit",
-                content: {
-                    text: contentBeingUpdated.cellContent,
-                    prompt: prompt,
-                    cellId: cellMarkers[0],
-                },
-            };
-
-            window.vscodeApi.postMessage(messageContent);
-
-            // Clear the prompt input and hide entire prompts section
-            setPrompt("");
-            setShowPromptsSection(false);
-            setSelectedPrompts(new Set());
-        } catch (error) {
-            console.error("Error sending prompt:", error);
-        }
     };
 
     useEffect(() => {
@@ -348,29 +259,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
         return () => window.removeEventListener("message", handlePromptedEditResponse);
     }, []);
 
-    const formatPromptWithHighlights = (text: string) => {
-        // Updated regex to include spaces and more characters in cell IDs
-        const parts = text.split(/(@[\w\s:.]+?)(?=\s|$)/g);
-        return parts.map((part, index) => {
-            if (part.startsWith("@")) {
-                return (
-                    <span key={index} className="cell-reference">
-                        {part}
-                    </span>
-                );
-            }
-            return part;
-        });
-    };
-
-    // Add keydown handler to detect Escape key
-    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-        if (e.key === "Escape") {
-            setActiveSearchPosition(null);
-            setShowSuggestions(false);
-        }
-    };
-
     useEffect(() => {
         if (contentBeingUpdated.cellContent) {
             const messageContent: EditorPostMessages = {
@@ -384,84 +272,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
         }
     }, [contentBeingUpdated.cellContent]);
 
-    useEffect(() => {
-        const handleTopPromptsResponse = (event: MessageEvent) => {
-            const message = event.data;
-            if (message.type === "providerSendsTopPrompts") {
-                setTopPrompts(message.content);
-            }
-        };
-
-        window.addEventListener("message", handleTopPromptsResponse);
-        return () => window.removeEventListener("message", handleTopPromptsResponse);
-    }, []);
-
-    useEffect(() => {
-        if (topPrompts.length > 0) {
-            // Remove duplicates using Set
-            const uniquePrompts = Array.from(new Set(topPrompts));
-            const initialVisible = uniquePrompts.slice(0, MAX_VISIBLE_PROMPTS);
-            setVisiblePrompts(initialVisible);
-            setSelectedPrompts(new Set(initialVisible));
-        }
-    }, [topPrompts]);
-
-    const handlePromptSelect = (prompt: string) => {
-        setSelectedPrompts((prev) => {
-            const newSet = new Set(prev);
-            if (newSet.has(prompt)) {
-                newSet.delete(prompt);
-            } else {
-                newSet.add(prompt);
-            }
-            return newSet;
-        });
-    };
-
-    const handlePromptEdit = (index: number, event: React.MouseEvent) => {
-        event.preventDefault();
-        event.stopPropagation();
-        setEditingPromptIndex(index);
-        setEditingPromptText(visiblePrompts[index]);
-    };
-
-    const handlePromptEditSave = () => {
-        if (editingPromptIndex !== null) {
-            const newPrompts = [...visiblePrompts];
-            newPrompts[editingPromptIndex] = editingPromptText;
-            setVisiblePrompts(newPrompts);
-
-            setSelectedPrompts((prev) => {
-                const newSet = new Set(prev);
-                newSet.delete(visiblePrompts[editingPromptIndex]);
-                newSet.add(editingPromptText);
-                return newSet;
-            });
-
-            setEditingPromptIndex(null);
-            setEditingPromptText("");
-        }
-    };
-
-    const handlePromptEditCancel = () => {
-        setEditingPromptIndex(null);
-        setEditingPromptText("");
-    };
-
-    const handleApplySelectedPrompts = async () => {
-        for (const prompt of selectedPrompts) {
-            const messageContent: EditorPostMessages = {
-                command: "applyPromptedEdit",
-                content: {
-                    text: contentBeingUpdated.cellContent,
-                    prompt: prompt,
-                    cellId: cellMarkers[0],
-                },
-            };
-            window.vscodeApi.postMessage(messageContent);
-        }
-        setSelectedPrompts(new Set());
-        setShowPromptsSection(false);
+    const handleContentUpdate = (newContent: string) => {
+        setContentBeingUpdated((prev) => ({
+            ...prev,
+            cellContent: newContent,
+        }));
+        setEditorContent(newContent);
     };
 
     // Add effect to fetch source text
@@ -497,21 +313,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 args: [cellMarkers[0]],
             },
         });
-    };
-
-    const handleApplyPrompts = async (selectedPrompts: string[]) => {
-        for (const prompt of selectedPrompts) {
-            const messageContent: EditorPostMessages = {
-                command: "applyPromptedEdit",
-                content: {
-                    text: contentBeingUpdated.cellContent,
-                    prompt: prompt,
-                    cellId: cellMarkers[0],
-                },
-            };
-            window.vscodeApi.postMessage(messageContent);
-        }
-        setShowPromptsSection(false);
     };
 
     return (
@@ -604,23 +405,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             <i className="codicon codicon-save"></i>
                         </VSCodeButton>
                     </div>
-                    <div className="input-row">
-                        <textarea
-                            value={prompt}
-                            onChange={handlePromptChange}
-                            onKeyDown={handleKeyDown}
-                            placeholder="Prompt"
-                            rows={1}
-                            className="prompt-input"
-                        />
-                        <VSCodeButton
-                            onClick={handlePromptSend}
-                            appearance="icon"
-                            title="Send Prompt"
-                        >
-                            <i className="codicon codicon-send"></i>
-                        </VSCodeButton>
-                    </div>
                 </div>
             )}
 
@@ -662,7 +446,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 <Prompts
                     cellId={cellMarkers[0]}
                     cellContent={contentBeingUpdated.cellContent}
-                    onApplyPrompts={handleApplyPrompts}
+                    onContentUpdate={handleContentUpdate}
                 />
             )}
         </div>

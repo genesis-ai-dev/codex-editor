@@ -166,60 +166,6 @@
     justify-content: center;
 }
 
-.top-prompts-section {
-    margin-top: 10px;
-    border-top: 1px solid var(--vscode-widget-border);
-    padding: 10px 0;
-}
-
-.prompts-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 10px;
-}
-
-.prompts-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-}
-
-.prompt-item {
-    margin-bottom: 8px;
-}
-
-.prompt-display-container {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.prompt-edit-container {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-}
-
-.edit-prompt-input {
-    flex: 1;
-    background: var(--vscode-input-background);
-    color: var(--vscode-input-foreground);
-    border: 1px solid var(--vscode-input-border);
-    padding: 4px 8px;
-}
-
-.prompt-edit-buttons {
-    display: flex;
-    gap: 4px;
-}
-
-.prompts-actions {
-    margin-top: 12px;
-    display: flex;
-    justify-content: flex-end;
-}
-
 .source-text-section {
     background: var(--vscode-editor-inactiveSelectionBackground);
     border-radius: 6px;
@@ -227,14 +173,14 @@
     margin: 8px 0;
 }
 
-/* .source-text-header {
+.source-text-header {
     margin-bottom: 8px;
 }
 
 .source-text-header h4 {
     margin: 0;
     color: var(--vscode-editor-foreground);
-} */
+}
 
 .source-text-content {
     font-family: var(--vscode-editor-font-family);

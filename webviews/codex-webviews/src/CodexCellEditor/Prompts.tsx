@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { VSCodeButton, VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react";
 import { EditorPostMessages } from "../../../../types";
+import "./Prompts.css";
 
 interface Prompt {
     text: string;
@@ -10,14 +11,15 @@ interface Prompt {
 interface PromptsProps {
     cellId: string;
     cellContent: string;
-    onApplyPrompts: (prompts: string[]) => void;
+    onContentUpdate: (newContent: string) => void;
 }
 
-const Prompts: React.FC<PromptsProps> = ({ cellId, cellContent, onApplyPrompts }) => {
+const Prompts: React.FC<PromptsProps> = ({ cellId, cellContent, onContentUpdate }) => {
     const [prompts, setPrompts] = useState<Prompt[]>([]);
     const [isPromptsExpanded, setIsPromptsExpanded] = useState(false);
     const [editingPromptIndex, setEditingPromptIndex] = useState<number | null>(null);
     const [editingPromptText, setEditingPromptText] = useState("");
+    const [customPrompt, setCustomPrompt] = useState("");
 
     useEffect(() => {
         if (cellContent) {
@@ -80,35 +82,88 @@ const Prompts: React.FC<PromptsProps> = ({ cellId, cellContent, onApplyPrompts }
         setEditingPromptText("");
     };
 
-    const handleApplySelectedPrompts = () => {
-        const selectedPrompts = prompts
-            .filter((prompt) => prompt.isSelected)
-            .map((prompt) => prompt.text);
-        onApplyPrompts(selectedPrompts);
+    const handleApplyPrompts = async (selectedPrompts: string[]) => {
+        for (const prompt of selectedPrompts) {
+            const messageContent: EditorPostMessages = {
+                command: "applyPromptedEdit",
+                content: {
+                    text: cellContent,
+                    prompt: prompt,
+                    cellId: cellId,
+                },
+            };
+            window.vscodeApi.postMessage(messageContent);
+        }
+        setIsPromptsExpanded(false);
+    };
+
+    useEffect(() => {
+        const handlePromptedEditResponse = (event: MessageEvent) => {
+            const message = event.data;
+            if (message.type === "providerSendsPromptedEditResponse") {
+                onContentUpdate(message.content);
+            }
+        };
+
+        window.addEventListener("message", handlePromptedEditResponse);
+        return () => window.removeEventListener("message", handlePromptedEditResponse);
+    }, [onContentUpdate]);
+
+    const handleCustomPromptChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setCustomPrompt(e.target.value);
+    };
+
+    const handleCustomPromptSend = () => {
+        if (customPrompt.trim()) {
+            const messageContent: EditorPostMessages = {
+                command: "applyPromptedEdit",
+                content: {
+                    text: cellContent,
+                    prompt: customPrompt.trim(),
+                    cellId: cellId,
+                },
+            };
+            window.vscodeApi.postMessage(messageContent);
+            setCustomPrompt("");
+        }
     };
 
     return (
-        <div className="top-prompts-section">
+        <div className="prompts-section">
             <PromptsHeader
                 isExpanded={isPromptsExpanded}
                 onToggle={() => setIsPromptsExpanded(!isPromptsExpanded)}
             />
             {isPromptsExpanded && (
                 <>
-                    <PromptsList
-                        prompts={prompts}
-                        editingPromptIndex={editingPromptIndex}
-                        editingPromptText={editingPromptText}
-                        onSelect={handlePromptSelect}
-                        onEdit={handlePromptEdit}
-                        onEditSave={handlePromptEditSave}
-                        onEditCancel={handlePromptEditCancel}
-                        setEditingPromptText={setEditingPromptText}
+                    <CustomPromptInput
+                        value={customPrompt}
+                        onChange={handleCustomPromptChange}
+                        onSend={handleCustomPromptSend}
                     />
-                    <PromptsActions
-                        onApply={handleApplySelectedPrompts}
-                        disabled={!prompts.some((prompt) => prompt.isSelected)}
-                    />
+                    {prompts.length > 0 && (
+                        <>
+                            <h5>Suggested Prompts</h5>
+                            <PromptsList
+                                prompts={prompts}
+                                editingPromptIndex={editingPromptIndex}
+                                editingPromptText={editingPromptText}
+                                onSelect={handlePromptSelect}
+                                onEdit={handlePromptEdit}
+                                onEditSave={handlePromptEditSave}
+                                onEditCancel={handlePromptEditCancel}
+                                setEditingPromptText={setEditingPromptText}
+                            />
+                            <PromptsActions
+                                onApply={() =>
+                                    handleApplyPrompts(
+                                        prompts.filter((p) => p.isSelected).map((p) => p.text)
+                                    )
+                                }
+                                disabled={!prompts.some((prompt) => prompt.isSelected)}
+                            />
+                        </>
+                    )}
                 </>
             )}
         </div>
@@ -120,7 +175,7 @@ const PromptsHeader: React.FC<{ isExpanded: boolean; onToggle: () => void }> = (
     onToggle,
 }) => (
     <div className="prompts-header">
-        <h4>Suggested Prompts</h4>
+        <h4>Prompts</h4>
         <VSCodeButton appearance="icon" onClick={onToggle}>
             <i className={`codicon codicon-chevron-${isExpanded ? "up" : "down"}`}></i>
         </VSCodeButton>
@@ -209,6 +264,25 @@ const PromptsActions: React.FC<{
     <div className="prompts-actions">
         <VSCodeButton onClick={onApply} disabled={disabled}>
             Apply
+        </VSCodeButton>
+    </div>
+);
+
+const CustomPromptInput: React.FC<{
+    value: string;
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    onSend: () => void;
+}> = ({ value, onChange, onSend }) => (
+    <div className="custom-prompt-input">
+        <input
+            type="text"
+            className="prompt-input"
+            placeholder="Enter custom prompt"
+            value={value}
+            onChange={onChange}
+        />
+        <VSCodeButton onClick={onSend} appearance="icon" title="Send">
+            <span className="codicon codicon-send" />
         </VSCodeButton>
     </div>
 );
