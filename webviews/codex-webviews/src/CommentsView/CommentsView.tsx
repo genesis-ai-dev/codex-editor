@@ -11,6 +11,7 @@ import UpdateAndViewCommentThreadTitle from "../components/UpdateAndViewCommentT
 import CommentViewSlashEditorSlashDelete from "../components/CommentViewSlashEditorSlashDelete";
 import { CommentTextForm, CommentTextFormProps } from "../components/CommentTextForm";
 import { v4 as uuidv4 } from "uuid";
+import { AllCommentsList } from "./AllCommentsList";
 
 const vscode = acquireVsCodeApi();
 type Comment = NotebookCommentThread["comments"][0];
@@ -22,6 +23,15 @@ function App() {
     const [showCommentForm, setShowCommentForm] = useState<{
         [key: string]: boolean;
     }>({});
+    const [expandedThreadIndex, setExpandedThreadIndex] = useState<null | number>(null);
+
+    // Function to handle collapse/expand event
+    const handleCollapseClick = (threadIndex: number) => {
+        if (expandedThreadIndex === threadIndex) {
+            setExpandedThreadIndex(null);
+        }
+        setExpandedThreadIndex(threadIndex);
+    };
 
     const handleMessage = useCallback((event: MessageEvent) => {
         const message: CommentPostMessages = event.data;
@@ -153,7 +163,6 @@ function App() {
             }}
         >
             <VSCodePanels
-                activeid="current-comment-view"
                 style={{
                     height: "100%",
                     boxSizing: "border-box",
@@ -315,19 +324,15 @@ function App() {
                     id="all-comments-view"
                     style={{
                         height: "100%",
+                        width: "100dvw",
                         boxSizing: "border-box",
                     }}
                 >
-                    <div
-                        style={{
-                            display: "flex",
-                            flexDirection: "column",
-                        }}
-                    >
-                        {commentThreadArray.map((comment, index) => (
-                            <div>{index}</div>
-                        ))}
-                    </div>
+                    <AllCommentsList
+                        comments={commentThreadArray}
+                        expandedThreadIndex={expandedThreadIndex}
+                        handleCollapseClick={handleCollapseClick}
+                    />
                 </VSCodePanelView>
             </VSCodePanels>
         </main>

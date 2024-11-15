@@ -45,20 +45,22 @@ interface NotebookCommentThread {
     id: string;
     uri?: string;
     cellId: CellIdGlobalState;
-    comments: {
-        id: number;
-        body: string;
-        mode: number;
-        contextValue: "canDelete";
-        deleted: boolean;
-        author: {
-            name: string;
-        };
-    }[];
+    comments: NotebookComment[];
     collapsibleState: number;
     canReply: boolean;
     threadTitle?: string;
     deleted: boolean;
+}
+
+interface NotebookComment {
+    id: number;
+    body: string;
+    mode: number;
+    contextValue: "canDelete";
+    deleted: boolean;
+    author: {
+        name: string;
+    };
 }
 
 interface TranslationPair {
