@@ -159,8 +159,17 @@ function App() {
                     boxSizing: "border-box",
                 }}
             >
-                <VSCodePanelTab id="current-comment">current</VSCodePanelTab>
-                <VSCodePanelTab id="all-comments">all</VSCodePanelTab>
+                <VSCodePanelTab id="current-comment" style={{ width: "100%" }}>
+                    <i className="codicon codicon-comment" style={{ marginInlineEnd: "0.5rem" }} />
+                    <div style={{ margin: "auto" }}>Current</div>
+                </VSCodePanelTab>
+                <VSCodePanelTab id="all-comments" style={{ width: "100%" }}>
+                    <i
+                        className="codicon codicon-checklist"
+                        style={{ marginInlineEnd: "0.5rem" }}
+                    />
+                    <div style={{ margin: "auto" }}>All</div>
+                </VSCodePanelTab>
 
                 <VSCodePanelView
                     id="current-comment-view"
