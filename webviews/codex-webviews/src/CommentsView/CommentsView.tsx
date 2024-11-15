@@ -188,7 +188,13 @@ function App() {
                             <div>Select a cell to view comments</div>
                         ) : (
                             <>
-                                <h4 style={{ textTransform: "uppercase", fontSize: "0.8rem" }}>
+                                <h4
+                                    style={{
+                                        textTransform: "uppercase",
+                                        fontSize: "0.8rem",
+                                        marginBottom: "1rem",
+                                    }}
+                                >
                                     Current Cell ID: {cellId.cellId}
                                 </h4>
                                 <div
