@@ -184,12 +184,14 @@ function App() {
                     id="current-comment-view"
                     style={{
                         height: "100%",
+                        width: "100%",
                         boxSizing: "border-box",
                     }}
                 >
                     <div
                         style={{
                             display: "flex",
+                            width: "100%",
                             flexDirection: "column",
                         }}
                     >
@@ -328,11 +330,7 @@ function App() {
                         boxSizing: "border-box",
                     }}
                 >
-                    <AllCommentsList
-                        comments={commentThreadArray}
-                        expandedThreadIndex={expandedThreadIndex}
-                        handleCollapseClick={handleCollapseClick}
-                    />
+                    <AllCommentsList comments={commentThreadArray} />
                 </VSCodePanelView>
             </VSCodePanels>
         </main>
