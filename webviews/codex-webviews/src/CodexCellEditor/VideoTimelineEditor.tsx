@@ -114,7 +114,12 @@ const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
             >
                 <VSCodeButton
                     appearance="icon"
-                    style={{ padding: 0, width: "100%", height: "100%", borderRadius: 0 }}
+                    style={{
+                        padding: 0,
+                        width: "100%",
+                        borderRadius: 0,
+                        height: "10px",
+                    }}
                 >
                     <i className="codicon codicon-grabber" />
                 </VSCodeButton>
