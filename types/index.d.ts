@@ -417,6 +417,7 @@ export type EditorPostMessages =
     | { command: "deleteCell"; content: { cellId: string } }
     | { command: "addWord"; words: string[] }
     | { command: "getAlertCodes"; content: GetAlertCodes }
+    | { command: "executeCommand"; content: { command: string; args: any[] } }
     | {
           command: "makeChildOfCell";
           content: {

@@ -869,6 +869,20 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         }
                         return;
                     }
+                    case "executeCommand": {
+                        try {
+                            await vscode.commands.executeCommand(
+                                e.content.command,
+                                ...e.content.args
+                            );
+                        } catch (error) {
+                            console.error("Error executing command:", error);
+                            vscode.window.showErrorMessage(
+                                `Failed to execute command: ${e.content.command}`
+                            );
+                        }
+                        return;
+                    }
                 }
             } catch (error) {
                 console.error("Unexpected error in message handler:", error);

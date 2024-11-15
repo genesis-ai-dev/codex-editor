@@ -151,6 +151,45 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
 
     constructor(private readonly _context: vscode.ExtensionContext) {}
 
+    public async pinCellById(cellId: string, retryCount = 0) {
+        const maxRetries = 3;
+        const retryDelay = 300; // milliseconds
+
+        // First, ensure the webview is visible
+        console.log("pinCellByIdProvider", cellId);
+        await vscode.commands.executeCommand("parallel-passages-sidebar.focus");
+
+        // Wait for the webview to be ready
+        if (!this._view && retryCount < maxRetries) {
+            console.log(`Webview not ready, retrying (${retryCount + 1}/${maxRetries})...`);
+            return new Promise((resolve) => {
+                setTimeout(() => {
+                    resolve(this.pinCellById(cellId, retryCount + 1));
+                }, retryDelay);
+            });
+        }
+
+        if (this._view) {
+            // Get the translation pair for this cell
+            const translationPair = await vscode.commands.executeCommand<TranslationPair>(
+                "translators-copilot.getTranslationPairFromProject",
+                cellId
+            );
+            console.log("translationPair", translationPair);
+
+            if (translationPair) {
+                this._view.webview.postMessage({
+                    command: "pinCell",
+                    data: translationPair,
+                });
+            } else {
+                vscode.window.showErrorMessage(`No translation pair found for cell: ${cellId}`);
+            }
+        } else {
+            vscode.window.showErrorMessage("Failed to open parallel passages view");
+        }
+    }
+
     public resolveWebviewView(webviewView: vscode.WebviewView) {
         this._view = webviewView;
         loadWebviewHtml(webviewView, this._context.extensionUri);
@@ -197,6 +236,9 @@ export function registerParallelViewWebviewProvider(context: vscode.ExtensionCon
     const provider = new CustomWebviewProvider(context);
 
     context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider("parallel-passages-sidebar", provider)
+        vscode.window.registerWebviewViewProvider("parallel-passages-sidebar", provider),
+        vscode.commands.registerCommand("parallelPassages.pinCellById", async (cellId: string) => {
+            await provider.pinCellById(cellId);
+        })
     );
 }

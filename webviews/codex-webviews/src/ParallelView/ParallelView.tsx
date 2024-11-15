@@ -93,26 +93,60 @@ function ParallelView() {
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             const message = event.data;
-            if (message.command === "searchResults") {
-                setVerses([...pinnedVerses, ...(message.data as TranslationPair[])]);
-            } else if (message.command === "chatResponseStream") {
-                try {
-                    const chunk = JSON.parse(message.data);
-                    setPendingChunks((prev) => [...prev, chunk]);
-                } catch (error) {
-                    console.error("Error parsing chunk:", error);
-                }
-            } else if (message.command === "chatResponseComplete") {
-                setChatHistory((prev) => {
-                    const newHistory = [...prev];
-                    if (newHistory.length > 0) {
-                        newHistory[newHistory.length - 1].isStreaming = false;
+            switch (message.command) {
+                case "searchResults":
+                    setVerses([...pinnedVerses, ...(message.data as TranslationPair[])]);
+                    break;
+                case "pinCell": {
+                    // Check if the cell is already pinned
+                    const isAlreadyPinned = pinnedVerses.some(
+                        (verse) => verse.cellId === message.data.cellId
+                    );
+
+                    if (isAlreadyPinned) {
+                        // Remove the verse if it's already pinned
+                        setPinnedVerses((prev) =>
+                            prev.filter((verse) => verse.cellId !== message.data.cellId)
+                        );
+                        // Also update verses to remove the unpinned cell
+                        setVerses((prev) =>
+                            prev.filter((verse) => verse.cellId !== message.data.cellId)
+                        );
+                    } else {
+                        // Add the new verse if it's not already pinned
+                        setPinnedVerses((prev) => [...prev, message.data]);
+                        setVerses((prev) => {
+                            const exists = prev.some(
+                                (verse) => verse.cellId === message.data.cellId
+                            );
+                            if (!exists) {
+                                return [...prev, message.data];
+                            }
+                            return prev;
+                        });
                     }
-                    return newHistory;
-                });
-                // Reset indices for next stream
-                setNextChunkIndex(0);
-                setPendingChunks([]);
+                    break;
+                }
+                case "chatResponseStream":
+                    try {
+                        const chunk = JSON.parse(message.data);
+                        setPendingChunks((prev) => [...prev, chunk]);
+                    } catch (error) {
+                        console.error("Error parsing chunk:", error);
+                    }
+                    break;
+                case "chatResponseComplete":
+                    setChatHistory((prev) => {
+                        const newHistory = [...prev];
+                        if (newHistory.length > 0) {
+                            newHistory[newHistory.length - 1].isStreaming = false;
+                        }
+                        return newHistory;
+                    });
+                    // Reset indices for next stream
+                    setNextChunkIndex(0);
+                    setPendingChunks([]);
+                    break;
             }
         };
 
