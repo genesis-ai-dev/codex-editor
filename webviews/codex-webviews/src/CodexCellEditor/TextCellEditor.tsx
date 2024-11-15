@@ -17,6 +17,8 @@ import { debounce } from "lodash";
 import { generateChildCellId } from "../../../../src/providers/codexCellEditorProvider/utils/cellUtils";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import { VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react";
+import { AddParatextButton } from "./AddParatextButton";
+
 import "./TextCellEditorStyles.css";
 interface SimilarCell {
     cellId: string;
@@ -38,51 +40,6 @@ interface CellEditorProps {
     cellTimestamps: Timestamps | undefined;
     cellIsChild: boolean;
 }
-
-const AddParatextButton: React.FC<{ addParatextCell: (direction: "above" | "below") => void }> = ({
-    addParatextCell,
-}) => {
-    const [buttonsVisible, setButtonsVisible] = useState(false);
-    if (!buttonsVisible) {
-        return (
-            <VSCodeButton
-                onClick={() => setButtonsVisible(true)}
-                appearance="icon"
-                title="Add Paratext Cell"
-            >
-                <i className="codicon codicon-diff-added"></i>
-            </VSCodeButton>
-        );
-    }
-
-    return (
-        <div
-            style={{
-                display: "flex",
-                flexDirection: "row",
-                gap: "0.5rem",
-                flexWrap: "nowrap",
-                border: "1px solid gray",
-                borderRadius: "4px",
-            }}
-        >
-            <VSCodeButton
-                onClick={() => addParatextCell("above")}
-                appearance="icon"
-                title="Add Paratext Cell"
-            >
-                <i className="codicon codicon-arrow-circle-up"></i>
-            </VSCodeButton>
-            <VSCodeButton
-                onClick={() => addParatextCell("below")}
-                appearance="icon"
-                title="Add Paratext Cell"
-            >
-                <i className="codicon codicon-arrow-circle-down"></i>
-            </VSCodeButton>
-        </div>
-    );
-};
 
 const CellEditor: React.FC<CellEditorProps> = ({
     cellMarkers,
@@ -552,7 +509,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     <i className="codicon codicon-menu"></i>
                 </div>
                 <div className="action-buttons">
-                    <AddParatextButton addParatextCell={addParatextCell} />
+                    <AddParatextButton cellId={cellMarkers[0]} cellTimestamps={cellTimestamps} />
                     {cellType !== CodexCellTypes.PARATEXT && !cellIsChild && (
                         <VSCodeButton onClick={makeChild} appearance="icon" title="Add Child Cell">
                             <i className="codicon codicon-type-hierarchy-sub"></i>
