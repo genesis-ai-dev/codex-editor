@@ -35,12 +35,6 @@
     text-align: right; */
 }
 
-.editor-container {
-    position: relative;
-    border: 1px solid var(--vscode-editor-foreground);
-    border-radius: 3px;
-}
-
 .ql-toolbar {
     transition: all 0.3s ease;
     overflow: hidden;
@@ -72,8 +66,8 @@
 }
 
 .ql-container.ql-snow {
-    border: 1px solid var(--vscode-editor-foreground) !important;
-    border-top: none !important;
+    /* border: 1px solid var(--vscode-editor-foreground) !important; */
+    /* border-top: none !important; */
 }
 
 /* Make toolbar more compact */

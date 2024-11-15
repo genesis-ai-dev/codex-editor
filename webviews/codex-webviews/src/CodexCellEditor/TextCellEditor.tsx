@@ -13,7 +13,6 @@ import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import { CodexCellTypes } from "../../../../types/enums";
 import SourceCellContext from "./contextProviders/SourceCellContext";
 import ConfirmationButton from "./ConfirmationButton";
-import { debounce } from "lodash";
 import { generateChildCellId } from "../../../../src/providers/codexCellEditorProvider/utils/cellUtils";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import { VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react";
@@ -21,6 +20,7 @@ import { AddParatextButton } from "./AddParatextButton";
 import { Prompts } from "./Prompts";
 
 import "./TextCellEditorStyles.css";
+
 interface SimilarCell {
     cellId: string;
     score: number;
@@ -624,7 +624,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 </div>
             )}
 
-            <div className="text-editor">
+            <div className={`text-editor ${showFlashingBorder ? "flashing-border" : ""}`}>
                 <Editor
                     currentLineId={cellMarkers[0]}
                     key={`${cellIndex}-quill`}

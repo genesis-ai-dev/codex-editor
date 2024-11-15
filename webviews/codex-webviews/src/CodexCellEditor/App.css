@@ -17,6 +17,7 @@
     background-color: var(--vscode-editor-background);
     display: flex;
     flex-direction: column;
+    border-bottom: 1px solid var(--vscode-widget-border);
 }
 
 .scrollable-content {
@@ -34,6 +35,9 @@
     max-width: 40rem;
     width: 100%;
     margin: 0 auto;
+    padding: 2rem 2rem 3rem;
+    border-radius: 1rem;
+    box-shadow: 0 2px 4px var(--vscode-widget-border);
 }
 
 .chapter-navigation {

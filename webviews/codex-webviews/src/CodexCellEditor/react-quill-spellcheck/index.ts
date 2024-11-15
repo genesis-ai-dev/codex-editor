@@ -44,8 +44,10 @@ export class QuillSpellChecker {
         }
 
         this.setupEventListeners();
-        this.checkSpelling();
         this.disableNativeSpellcheckIfSet();
+        setTimeout(() => {
+            this.checkSpelling();
+        }, 100);
     }
 
     private setupEventListeners() {
