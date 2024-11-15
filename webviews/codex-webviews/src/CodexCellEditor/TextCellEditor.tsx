@@ -18,6 +18,7 @@ import { generateChildCellId } from "../../../../src/providers/codexCellEditorPr
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import { VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react";
 import { AddParatextButton } from "./AddParatextButton";
+import { Prompts } from "./Prompts";
 
 import "./TextCellEditorStyles.css";
 interface SimilarCell {
@@ -498,6 +499,21 @@ const CellEditor: React.FC<CellEditorProps> = ({
         });
     };
 
+    const handleApplyPrompts = async (selectedPrompts: string[]) => {
+        for (const prompt of selectedPrompts) {
+            const messageContent: EditorPostMessages = {
+                command: "applyPromptedEdit",
+                content: {
+                    text: contentBeingUpdated.cellContent,
+                    prompt: prompt,
+                    cellId: cellMarkers[0],
+                },
+            };
+            window.vscodeApi.postMessage(messageContent);
+        }
+        setShowPromptsSection(false);
+    };
+
     return (
         <div ref={cellEditorRef} className="cell-editor" style={{ direction: textDirection }}>
             <div className="editor-controls-header">
@@ -642,76 +658,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 </div>
             )}
 
-            {showPromptsSection && visiblePrompts.length > 0 && (
-                <div className="top-prompts-section">
-                    <div className="prompts-header">
-                        <h4>Suggested Prompts</h4>
-                        <VSCodeButton
-                            appearance="icon"
-                            onClick={() => setIsPromptsExpanded(!isPromptsExpanded)}
-                        >
-                            <i
-                                className={`codicon codicon-chevron-${
-                                    isPromptsExpanded ? "up" : "down"
-                                }`}
-                            ></i>
-                        </VSCodeButton>
-                    </div>
-
-                    {isPromptsExpanded && (
-                        <>
-                            <ul className="prompts-list">
-                                {visiblePrompts.map((prompt, index) => (
-                                    <li key={index} className="prompt-item">
-                                        {editingPromptIndex === index ? (
-                                            <div className="prompt-edit-container">
-                                                <input
-                                                    type="text"
-                                                    value={editingPromptText}
-                                                    onChange={(e) =>
-                                                        setEditingPromptText(e.target.value)
-                                                    }
-                                                    className="edit-prompt-input"
-                                                />
-                                                <div className="prompt-edit-buttons">
-                                                    <VSCodeButton onClick={handlePromptEditSave}>
-                                                        Save
-                                                    </VSCodeButton>
-                                                    <VSCodeButton onClick={handlePromptEditCancel}>
-                                                        Cancel
-                                                    </VSCodeButton>
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <div className="prompt-display-container">
-                                                <VSCodeCheckbox
-                                                    checked={selectedPrompts.has(prompt)}
-                                                    onChange={() => handlePromptSelect(prompt)}
-                                                >
-                                                    {prompt}
-                                                </VSCodeCheckbox>
-                                                <VSCodeButton
-                                                    appearance="icon"
-                                                    onClick={(e) => handlePromptEdit(index, e)}
-                                                >
-                                                    <i className="codicon codicon-edit"></i>
-                                                </VSCodeButton>
-                                            </div>
-                                        )}
-                                    </li>
-                                ))}
-                            </ul>
-                            <div className="prompts-actions">
-                                <VSCodeButton
-                                    onClick={handleApplySelectedPrompts}
-                                    disabled={selectedPrompts.size === 0}
-                                >
-                                    Apply Selected Prompts
-                                </VSCodeButton>
-                            </div>
-                        </>
-                    )}
-                </div>
+            {showPromptsSection && (
+                <Prompts
+                    cellId={cellMarkers[0]}
+                    cellContent={contentBeingUpdated.cellContent}
+                    onApplyPrompts={handleApplyPrompts}
+                />
             )}
         </div>
     );
