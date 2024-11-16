@@ -32,7 +32,7 @@ const messageStyles = {
         borderRadius: "12px 12px 12px 0",
         padding: "12px 16px",
         marginBottom: "16px",
-        maxWidth: "85%",
+        width: "100%",
         alignSelf: "flex-start",
         border: "1px solid var(--vscode-widget-border)",
     },
@@ -41,7 +41,7 @@ const messageStyles = {
         borderRadius: "12px 12px 0 12px",
         padding: "12px 16px",
         marginBottom: "16px",
-        maxWidth: "85%",
+        width: "100%",
         alignSelf: "flex-end",
         color: "var(--vscode-button-foreground)",
     },
@@ -359,9 +359,9 @@ function ParallelView() {
                     )}
 
                     {/* Existing Chat History */}
-                    <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+                    <div style={{ flex: 1, overflowY: "auto", minHeight: 0, width: "100%" }}>
                         {chatHistory.length > 0 && (
-                            <div className="chat-history">
+                            <div className="chat-history" style={{ width: "100%" }}>
                                 {chatHistory.map((message, index) => (
                                     <div
                                         key={index}
