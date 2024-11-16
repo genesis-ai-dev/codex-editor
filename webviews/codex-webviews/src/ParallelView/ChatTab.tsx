@@ -80,6 +80,7 @@ function ChatTab({
                                 style={{
                                     display: "flex",
                                     flexDirection: "column",
+                                    width: "100%",
                                     ...(message.role === "user"
                                         ? messageStyles.user
                                         : messageStyles.assistant),
