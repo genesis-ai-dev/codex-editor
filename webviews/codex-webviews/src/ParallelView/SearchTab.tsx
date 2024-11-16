@@ -40,7 +40,6 @@ function SearchTab({
                     onSearch={(event) => onSearch(lastQuery, event)}
                 />
                 <VSCodeDivider />
-                ``
             </div>
 
             <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>

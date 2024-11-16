@@ -31,6 +31,11 @@ function ChatTab({
     messageStyles,
     pinnedVerses,
 }: ChatTabProps) {
+    const handleRedoMessage = (content: string) => {
+        onChatInputChange(content);
+        setTimeout(() => onChatSubmit(), 0);
+    };
+
     return (
         <div
             className="container"
@@ -86,7 +91,13 @@ function ChatTab({
                                         : messageStyles.assistant),
                                 }}
                             >
-                                <div style={{ flex: 1 }}>
+                                <div
+                                    style={{
+                                        flex: 1,
+                                        wordBreak: "break-word",
+                                        whiteSpace: "pre-wrap",
+                                    }}
+                                >
                                     <ReactMarkdown>{message.content}</ReactMarkdown>
                                 </div>
                                 <div
@@ -99,13 +110,29 @@ function ChatTab({
                                     }}
                                 >
                                     {message.role === "user" && (
-                                        <VSCodeButton
-                                            appearance="icon"
-                                            onClick={() => onEditMessage(index)}
-                                            title="Edit message"
-                                        >
-                                            <span className="codicon codicon-edit" />
-                                        </VSCodeButton>
+                                        <>
+                                            <VSCodeButton
+                                                appearance="icon"
+                                                onClick={() => onEditMessage(index)}
+                                                title="Edit message"
+                                            >
+                                                <span className="codicon codicon-edit" />
+                                            </VSCodeButton>
+                                            <VSCodeButton
+                                                appearance="icon"
+                                                onClick={() => handleRedoMessage(message.content)}
+                                                title="Redo message"
+                                            >
+                                                <span className="codicon codicon-refresh" />
+                                            </VSCodeButton>
+                                            <VSCodeButton
+                                                appearance="icon"
+                                                onClick={() => onCopy(message.content)}
+                                                title="Copy message"
+                                            >
+                                                <span className="codicon codicon-copy" />
+                                            </VSCodeButton>
+                                        </>
                                     )}
                                     {message.role === "assistant" && !message.isStreaming && (
                                         <VSCodeButton
