@@ -192,16 +192,15 @@ function ParallelView() {
     const handleChatSubmit = () => {
         if (!chatInput.trim()) return;
 
+        let newHistory: ChatMessage[];
+
         if (editingMessageIndex !== null) {
             // Update the edited message
-            setChatHistory((prev) => {
-                const newHistory = prev.slice(0, editingMessageIndex + 1);
-                newHistory[editingMessageIndex] = {
-                    ...newHistory[editingMessageIndex],
-                    content: chatInput,
-                };
-                return newHistory;
-            });
+            newHistory = chatHistory.slice(0, editingMessageIndex + 1);
+            newHistory[editingMessageIndex] = {
+                ...newHistory[editingMessageIndex],
+                content: chatInput,
+            };
 
             // Send edit request
             vscode.postMessage({
@@ -214,13 +213,13 @@ function ParallelView() {
             setEditingMessageIndex(null);
         } else {
             // Normal message submission
-            setChatHistory((prev) => [
-                ...prev,
+            newHistory = [
+                ...chatHistory,
                 {
                     role: "user",
                     content: chatInput,
                 },
-            ]);
+            ];
 
             vscode.postMessage({
                 command: "chatStream",
@@ -229,6 +228,15 @@ function ParallelView() {
             });
         }
 
+        // Add a placeholder for the assistant's response
+        newHistory.push({
+            role: "assistant",
+            content: "",
+            isStreaming: true,
+        });
+
+        // Update the chat history immediately
+        setChatHistory(newHistory);
         setChatInput("");
     };
 

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef, useCallback, useState } from "react";
 import { VSCodeDivider, VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import ReactMarkdown from "react-markdown";
 import ChatInput from "./ChatInput";
@@ -31,10 +31,30 @@ function ChatTab({
     messageStyles,
     pinnedVerses,
 }: ChatTabProps) {
-    const handleRedoMessage = (content: string) => {
-        onChatInputChange(content);
-        setTimeout(() => onChatSubmit(), 0);
-    };
+    const chatHistoryRef = useRef<HTMLDivElement>(null);
+    const [pendingSubmit, setPendingSubmit] = useState(false);
+
+    useEffect(() => {
+        if (chatHistoryRef.current) {
+            chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
+        }
+    }, [chatHistory]);
+
+    const handleRedoMessage = useCallback(
+        (index: number, content: string) => {
+            onEditMessage(index);
+            onChatInputChange(content);
+            setPendingSubmit(true);
+        },
+        [onEditMessage, onChatInputChange]
+    );
+
+    useEffect(() => {
+        if (pendingSubmit) {
+            onChatSubmit();
+            setPendingSubmit(false);
+        }
+    }, [pendingSubmit, onChatSubmit]);
 
     return (
         <div
@@ -74,8 +94,8 @@ function ChatTab({
                 )}
             </div>
 
-            {/* Existing Chat History */}
-            <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+            {/* Updated Chat History section */}
+            <div ref={chatHistoryRef} style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
                 {chatHistory.length > 0 && (
                     <div className="chat-history">
                         {chatHistory.map((message, index) => (
@@ -120,7 +140,9 @@ function ChatTab({
                                             </VSCodeButton>
                                             <VSCodeButton
                                                 appearance="icon"
-                                                onClick={() => handleRedoMessage(message.content)}
+                                                onClick={() =>
+                                                    handleRedoMessage(index, message.content)
+                                                }
                                                 title="Redo message"
                                             >
                                                 <span className="codicon codicon-refresh" />
@@ -169,4 +191,4 @@ function ChatTab({
     );
 }
 
-export default ChatTab;
+export default React.memo(ChatTab);
