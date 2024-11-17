@@ -17,20 +17,18 @@ const vscode = acquireVsCodeApi();
 const messageStyles = {
     user: {
         backgroundColor: "var(--vscode-editor-background)",
-        borderRadius: "12px 12px 12px 0",
+        borderRadius: "12px",
         padding: "12px 16px",
         marginBottom: "16px",
-        maxWidth: "85%",
-        alignSelf: "flex-start",
+        width: "100%",
         border: "1px solid var(--vscode-widget-border)",
     },
     assistant: {
         backgroundColor: "var(--vscode-button-background)",
-        borderRadius: "12px 12px 0 12px",
+        borderRadius: "12px",
         padding: "12px 16px",
         marginBottom: "16px",
-        maxWidth: "85%",
-        alignSelf: "flex-end",
+        width: "100%",
         color: "var(--vscode-button-foreground)",
     },
 };

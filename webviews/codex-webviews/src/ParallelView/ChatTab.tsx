@@ -67,28 +67,29 @@ function ChatTab({
                     padding: "10px",
                     backgroundColor: "var(--vscode-editor-background)",
                     borderBottom: "1px solid var(--vscode-panel-border)",
-                    display: "flex",
-                    flexDirection: "column",
                 }}
             >
-                <h3>Pinned Cell IDs:</h3>
                 {pinnedVerses.length > 0 ? (
-                    <ul style={{ listStyleType: "none", paddingLeft: 0 }}>
+                    <div
+                        style={{
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: "8px",
+                        }}
+                    >
                         {pinnedVerses.map((verse) => (
-                            <li
+                            <VSCodeButton
                                 key={verse.cellId}
+                                appearance="secondary"
                                 style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    marginBottom: "4px",
+                                    padding: "4px 8px",
+                                    minWidth: "auto",
                                 }}
                             >
-                                {/* Example icon usage */}
-                                {/* <VSCodeIcon icon="symbol-property" style={{ marginRight: "8px" }} /> */}
-                                <span>{verse.cellId}</span>
-                            </li>
+                                {verse.cellId}
+                            </VSCodeButton>
                         ))}
-                    </ul>
+                    </div>
                 ) : (
                     <p>No pinned cells.</p>
                 )}
