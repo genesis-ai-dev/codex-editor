@@ -145,11 +145,16 @@ export class SpellChecker {
             const success = await this.connection.sendRequest(AddWordsRequest, words);
 
             if (success) {
+                this.wordCache.clear();
                 this.connection.sendNotification("custom/dictionaryUpdated");
             }
         } catch (error) {
             console.error("Error in addWords:", error);
         }
+    }
+
+    clearCache(): void {
+        this.wordCache.clear();
     }
 
     private levenshteinDistance(a: string, b: string): number {
