@@ -3,6 +3,7 @@ import { SmartEdits } from "./smartEdits";
 import { PromptedSmartEdits } from "./smartPrompts";
 import { getWorkSpaceFolder } from "../utils";
 import { SmartPassages } from "./smartPassages";
+import { SmartBacktranslation } from "./smartBacktranslation";
 
 export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
     const workspaceFolder = getWorkSpaceFolder();
@@ -14,6 +15,7 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
     const smartEdits = new SmartEdits(vscode.Uri.file(workspaceFolder));
     const promptedSmartEdits = new PromptedSmartEdits(vscode.Uri.file(workspaceFolder));
     const smartPassages = new SmartPassages();
+    const smartBacktranslation = new SmartBacktranslation(vscode.Uri.file(workspaceFolder));
 
     context.subscriptions.push(
         vscode.commands.registerCommand(
@@ -192,5 +194,105 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
             }
         )
     );
+
+    // Add new commands for SmartBacktranslation
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-smart-edits.generateBacktranslation",
+            async (text: string, cellId: string) => {
+                try {
+                    const backtranslation = await smartBacktranslation.generateBacktranslation(
+                        text,
+                        cellId
+                    );
+                    return backtranslation;
+                } catch (error) {
+                    console.error("Error generating backtranslation:", error);
+                    vscode.window.showErrorMessage(
+                        "Failed to generate backtranslation. Please check the console for more details."
+                    );
+                    return null;
+                }
+            }
+        )
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-smart-edits.editBacktranslation",
+            async (cellId: string, newText: string, existingBacktranslation: string) => {
+                try {
+                    const updatedBacktranslation = await smartBacktranslation.editBacktranslation(
+                        cellId,
+                        newText,
+                        existingBacktranslation
+                    );
+                    return updatedBacktranslation;
+                } catch (error) {
+                    console.error("Error editing backtranslation:", error);
+                    vscode.window.showErrorMessage(
+                        "Failed to edit backtranslation. Please check the console for more details."
+                    );
+                    return null;
+                }
+            }
+        )
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-smart-edits.getBacktranslation",
+            async (cellId: string) => {
+                try {
+                    const backtranslation = await smartBacktranslation.getBacktranslation(cellId);
+                    return backtranslation;
+                } catch (error) {
+                    console.error("Error getting backtranslation:", error);
+                    vscode.window.showErrorMessage(
+                        "Failed to get backtranslation. Please check the console for more details."
+                    );
+                    return null;
+                }
+            }
+        )
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-smart-edits.getAllBacktranslations", async () => {
+            try {
+                const allBacktranslations = await smartBacktranslation.getAllBacktranslations();
+                return allBacktranslations;
+            } catch (error) {
+                console.error("Error getting all backtranslations:", error);
+                vscode.window.showErrorMessage(
+                    "Failed to get all backtranslations. Please check the console for more details."
+                );
+                return [];
+            }
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-smart-edits.setBacktranslation",
+            async (cellId: string, originalText: string, userBacktranslation: string) => {
+                try {
+                    const backtranslation = await smartBacktranslation.setBacktranslation(
+                        cellId,
+                        originalText,
+                        userBacktranslation
+                    );
+                    return backtranslation;
+                } catch (error) {
+                    console.error("Error setting backtranslation:", error);
+                    vscode.window.showErrorMessage(
+                        "Failed to set backtranslation. Please check the console for more details."
+                    );
+                    return null;
+                }
+            }
+        )
+    );
+
     console.log("Smart Edit commands registered");
 };

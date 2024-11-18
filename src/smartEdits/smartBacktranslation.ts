@@ -162,4 +162,21 @@ Notes: ${bt.notes}
         const savedBacktranslations = await this.loadSavedBacktranslations();
         return Object.values(savedBacktranslations);
     }
+
+    async setBacktranslation(
+        cellId: string,
+        originalText: string,
+        userBacktranslation: string
+    ): Promise<SavedBacktranslation> {
+        const backtranslation: SavedBacktranslation = {
+            cellId,
+            originalText,
+            backtranslation: userBacktranslation,
+            notes: "User-provided backtranslation",
+            lastUpdated: Date.now(),
+        };
+
+        await this.saveBacktranslation(backtranslation);
+        return backtranslation;
+    }
 }
