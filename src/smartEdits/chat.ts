@@ -6,6 +6,7 @@ class Chatbot {
     private openai: OpenAI;
     private config: vscode.WorkspaceConfiguration;
     private messages: ChatMessage[];
+    private contextMessage: ChatMessage | null;
     private maxBuffer: number;
 
     constructor(private systemMessage: string) {
@@ -15,6 +16,7 @@ class Chatbot {
             baseURL: this.config.get("llmEndpoint") || "https://api.openai.com/v1",
         });
         this.messages = [{ role: "system", content: systemMessage }];
+        this.contextMessage = null;
         this.maxBuffer = 50;
     }
 
@@ -105,9 +107,31 @@ class Chatbot {
         this.messages.push({ role, content });
     }
 
+    async setContext(context: string): Promise<void> {
+        this.contextMessage = {
+            role: "user",
+            content: `Below is your current context, 
+            this message may change and is not an error. 
+            It simply means that the user has changed the verses they are looking at. 
+            This means there may be conflicts between the context and what you previously thought the context was, 
+            this is not your fault, it just means the context has changed.\nContext:\n${context}`,
+        };
+    }
+
+    private getMessagesWithContext(): ChatMessage[] {
+        if (this.contextMessage) {
+            return [
+                { role: "system", content: this.systemMessage },
+                this.contextMessage,
+                ...this.messages,
+            ];
+        }
+        return this.messages;
+    }
+
     async sendMessage(message: string): Promise<string> {
         await this.addMessage("user", message);
-        const response = await this.callLLM(this.messages);
+        const response = await this.callLLM(this.getMessagesWithContext());
         await this.addMessage("assistant", response);
         if (this.messages.length > this.maxBuffer) {
             this.messages.shift();
@@ -128,7 +152,7 @@ class Chatbot {
         let fullResponse = "";
         let chunkIndex = 0;
 
-        for await (const chunk of this.streamLLM(this.messages)) {
+        for await (const chunk of this.streamLLM(this.getMessagesWithContext())) {
             // Send chunk directly
             onChunk(
                 JSON.stringify({

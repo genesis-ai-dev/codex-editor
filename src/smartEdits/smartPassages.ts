@@ -34,8 +34,8 @@ export class SmartPassages {
     }
 
     async chat(cellIds: string[], query: string) {
-        const formattedQuery = await this.formatQuery(cellIds, query);
-        const response = await this.chatbot.sendMessage(formattedQuery);
+        await this.updateContext(cellIds);
+        const response = await this.chatbot.sendMessage(query);
         return response;
     }
 
@@ -45,17 +45,20 @@ export class SmartPassages {
         onChunk: (chunk: string) => void,
         editIndex?: number
     ) {
-        const formattedQuery = await this.formatQuery(cellIds, query);
+        await this.updateContext(cellIds);
         if (editIndex !== undefined) {
-            await this.chatbot.editMessage(editIndex, formattedQuery);
-            const response = await this.chatbot.sendMessageStream(formattedQuery, onChunk);
-            return response;
+            await this.chatbot.editMessage(editIndex, query);
         }
-        const response = await this.chatbot.sendMessageStream(formattedQuery, onChunk);
+        const response = await this.chatbot.sendMessageStream(query, onChunk);
         return response;
     }
 
-    async formatQuery(cellIds: string[], query: string) {
+    private async updateContext(cellIds: string[]) {
+        const formattedContext = await this.formatContext(cellIds);
+        await this.chatbot.setContext(formattedContext);
+    }
+
+    private async formatContext(cellIds: string[]): Promise<string> {
         const cells: TranslationPair[] = [];
 
         for (const cellId of cellIds) {
@@ -121,8 +124,6 @@ export class SmartPassages {
             })
             .filter((text) => text !== "");
 
-        const formattedQuery = `Context:\n${formattedCells.join("\n\n")}\n\nQuery: ${query}`;
-        console.log(`Formatted query: ${formattedQuery} CellIds: ${cellIds}`);
-        return formattedQuery;
+        return `Context:\n${formattedCells.join("\n\n")}`;
     }
 }
