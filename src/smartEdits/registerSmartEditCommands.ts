@@ -3,7 +3,7 @@ import { SmartEdits } from "./smartEdits";
 import { PromptedSmartEdits } from "./smartPrompts";
 import { getWorkSpaceFolder } from "../utils";
 import { SmartPassages } from "./smartPassages";
-import { SmartBacktranslation } from "./smartBacktranslation";
+import { SmartBacktranslation, SavedBacktranslation } from "./smartBacktranslation";
 
 export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
     const workspaceFolder = getWorkSpaceFolder();
@@ -199,13 +199,9 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
     context.subscriptions.push(
         vscode.commands.registerCommand(
             "codex-smart-edits.generateBacktranslation",
-            async (text: string, cellId: string) => {
+            async (text: string, cellId: string): Promise<SavedBacktranslation | null> => {
                 try {
-                    const backtranslation = await smartBacktranslation.generateBacktranslation(
-                        text,
-                        cellId
-                    );
-                    return backtranslation;
+                    return await smartBacktranslation.generateBacktranslation(text, cellId);
                 } catch (error) {
                     console.error("Error generating backtranslation:", error);
                     vscode.window.showErrorMessage(
@@ -220,14 +216,17 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
     context.subscriptions.push(
         vscode.commands.registerCommand(
             "codex-smart-edits.editBacktranslation",
-            async (cellId: string, newText: string, existingBacktranslation: string) => {
+            async (
+                cellId: string,
+                newText: string,
+                existingBacktranslation: string
+            ): Promise<SavedBacktranslation | null> => {
                 try {
-                    const updatedBacktranslation = await smartBacktranslation.editBacktranslation(
+                    return await smartBacktranslation.editBacktranslation(
                         cellId,
                         newText,
                         existingBacktranslation
                     );
-                    return updatedBacktranslation;
                 } catch (error) {
                     console.error("Error editing backtranslation:", error);
                     vscode.window.showErrorMessage(
@@ -242,10 +241,9 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
     context.subscriptions.push(
         vscode.commands.registerCommand(
             "codex-smart-edits.getBacktranslation",
-            async (cellId: string) => {
+            async (cellId: string): Promise<SavedBacktranslation | null> => {
                 try {
-                    const backtranslation = await smartBacktranslation.getBacktranslation(cellId);
-                    return backtranslation;
+                    return await smartBacktranslation.getBacktranslation(cellId);
                 } catch (error) {
                     console.error("Error getting backtranslation:", error);
                     vscode.window.showErrorMessage(
@@ -258,31 +256,19 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand("codex-smart-edits.getAllBacktranslations", async () => {
-            try {
-                const allBacktranslations = await smartBacktranslation.getAllBacktranslations();
-                return allBacktranslations;
-            } catch (error) {
-                console.error("Error getting all backtranslations:", error);
-                vscode.window.showErrorMessage(
-                    "Failed to get all backtranslations. Please check the console for more details."
-                );
-                return [];
-            }
-        })
-    );
-
-    context.subscriptions.push(
         vscode.commands.registerCommand(
             "codex-smart-edits.setBacktranslation",
-            async (cellId: string, originalText: string, userBacktranslation: string) => {
+            async (
+                cellId: string,
+                originalText: string,
+                userBacktranslation: string
+            ): Promise<SavedBacktranslation | null> => {
                 try {
-                    const backtranslation = await smartBacktranslation.setBacktranslation(
+                    return await smartBacktranslation.setBacktranslation(
                         cellId,
                         originalText,
                         userBacktranslation
                     );
-                    return backtranslation;
                 } catch (error) {
                     console.error("Error setting backtranslation:", error);
                     vscode.window.showErrorMessage(

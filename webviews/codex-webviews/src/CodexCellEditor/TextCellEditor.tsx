@@ -65,6 +65,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const sourceCellContent = sourceCellMap?.[cellMarkers[0]];
     const [editorContent, setEditorContent] = useState(cellContent);
     const [sourceText, setSourceText] = useState<string | null>(null);
+    const [backtranslation, setBacktranslation] = useState<string | null>(null);
+    const [isEditingBacktranslation, setIsEditingBacktranslation] = useState(false);
+    const [editedBacktranslation, setEditedBacktranslation] = useState<string | null>(null);
+    const [activeTab, setActiveTab] = useState<"source" | "backtranslation">("source");
 
     const unsavedChangesState = !!(
         contentBeingUpdated.cellContent &&
@@ -304,6 +308,59 @@ const CellEditor: React.FC<CellEditorProps> = ({
         return () => window.removeEventListener("message", handleSourceTextResponse);
     }, []);
 
+    useEffect(() => {
+        const handleBacktranslationResponse = (event: MessageEvent) => {
+            const message = event.data;
+            if (
+                message.type === "providerSendsBacktranslation" ||
+                message.type === "providerSendsExistingBacktranslation" ||
+                message.type === "providerSendsUpdatedBacktranslation" ||
+                message.type === "providerConfirmsBacktranslationSet"
+            ) {
+                setBacktranslation(message.content?.backtranslation || null);
+                setEditedBacktranslation(message.content?.backtranslation || null);
+            }
+        };
+
+        window.addEventListener("message", handleBacktranslationResponse);
+        return () => window.removeEventListener("message", handleBacktranslationResponse);
+    }, []);
+
+    useEffect(() => {
+        // Fetch existing backtranslation when component mounts
+        const messageContent: EditorPostMessages = {
+            command: "getBacktranslation",
+            content: {
+                cellId: cellMarkers[0],
+            },
+        };
+        window.vscodeApi.postMessage(messageContent);
+    }, [cellMarkers]);
+
+    const handleGenerateBacktranslation = () => {
+        const messageContent: EditorPostMessages = {
+            command: "generateBacktranslation",
+            content: {
+                text: contentBeingUpdated.cellContent,
+                cellId: cellMarkers[0],
+            },
+        };
+        window.vscodeApi.postMessage(messageContent);
+    };
+
+    const handleSaveBacktranslation = () => {
+        const messageContent: EditorPostMessages = {
+            command: "setBacktranslation",
+            content: {
+                cellId: cellMarkers[0],
+                originalText: contentBeingUpdated.cellContent,
+                userBacktranslation: editedBacktranslation || "", // Ensure non-null string
+            },
+        };
+        window.vscodeApi.postMessage(messageContent);
+        setIsEditingBacktranslation(false);
+    };
+
     const handlePinCell = () => {
         setIsPinned(!isPinned);
         window.vscodeApi.postMessage({
@@ -435,12 +492,66 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 />
             </div>
 
-            {/* Add source text display before prompts section */}
-            {sourceText && (
-                <div className="source-text-section">
-                    <div className="source-text-content">{sourceText}</div>
-                </div>
-            )}
+            <div className="tabs">
+                <VSCodeButton
+                    onClick={() => setActiveTab("source")}
+                    appearance={activeTab === "source" ? "primary" : "secondary"}
+                >
+                    Source Text
+                </VSCodeButton>
+                <VSCodeButton
+                    onClick={() => setActiveTab("backtranslation")}
+                    appearance={activeTab === "backtranslation" ? "primary" : "secondary"}
+                >
+                    Backtranslation
+                </VSCodeButton>
+            </div>
+
+            <div className="tab-content">
+                {activeTab === "source" && (
+                    <div className="source-text-content">
+                        {sourceText || "No source text available."}
+                    </div>
+                )}
+                {activeTab === "backtranslation" && (
+                    <div className="backtranslation-section">
+                        {backtranslation ? (
+                            <>
+                                {isEditingBacktranslation ? (
+                                    <>
+                                        <textarea
+                                            value={editedBacktranslation || ""}
+                                            onChange={(e) =>
+                                                setEditedBacktranslation(e.target.value)
+                                            }
+                                            className="backtranslation-editor"
+                                        />
+                                        <VSCodeButton onClick={handleSaveBacktranslation}>
+                                            Save Backtranslation
+                                        </VSCodeButton>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="backtranslation-content">
+                                            {backtranslation}
+                                        </div>
+                                        <VSCodeButton
+                                            onClick={() => setIsEditingBacktranslation(true)}
+                                        >
+                                            Edit Backtranslation
+                                        </VSCodeButton>
+                                    </>
+                                )}
+                            </>
+                        ) : (
+                            <p>No backtranslation available.</p>
+                        )}
+                        <VSCodeButton onClick={handleGenerateBacktranslation}>
+                            Generate Backtranslation
+                        </VSCodeButton>
+                    </div>
+                )}
+            </div>
 
             {showPromptsSection && (
                 <Prompts

@@ -20,6 +20,7 @@ import {
 import { NotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import path from "path";
 import { getWorkSpaceUri } from "../../utils";
+import { SavedBacktranslation } from "../../smartEdits/smartBacktranslation";
 
 function getNonce(): string {
     let text = "";
@@ -890,6 +891,82 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             e.content.cellId,
                             e.content.promptText
                         );
+                        return;
+                    }
+                    case "generateBacktranslation": {
+                        try {
+                            const backtranslation =
+                                await vscode.commands.executeCommand<SavedBacktranslation | null>(
+                                    "codex-smart-edits.generateBacktranslation",
+                                    e.content.text,
+                                    e.content.cellId
+                                );
+                            this.postMessageToWebview(webviewPanel, {
+                                type: "providerSendsBacktranslation",
+                                content: backtranslation,
+                            });
+                        } catch (error) {
+                            console.error("Error generating backtranslation:", error);
+                            vscode.window.showErrorMessage("Failed to generate backtranslation.");
+                        }
+                        return;
+                    }
+
+                    case "editBacktranslation": {
+                        try {
+                            const updatedBacktranslation =
+                                await vscode.commands.executeCommand<SavedBacktranslation | null>(
+                                    "codex-smart-edits.editBacktranslation",
+                                    e.content.cellId,
+                                    e.content.newText,
+                                    e.content.existingBacktranslation
+                                );
+                            this.postMessageToWebview(webviewPanel, {
+                                type: "providerSendsUpdatedBacktranslation",
+                                content: updatedBacktranslation,
+                            });
+                        } catch (error) {
+                            console.error("Error editing backtranslation:", error);
+                            vscode.window.showErrorMessage("Failed to edit backtranslation.");
+                        }
+                        return;
+                    }
+
+                    case "getBacktranslation": {
+                        try {
+                            const backtranslation =
+                                await vscode.commands.executeCommand<SavedBacktranslation | null>(
+                                    "codex-smart-edits.getBacktranslation",
+                                    e.content.cellId
+                                );
+                            this.postMessageToWebview(webviewPanel, {
+                                type: "providerSendsExistingBacktranslation",
+                                content: backtranslation,
+                            });
+                        } catch (error) {
+                            console.error("Error getting backtranslation:", error);
+                            vscode.window.showErrorMessage("Failed to get backtranslation.");
+                        }
+                        return;
+                    }
+
+                    case "setBacktranslation": {
+                        try {
+                            const backtranslation =
+                                await vscode.commands.executeCommand<SavedBacktranslation | null>(
+                                    "codex-smart-edits.setBacktranslation",
+                                    e.content.cellId,
+                                    e.content.originalText,
+                                    e.content.userBacktranslation
+                                );
+                            this.postMessageToWebview(webviewPanel, {
+                                type: "providerConfirmsBacktranslationSet",
+                                content: backtranslation,
+                            });
+                        } catch (error) {
+                            console.error("Error setting backtranslation:", error);
+                            vscode.window.showErrorMessage("Failed to set backtranslation.");
+                        }
                         return;
                     }
                 }

@@ -18,7 +18,7 @@ Your response should follow this JSON format:
 }
 `;
 
-interface SavedBacktranslation {
+export interface SavedBacktranslation {
     cellId: string;
     originalText: string;
     backtranslation: string;
@@ -88,8 +88,10 @@ ${newText}
         return updatedBacktranslation;
     }
 
-    private async findSimilarBacktranslations(text: string): Promise<SavedBacktranslation[]> {
-        const similarEntries = await this.findSimilarEntries(text);
+    private async findSimilarBacktranslations(
+        originalText: string
+    ): Promise<SavedBacktranslation[]> {
+        const similarEntries = await this.findSimilarEntries(originalText);
         const savedBacktranslations = await this.loadSavedBacktranslations();
 
         const similarBacktranslations = similarEntries
@@ -101,11 +103,11 @@ ${newText}
         return similarBacktranslations;
     }
 
-    private async findSimilarEntries(text: string): Promise<TranslationPair[]> {
+    private async findSimilarEntries(originalText: string): Promise<TranslationPair[]> {
         try {
             const results = await vscode.commands.executeCommand<TranslationPair[]>(
                 "translators-copilot.searchParallelCells",
-                text
+                originalText
             );
             return results || [];
         } catch (error) {

@@ -2,6 +2,7 @@ import { LanguageMetadata, Project } from "codex-types";
 import * as vscode from "vscode";
 import { ScriptureTSV } from "./TsvTypes";
 import { CodexCell } from "src/utils/codexNotebookUtils";
+import { SavedBacktranslation } from "../smartEdits/smartBacktranslation";
 
 interface ChatMessage {
     role: "system" | "user" | "assistant";
@@ -454,8 +455,25 @@ export type EditorPostMessages =
               editHistory: EditHistoryEntry[];
           };
       }
-    | { command: "exportVttFile"; content: { subtitleData: string } };
-
+    | { command: "exportVttFile"; content: { subtitleData: string } }
+    | { command: "generateBacktranslation"; content: { text: string; cellId: string } }
+    | {
+          command: "editBacktranslation";
+          content: {
+              cellId: string;
+              newText: string;
+              existingBacktranslation: string;
+          };
+      }
+    | { command: "getBacktranslation"; content: { cellId: string } }
+    | {
+          command: "setBacktranslation";
+          content: {
+              cellId: string;
+              originalText: string;
+              userBacktranslation: string;
+          };
+      };
 type EditorReceiveMessages =
     | {
           type: "providerSendsInitialContent";
@@ -481,7 +499,23 @@ type EditorReceiveMessages =
     | { type: "providerSendsPromptedEditResponse"; content: string }
     | { type: "providerSendsSimilarCellIdsResponse"; content: { cellId: string; score: number }[] }
     | { type: "providerSendsTopPrompts"; content: Array<{ prompt: string; isPinned: boolean }> }
-    | { type: "providerSendsSourceText"; content: string };
+    | { type: "providerSendsSourceText"; content: string }
+    | {
+          type: "providerSendsBacktranslation";
+          content: SavedBacktranslation | null;
+      }
+    | {
+          type: "providerSendsUpdatedBacktranslation";
+          content: SavedBacktranslation | null;
+      }
+    | {
+          type: "providerSendsExistingBacktranslation";
+          content: SavedBacktranslation | null;
+      }
+    | {
+          type: "providerConfirmsBacktranslationSet";
+          content: SavedBacktranslation | null;
+      };
 
 type AlertCodesServerResponse = {
     code: number;
