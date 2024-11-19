@@ -188,3 +188,40 @@
     line-height: 1.4;
     white-space: pre-wrap;
 }
+
+.tabs {
+    margin-top: 10px;
+}
+
+.tab-buttons {
+    display: flex;
+}
+
+.tab-button {
+    padding: 8px 16px;
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--vscode-foreground);
+}
+
+.tab-button.active {
+    border-bottom: 2px solid var(--vscode-textLink-activeForeground);
+    font-weight: bold;
+}
+
+.tab-content {
+    padding: 16px 0;
+}
+
+.backtranslation-section {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.backtranslation-editor,
+.backtranslation-content {
+    flex-grow: 1;
+}

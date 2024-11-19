@@ -8,7 +8,7 @@ import {
 import Editor from "./Editor";
 import CloseButtonWithConfirmation from "../components/CloseButtonWithConfirmation";
 import { getCleanedHtml } from "./react-quill-spellcheck";
-import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { VSCodeButton, VSCodeDivider } from "@vscode/webview-ui-toolkit/react";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import { CodexCellTypes } from "../../../../types/enums";
 import SourceCellContext from "./contextProviders/SourceCellContext";
@@ -493,18 +493,21 @@ const CellEditor: React.FC<CellEditorProps> = ({
             </div>
 
             <div className="tabs">
-                <VSCodeButton
-                    onClick={() => setActiveTab("source")}
-                    appearance={activeTab === "source" ? "primary" : "secondary"}
-                >
-                    Source Text
-                </VSCodeButton>
-                <VSCodeButton
-                    onClick={() => setActiveTab("backtranslation")}
-                    appearance={activeTab === "backtranslation" ? "primary" : "secondary"}
-                >
-                    Backtranslation
-                </VSCodeButton>
+                <div className="tab-buttons">
+                    <button
+                        className={`tab-button ${activeTab === "source" ? "active" : ""}`}
+                        onClick={() => setActiveTab("source")}
+                    >
+                        Source Text
+                    </button>
+                    <button
+                        className={`tab-button ${activeTab === "backtranslation" ? "active" : ""}`}
+                        onClick={() => setActiveTab("backtranslation")}
+                    >
+                        Backtranslation
+                    </button>
+                </div>
+                <VSCodeDivider />
             </div>
 
             <div className="tab-content">
@@ -526,8 +529,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             }
                                             className="backtranslation-editor"
                                         />
-                                        <VSCodeButton onClick={handleSaveBacktranslation}>
-                                            Save Backtranslation
+                                        <VSCodeButton
+                                            onClick={handleSaveBacktranslation}
+                                            appearance="icon"
+                                            title="Save Backtranslation"
+                                        >
+                                            <i className="codicon codicon-save"></i>
                                         </VSCodeButton>
                                     </>
                                 ) : (
@@ -537,8 +544,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                         </div>
                                         <VSCodeButton
                                             onClick={() => setIsEditingBacktranslation(true)}
+                                            appearance="icon"
+                                            title="Edit Backtranslation"
                                         >
-                                            Edit Backtranslation
+                                            <i className="codicon codicon-edit"></i>
                                         </VSCodeButton>
                                     </>
                                 )}
@@ -546,8 +555,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         ) : (
                             <p>No backtranslation available.</p>
                         )}
-                        <VSCodeButton onClick={handleGenerateBacktranslation}>
-                            Generate Backtranslation
+                        <VSCodeButton
+                            onClick={handleGenerateBacktranslation}
+                            appearance="icon"
+                            title="Generate Backtranslation"
+                        >
+                            <i className="codicon codicon-refresh"></i>
                         </VSCodeButton>
                     </div>
                 )}
