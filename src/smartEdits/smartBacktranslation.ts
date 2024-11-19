@@ -12,19 +12,13 @@ and may help others who are not familiar with the language grasp the meaning of 
 It is important to maintain the meaning, culturally, of the original text. On a simple level, a backtranslation can be thought of as
 a word-for-word literal translation.
 
-Your response should follow this JSON format:
-{
-    "backtranslation": "MARKDOWN_TEXT",
-}
+Your response should be only the backtranslation text.
 The backtranslation should be in markdown format, and include notes that may be relevant for the translator.
 
 For example, given this text in a rare language:
 "Yesu i tok, 'Yu mas laikim ol arapela man wankain olsem yu laikim yu yet.'"
 
-Your response should be:
-{
-    "backtranslation": "Jesus said, 'You must love other people the same way you love yourself.'\n\n*Note: The original uses 'laikim' which has connotations of both 'love' and 'like'. The context suggests the stronger meaning 'love' is intended here.*"
-}
+Your response should be only the backtranslation text.
 `;
 
 export interface SavedBacktranslation {
@@ -53,14 +47,17 @@ ${context}
 
 Please provide a backtranslation for the following text:
 ${text}
+
+Respond with only the backtranslation text/markdown.
 `;
 
-        const response = await this.chatbot.getJsonCompletion(message);
+        const response = await this.chatbot.getCompletion(message);
+        const cleanedResponse = this.removeMarkdownFormatting(response);
 
         const backtranslation: SavedBacktranslation = {
             cellId,
             originalText: text,
-            backtranslation: response.backtranslation,
+            backtranslation: cleanedResponse,
             lastUpdated: Date.now(),
         };
 
@@ -81,12 +78,13 @@ The original text has been updated. Please update the backtranslation accordingl
 ${newText}
 `;
 
-        const response = await this.chatbot.getJsonCompletion(message);
+        const response = await this.chatbot.getCompletion(message);
+        const cleanedResponse = this.removeMarkdownFormatting(response);
 
         const updatedBacktranslation: SavedBacktranslation = {
             cellId,
             originalText: newText,
-            backtranslation: response.backtranslation,
+            backtranslation: cleanedResponse,
             lastUpdated: Date.now(),
         };
 
@@ -184,5 +182,10 @@ Backtranslation: ${bt.backtranslation}
 
         await this.saveBacktranslation(backtranslation);
         return backtranslation;
+    }
+
+    private removeMarkdownFormatting(text: string): string {
+        // Remove markdown code block formatting
+        return text.replace(/^```markdown\s*|\s*```$/g, "").trim();
     }
 }
