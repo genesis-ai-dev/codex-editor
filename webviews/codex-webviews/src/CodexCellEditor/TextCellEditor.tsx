@@ -18,6 +18,7 @@ import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import { VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react";
 import { AddParatextButton } from "./AddParatextButton";
 import { Prompts } from "./Prompts";
+import ReactMarkdown from "react-markdown";
 
 import "./TextCellEditorStyles.css";
 
@@ -103,7 +104,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [cursorPosition, setCursorPosition] = useState(0);
     const [activeSearchPosition, setActiveSearchPosition] = useState<number | null>(null);
-    const [showPromptsSection, setShowPromptsSection] = useState(true);
     const [isEditorControlsExpanded, setIsEditorControlsExpanded] = useState(false);
     const [isPinned, setIsPinned] = useState(false);
 
@@ -444,24 +444,31 @@ const CellEditor: React.FC<CellEditorProps> = ({
             </div>
 
             {isEditorControlsExpanded && (
-                <div className="input-group">
-                    <div className="input-row">
-                        <input
-                            type="text"
-                            value={editableLabel}
-                            onChange={handleLabelChange}
-                            onBlur={handleLabelBlur}
-                            placeholder="Label"
-                            className="label-input"
-                        />
-                        <VSCodeButton
-                            onClick={handleLabelSave}
-                            appearance="icon"
-                            title="Save Label"
-                        >
-                            <i className="codicon codicon-save"></i>
-                        </VSCodeButton>
+                <div className="expanded-controls">
+                    <div className="input-group">
+                        <div className="input-row">
+                            <input
+                                type="text"
+                                value={editableLabel}
+                                onChange={handleLabelChange}
+                                onBlur={handleLabelBlur}
+                                placeholder="Label"
+                                className="label-input"
+                            />
+                            <VSCodeButton
+                                onClick={handleLabelSave}
+                                appearance="icon"
+                                title="Save Label"
+                            >
+                                <i className="codicon codicon-save"></i>
+                            </VSCodeButton>
+                        </div>
                     </div>
+                    <Prompts
+                        cellId={cellMarkers[0]}
+                        cellContent={contentBeingUpdated.cellContent}
+                        onContentUpdate={handleContentUpdate}
+                    />
                 </div>
             )}
 
@@ -507,7 +514,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         Backtranslation
                     </button>
                 </div>
-                <VSCodeDivider />
             </div>
 
             <div className="tab-content">
@@ -540,7 +546,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 ) : (
                                     <>
                                         <div className="backtranslation-content">
-                                            {backtranslation}
+                                            <ReactMarkdown>{backtranslation}</ReactMarkdown>
                                         </div>
                                         <VSCodeButton
                                             onClick={() => setIsEditingBacktranslation(true)}
@@ -565,14 +571,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     </div>
                 )}
             </div>
-
-            {showPromptsSection && (
-                <Prompts
-                    cellId={cellMarkers[0]}
-                    cellContent={contentBeingUpdated.cellContent}
-                    onContentUpdate={handleContentUpdate}
-                />
-            )}
         </div>
     );
 };

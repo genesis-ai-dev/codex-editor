@@ -9,12 +9,21 @@ Then you will be asked to create a backtranslation of that text back into a larg
 The texts you will be given are mostly Bible texts. The purpose of the backtranslations you generate is to help
 ensure quality of the translation you are given. The backtranslations help translators understand what they are saying,
 and may help others who are not familiar with the language grasp the meaning of the original translated text.
-It is important to maintain the meaning, culturally, of the original text.
+It is important to maintain the meaning, culturally, of the original text. On a simple level, a backtranslation can be thought of as
+a word-for-word literal translation.
 
 Your response should follow this JSON format:
 {
-    "backtranslation": "The backtranslation of the given text",
-    "notes": "Any notes or explanations about the backtranslation"
+    "backtranslation": "MARKDOWN_TEXT",
+}
+The backtranslation should be in markdown format, and include notes that may be relevant for the translator.
+
+For example, given this text in a rare language:
+"Yesu i tok, 'Yu mas laikim ol arapela man wankain olsem yu laikim yu yet.'"
+
+Your response should be:
+{
+    "backtranslation": "Jesus said, 'You must love other people the same way you love yourself.'\n\n*Note: The original uses 'laikim' which has connotations of both 'love' and 'like'. The context suggests the stronger meaning 'love' is intended here.*"
 }
 `;
 
@@ -22,7 +31,6 @@ export interface SavedBacktranslation {
     cellId: string;
     originalText: string;
     backtranslation: string;
-    notes: string;
     lastUpdated: number;
 }
 
@@ -53,7 +61,6 @@ ${text}
             cellId,
             originalText: text,
             backtranslation: response.backtranslation,
-            notes: response.notes,
             lastUpdated: Date.now(),
         };
 
@@ -80,7 +87,6 @@ ${newText}
             cellId,
             originalText: newText,
             backtranslation: response.backtranslation,
-            notes: response.notes,
             lastUpdated: Date.now(),
         };
 
@@ -123,7 +129,6 @@ ${newText}
 CellId: ${bt.cellId}
 Original: ${bt.originalText}
 Backtranslation: ${bt.backtranslation}
-Notes: ${bt.notes}
 `
             )
             .join("\n");
@@ -174,7 +179,6 @@ Notes: ${bt.notes}
             cellId,
             originalText,
             backtranslation: userBacktranslation,
-            notes: "User-provided backtranslation",
             lastUpdated: Date.now(),
         };
 

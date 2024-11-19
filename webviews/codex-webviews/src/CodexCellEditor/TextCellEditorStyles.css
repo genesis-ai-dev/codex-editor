@@ -191,6 +191,7 @@
 
 .tabs {
     margin-top: 10px;
+    border-bottom: 1px solid var(--vscode-panel-border);
 }
 
 .tab-buttons {
@@ -204,15 +205,45 @@
     cursor: pointer;
     font-size: 14px;
     color: var(--vscode-foreground);
+    opacity: 0.7;
+    transition: opacity 0.2s, border-bottom 0.2s;
+}
+
+.tab-button:hover {
+    opacity: 1;
 }
 
 .tab-button.active {
+    opacity: 1;
     border-bottom: 2px solid var(--vscode-textLink-activeForeground);
-    font-weight: bold;
 }
 
 .tab-content {
     padding: 16px 0;
+}
+
+.expanded-controls {
+    padding: 10px;
+    background-color: var(--vscode-editor-background);
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.input-group {
+    margin-bottom: 10px;
+}
+
+.input-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.label-input {
+    flex-grow: 1;
+    padding: 4px 8px;
+    background-color: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border);
 }
 
 .backtranslation-section {
