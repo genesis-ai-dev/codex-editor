@@ -17,7 +17,6 @@ interface PromptsProps {
 
 const Prompts: React.FC<PromptsProps> = ({ cellId, cellContent, onContentUpdate }) => {
     const [prompts, setPrompts] = useState<Prompt[]>([]);
-    const [isPromptsExpanded, setIsPromptsExpanded] = useState(false);
     const [editingPromptIndex, setEditingPromptIndex] = useState<number | null>(null);
     const [editingPromptText, setEditingPromptText] = useState("");
     const [customPrompt, setCustomPrompt] = useState("");
@@ -98,7 +97,6 @@ const Prompts: React.FC<PromptsProps> = ({ cellId, cellContent, onContentUpdate 
             };
             window.vscodeApi.postMessage(messageContent);
         }
-        setIsPromptsExpanded(false);
     };
 
     useEffect(() => {
@@ -155,60 +153,50 @@ const Prompts: React.FC<PromptsProps> = ({ cellId, cellContent, onContentUpdate 
         );
     };
 
+    const handlePromptDelete = (index: number) => {
+        setPrompts((prevPrompts) => prevPrompts.filter((_, i) => i !== index));
+    };
+
+    const visiblePrompts = prompts
+        .filter((prompt) => prompt.isPinned)
+        .concat(prompts.filter((prompt) => !prompt.isPinned).slice(0, 3));
+
     return (
         <div className="prompts-section">
-            <PromptsHeader
-                isExpanded={isPromptsExpanded}
-                onToggle={() => setIsPromptsExpanded(!isPromptsExpanded)}
+            <h4>Prompts</h4>
+            <CustomPromptInput
+                value={customPrompt}
+                onChange={handleCustomPromptChange}
+                onSend={handleCustomPromptSend}
             />
-            {isPromptsExpanded && (
+            {visiblePrompts.length > 0 && (
                 <>
-                    <CustomPromptInput
-                        value={customPrompt}
-                        onChange={handleCustomPromptChange}
-                        onSend={handleCustomPromptSend}
+                    <h5>Suggested Prompts</h5>
+                    <PromptsList
+                        prompts={visiblePrompts}
+                        editingPromptIndex={editingPromptIndex}
+                        editingPromptText={editingPromptText}
+                        onSelect={handlePromptSelect}
+                        onEdit={handlePromptEdit}
+                        onEditSave={handlePromptEditSave}
+                        onEditCancel={handlePromptEditCancel}
+                        setEditingPromptText={setEditingPromptText}
+                        onPin={handlePinPrompt}
+                        onDelete={handlePromptDelete}
                     />
-                    {prompts.length > 0 && (
-                        <>
-                            <h5>Suggested Prompts</h5>
-                            <PromptsList
-                                prompts={prompts}
-                                editingPromptIndex={editingPromptIndex}
-                                editingPromptText={editingPromptText}
-                                onSelect={handlePromptSelect}
-                                onEdit={handlePromptEdit}
-                                onEditSave={handlePromptEditSave}
-                                onEditCancel={handlePromptEditCancel}
-                                setEditingPromptText={setEditingPromptText}
-                                onPin={handlePinPrompt}
-                            />
-                            <PromptsActions
-                                onApply={() =>
-                                    handleApplyPrompts(
-                                        prompts.filter((p) => p.isSelected).map((p) => p.text)
-                                    )
-                                }
-                                disabled={!prompts.some((prompt) => prompt.isSelected)}
-                            />
-                        </>
-                    )}
+                    <PromptsActions
+                        onApply={() =>
+                            handleApplyPrompts(
+                                visiblePrompts.filter((p) => p.isSelected).map((p) => p.text)
+                            )
+                        }
+                        disabled={!visiblePrompts.some((prompt) => prompt.isSelected)}
+                    />
                 </>
             )}
         </div>
     );
 };
-
-const PromptsHeader: React.FC<{ isExpanded: boolean; onToggle: () => void }> = ({
-    isExpanded,
-    onToggle,
-}) => (
-    <div className="prompts-header">
-        <h4>Prompts</h4>
-        <VSCodeButton appearance="icon" onClick={onToggle}>
-            <i className={`codicon codicon-chevron-${isExpanded ? "up" : "down"}`}></i>
-        </VSCodeButton>
-    </div>
-);
 
 const PromptsList: React.FC<{
     prompts: Prompt[];
@@ -220,6 +208,7 @@ const PromptsList: React.FC<{
     onEditCancel: () => void;
     setEditingPromptText: (text: string) => void;
     onPin: (promptText: string) => void;
+    onDelete: (index: number) => void;
 }> = ({
     prompts,
     editingPromptIndex,
@@ -230,6 +219,7 @@ const PromptsList: React.FC<{
     onEditCancel,
     setEditingPromptText,
     onPin,
+    onDelete,
 }) => (
     <ul className="prompts-list">
         {prompts.map((prompt, index) => (
@@ -247,6 +237,7 @@ const PromptsList: React.FC<{
                         onSelect={() => onSelect(index)}
                         onEdit={() => onEdit(index)}
                         onPin={() => onPin(prompt.text)}
+                        onDelete={() => onDelete(index)}
                     />
                 )}
             </li>
@@ -279,7 +270,8 @@ const PromptDisplay: React.FC<{
     onSelect: () => void;
     onEdit: () => void;
     onPin: () => void;
-}> = ({ prompt, onSelect, onEdit, onPin }) => (
+    onDelete: () => void;
+}> = ({ prompt, onSelect, onEdit, onPin, onDelete }) => (
     <div className="prompt-display-container">
         <VSCodeCheckbox checked={prompt.isSelected} onChange={onSelect} />
         <span>{prompt.text}</span>
@@ -293,6 +285,9 @@ const PromptDisplay: React.FC<{
             className={prompt.isPinned ? "pinned" : ""}
         >
             <i className={`codicon codicon-pin ${prompt.isPinned ? "pinned" : ""}`}></i>
+        </VSCodeButton>
+        <VSCodeButton appearance="icon" onClick={onDelete} title="Delete">
+            <i className="codicon codicon-trash"></i>
         </VSCodeButton>
     </div>
 );
