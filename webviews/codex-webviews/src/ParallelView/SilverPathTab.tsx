@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import ReactMarkdown from "react-markdown";
 import { TranslationPair } from "../../../../types";
@@ -65,20 +65,45 @@ function SilverPathTab({
 }: SilverPathTabProps) {
     const chatHistoryRef = useRef<HTMLDivElement>(null);
 
+    const [expandedThoughts, setExpandedThoughts] = useState<Set<number>>(new Set());
+
+    const toggleThoughts = (index: number) => {
+        setExpandedThoughts((prev) => {
+            const newSet = new Set(prev);
+            if (newSet.has(index)) {
+                newSet.delete(index);
+            } else {
+                newSet.add(index);
+            }
+            return newSet;
+        });
+    };
+
     useEffect(() => {
         if (chatHistoryRef.current) {
             chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
         }
     }, [chatHistory]);
 
-    const renderAssistantResponse = (message: AssistantMessage) => {
+    const renderAssistantResponse = (message: AssistantMessage, index: number) => {
+        const currentPassage = pinnedVerses.length > 0 ? pinnedVerses[0].cellId : null;
+
         return (
             <>
-                <div className="silver-path-segment thinking-silver-path">
-                    <h3>Thinking Process</h3>
+                {currentPassage && (
+                    <div className="silver-path-segment current-passage">
+                        <h3>Current Passage: {currentPassage}</h3>
+                    </div>
+                )}
+                <div
+                    className={`silver-path-segment thinking-silver-path ${
+                        expandedThoughts.has(index) ? "expanded" : ""
+                    }`}
+                >
+                    <h3 onClick={() => toggleThoughts(index)}>Thinking Process</h3>
                     <ul>
-                        {message.thinking.map((thought, index) => (
-                            <li key={index}>{thought}</li>
+                        {message.thinking.map((thought, idx) => (
+                            <li key={idx}>{thought}</li>
                         ))}
                     </ul>
                 </div>
@@ -146,26 +171,36 @@ function SilverPathTab({
 
     return (
         <div className="silver-path-container">
+            <div className="silver-path-pinned-verses">
+                <h3>Pinned Verses:</h3>
+                {pinnedVerses.length > 0 ? (
+                    <div className="pinned-verses-list">
+                        {pinnedVerses.map((verse) => (
+                            <span key={verse.cellId} className="pinned-verse-id">
+                                {verse.cellId}
+                            </span>
+                        ))}
+                    </div>
+                ) : (
+                    <p>No pinned verses</p>
+                )}
+            </div>
             <div ref={chatHistoryRef} className="silver-path-history">
                 {chatHistory.length === 0 ? (
                     <div className="silver-path-message assistant">
-                        {renderAssistantResponse(defaultAssistantMessage)}
+                        {renderAssistantResponse(defaultAssistantMessage, -1)}
                     </div>
                 ) : (
                     <>
-                        <div className="silver-path-message user">
-                            <ReactMarkdown>
-                                {chatHistory[chatHistory.length - 1].content}
-                            </ReactMarkdown>
-                        </div>
-                        <div className="silver-path-message assistant">
-                            {renderAssistantResponse(
-                                (chatHistory[chatHistory.length - 1] as AssistantMessage).role ===
-                                    "assistant"
-                                    ? (chatHistory[chatHistory.length - 1] as AssistantMessage)
-                                    : defaultAssistantMessage
-                            )}
-                        </div>
+                        {chatHistory.map((message, index) => (
+                            <div key={index} className={`silver-path-message ${message.role}`}>
+                                {message.role === "assistant" ? (
+                                    renderAssistantResponse(message as AssistantMessage, index)
+                                ) : (
+                                    <ReactMarkdown>{message.content}</ReactMarkdown>
+                                )}
+                            </div>
+                        ))}
                     </>
                 )}
                 {isLoading && (

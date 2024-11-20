@@ -44,10 +44,32 @@
     border-left: 3px solid var(--vscode-activityBarBadge-background);
 }
 
+.thinking-silver-path h3 {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+}
+
+.thinking-silver-path h3::before {
+    content: "▶";
+    display: inline-block;
+    margin-right: 5px;
+    transition: transform 0.3s ease;
+}
+
+.thinking-silver-path.expanded h3::before {
+    transform: rotate(90deg);
+}
+
 .thinking-silver-path ul {
     padding-left: 20px;
     margin: 8px 0 0;
     color: var(--vscode-foreground);
+    display: none;
+}
+
+.thinking-silver-path.expanded ul {
+    display: block;
 }
 
 .thinking-silver-path li {
@@ -193,4 +215,47 @@
     color: var(--vscode-descriptionForeground);
     cursor: pointer;
     font-size: 12px;
+}
+
+.silver-path-pinned-verses {
+    background-color: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-widget-border);
+    border-radius: 4px;
+    padding: 12px;
+    margin-bottom: 16px;
+}
+
+.silver-path-pinned-verses h3 {
+    margin: 0 0 8px;
+    color: var(--vscode-foreground);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.pinned-verses-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.pinned-verse-id {
+    background-color: var(--vscode-badge-background);
+    color: var(--vscode-badge-foreground);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.current-passage {
+    background-color: var(--vscode-editor-background);
+    border-left: 3px solid var(--vscode-activityBarBadge-background);
+    padding: 8px 12px;
+    margin-bottom: 12px;
+}
+
+.current-passage h3 {
+    margin: 0;
+    color: var(--vscode-foreground);
+    font-size: 13px;
+    font-weight: 600;
 }
