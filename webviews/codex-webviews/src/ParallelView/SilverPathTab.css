@@ -28,9 +28,15 @@
 .silver-path-segment {
     background-color: var(--vscode-editor-background);
     border: 1px solid var(--vscode-widget-border);
-    border-radius: 4px;
-    padding: 12px;
-    margin-bottom: 12px;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s ease;
+}
+
+.silver-path-segment:hover {
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 }
 
 .silver-path-segment h3 {
@@ -145,11 +151,13 @@
     font-family: var(--vscode-font-family);
     font-size: 14px;
     line-height: 1.4;
+    transition: all 0.2s ease;
 }
 
 .silver-path-textarea:focus {
     outline: none;
     border-color: var(--vscode-focusBorder);
+    box-shadow: 0 0 0 2px rgba(var(--vscode-focusBorder), 0.3);
 }
 
 .silver-path-send-button {
@@ -181,6 +189,22 @@
     font-style: italic;
     text-align: center;
     padding: 20px;
+    background-color: rgba(var(--vscode-editor-background), 0.7);
+    border-radius: 8px;
+    backdrop-filter: blur(5px);
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% {
+        opacity: 0.7;
+    }
+    50% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0.7;
+    }
 }
 
 .silver-path-loading {
@@ -189,15 +213,18 @@
     justify-content: center;
     padding: 20px;
     color: var(--vscode-descriptionForeground);
+    background-color: rgba(var(--vscode-editor-background), 0.7);
+    border-radius: 8px;
+    backdrop-filter: blur(5px);
 }
 
 .silver-path-loading-spinner {
     border: 2px solid var(--vscode-descriptionForeground);
     border-top: 2px solid var(--vscode-button-background);
     border-radius: 50%;
-    width: 16px;
-    height: 16px;
-    animation: spin 1s linear infinite;
+    width: 24px;
+    height: 24px;
+    animation: spin 1s linear infinite, glow 2s ease-in-out infinite;
     margin-right: 10px;
 }
 
@@ -207,6 +234,18 @@
     }
     100% {
         transform: rotate(360deg);
+    }
+}
+
+@keyframes glow {
+    0% {
+        box-shadow: 0 0 5px var(--vscode-button-background);
+    }
+    50% {
+        box-shadow: 0 0 20px var(--vscode-button-background);
+    }
+    100% {
+        box-shadow: 0 0 5px var(--vscode-button-background);
     }
 }
 
@@ -223,12 +262,13 @@
     border-radius: 4px;
     padding: 12px;
     margin-bottom: 16px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .silver-path-pinned-verses h3 {
     margin: 0 0 8px;
     color: var(--vscode-foreground);
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
 }
 
@@ -241,20 +281,24 @@
 .pinned-verse-id {
     background-color: var(--vscode-badge-background);
     color: var(--vscode-badge-foreground);
-    padding: 2px 6px;
+    padding: 4px 8px;
     border-radius: 4px;
     font-size: 12px;
     cursor: pointer;
-    transition: background-color 0.2s ease;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 .pinned-verse-id:hover {
     background-color: var(--vscode-button-hoverBackground);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 .pinned-verse-id.target-passage {
     background-color: var(--vscode-activityBarBadge-background);
     color: var(--vscode-activityBarBadge-foreground);
+    font-weight: bold;
 }
 
 .current-passage {
