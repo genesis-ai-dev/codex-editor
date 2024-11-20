@@ -244,6 +244,17 @@
     padding: 2px 6px;
     border-radius: 4px;
     font-size: 12px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.pinned-verse-id:hover {
+    background-color: var(--vscode-button-hoverBackground);
+}
+
+.pinned-verse-id.target-passage {
+    background-color: var(--vscode-activityBarBadge-background);
+    color: var(--vscode-activityBarBadge-foreground);
 }
 
 .current-passage {

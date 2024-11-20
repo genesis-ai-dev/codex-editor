@@ -35,6 +35,8 @@ interface SilverPathTabProps {
         assistant: React.CSSProperties;
     };
     pinnedVerses: TranslationPair[];
+    onSelectTargetPassage: (cellId: string) => void;
+    targetPassage: string | null;
     isLoading: boolean;
 }
 
@@ -61,6 +63,8 @@ function SilverPathTab({
     onChatFocus,
     onCopy,
     pinnedVerses,
+    onSelectTargetPassage,
+    targetPassage,
     isLoading,
 }: SilverPathTabProps) {
     const chatHistoryRef = useRef<HTMLDivElement>(null);
@@ -86,13 +90,11 @@ function SilverPathTab({
     }, [chatHistory]);
 
     const renderAssistantResponse = (message: AssistantMessage, index: number) => {
-        const currentPassage = pinnedVerses.length > 0 ? pinnedVerses[0].cellId : null;
-
         return (
             <>
-                {currentPassage && (
+                {targetPassage && (
                     <div className="silver-path-segment current-passage">
-                        <h3>Current Passage: {currentPassage}</h3>
+                        <h3>Target Passage: {targetPassage}</h3>
                     </div>
                 )}
                 <div
@@ -176,7 +178,13 @@ function SilverPathTab({
                 {pinnedVerses.length > 0 ? (
                     <div className="pinned-verses-list">
                         {pinnedVerses.map((verse) => (
-                            <span key={verse.cellId} className="pinned-verse-id">
+                            <span
+                                key={verse.cellId}
+                                className={`pinned-verse-id ${
+                                    targetPassage === verse.cellId ? "target-passage" : ""
+                                }`}
+                                onClick={() => onSelectTargetPassage(verse.cellId)}
+                            >
                                 {verse.cellId}
                             </span>
                         ))}

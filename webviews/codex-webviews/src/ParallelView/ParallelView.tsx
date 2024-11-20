@@ -50,6 +50,7 @@ function ParallelView() {
     >([]);
     const [silverPathNextChunkIndex, setSilverPathNextChunkIndex] = useState(0);
     const [isLoading, setIsLoading] = useState(false);
+    const [targetPassage, setTargetPassage] = useState<string | null>(null);
 
     // Helper function to process pending chunks in order
     const processNextChunk = () => {
@@ -311,6 +312,10 @@ function ParallelView() {
         setVerses([...pinnedVerses]);
     };
 
+    const handleSelectTargetPassage = (cellId: string) => {
+        setTargetPassage(cellId);
+    };
+
     return (
         <VSCodePanels>
             <VSCodePanelTab id="tab-search">Search</VSCodePanelTab>
@@ -357,6 +362,8 @@ function ParallelView() {
                     messageStyles={messageStyles}
                     pinnedVerses={pinnedVerses}
                     isLoading={isLoading}
+                    onSelectTargetPassage={handleSelectTargetPassage}
+                    targetPassage={targetPassage}
                 />
             </VSCodePanelView>
         </VSCodePanels>
