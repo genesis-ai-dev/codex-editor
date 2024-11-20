@@ -3,6 +3,7 @@ import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import ReactMarkdown from "react-markdown";
 import { TranslationPair } from "../../../../types";
 import "./SilverPathTab.css";
+import { SkeletonLoader } from "./SkeletonLoader";
 
 export interface SilverPathMessageBase {
     role: "user" | "assistant";
@@ -171,33 +172,42 @@ function SilverPathTab({
         }
     };
 
+    const renderSkeletonLoader = () => (
+        <div className="silver-path-message assistant">
+            <SkeletonLoader />
+        </div>
+    );
+
     return (
         <div className="silver-path-container">
             <div className="silver-path-pinned-verses">
-                <h3>Pinned Verses:</h3>
+                <h3>Select Target Passage:</h3>
                 {pinnedVerses.length > 0 ? (
-                    <div className="pinned-verses-list">
-                        {pinnedVerses.map((verse) => (
-                            <span
-                                key={verse.cellId}
-                                className={`pinned-verse-id ${
-                                    targetPassage === verse.cellId ? "target-passage" : ""
-                                }`}
-                                onClick={() => onSelectTargetPassage(verse.cellId)}
-                            >
-                                {verse.cellId}
-                            </span>
-                        ))}
-                    </div>
+                    <>
+                        <p className="select-target-instruction">
+                            Click on a verse ID to select the target passage for translation:
+                        </p>
+                        <div className="pinned-verses-list">
+                            {pinnedVerses.map((verse) => (
+                                <span
+                                    key={verse.cellId}
+                                    className={`pinned-verse-id ${
+                                        targetPassage === verse.cellId ? "target-passage" : ""
+                                    }`}
+                                    onClick={() => onSelectTargetPassage(verse.cellId)}
+                                >
+                                    {verse.cellId}
+                                </span>
+                            ))}
+                        </div>
+                    </>
                 ) : (
-                    <p>No pinned verses</p>
+                    <p>No pinned verses available. Pin verses to start translating.</p>
                 )}
             </div>
             <div ref={chatHistoryRef} className="silver-path-history">
                 {chatHistory.length === 0 ? (
-                    <div className="silver-path-message assistant">
-                        {renderAssistantResponse(defaultAssistantMessage, -1)}
-                    </div>
+                    renderSkeletonLoader()
                 ) : (
                     <>
                         {chatHistory.map((message, index) => (
@@ -226,13 +236,19 @@ function SilverPathTab({
                         onChange={(e) => onChatInputChange(e.target.value)}
                         onKeyDown={handleKeyDown}
                         onFocus={onChatFocus}
-                        placeholder="Ask about these passages... (Ctrl + Enter to send)"
+                        placeholder={
+                            targetPassage
+                                ? "Ask about these passages... (Ctrl + Enter to send)"
+                                : "Select a target passage before asking questions"
+                        }
+                        disabled={!targetPassage}
                     />
                     <VSCodeButton
                         onClick={onChatSubmit}
                         className="silver-path-send-button"
                         appearance="icon"
                         title="Send"
+                        disabled={!targetPassage}
                     >
                         <span className="codicon codicon-send" />
                     </VSCodeButton>
