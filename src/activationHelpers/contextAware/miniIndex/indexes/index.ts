@@ -13,6 +13,7 @@ import {
     handleTextSelection,
     searchParallelCells,
     searchSimilarCellIds,
+    findNextUntranslatedSourceCell,
 } from "./search";
 import MiniSearch, { SearchResult } from "minisearch";
 import {
@@ -543,6 +544,45 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         }
     );
 
+    const findNextUntranslatedSourceCellCommand = vscode.commands.registerCommand(
+        "translators-copilot.findNextUntranslatedSourceCell",
+        async (query?: string, cellId?: string, showInfo: boolean = false) => {
+            if (!query) {
+                query = await vscode.window.showInputBox({
+                    prompt: "Enter a query to search for the next untranslated source cell",
+                    placeHolder: "e.g. love, faith, hope",
+                });
+                if (!query) return null; // User cancelled the input
+                showInfo = true;
+            }
+            if (!cellId) {
+                cellId = await vscode.window.showInputBox({
+                    prompt: "Enter the current cell ID to exclude from results",
+                    placeHolder: "e.g. GEN 1:1",
+                });
+                if (!cellId) return null; // User cancelled the input
+            }
+            const result = await findNextUntranslatedSourceCell(
+                sourceTextIndex,
+                translationPairsIndex,
+                query,
+                cellId
+            );
+            if (showInfo) {
+                if (result) {
+                    vscode.window.showInformationMessage(
+                        `Next untranslated source cell: ${result.cellId}\nContent: ${result.content}`
+                    );
+                } else {
+                    vscode.window.showInformationMessage(
+                        "No untranslated source cell found matching the query."
+                    );
+                }
+            }
+            return result;
+        }
+    );
+
     // Update the subscriptions
     context.subscriptions.push(
         ...[
@@ -564,6 +604,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             getWordsAboveThresholdCommand,
             searchParallelCellsCommand,
             searchSimilarCellIdsCommand,
+            findNextUntranslatedSourceCellCommand,
         ]
     );
 

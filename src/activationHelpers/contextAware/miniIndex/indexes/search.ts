@@ -230,3 +230,36 @@ export function searchSimilarCellIds(
             score: result.score,
         }));
 }
+
+export async function findNextUntranslatedSourceCell(
+    sourceTextIndex: MiniSearch,
+    translationPairsIndex: MiniSearch,
+    query: string,
+    currentCellId: string
+): Promise<{ cellId: string; content: string } | null> {
+    // Search for similar source cells
+    const searchResults = sourceTextIndex.search(query, {
+        boost: { content: 2 },
+        fuzzy: 0.2,
+    });
+
+    // Filter out the current cell and cells that already have translations
+    for (const result of searchResults) {
+        if (result.cellId !== currentCellId) {
+            const hasTranslation =
+                translationPairsIndex.search(result.cellId, {
+                    fields: ["cellId"],
+                    combineWith: "AND",
+                }).length > 0;
+
+            if (!hasTranslation) {
+                return {
+                    cellId: result.cellId,
+                    content: result.content,
+                };
+            }
+        }
+    }
+
+    return null; // No untranslated cell found
+}
