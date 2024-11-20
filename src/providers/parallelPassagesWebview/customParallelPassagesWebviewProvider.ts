@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { TranslationPair } from "../../../types";
+import { SourceCellVersions, TranslationPair } from "../../../types";
 
 // Local type definitions
 interface AssistantMessage {
@@ -50,21 +50,23 @@ async function handleChatStream(
     editIndex?: number
 ) {
     try {
-        // Get the translation pair for the first cellId
-        const translationPair = await vscode.commands.executeCommand<TranslationPair>(
-            "translators-copilot.getTranslationPairFromProject",
+        // Get source content directly
+        const sourceCell = await vscode.commands.executeCommand<SourceCellVersions | null>(
+            "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
             cellIds[0]
         );
 
-        if (!translationPair) {
-            throw new Error("No translation pair found");
+        if (!sourceCell || !sourceCell.content) {
+            throw new Error(`No source content found for cell ID: ${cellIds[0]}`);
         }
+
+        const sourceContent = sourceCell.content;
 
         // Generate translation using the SilverPath command
         const result = await vscode.commands.executeCommand<{
             translation: AssistantMessage;
             usedCellIds: string[];
-        }>("silverPath.generateTranslation", query, translationPair.sourceCell.content, cellIds[0]);
+        }>("silverPath.generateTranslation", query, sourceContent, cellIds[0]);
 
         if (!result || !result.translation) {
             throw new Error("Failed to generate translation");
@@ -84,7 +86,7 @@ async function handleChatStream(
         console.error("Error in chat stream:", error);
         webviewView.webview.postMessage({
             command: "chatResponseStream",
-            data: "Error: Failed to process chat request.",
+            data: `Error: Failed to process chat request. ${error instanceof Error ? error.message : "Unknown error"}`,
         });
         webviewView.webview.postMessage({
             command: "chatResponseComplete",

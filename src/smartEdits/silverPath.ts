@@ -163,7 +163,7 @@ Target: ${pair.targetCell.content}
 
             // Add new memory if suggested and not already existing
             if (response.addMemory) {
-                const existingIndex = memories.findIndex((m) => m.id === response.addMemory.id);
+                const existingIndex = memories.findIndex((m) => m.id === response.addMemory?.id);
                 if (existingIndex === -1) {
                     // Only add if it doesn't exist
                     memories.push({
