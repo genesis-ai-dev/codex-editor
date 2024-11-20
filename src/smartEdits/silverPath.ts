@@ -7,20 +7,9 @@ import * as fs from "fs/promises";
 const SYSTEM_MESSAGE = `
 You are an AI assistant specialized in Bible translation. Your task is to translate Bible verses based on provided translation pairs and additional data. You will receive three key pieces of information:
 
-1. The verse to be translated:
-<verse_to_translate>
-{{verse_to_translate}}
-</verse_to_translate>
-
-2. Translation pairs to guide your work:
-<translation_pairs>
-{{translation_pairs}}
-</translation_pairs>
-
-3. Additional relevant data:
-<additional_data>
-{{additional_data}}
-</additional_data>
+1. The verse to be translated
+2. Translation pairs to guide your work
+3. Additional relevant data
 
 Instructions:
 1. Carefully analyze the verse, translation pairs, and additional data.
@@ -34,27 +23,28 @@ Important considerations:
 - Ensure you understand the context of the text.
 - Be prepared to refine your translation based on user feedback.
 
-Please wrap your work in the following XML format:
+Please provide your response in the following JSON format, but replace all the text with YOUR thoughts etc...
 
-<translation_process>
-    <message>[A brief statement about your task, e.g., "I will now translate the given Bible verse."]</message>
-    <thinking>
-        [1. Analyze the verse to be translated, noting any key words or phrases.]
-        [2. Review the translation pairs, identifying relevant matches.]
-        [3. Consider the additional data for context and nuance.]
-        [4. Propose an initial translation.]
-        [5. Review and refine the translation.]
-    </thinking>
-    <translation>[Your translated verse goes here.]</translation>
-    <memoriesUsed>
-        <memory id="[unique_id]">[Description of a specific piece of information from the translation pairs or additional data that you found particularly useful]</memory>
-        [Include as many memory entries as relevant]
-    </memoriesUsed>
-    <addMemory id="[unique_id]">[If the user suggests an improvement that you want to remember for future translations, include it here with a brief explanation]</addMemory>
-</translation_process>
+{
+    "message": "Your response in natural language goes here.",
+    "thinking": [
+        "A list of thoughts you have while translating the verse goes here.",
+    ],
+    "translation": "Your translated verse goes here.",
+    "memoriesUsed": [
+        {
+            "id": "unique_id",
+            "memory": "Description of a specific piece of information from the translation pairs or additional data that you found particularly useful"
+        }
+    ],
+    "addMemory": {
+        "id": "some-feedback-id",
+        "memory": "If the user suggests an improvement that you want to remember for future translations, include it here with a brief explanation. Don't use this unless the user suggests something!"
+    }
+}
 
-After providing your initial translation, be prepared to refine it based on user feedback. If the user suggests improvements, carefully consider them and update your translation if appropriate. You can add new insights to your memory using the <addMemory> tag.
-
+After providing your initial translation, be prepared to refine it based on user feedback. If the user suggests improvements, carefully consider them and update your translation if appropriate. You can add new insights to your memory using the addMemory field.
+Don't add memories unless the user suggests an improvement that may be applicable to the future!
 Remember to maintain a helpful and collaborative tone throughout the interaction.
 `;
 
@@ -68,10 +58,11 @@ interface Memory {
 }
 
 interface Response {
-    addMemory?: Memory;
-    thinking: string;
+    message: string;
+    thinking: string[];
     translation: string;
     memoriesUsed?: Memory[];
+    addMemory?: Memory;
 }
 
 export class SilverPath {
@@ -83,30 +74,28 @@ export class SilverPath {
         this.silverPathFile = path.join(workspaceUri.fsPath, "files", "silver_path.json");
     }
 
-    async generateTranslation(userQuery: string, text: string, cellId: string): Promise<string> {
+    async generateTranslation(
+        userQuery: string,
+        text: string,
+        cellId: string
+    ): Promise<{ translation: Response; usedCellIds: string[] }> {
         const similarPairs = await this.findSimilarPairs(text);
         const context = this.formatSimilarPairs(similarPairs);
         const additionalData = await this.getAdditionalData();
 
-        const message = `
-            <translation_pairs>
-                ${context}
-            </translation_pairs>
-            <additional_data>
-                ${additionalData}
-            </additional_data>
-            <verse_to_translate>
-                ${text}
-            </verse_to_translate>
-            <user_query>
-                ${userQuery}
-            </user_query>
-        `;
+        const prompt = JSON.stringify({
+            translation_pairs: context,
+            additional_data: additionalData,
+            verse_to_translate: text,
+            user_query: userQuery,
+        });
 
-        const response = await this.chatbot.getCompletion(message);
-        const parsed = this.parseXML(response);
-        await this.updateMemories(parsed);
-        return parsed.translation;
+        const response = await this.chatbot.getJsonCompletionWithHistory(prompt);
+        console.log("SilverPath response:", response);
+        await this.updateMemories(response);
+
+        const usedCellIds = similarPairs.map((pair) => pair.cellId);
+        return { translation: response, usedCellIds };
     }
 
     private async findSimilarPairs(text: string): Promise<TranslationPair[]> {
@@ -136,6 +125,13 @@ Target: ${pair.targetCell.content}
 
     private async getAdditionalData(): Promise<string> {
         try {
+            await fs.access(this.silverPathFile);
+        } catch (error) {
+            // File doesn't exist, create it with an empty array
+            await fs.writeFile(this.silverPathFile, "[]", "utf-8");
+        }
+
+        try {
             const data = await fs.readFile(this.silverPathFile, "utf-8");
             const memories: Memory[] = JSON.parse(data);
             const activeMemories = memories
@@ -145,39 +141,14 @@ Target: ${pair.targetCell.content}
             return JSON.stringify(activeMemories);
         } catch (error) {
             console.error("Error reading additional data:", error);
-            return "";
+            return "[]";
         }
-    }
-
-    private parseXML(xml: string): Response {
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(xml, "text/xml");
-        const thinking = xmlDoc.getElementsByTagName("thinking")[0]?.textContent || "";
-        const translation = xmlDoc.getElementsByTagName("translation")[0]?.textContent || "";
-        const memoriesUsedElements =
-            xmlDoc.getElementsByTagName("memoriesUsed")[0]?.getElementsByTagName("memory") || [];
-        const memoriesUsed = Array.from(memoriesUsedElements).map((memory) => ({
-            id: memory.getAttribute("id") || "",
-            memory: memory.textContent || "",
-            times_used: 1,
-            active: true,
-        }));
-        const addMemoryElement = xmlDoc.getElementsByTagName("addMemory")[0];
-        const addMemory = addMemoryElement
-            ? {
-                  id: addMemoryElement.getAttribute("id") || "",
-                  memory: addMemoryElement.textContent || "",
-                  times_used: 1,
-                  active: true,
-              }
-            : undefined;
-        return { thinking, translation, memoriesUsed, addMemory };
     }
 
     private async updateMemories(response: Response): Promise<void> {
         try {
             const data = await fs.readFile(this.silverPathFile, "utf-8");
-            const memories: Memory[] = JSON.parse(data);
+            let memories: Memory[] = JSON.parse(data);
 
             // Update existing memories
             if (response.memoriesUsed) {
@@ -190,23 +161,20 @@ Target: ${pair.targetCell.content}
                 }
             }
 
-            // Add or replace new memory if suggested
+            // Add new memory if suggested and not already existing
             if (response.addMemory) {
-                const existingIndex = memories.findIndex((m) => m.id === response.addMemory!.id);
-                if (existingIndex !== -1) {
-                    // Replace existing memory with the new one
-                    memories[existingIndex] = {
-                        ...response.addMemory,
-                        times_used: memories[existingIndex].times_used + 1,
-                        active: true,
-                    };
-                } else {
-                    // Add new memory
+                const existingIndex = memories.findIndex((m) => m.id === response.addMemory.id);
+                if (existingIndex === -1) {
+                    // Only add if it doesn't exist
                     memories.push({
                         ...response.addMemory,
                         times_used: 1,
                         active: true,
                     });
+                } else {
+                    // If it exists, just increment times_used and ensure it's active
+                    memories[existingIndex].times_used++;
+                    memories[existingIndex].active = true;
                 }
             }
 
@@ -218,13 +186,11 @@ Target: ${pair.targetCell.content}
                 return a.active ? -1 : 1;
             });
 
-            // Inactivate excess memories
-            const activeMemories = memories.filter((m) => m.active);
-            if (activeMemories.length > MAX_MEMORIES) {
-                for (let i = MAX_MEMORIES; i < memories.length; i++) {
-                    memories[i].active = false;
-                }
-            }
+            // Keep only the top MAX_MEMORIES active, inactivate the rest
+            memories = memories.map((memory, index) => ({
+                ...memory,
+                active: index < MAX_MEMORIES,
+            }));
 
             await fs.writeFile(this.silverPathFile, JSON.stringify(memories, null, 2));
         } catch (error) {

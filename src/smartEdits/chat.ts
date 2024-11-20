@@ -187,6 +187,16 @@ class Chatbot {
         const response = await this.getCompletion(prompt);
         return this.getJson(response);
     }
+
+    async getJsonCompletionWithHistory(prompt: string): Promise<any> {
+        await this.addMessage("user", prompt);
+        const response = await this.callLLM(this.getMessagesWithContext());
+        await this.addMessage("assistant", response);
+        if (this.messages.length > this.maxBuffer) {
+            this.messages.shift();
+        }
+        return this.getJson(response);
+    }
 }
 
 export default Chatbot;

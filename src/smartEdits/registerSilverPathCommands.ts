@@ -13,15 +13,15 @@ export const registerSilverPathCommands = (context: vscode.ExtensionContext) => 
 
     context.subscriptions.push(
         vscode.commands.registerCommand(
-            "codex-smart-edits.generateTranslation",
+            "silverPath.generateTranslation",
             async (userQuery: string, text: string, cellId: string) => {
                 try {
-                    const translation = await silverPath.generateTranslation(
+                    const { translation, usedCellIds } = await silverPath.generateTranslation(
                         userQuery,
                         text,
                         cellId
                     );
-                    return translation;
+                    return { translation, usedCellIds };
                 } catch (error) {
                     console.error("Error generating translation:", error);
                     vscode.window.showErrorMessage(

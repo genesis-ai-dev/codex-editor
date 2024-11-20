@@ -1,6 +1,16 @@
 import * as vscode from "vscode";
 import { TranslationPair } from "../../../types";
 
+// Local type definitions
+interface AssistantMessage {
+    role: "assistant";
+    content: string;
+    thinking: string;
+    translation: string;
+    memoriesUsed: { memory: string }[];
+    addMemory: { memory: string };
+}
+
 async function simpleOpen(uri: string) {
     try {
         const parsedUri = vscode.Uri.parse(uri);
@@ -40,25 +50,36 @@ async function handleChatStream(
     editIndex?: number
 ) {
     try {
-        await vscode.commands
-            .executeCommand<void>(
-                "codex-smart-edits.chatStream",
-                cellIds,
-                query,
-                // Callback function to handle chunks
-                (chunk: string) => {
-                    webviewView.webview.postMessage({
-                        command: "chatResponseStream",
-                        data: chunk,
-                    });
-                },
-                editIndex
-            )
-            .then(() => {
-                webviewView.webview.postMessage({
-                    command: "chatResponseComplete",
-                });
-            });
+        // Get the translation pair for the first cellId
+        const translationPair = await vscode.commands.executeCommand<TranslationPair>(
+            "translators-copilot.getTranslationPairFromProject",
+            cellIds[0]
+        );
+
+        if (!translationPair) {
+            throw new Error("No translation pair found");
+        }
+
+        // Generate translation using the SilverPath command
+        const result = await vscode.commands.executeCommand<{
+            translation: AssistantMessage;
+            usedCellIds: string[];
+        }>("silverPath.generateTranslation", query, translationPair.sourceCell.content, cellIds[0]);
+
+        if (!result || !result.translation) {
+            throw new Error("Failed to generate translation");
+        }
+
+        // Send the translation back to the webview
+        webviewView.webview.postMessage({
+            command: "silverPathTranslation",
+            data: result,
+        });
+
+        // Send the used cell IDs back to the webview
+        for (const cellId of result.usedCellIds) {
+            await vscode.commands.executeCommand("parallelPassages.pinCellById", cellId);
+        }
     } catch (error) {
         console.error("Error in chat stream:", error);
         webviewView.webview.postMessage({
@@ -97,16 +118,6 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
             "index.js"
         )
     );
-    // const styleUri = webviewView.webview.asWebviewUri(
-    //     vscode.Uri.joinPath(
-    //         extensionUri,
-    //         "webviews",
-    //         "codex-webviews",
-    //         "dist",
-    //         "ParallelView",
-    //         "index.css",
-    //     ),
-    // );
     function getNonce() {
         let text = "";
         const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -171,20 +182,42 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
 
         if (this._view) {
             // Get the translation pair for this cell
-            const translationPair = await vscode.commands.executeCommand<TranslationPair>(
+            let translationPair = await vscode.commands.executeCommand<TranslationPair>(
                 "translators-copilot.getTranslationPairFromProject",
                 cellId
             );
+
+            if (!translationPair) {
+                // If no translation pair is found, get only the source text
+                const sourceCell = await vscode.commands.executeCommand(
+                    "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
+                    cellId
+                );
+
+                if (sourceCell) {
+                    // Create a new translation pair with empty target text
+                    translationPair = {
+                        cellId: cellId,
+                        sourceCell: sourceCell,
+                        targetCell: {
+                            cellId: cellId,
+                            content: "",
+                            // Add any other required properties for targetCell with default values
+                        },
+                        // Add any other required properties for translationPair with default values
+                    };
+                } else {
+                    console.error(`No source cell found for cell: ${cellId}`);
+                    return;
+                }
+            }
+
             console.log("translationPair", translationPair);
 
-            if (translationPair) {
-                this._view.webview.postMessage({
-                    command: "pinCell",
-                    data: translationPair,
-                });
-            } else {
-                vscode.window.showErrorMessage(`No translation pair found for cell: ${cellId}`);
-            }
+            this._view.webview.postMessage({
+                command: "pinCell",
+                data: translationPair,
+            });
         } else {
             vscode.window.showErrorMessage("Failed to open parallel passages view");
         }

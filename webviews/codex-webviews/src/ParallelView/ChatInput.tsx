@@ -32,49 +32,25 @@ const ChatInput: React.FC<ChatInputProps> = ({ value, onChange, onSubmit, onFocu
     };
 
     return (
-        <div style={{ display: "flex", flexDirection: "column", padding: "8px" }}>
+        <div className="chat-input-container">
             <div
+                className="chat-input-suggestion"
                 onClick={() => onChange(suggestions[currentSuggestion])}
-                style={{
-                    marginBottom: "8px",
-                    color: "var(--vscode-descriptionForeground)",
-                    cursor: "pointer",
-                    fontSize: "12px",
-                }}
             >
                 Suggestion: {suggestions[currentSuggestion]}
             </div>
-            <div style={{ position: "relative" }}>
+            <div className="chat-input-wrapper">
                 <textarea
+                    className="chat-input-textarea"
                     value={value}
                     onChange={(e) => onChange(e.target.value)}
                     onKeyDown={handleKeyDown}
                     onFocus={onFocus}
                     placeholder="Ask about these passages... (Ctrl + Enter to send)"
-                    style={{
-                        width: "100%",
-                        backgroundColor: "transparent",
-                        border: "1px solid var(--vscode-widget-border)",
-                        borderRadius: "4px",
-                        padding: "8px",
-                        paddingRight: "40px",
-                        color: "var(--vscode-foreground)",
-                        outline: "none",
-                        resize: "vertical",
-                        minHeight: "60px",
-                        fontFamily: "inherit",
-                        fontSize: "inherit",
-                    }}
                 />
                 <VSCodeButton
                     onClick={onSubmit}
-                    style={{
-                        position: "absolute",
-                        right: "8px",
-                        top: "8px",
-                        padding: "0",
-                        minWidth: "auto",
-                    }}
+                    className="chat-input-send-button"
                     appearance="icon"
                     title="Send"
                 >

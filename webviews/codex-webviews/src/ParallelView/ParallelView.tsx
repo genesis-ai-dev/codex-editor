@@ -9,6 +9,7 @@ import "./App.css";
 import { OpenFileMessage, ChatMessage } from "./types";
 import SearchTab from "./SearchTab";
 import ChatTab from "./ChatTab";
+import SilverPathTab, { SilverPathMessage, AssistantMessage } from "./SilverPathTab";
 import { TranslationPair } from "../../../../types";
 
 const vscode = acquireVsCodeApi();
@@ -42,6 +43,13 @@ function ParallelView() {
     const [pendingChunks, setPendingChunks] = useState<{ index: number; content: string }[]>([]);
     const [nextChunkIndex, setNextChunkIndex] = useState(0);
     const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
+    const [silverPathChatHistory, setSilverPathChatHistory] = useState<SilverPathMessage[]>([]);
+    const [silverPathChatInput, setSilverPathChatInput] = useState<string>("");
+    const [silverPathPendingChunks, setSilverPathPendingChunks] = useState<
+        { index: number; content: string }[]
+    >([]);
+    const [silverPathNextChunkIndex, setSilverPathNextChunkIndex] = useState(0);
+    const [isLoading, setIsLoading] = useState(false);
 
     // Helper function to process pending chunks in order
     const processNextChunk = () => {
@@ -132,6 +140,30 @@ function ParallelView() {
                     // Reset indices for next stream
                     setNextChunkIndex(0);
                     setPendingChunks([]);
+                    break;
+                case "silverPathTranslation":
+                    try {
+                        const result = message.data;
+                        setSilverPathChatHistory((prev) => [
+                            ...prev,
+                            {
+                                role: "assistant",
+                                content: result.translation.message,
+                                thinking: result.translation.thinking,
+                                translation: result.translation.translation,
+                                memoriesUsed:
+                                    result.translation.memoriesUsed?.map((m: any) => m.memory) ||
+                                    [],
+                                addMemory: result.translation.addMemory
+                                    ? [result.translation.addMemory.memory]
+                                    : [],
+                            } as AssistantMessage,
+                        ]);
+                        setIsLoading(false);
+                    } catch (error) {
+                        console.error("Error processing SilverPath translation:", error);
+                        setIsLoading(false);
+                    }
                     break;
             }
         };
@@ -255,10 +287,35 @@ function ParallelView() {
         }
     };
 
+    const handleSilverPathChatSubmit = () => {
+        if (!silverPathChatInput.trim()) return;
+
+        const newMessage: SilverPathMessage = {
+            role: "user",
+            content: silverPathChatInput,
+        };
+
+        setSilverPathChatHistory((prev) => [...prev, newMessage]);
+        setIsLoading(true);
+
+        vscode.postMessage({
+            command: "chatStream",
+            query: silverPathChatInput,
+            context: verses.map((verse) => verse.cellId),
+        });
+
+        setSilverPathChatInput("");
+    };
+
+    const handleSilverPathChatFocus = () => {
+        setVerses([...pinnedVerses]);
+    };
+
     return (
         <VSCodePanels>
             <VSCodePanelTab id="tab-search">Search</VSCodePanelTab>
             <VSCodePanelTab id="tab-chat">Chat</VSCodePanelTab>
+            <VSCodePanelTab id="tab-silverpath">SilverPath</VSCodePanelTab>
 
             {/* Search Tab */}
             <VSCodePanelView id="view-search">
@@ -285,6 +342,21 @@ function ParallelView() {
                     onCopy={handleCopy}
                     messageStyles={messageStyles}
                     pinnedVerses={pinnedVerses}
+                />
+            </VSCodePanelView>
+
+            {/* SilverPath Tab */}
+            <VSCodePanelView id="view-silverpath">
+                <SilverPathTab
+                    chatHistory={silverPathChatHistory}
+                    chatInput={silverPathChatInput}
+                    onChatInputChange={setSilverPathChatInput}
+                    onChatSubmit={handleSilverPathChatSubmit}
+                    onChatFocus={handleSilverPathChatFocus}
+                    onCopy={handleCopy}
+                    messageStyles={messageStyles}
+                    pinnedVerses={pinnedVerses}
+                    isLoading={isLoading}
                 />
             </VSCodePanelView>
         </VSCodePanels>

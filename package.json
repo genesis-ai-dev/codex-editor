@@ -1153,6 +1153,7 @@
     "dependencies": {
         "@types/better-sqlite3": "^7.6.11",
         "@types/webpack-env": "^1.18.5",
+        "@types/xml2js": "^0.4.14",
         "@vscode/codicons": "^0.0.36",
         "@vscode/python-extension": "^1.0.5",
         "@vscode/webview-ui-toolkit": "^1.4.0",
@@ -1188,7 +1189,8 @@
         "uuid": "^9.0.1",
         "vscode-languageclient": "^9.0.1",
         "vscode-uri": "^3.0.8",
-        "webvtt-parser": "^2.2.0"
+        "webvtt-parser": "^2.2.0",
+        "xml2js": "^0.6.2"
     },
     "overrides": {
         "minimatch": "5.1.2"
