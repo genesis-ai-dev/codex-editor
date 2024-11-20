@@ -648,10 +648,6 @@
                 "title": "Open Source Upload"
             },
             {
-                "command": "codex-video-player.openVideoPlayer",
-                "title": "Open Video Player"
-            },
-            {
                 "command": "codexNotebookTreeView.openSourceFile",
                 "title": "Open Source File",
                 "icon": "$(open-preview)"
