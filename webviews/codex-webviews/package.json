@@ -14,7 +14,7 @@
         "build:ProjectManagerView": "cross-env tsc --noEmitOnError && APP_NAME=ProjectManagerView vite build",
         "build:SourceUpload": "cross-env tsc --noEmitOnError && APP_NAME=SourceUpload vite build",
         "build:VideoPlayer": "cross-env tsc --noEmitOnError && APP_NAME=VideoPlayer vite build",
-        "build:all": "pnpm run build:ParallelView && pnpm run build:EditableReactTable && pnpm run build:TranslationNotesView && pnpm run build:SemanticView && pnpm run build:ChatView && pnpm run build:CommentsView && pnpm run build:CodexCellEditor && pnpm run build:ProjectManagerView && pnpm run build:SourceUpload && pnpm run build:VideoPlayer",
+        "build:all": "pnpm run build:ParallelView && pnpm run build:EditableReactTable && pnpm run build:ChatView && pnpm run build:CommentsView && pnpm run build:CodexCellEditor && pnpm run build:ProjectManagerView && pnpm run build:SourceUpload && pnpm run build:VideoPlayer",
         "watch:all": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:all",
         "watch:ChatView": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:ChatView",
         "watch:CodexCellEditor": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:CodexCellEditor",
