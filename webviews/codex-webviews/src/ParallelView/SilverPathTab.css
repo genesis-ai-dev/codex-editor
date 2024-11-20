@@ -48,6 +48,7 @@
 
 .thinking-silver-path {
     border-left: 3px solid var(--vscode-activityBarBadge-background);
+    padding-bottom: 8px;
 }
 
 .thinking-silver-path h3 {
@@ -109,6 +110,10 @@
     color: var(--vscode-foreground);
     padding: 8px;
     border-left: 3px solid var(--vscode-textBlockQuote-border);
+}
+
+.new-memory-silver-path:empty {
+    display: none;
 }
 
 .silver-path-code {
@@ -298,28 +303,37 @@
 }
 
 .pinned-verse-id.target-passage {
-    background-color: var(--vscode-activityBarBadge-background);
-    color: var(--vscode-activityBarBadge-foreground);
+    background-color: var(--vscode-charts-green);
+    color: var(--vscode-foreground);
     font-weight: bold;
-    border-color: var(--vscode-activityBarBadge-background);
+    border-color: var(--vscode-charts-green);
 }
 
 .current-passage {
-    background-color: var(--vscode-editor-background);
-    border-left: 3px solid var(--vscode-activityBarBadge-background);
-    padding: 8px 12px;
-    margin-bottom: 12px;
+    position: static;
+    background-color: var(--vscode-activityBarBadge-background);
+    color: var(--vscode-activityBarBadge-foreground);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: bold;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    margin-bottom: 8px;
 }
 
 .current-passage h3 {
     margin: 0;
-    color: var(--vscode-foreground);
-    font-size: 13px;
-    font-weight: 600;
+    font-size: 12px;
+    font-weight: bold;
 }
 
 .select-target-instruction {
     margin-bottom: 8px;
     font-style: italic;
     color: var(--vscode-descriptionForeground);
+}
+
+.silver-path-message.assistant {
+    position: relative;
+    padding-top: 40px;
 }

@@ -51,6 +51,7 @@ function ParallelView() {
     const [silverPathNextChunkIndex, setSilverPathNextChunkIndex] = useState(0);
     const [isLoading, setIsLoading] = useState(false);
     const [targetPassage, setTargetPassage] = useState<string | null>(null);
+    const [currentPinnedCellIndex, setCurrentPinnedCellIndex] = useState<number>(0);
 
     // Helper function to process pending chunks in order
     const processNextChunk = () => {
@@ -316,6 +317,26 @@ function ParallelView() {
         setTargetPassage(cellId);
     };
 
+    const handleNavigateToNextPinnedCell = () => {
+        if (pinnedVerses.length > 0) {
+            const nextIndex = (currentPinnedCellIndex + 1) % pinnedVerses.length;
+            setCurrentPinnedCellIndex(nextIndex);
+            setTargetPassage(pinnedVerses[nextIndex].cellId);
+
+            // Optionally, you can update the chat input with a prompt to translate the new content
+            setSilverPathChatInput(`Please translate the next one.`);
+
+            // Scroll to the chat input
+            setTimeout(() => {
+                const textarea = document.querySelector(".silver-path-textarea") as HTMLElement;
+                if (textarea) {
+                    textarea.scrollIntoView({ behavior: "smooth" });
+                    textarea.focus();
+                }
+            }, 0);
+        }
+    };
+
     return (
         <VSCodePanels>
             <VSCodePanelTab id="tab-search">Search</VSCodePanelTab>
@@ -364,6 +385,7 @@ function ParallelView() {
                     isLoading={isLoading}
                     onSelectTargetPassage={handleSelectTargetPassage}
                     targetPassage={targetPassage}
+                    onNavigateToNextPinnedCell={handleNavigateToNextPinnedCell}
                 />
             </VSCodePanelView>
         </VSCodePanels>

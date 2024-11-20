@@ -30,13 +30,13 @@ Please provide your response in the following JSON format, but replace all the t
     "thinking": [
         "A list of thoughts you have while translating the verse goes here.",
     ],
-    "translation": "Your translated verse goes here.",
     "memoriesUsed": [
         {
             "id": "unique_id",
             "memory": "Description of a specific piece of information from the translation pairs or additional data that you found particularly useful"
         }
     ],
+    "translation": "Your translated verse goes here.",
     "addMemory": {
         "id": "some-feedback-id",
         "memory": "If the user suggests an improvement that you want to remember for future translations, include it here with a brief explanation. Don't use this unless the user suggests something!"
@@ -46,6 +46,7 @@ Please provide your response in the following JSON format, but replace all the t
 After providing your initial translation, be prepared to refine it based on user feedback. If the user suggests improvements, carefully consider them and update your translation if appropriate. You can add new insights to your memory using the addMemory field.
 Don't add memories unless the user suggests an improvement that may be applicable to the future!
 Remember to maintain a helpful and collaborative tone throughout the interaction.
+The "id" for new memories should be made up of several words that relate to the memory.
 `;
 
 const MAX_MEMORIES = 100;

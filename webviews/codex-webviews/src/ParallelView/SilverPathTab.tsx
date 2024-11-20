@@ -3,7 +3,6 @@ import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import ReactMarkdown from "react-markdown";
 import { TranslationPair } from "../../../../types";
 import "./SilverPathTab.css";
-import { SkeletonLoader } from "./SkeletonLoader";
 
 export interface SilverPathMessageBase {
     role: "user" | "assistant";
@@ -39,6 +38,7 @@ interface SilverPathTabProps {
     onSelectTargetPassage: (cellId: string) => void;
     targetPassage: string | null;
     isLoading: boolean;
+    onNavigateToNextPinnedCell: () => void;
 }
 
 const defaultAssistantMessage: AssistantMessage = {
@@ -67,6 +67,7 @@ function SilverPathTab({
     onSelectTargetPassage,
     targetPassage,
     isLoading,
+    onNavigateToNextPinnedCell,
 }: SilverPathTabProps) {
     const chatHistoryRef = useRef<HTMLDivElement>(null);
 
@@ -93,11 +94,6 @@ function SilverPathTab({
     const renderAssistantResponse = (message: AssistantMessage, index: number) => {
         return (
             <>
-                {targetPassage && (
-                    <div className="silver-path-segment current-passage">
-                        <h3>Target Passage: {targetPassage}</h3>
-                    </div>
-                )}
                 <div
                     className={`silver-path-segment thinking-silver-path ${
                         expandedThoughts.has(index) ? "expanded" : ""
@@ -113,9 +109,14 @@ function SilverPathTab({
 
                 <div className="silver-path-segment translation-silver-path">
                     <h3>Translation / Response</h3>
-                    <div className="translation-content-silver-path silver-path-code">
-                        <ReactMarkdown>{message.translation}</ReactMarkdown>
-                    </div>
+                    <div
+                        className="translation-content-silver-path silver-path-code"
+                        dangerouslySetInnerHTML={{
+                            __html: message.translation.startsWith("<span>")
+                                ? message.translation
+                                : `<span>${message.translation}</span>`,
+                        }}
+                    />
                     <div className="translation-actions-silver-path">
                         <VSCodeButton
                             appearance="icon"
@@ -149,17 +150,21 @@ function SilverPathTab({
                     )}
                 </div>
 
-                <div className="silver-path-segment new-memory-silver-path">
-                    <h3>New Information</h3>
-                    {message.addMemory.length > 0 ? (
+                {message.addMemory.length > 0 && (
+                    <div className="silver-path-segment new-memory-silver-path">
+                        <h3>New Information</h3>
                         <ul>
                             {message.addMemory.map((memory, idx) => (
                                 <li key={idx}>{memory}</li>
                             ))}
                         </ul>
-                    ) : (
-                        <p>No new information to add at this time.</p>
-                    )}
+                    </div>
+                )}
+
+                <div className="silver-path-segment next-cell-silver-path">
+                    <VSCodeButton onClick={onNavigateToNextPinnedCell}>
+                        Navigate to Next Pinned Cell
+                    </VSCodeButton>
                 </div>
             </>
         );
@@ -171,12 +176,6 @@ function SilverPathTab({
             onChatSubmit();
         }
     };
-
-    const renderSkeletonLoader = () => (
-        <div className="silver-path-message assistant">
-            <SkeletonLoader />
-        </div>
-    );
 
     return (
         <div className="silver-path-container">
@@ -206,21 +205,20 @@ function SilverPathTab({
                 )}
             </div>
             <div ref={chatHistoryRef} className="silver-path-history">
-                {chatHistory.length === 0 ? (
-                    renderSkeletonLoader()
-                ) : (
-                    <>
-                        {chatHistory.map((message, index) => (
-                            <div key={index} className={`silver-path-message ${message.role}`}>
-                                {message.role === "assistant" ? (
-                                    renderAssistantResponse(message as AssistantMessage, index)
-                                ) : (
-                                    <ReactMarkdown>{message.content}</ReactMarkdown>
-                                )}
-                            </div>
-                        ))}
-                    </>
+                {targetPassage && (
+                    <div className="current-passage">
+                        <h3>Target: {targetPassage}</h3>
+                    </div>
                 )}
+                {chatHistory.map((message, index) => (
+                    <React.Fragment key={index}>
+                        {message.role === "assistant" && (
+                            <div className={`silver-path-message ${message.role}`}>
+                                {renderAssistantResponse(message as AssistantMessage, index)}
+                            </div>
+                        )}
+                    </React.Fragment>
+                ))}
                 {isLoading && (
                     <div className="silver-path-loading">
                         <div className="silver-path-loading-spinner"></div>

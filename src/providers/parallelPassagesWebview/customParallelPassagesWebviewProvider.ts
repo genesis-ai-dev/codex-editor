@@ -66,6 +66,10 @@ async function handleChatStream(
         const result = await vscode.commands.executeCommand<{
             translation: AssistantMessage;
             usedCellIds: string[];
+            nextUntranslatedCell?: {
+                cellId: string;
+                content: string;
+            };
         }>("silverPath.generateTranslation", query, sourceContent, cellIds[0]);
 
         if (!result || !result.translation) {
@@ -75,13 +79,18 @@ async function handleChatStream(
         // Send the translation back to the webview
         webviewView.webview.postMessage({
             command: "silverPathTranslation",
-            data: result,
+            data: {
+                translation: result.translation,
+                usedCellIds: result.usedCellIds,
+                nextUntranslatedCell: result.nextUntranslatedCell,
+            },
         });
 
         // Send the used cell IDs back to the webview
-        for (const cellId of result.usedCellIds) {
-            await vscode.commands.executeCommand("parallelPassages.pinCellById", cellId);
-        }
+        // for (const cellId of result.usedCellIds) {
+        //     await vscode.commands.executeCommand("parallelPassages.pinCellById", cellId);
+        // }
+        // I commented this out for now, but we should think about a way to display these? FIXME
     } catch (error) {
         console.error("Error in chat stream:", error);
         webviewView.webview.postMessage({
