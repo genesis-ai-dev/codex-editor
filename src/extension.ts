@@ -31,9 +31,9 @@ import {
     registerLookupWordCommand,
 } from "./sqldb";
 import {
-    parseTSVFile,
-    tsvIndexMap,
-    TSVRecord,
+    createTableIndexes,
+    parseTableFile,
+    TableRecord,
 } from "./activationHelpers/contextAware/miniIndex/indexes/dynamicTableIndex";
 import MiniSearch from "minisearch";
 
@@ -45,6 +45,7 @@ declare global {
 let client: LanguageClient | undefined;
 let clientCommandsDisposable: vscode.Disposable;
 let autoCompleteStatusBarItem: StatusBarItem;
+let tableIndexMap: Map<string, MiniSearch<TableRecord>>;
 
 export async function activate(context: vscode.ExtensionContext) {
     try {
@@ -129,7 +130,7 @@ export async function activate(context: vscode.ExtensionContext) {
         } else {
             await initializeExtension(context, metadataExists);
         }
-        watchTSVFiles();
+        watchTableFiles(context);
     } else {
         console.log("No workspace folder found");
         vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
@@ -192,9 +193,12 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
                 console.error("Error registering client requests:", error);
             }
         }
+        console.log("Creating table indexes");
 
         await indexVerseRefsInSourceText();
         await createIndexWithContext(context);
+        tableIndexMap = await createTableIndexes();
+        // console.log("tableIndexMap", Array.from(tableIndexMap.keys()), tableIndexMap.size);
     } else {
         console.log("metadata.json not found. Showing project overview.");
         vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
@@ -203,60 +207,62 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
 
 let watcher: vscode.FileSystemWatcher | undefined;
 
-function watchTSVFiles() {
-    const watcher = vscode.workspace.createFileSystemWatcher("**/*.tsv");
+function watchTableFiles(context: vscode.ExtensionContext) {
+    const watcher = vscode.workspace.createFileSystemWatcher("**/*.{csv,tsv,tab}");
 
     watcher.onDidChange(async (uri) => {
         // Recreate the index for the changed file
-        const [records, fields] = await parseTSVFile(uri);
+        const [records, fields] = await parseTableFile(uri);
 
         if (fields.length === 0) {
-            tsvIndexMap.delete(uri.fsPath);
+            tableIndexMap.delete(uri.fsPath);
             console.warn(`Headers missing after change in ${uri.fsPath}. Index removed.`);
             return;
         }
 
-        const tsvIndex = new MiniSearch<TSVRecord>({
+        const tableIndex = new MiniSearch<TableRecord>({
             fields: fields,
             storeFields: ["id", ...fields],
             idField: "id",
         });
 
-        tsvIndex.addAll(records);
+        tableIndex.addAll(records);
 
-        tsvIndexMap.set(uri.fsPath, tsvIndex);
+        tableIndexMap.set(uri.fsPath, tableIndex);
 
         console.log(`Updated index for file: ${uri.fsPath}`);
     });
 
     watcher.onDidCreate(async (uri) => {
         // Create an index for the new file
-        const [records, fields] = await parseTSVFile(uri);
+        const [records, fields] = await parseTableFile(uri);
 
         if (fields.length === 0) {
-            console.warn(`No headers found in new TSV file: ${uri.fsPath}. Skipping file.`);
+            console.warn(`No headers found in new table file: ${uri.fsPath}. Skipping file.`);
             return;
         }
 
-        const tsvIndex = new MiniSearch<TSVRecord>({
+        const tableIndex = new MiniSearch<TableRecord>({
             fields: fields,
             storeFields: ["id", ...fields],
             idField: "id",
         });
 
-        tsvIndex.addAll(records);
+        tableIndex.addAll(records);
 
-        tsvIndexMap.set(uri.fsPath, tsvIndex);
+        tableIndexMap.set(uri.fsPath, tableIndex);
 
         console.log(`Created index for new file: ${uri.fsPath}`);
     });
 
     watcher.onDidDelete((uri) => {
         // Remove the index for the deleted file
-        if (tsvIndexMap.delete(uri.fsPath)) {
+        if (tableIndexMap.delete(uri.fsPath)) {
             console.log(`Removed index for deleted file: ${uri.fsPath}`);
         }
     });
+
+    context.subscriptions.push(watcher);
 }
 
 async function watchForInitialization(context: vscode.ExtensionContext, metadataUri: vscode.Uri) {
