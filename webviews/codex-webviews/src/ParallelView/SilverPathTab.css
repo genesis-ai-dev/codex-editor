@@ -337,3 +337,8 @@
     position: relative;
     padding-top: 40px;
 }
+
+.silver-path-segment.next-cell-silver-path {
+    display: flex;
+    justify-content: center;
+}

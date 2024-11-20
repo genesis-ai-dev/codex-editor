@@ -210,15 +210,15 @@ function SilverPathTab({
                         <h3>Target: {targetPassage}</h3>
                     </div>
                 )}
-                {chatHistory.map((message, index) => (
-                    <React.Fragment key={index}>
-                        {message.role === "assistant" && (
-                            <div className={`silver-path-message ${message.role}`}>
-                                {renderAssistantResponse(message as AssistantMessage, index)}
-                            </div>
-                        )}
-                    </React.Fragment>
-                ))}
+                {chatHistory.length > 0 &&
+                    chatHistory[chatHistory.length - 1].role === "assistant" && (
+                        <div className="silver-path-message assistant">
+                            {renderAssistantResponse(
+                                chatHistory[chatHistory.length - 1] as AssistantMessage,
+                                chatHistory.length - 1
+                            )}
+                        </div>
+                    )}
                 {isLoading && (
                     <div className="silver-path-loading">
                         <div className="silver-path-loading-spinner"></div>

@@ -321,10 +321,23 @@ function ParallelView() {
         if (pinnedVerses.length > 0) {
             const nextIndex = (currentPinnedCellIndex + 1) % pinnedVerses.length;
             setCurrentPinnedCellIndex(nextIndex);
-            setTargetPassage(pinnedVerses[nextIndex].cellId);
+            const nextCellId = pinnedVerses[nextIndex].cellId;
+            setTargetPassage(nextCellId);
 
-            // Optionally, you can update the chat input with a prompt to translate the new content
-            setSilverPathChatInput(`Please translate the next one.`);
+            // Clear previous chat history
+            setSilverPathChatHistory([]);
+
+            // Simulate user input for translation
+            const translationPrompt = "Now translate this";
+            setSilverPathChatHistory([{ role: "user", content: translationPrompt }]);
+            setIsLoading(true);
+
+            // Send the translation request
+            vscode.postMessage({
+                command: "chatStream",
+                query: translationPrompt,
+                context: [nextCellId],
+            });
 
             // Scroll to the chat input
             setTimeout(() => {
