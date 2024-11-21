@@ -248,11 +248,44 @@
 
 .backtranslation-section {
     display: flex;
-    align-items: center;
-    gap: 8px;
+    flex-direction: column;
+    width: 100%;
+    max-width: 100%; /* Ensure it doesn't exceed container width */
 }
 
-.backtranslation-editor,
 .backtranslation-content {
-    flex-grow: 1;
+    max-width: 100%;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+    word-break: break-all; /* Change to break-all for more aggressive wrapping */
+    hyphens: auto; /* Enable hyphenation for better word breaks */
+}
+
+.backtranslation-content * {
+    max-width: 100%; /* Ensure all child elements respect the container width */
+    overflow-x: auto; /* Add horizontal scrolling for elements that can't wrap */
+}
+
+.backtranslation-content pre,
+.backtranslation-content code {
+    white-space: pre-wrap; /* Allow wrapping for code blocks */
+    word-break: break-all; /* Break long strings in code blocks */
+}
+
+.backtranslation-content img,
+.backtranslation-content table {
+    max-width: 100%;
+    height: auto;
+}
+
+.backtranslation-content table {
+    display: block;
+    overflow-x: auto;
+}
+
+.backtranslation-editor {
+    width: 100%;
+    min-height: 100px;
+    resize: vertical;
+    box-sizing: border-box; /* Include padding and border in the element's total width and height */
 }
