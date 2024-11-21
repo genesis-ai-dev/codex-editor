@@ -39,11 +39,10 @@ const Prompts: React.FC<PromptsProps> = ({ cellId, cellContent, onContentUpdate 
             const message = event.data;
             if (message.type === "providerSendsTopPrompts" && Array.isArray(message.content)) {
                 setPrompts(
-                    message.content.map((prompt: { prompt: string; isPinned: boolean }) => ({
-                        text:
-                            typeof prompt.prompt === "string"
-                                ? prompt.prompt
-                                : String(prompt.prompt),
+                    message.content.map((prompt: { prompt: string | object; isPinned: boolean }) => ({
+                        text: typeof prompt.prompt === 'object' 
+                            ? JSON.stringify(prompt.prompt)
+                            : String(prompt.prompt),
                         isSelected: true,
                         isPinned: prompt.isPinned,
                     }))
@@ -163,7 +162,7 @@ const Prompts: React.FC<PromptsProps> = ({ cellId, cellContent, onContentUpdate 
 
     return (
         <div className="prompts-section">
-            <h4>Prompts</h4>
+            <h4><i className="codicon codicon-copilot" /> Instruct the Copilot</h4>
             <CustomPromptInput
                 value={customPrompt}
                 onChange={handleCustomPromptChange}
@@ -171,7 +170,7 @@ const Prompts: React.FC<PromptsProps> = ({ cellId, cellContent, onContentUpdate 
             />
             {visiblePrompts.length > 0 && (
                 <>
-                    <h5>Suggested Prompts</h5>
+                    <h5>Tell the Copilot to:</h5>
                     <PromptsList
                         prompts={visiblePrompts}
                         editingPromptIndex={editingPromptIndex}

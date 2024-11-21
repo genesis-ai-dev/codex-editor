@@ -381,7 +381,7 @@ export class DownloadBibleTransaction extends BaseTransaction {
                     sourceCreatedAt: new Date().toISOString(),
                     codexLastModified: new Date().toISOString(),
                     gitStatus: "untracked" as const,
-                    corpusMarker: getTestamentForBook(bookName),
+                    corpusMarker: getTestamentForBook(bookName) || "Deuterocanonical",
                 };
 
                 sourceNotebook.metadata = commonMetadata;
