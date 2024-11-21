@@ -349,6 +349,13 @@ function ParallelView() {
         }
     };
 
+    const handlePinAll = () => {
+        const unpinnedVerses = verses.filter(
+            (verse) => !pinnedVerses.some((pinned) => pinned.cellId === verse.cellId)
+        );
+        setPinnedVerses([...pinnedVerses, ...unpinnedVerses]);
+    };
+
     return (
         <VSCodePanels>
             <VSCodePanelTab id="tab-search">Search</VSCodePanelTab>
@@ -367,6 +374,7 @@ function ParallelView() {
                     onSearch={searchBoth}
                     onPinToggle={handlePinToggle}
                     onUriClick={handleUriClick}
+                    onPinAll={handlePinAll}
                 />
             </VSCodePanelView>
 
