@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import ChatInput from "./ChatInput";
 import { ChatMessage } from "./types";
 import { TranslationPair } from "../../../../types";
+import "./SharedStyles.css";
 
 interface ChatTabProps {
     chatHistory: ChatMessage[];
@@ -20,6 +21,21 @@ interface ChatTabProps {
     pinnedVerses: TranslationPair[];
 }
 
+const reconstructMessage = (content: string | object): string => {
+    // If content is already a string, return it directly
+    if (typeof content === "string") {
+        return content;
+    }
+
+    // If content is an object, check if it has a 'content' property
+    if (typeof content === "object" && content !== null && "content" in content) {
+        return content.content as string;
+    }
+
+    // If it's an object but doesn't have a 'content' property, stringify it
+    return JSON.stringify(content);
+};
+
 function ChatTab({
     chatHistory,
     chatInput,
@@ -33,12 +49,14 @@ function ChatTab({
 }: ChatTabProps) {
     const chatHistoryRef = useRef<HTMLDivElement>(null);
     const [pendingSubmit, setPendingSubmit] = useState(false);
+    const [currentMessage, setCurrentMessage] = useState("");
+    const [isStreaming, setIsStreaming] = useState(false);
 
     useEffect(() => {
         if (chatHistoryRef.current) {
             chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
         }
-    }, [chatHistory]);
+    }, [chatHistory, currentMessage]);
 
     const handleRedoMessage = useCallback(
         (index: number, content: string) => {
@@ -56,80 +74,63 @@ function ChatTab({
         }
     }, [pendingSubmit, onChatSubmit]);
 
+    const handleIncomingChunk = useCallback((message: any) => {
+        if (message.command === "chatResponseStream") {
+            try {
+                const parsedChunk = JSON.parse(message.data);
+                const { content, isLast } = parsedChunk;
+
+                if (content) {
+                    setCurrentMessage((prevMessage) => prevMessage + content);
+                    setIsStreaming(true);
+                }
+            } catch (error) {
+                console.error("Error parsing chunk data:", error);
+            }
+        } else if (message.command === "chatResponseComplete") {
+            setIsStreaming(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        const handleMessage = (event: MessageEvent) => {
+            if (event.data.command === "chatResponseStream") {
+                handleIncomingChunk(event.data.data);
+            }
+        };
+
+        window.addEventListener("message", handleMessage);
+        return () => window.removeEventListener("message", handleMessage);
+    }, [handleIncomingChunk]);
+
     return (
-        <div
-            className="container"
-            style={{ display: "flex", flexDirection: "column", height: "100%" }}
-        >
-            {/* Display Pinned Cell IDs */}
-            <div
-                style={{
-                    padding: "10px",
-                    backgroundColor: "var(--vscode-editor-background)",
-                    borderBottom: "1px solid var(--vscode-panel-border)",
-                }}
-            >
+        <div className="tab-container">
+            <div className="pinned-verses">
+                <h3>Pinned Verses:</h3>
                 {pinnedVerses.length > 0 ? (
-                    <div
-                        style={{
-                            display: "flex",
-                            flexWrap: "wrap",
-                            gap: "8px",
-                        }}
-                    >
+                    <div className="pinned-verses-list">
                         {pinnedVerses.map((verse) => (
-                            <VSCodeButton
-                                key={verse.cellId}
-                                appearance="secondary"
-                                style={{
-                                    padding: "4px 8px",
-                                    minWidth: "auto",
-                                }}
-                            >
+                            <span key={verse.cellId} className="pinned-verse-id">
                                 {verse.cellId}
-                            </VSCodeButton>
+                            </span>
                         ))}
                     </div>
                 ) : (
-                    <p>No pinned cells.</p>
+                    <p>No pinned verses.</p>
                 )}
             </div>
 
-            {/* Updated Chat History section */}
-            <div ref={chatHistoryRef} style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-                {chatHistory.length > 0 && (
-                    <div className="chat-history">
+            <div ref={chatHistoryRef} className="message-history">
+                {chatHistory.length > 0 ? (
+                    <div className="chat-messages">
                         {chatHistory.map((message, index) => (
-                            <div
-                                key={index}
-                                className={`chat-message ${message.role}`}
-                                style={{
-                                    display: "flex",
-                                    flexDirection: "column",
-                                    width: "100%",
-                                    ...(message.role === "user"
-                                        ? messageStyles.user
-                                        : messageStyles.assistant),
-                                }}
-                            >
-                                <div
-                                    style={{
-                                        flex: 1,
-                                        wordBreak: "break-word",
-                                        whiteSpace: "pre-wrap",
-                                    }}
-                                >
-                                    <ReactMarkdown>{message.content}</ReactMarkdown>
+                            <div key={index} className={`chat-message ${message.role}`}>
+                                <div className="chat-message-content">
+                                    <ReactMarkdown>
+                                        {reconstructMessage(message.content)}
+                                    </ReactMarkdown>
                                 </div>
-                                <div
-                                    style={{
-                                        display: "flex",
-                                        justifyContent:
-                                            message.role === "user" ? "flex-start" : "flex-end",
-                                        marginTop: "8px",
-                                        gap: "4px",
-                                    }}
-                                >
+                                <div className="chat-message-actions">
                                     {message.role === "user" && (
                                         <>
                                             <VSCodeButton
@@ -169,18 +170,20 @@ function ChatTab({
                                 </div>
                             </div>
                         ))}
+                        {isStreaming && (
+                            <div className="chat-message assistant">
+                                <div className="chat-message-content">
+                                    <ReactMarkdown>{currentMessage}</ReactMarkdown>
+                                </div>
+                            </div>
+                        )}
                     </div>
+                ) : (
+                    <div className="chat-empty-message">No messages yet. Start a conversation!</div>
                 )}
             </div>
 
-            {/* Existing Chat Input */}
-            <div
-                style={{
-                    backgroundColor: "transparent",
-                    flexShrink: 0,
-                }}
-            >
-                <VSCodeDivider />
+            <div className="input-container">
                 <ChatInput
                     value={chatInput}
                     onChange={onChatInputChange}

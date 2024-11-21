@@ -301,7 +301,7 @@ function ParallelView() {
         setIsLoading(true);
 
         vscode.postMessage({
-            command: "chatStream",
+            command: "silverPathChatStream",
             query: silverPathChatInput,
             context: verses.map((verse) => verse.cellId),
         });

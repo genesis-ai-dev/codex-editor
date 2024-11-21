@@ -54,7 +54,15 @@ export class SmartPassages {
         if (editIndex !== undefined) {
             await this.chatbot.editMessage(editIndex, query);
         }
-        const response = await this.chatbot.sendMessageStream(query, onChunk);
+        const response = await this.chatbot.sendMessageStream(query, (chunk, isLast) => {
+            onChunk(
+                JSON.stringify({
+                    index: chunk.index,
+                    content: chunk.content,
+                    isLast: isLast,
+                })
+            );
+        });
         return response;
     }
 

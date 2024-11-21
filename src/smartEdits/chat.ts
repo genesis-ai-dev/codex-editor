@@ -147,21 +147,21 @@ class Chatbot {
         this.messages = this.messages.slice(0, messageIndex + 1);
     }
 
-    async sendMessageStream(message: string, onChunk: (chunk: string) => void): Promise<string> {
+    async sendMessageStream(
+        message: string,
+        onChunk: (chunk: { index: number; content: string }, isLast: boolean) => void
+    ): Promise<string> {
         await this.addMessage("user", message);
         let fullResponse = "";
         let chunkIndex = 0;
 
         for await (const chunk of this.streamLLM(this.getMessagesWithContext())) {
-            // Send chunk directly
-            onChunk(
-                JSON.stringify({
-                    index: chunkIndex++,
-                    content: chunk,
-                })
-            );
+            onChunk({ index: chunkIndex++, content: chunk }, false);
             fullResponse += chunk;
         }
+
+        // Send a final chunk to indicate the end of the stream
+        onChunk({ index: chunkIndex, content: fullResponse }, true);
 
         await this.addMessage("assistant", fullResponse);
         if (this.messages.length > this.maxBuffer) {

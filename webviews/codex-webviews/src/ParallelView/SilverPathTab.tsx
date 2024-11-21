@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import ReactMarkdown from "react-markdown";
 import { TranslationPair } from "../../../../types";
-import "./SilverPathTab.css";
+import "./SharedStyles.css";
 
 export interface SilverPathMessageBase {
     role: "user" | "assistant";
@@ -178,8 +178,8 @@ function SilverPathTab({
     };
 
     return (
-        <div className="silver-path-container">
-            <div className="silver-path-pinned-verses">
+        <div className="tab-container">
+            <div className="pinned-verses">
                 <h3>Select Target Passage:</h3>
                 {pinnedVerses.length > 0 ? (
                     <>
@@ -204,7 +204,8 @@ function SilverPathTab({
                     <p>No pinned verses available. Pin verses to start translating.</p>
                 )}
             </div>
-            <div ref={chatHistoryRef} className="silver-path-history">
+
+            <div ref={chatHistoryRef} className="message-history">
                 {targetPassage && (
                     <div className="current-passage">
                         <h3>Target: {targetPassage}</h3>
@@ -226,10 +227,11 @@ function SilverPathTab({
                     </div>
                 )}
             </div>
-            <div className="silver-path-input-container">
-                <div className="silver-path-input-wrapper">
+
+            <div className="input-container">
+                <div className="input-wrapper">
                     <textarea
-                        className="silver-path-textarea"
+                        className="input-textarea"
                         value={chatInput}
                         onChange={(e) => onChatInputChange(e.target.value)}
                         onKeyDown={handleKeyDown}
@@ -243,7 +245,7 @@ function SilverPathTab({
                     />
                     <VSCodeButton
                         onClick={onChatSubmit}
-                        className="silver-path-send-button"
+                        className="send-button"
                         appearance="icon"
                         title="Send"
                         disabled={!targetPassage}

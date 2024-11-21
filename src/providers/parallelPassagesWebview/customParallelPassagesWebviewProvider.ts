@@ -43,7 +43,7 @@ async function openFileAtLocation(uri: string, cellId: string) {
     }
 }
 
-async function handleChatStream(
+async function handleSilverPathChatStream(
     webviewView: vscode.WebviewView,
     cellIds: string[],
     query: string,
@@ -103,6 +103,64 @@ async function handleChatStream(
     }
 }
 
+async function handleChatStream(
+    webviewView: vscode.WebviewView,
+    cellIds: string[],
+    query: string,
+    editIndex?: number
+) {
+    try {
+        await vscode.commands.executeCommand(
+            "codex-smart-edits.chatStream",
+            cellIds,
+            query,
+            (chunk: string | object) => {
+                let parsedChunk;
+                if (typeof chunk === "string") {
+                    try {
+                        parsedChunk = JSON.parse(chunk);
+                    } catch (error) {
+                        console.error("Error parsing chunk:", error);
+                        parsedChunk = { index: -1, content: chunk, isLast: false };
+                    }
+                } else if (typeof chunk === "object" && chunk !== null) {
+                    parsedChunk = chunk;
+                } else {
+                    console.error("Unexpected chunk format:", chunk);
+                    return;
+                }
+
+                webviewView.webview.postMessage({
+                    command: "chatResponseStream",
+                    data: JSON.stringify(parsedChunk),
+                });
+
+                // If this is the last chunk, send a separate completion message
+                if (parsedChunk.isLast) {
+                    webviewView.webview.postMessage({
+                        command: "chatResponseComplete",
+                    });
+                }
+            },
+            editIndex
+        );
+    } catch (error) {
+        console.error("Error in chat stream:", error);
+        webviewView.webview.postMessage({
+            command: "chatResponseStream",
+            data: JSON.stringify({
+                index: -1,
+                content: `Error: Failed to process chat request. ${
+                    error instanceof Error ? error.message : "Unknown error"
+                }`,
+                isLast: true,
+            }),
+        });
+        webviewView.webview.postMessage({
+            command: "chatResponseComplete",
+        });
+    }
+}
 const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.Uri) => {
     webviewView.webview.options = {
         enableScripts: true,
@@ -245,6 +303,14 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                     break;
                 case "chatStream":
                     await handleChatStream(
+                        webviewView,
+                        message.context,
+                        message.query,
+                        message.editIndex
+                    );
+                    break;
+                case "silverPathChatStream":
+                    await handleSilverPathChatStream(
                         webviewView,
                         message.context,
                         message.query,

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { VSCodeButton, VSCodeTextArea } from "@vscode/webview-ui-toolkit/react";
+import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import "./SharedStyles.css";
 
 interface ChatInputProps {
     value: string;
@@ -32,33 +33,20 @@ const ChatInput: React.FC<ChatInputProps> = ({ value, onChange, onSubmit, onFocu
     };
 
     return (
-        <div className="chat-input-container">
-            <div
-                className="chat-input-suggestion"
-                onClick={() => onChange(suggestions[currentSuggestion])}
-            >
-                Suggestion: {suggestions[currentSuggestion]}
-            </div>
-            <div className="chat-input-wrapper">
-                <textarea
-                    className="chat-input-textarea"
-                    value={value}
-                    onChange={(e) => onChange(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    onFocus={onFocus}
-                    placeholder="Ask about these passages... (Ctrl + Enter to send)"
-                />
-                <VSCodeButton
-                    onClick={onSubmit}
-                    className="chat-input-send-button"
-                    appearance="icon"
-                    title="Send"
-                >
-                    <span className="codicon codicon-send" />
-                </VSCodeButton>
-            </div>
+        <div className="input-wrapper">
+            <textarea
+                className="input-textarea"
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                onKeyDown={handleKeyDown}
+                onFocus={onFocus}
+                placeholder={`Try asking: "${suggestions[currentSuggestion]}"`}
+            />
+            <VSCodeButton onClick={onSubmit} className="send-button" appearance="icon" title="Send">
+                <span className="codicon codicon-send" />
+            </VSCodeButton>
         </div>
     );
 };
 
-export default ChatInput;
+export default React.memo(ChatInput);
