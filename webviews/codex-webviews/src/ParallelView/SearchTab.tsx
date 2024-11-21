@@ -36,6 +36,7 @@ function SearchTab({
                 style={{
                     backgroundColor: "transparent",
                     flexShrink: 0,
+                    padding: "10px",
                 }}
             >
                 <SearchBar
@@ -43,13 +44,21 @@ function SearchTab({
                     onQueryChange={onQueryChange}
                     onSearch={(event) => onSearch(lastQuery, event)}
                 />
-                <VSCodeCheckbox
-                    checked={completeOnly}
-                    onChange={(e) => onCompleteOnlyChange((e.target as HTMLInputElement).checked)}
-                >
-                    Search complete pairs only
-                </VSCodeCheckbox>
-                <VSCodeDivider />
+                <div style={{ display: "flex", alignItems: "center", marginTop: "10px" }}>
+                    <VSCodeCheckbox
+                        checked={completeOnly}
+                        onChange={(e) =>
+                            onCompleteOnlyChange((e.target as HTMLInputElement).checked)
+                        }
+                    />
+                    <label
+                        htmlFor="complete-only-checkbox"
+                        style={{ marginLeft: "8px", cursor: "pointer" }}
+                    >
+                        Search complete pairs only
+                    </label>
+                </div>
+                <VSCodeDivider style={{ margin: "10px 0" }} />
             </div>
 
             <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
