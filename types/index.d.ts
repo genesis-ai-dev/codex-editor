@@ -82,6 +82,7 @@ interface SmartEditContext {
     cellId: string;
     currentCellValue: string;
     edits: EditHistoryItem[];
+    memory?: string; // Add this line
 }
 
 interface SmartSuggestion {
