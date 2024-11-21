@@ -306,21 +306,24 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                     );
                     break;
                 case "search":
-                    if (message.database === "both") {
-                        try {
-                            const results = await vscode.commands.executeCommand<TranslationPair[]>(
-                                "translators-copilot.searchParallelCells",
-                                message.query
-                            );
-                            if (results) {
-                                webviewView.webview.postMessage({
-                                    command: "searchResults",
-                                    data: results,
-                                });
-                            }
-                        } catch (error) {
-                            console.error("Error searching parallel cells:", error);
+                    try {
+                        const command = message.completeOnly
+                            ? "translators-copilot.searchParallelCells"
+                            : "translators-copilot.searchAllCells";
+
+                        const results = await vscode.commands.executeCommand<TranslationPair[]>(
+                            command,
+                            message.query,
+                            15 // k value
+                        );
+                        if (results) {
+                            webviewView.webview.postMessage({
+                                command: "searchResults",
+                                data: results,
+                            });
                         }
+                    } catch (error) {
+                        console.error("Error searching cells:", error);
                     }
                     break;
                 default:

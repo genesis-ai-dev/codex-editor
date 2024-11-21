@@ -52,6 +52,7 @@ function ParallelView() {
     const [isLoading, setIsLoading] = useState(false);
     const [targetPassage, setTargetPassage] = useState<string | null>(null);
     const [currentPinnedCellIndex, setCurrentPinnedCellIndex] = useState<number>(0);
+    const [completeOnly, setCompleteOnly] = useState<boolean>(false);
 
     // Helper function to process pending chunks in order
     const processNextChunk = () => {
@@ -187,8 +188,8 @@ function ParallelView() {
         setLastQuery(query);
         vscode.postMessage({
             command: "search",
-            database: "both",
             query: query,
+            completeOnly: completeOnly,
         });
     };
 
@@ -361,6 +362,8 @@ function ParallelView() {
                     pinnedVerses={pinnedVerses}
                     lastQuery={lastQuery}
                     onQueryChange={setLastQuery}
+                    completeOnly={completeOnly}
+                    onCompleteOnlyChange={setCompleteOnly}
                     onSearch={searchBoth}
                     onPinToggle={handlePinToggle}
                     onUriClick={handleUriClick}

@@ -56,6 +56,7 @@ export async function createTranslationPairsIndex(
             targetContent: pair.targetCell.content || "",
             uri: pair.sourceCell.uri || "",
             line: pair.sourceCell.line || -1,
+            hasTargetContent: !!pair.targetCell.content,
         }));
 
     translationPairsIndex.addAll(documents);
@@ -280,4 +281,47 @@ export async function createTranslationPairsIndex(
             }
         })
     );
+}
+
+export function searchTranslationPairs(
+    translationPairsIndex: MiniSearch<minisearchDoc>,
+    query: string,
+    includeIncomplete: boolean = false,
+    k: number = 15,
+    options: { completeBoost?: number; targetContentBoost?: number } = {}
+): TranslationPair[] {
+    const { completeBoost = 1, targetContentBoost = 1 } = options;
+
+    const searchResults = translationPairsIndex.search(query, {
+        fields: ["sourceContent", "targetContent"],
+        combineWith: "OR",
+        prefix: true,
+        fuzzy: 0.2,
+        boost: {
+            sourceContent: 2,
+            targetContent: 2 * targetContentBoost,
+        },
+        filter: includeIncomplete ? undefined : (doc) => !!doc.targetContent,
+    });
+
+    const results = searchResults.map((result) => ({
+        cellId: result.cellId,
+        sourceCell: {
+            cellId: result.cellId,
+            content: result.sourceContent,
+            uri: result.uri,
+            line: result.line,
+            notebookId: result.notebookId || "", // Use the actual notebookId if available
+        },
+        targetCell: {
+            cellId: result.cellId,
+            content: result.targetContent,
+            uri: result.uri,
+            line: result.line,
+            notebookId: result.notebookId || "", // Use the actual notebookId if available
+        },
+        score: result.score * (result.targetContent ? completeBoost : 1),
+    }));
+
+    return results.sort((a, b) => b.score - a.score).slice(0, k);
 }

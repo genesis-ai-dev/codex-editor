@@ -1,5 +1,5 @@
 import React from "react";
-import { VSCodeDivider } from "@vscode/webview-ui-toolkit/react";
+import { VSCodeDivider, VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react";
 import VerseItem from "./CellItem";
 import SearchBar from "./SearchBar";
 import { TranslationPair } from "../../../../types";
@@ -12,6 +12,8 @@ interface SearchTabProps {
     onSearch: (query: string, event?: React.FormEvent) => void;
     onPinToggle: (item: TranslationPair, isPinned: boolean) => void;
     onUriClick: (uri: string, word: string) => void;
+    completeOnly: boolean;
+    onCompleteOnlyChange: (checked: boolean) => void;
 }
 
 function SearchTab({
@@ -22,6 +24,8 @@ function SearchTab({
     onSearch,
     onPinToggle,
     onUriClick,
+    completeOnly,
+    onCompleteOnlyChange,
 }: SearchTabProps) {
     return (
         <div
@@ -39,6 +43,12 @@ function SearchTab({
                     onQueryChange={onQueryChange}
                     onSearch={(event) => onSearch(lastQuery, event)}
                 />
+                <VSCodeCheckbox
+                    checked={completeOnly}
+                    onChange={(e) => onCompleteOnlyChange((e.target as HTMLInputElement).checked)}
+                >
+                    Search complete pairs only
+                </VSCodeCheckbox>
                 <VSCodeDivider />
             </div>
 

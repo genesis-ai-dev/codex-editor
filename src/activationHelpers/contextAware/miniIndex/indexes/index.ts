@@ -14,6 +14,8 @@ import {
     searchParallelCells,
     searchSimilarCellIds,
     findNextUntranslatedSourceCell,
+    searchAllCells,
+    searchTranslationPairs,
 } from "./search";
 import MiniSearch, { SearchResult } from "minisearch";
 import {
@@ -474,7 +476,9 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 if (!query) return []; // User cancelled the input
                 showInfo = true;
             }
-            const results = searchParallelCells(translationPairsIndex, sourceTextIndex, query, k);
+
+            // Search translation pairs with boosted weights for complete pairs and target content
+            const results = searchAllCells(translationPairsIndex, sourceTextIndex, query, k, false);
 
             // Remove duplicates based on cellId
             const uniqueResults = results.filter(
@@ -483,11 +487,12 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
             // If we have fewer unique results than requested, try to get more
             if (uniqueResults.length < k) {
-                const additionalResults = searchParallelCells(
+                const additionalResults = searchTranslationPairs(
                     translationPairsIndex,
-                    sourceTextIndex,
                     query,
-                    k * 2
+                    false, // includeIncomplete set to false
+                    k * 2,
+                    { completeBoost: 1.5, targetContentBoost: 1.2 }
                 );
                 const allResults = [...uniqueResults, ...additionalResults];
                 uniqueResults.splice(
@@ -583,6 +588,47 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         }
     );
 
+    const searchAllCellsCommand = vscode.commands.registerCommand(
+        "translators-copilot.searchAllCells",
+        async (
+            query?: string,
+            k: number = 15,
+            includeIncomplete: boolean = true,
+            showInfo: boolean = false
+        ) => {
+            if (!query) {
+                query = await vscode.window.showInputBox({
+                    prompt: "Enter a query to search all cells",
+                    placeHolder: "e.g. love, faith, hope",
+                });
+                if (!query) return []; // User cancelled the input
+                showInfo = true;
+            }
+            const results = searchAllCells(
+                translationPairsIndex,
+                sourceTextIndex,
+                query,
+                k,
+                includeIncomplete
+            );
+
+            console.log(`Search results for "${query}":`, results);
+
+            if (showInfo) {
+                const resultsString = results
+                    .map((r) => {
+                        const targetContent = r.targetCell.content || "(No target text)";
+                        return `${r.cellId}: Source: ${r.sourceCell.content}, Target: ${targetContent}`;
+                    })
+                    .join("\n");
+                vscode.window.showInformationMessage(
+                    `Found ${results.length} cells for query: ${query}\n${resultsString}`
+                );
+            }
+            return results;
+        }
+    );
+
     // Update the subscriptions
     context.subscriptions.push(
         ...[
@@ -605,11 +651,15 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             searchParallelCellsCommand,
             searchSimilarCellIdsCommand,
             findNextUntranslatedSourceCellCommand,
+            searchAllCellsCommand,
         ]
     );
 
     const functionsToExpose = {
         handleTextSelection,
+        searchAllCells,
+        searchParallelCells,
+        searchTranslationPairs,
     };
 
     return functionsToExpose;
