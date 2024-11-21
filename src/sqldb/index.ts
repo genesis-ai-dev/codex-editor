@@ -482,8 +482,10 @@ export const ingestJsonlDictionaryEntries = (db: Database) => {
     if (!exportPath) {
         return;
     }
-    const jsonlContent = fs.readFileSync(exportPath.fsPath, "utf-8");
-    const entries = jsonlContent.split("\n").map((line) => JSON.parse(line));
+    const jsonlContent = fs.existsSync(exportPath.fsPath)
+        ? fs.readFileSync(exportPath.fsPath, "utf-8")
+        : "";
+    const entries = jsonlContent.split("\n").filter((line) => line).map((line) => JSON.parse(line));
     console.log({ entries });
 
     bulkAddWords(db, entries);
