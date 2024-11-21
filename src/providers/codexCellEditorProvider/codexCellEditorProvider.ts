@@ -7,7 +7,7 @@ import { CodexCellTypes, EditType } from "../../../types/enums";
 import { QuillCellContent, EditorPostMessages, EditorReceiveMessages } from "../../../types";
 import { CodexCellDocument } from "./codexDocument";
 import { CodexCellEditorMessageHandling } from "./codexCellEditorMessagehandling";
-
+import { registerCellEditorCommands } from "./registerCellEditorCommands";
 function getNonce(): string {
     let text = "";
     const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -19,6 +19,8 @@ function getNonce(): string {
 
 export class CodexCellEditorProvider implements vscode.CustomEditorProvider<CodexCellDocument> {
     private messageHandler: CodexCellEditorMessageHandling;
+    private openCellById: (cellId: string, text: string) => void;
+
     public static register(context: vscode.ExtensionContext): vscode.Disposable {
         const provider = new CodexCellEditorProvider(context);
         const providerRegistration = vscode.window.registerCustomEditorProvider(
@@ -38,6 +40,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     constructor(private readonly context: vscode.ExtensionContext) {
         this.messageHandler = new CodexCellEditorMessageHandling(this);
+        this.openCellById = (cellId: string, text: string) => {
+            console.log("openCellById called, but webview not yet initialized");
+        };
+        registerCellEditorCommands(context, (cellId: string, text: string) => {
+            this.openCellById(cellId, text);
+        });
     }
 
     private readonly _onDidChangeCustomDocument = new vscode.EventEmitter<
@@ -93,7 +101,15 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 content: cellId,
             });
         };
-
+        const openCellByIdImpl = (cellId: string, text: string) => {
+            console.log("openCellById (implemented)", cellId, text);
+            webviewPanel.webview.postMessage({
+                type: "openCellById",
+                cellId: cellId,
+                text: text,
+            });
+        };
+        this.openCellById = openCellByIdImpl;
         const jumpToCellListenerDispose = workspaceStoreListener("cellToJumpTo", (value) => {
             navigateToSection(value);
         });

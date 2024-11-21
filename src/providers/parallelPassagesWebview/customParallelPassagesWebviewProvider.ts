@@ -42,7 +42,7 @@ async function openFileAtLocation(uri: string, cellId: string) {
         vscode.window.showErrorMessage(`Failed to open file: ${uri}`);
     }
 }
-async function handleSilverPathChatStream(
+async function handleTeachChatStream(
     webviewView: vscode.WebviewView,
     targetCellId: string,
     query: string
@@ -60,11 +60,11 @@ async function handleSilverPathChatStream(
 
         const sourceContent = sourceCell.content;
 
-        // Generate translation using the SilverPath command
+        // Generate translation using the Teach command
         const result = await vscode.commands.executeCommand<{
             translation: Response;
             usedCellIds: string[];
-        }>("silverPath.generateTranslation", query, sourceContent, targetCellId);
+        }>("teach.generateTranslation", query, sourceContent, targetCellId);
 
         if (!result || !result.translation) {
             throw new Error("Failed to generate translation");
@@ -72,7 +72,7 @@ async function handleSilverPathChatStream(
 
         // Send the entire result object back to the webview
         webviewView.webview.postMessage({
-            command: "silverPathTranslation",
+            command: "teachTranslation",
             data: result,
         });
 
@@ -81,10 +81,10 @@ async function handleSilverPathChatStream(
         //     await vscode.commands.executeCommand("parallelPassages.pinCellById", cellId);
         // }
     } catch (error) {
-        console.error("Error in SilverPath chat stream:", error);
+        console.error("Error in Teach chat stream:", error);
         webviewView.webview.postMessage({
             command: "chatResponseStream",
-            data: `Error: Failed to process SilverPath request. ${error instanceof Error ? error.message : "Unknown error"}`,
+            data: `Error: Failed to process Teach request. ${error instanceof Error ? error.message : "Unknown error"}`,
         });
         webviewView.webview.postMessage({
             command: "chatResponseComplete",
@@ -298,11 +298,15 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                         message.editIndex
                     );
                     break;
-                case "silverPathChatStream":
-                    await handleSilverPathChatStream(
-                        webviewView,
-                        message.targetCellId,
-                        message.query
+                case "teachChatStream":
+                    await handleTeachChatStream(webviewView, message.targetCellId, message.query);
+                    break;
+                case "applyTranslation":
+                    console.log("applyTranslation", message);
+                    await vscode.commands.executeCommand(
+                        "codex-cell-editor.openCellById",
+                        message.cellId,
+                        message.translation
                     );
                     break;
                 case "search":

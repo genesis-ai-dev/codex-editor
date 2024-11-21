@@ -9,6 +9,7 @@ import {
 import * as vscode from "vscode";
 import * as path from "path";
 import { diffWords } from "diff";
+import * as fs from "fs/promises";
 
 const SYSTEM_MESSAGE = `You are a helpful assistant. Given similar edits across a corpus, you will suggest edits to a new text. 
 Your suggestions should follow this format:
@@ -33,11 +34,13 @@ Your suggestions should follow this format:
         }
         4. Focus on meaningful content changes, not just HTML structure modifications.
         5. Pay close attention to what commonly changes between revisions, and attempt to supply suggestions that implement these if it makes sense.
+        6. The replacements should focus as few words as possible, break into multiple suggestions when needed.
     `;
 
 export class SmartEdits {
     private chatbot: Chatbot;
     private smartEditsPath: string;
+    private teachFile: string;
     private lastProcessedCellId: string | null = null;
     private lastSuggestions: SmartSuggestion[] = [];
     private editHistory: { [key: string]: EditHistoryEntry[] } = {};
@@ -45,6 +48,7 @@ export class SmartEdits {
     constructor(workspaceUri: vscode.Uri) {
         this.chatbot = new Chatbot(SYSTEM_MESSAGE);
         this.smartEditsPath = path.join(workspaceUri.fsPath, "files", "smart_edits.json");
+        this.teachFile = path.join(workspaceUri.fsPath, "files", "silver_path_memories.json");
     }
 
     async getEdits(text: string, cellId: string): Promise<SmartSuggestion[]> {
@@ -155,6 +159,8 @@ export class SmartEdits {
 
     private async getSimilarTexts(similarEntries: TranslationPair[]): Promise<SmartEditContext[]> {
         const similarTexts: SmartEditContext[] = [];
+        const allMemories = await this.readAllMemories();
+
         for (const entry of similarEntries) {
             if (entry.targetCell.uri) {
                 try {
@@ -174,6 +180,7 @@ export class SmartEdits {
                             cellId: entry.cellId,
                             currentCellValue: cell.value,
                             edits: cell.metadata.edits || [],
+                            memory: allMemories[entry.cellId]?.content || "",
                         };
                         similarTexts.push(context);
                     } else {
@@ -206,6 +213,7 @@ export class SmartEdits {
                         revision 2: ${JSON.stringify(lastEdit)}
                         diff:
                     ${diff}
+                        memory: ${JSON.stringify(context.memory)}
 }`;
             })
             .filter((text) => text !== "");
@@ -259,5 +267,17 @@ export class SmartEdits {
 
     async updateEditHistory(cellId: string, history: EditHistoryEntry[]): Promise<void> {
         this.editHistory[cellId] = history;
+    }
+
+    private async readAllMemories(): Promise<{
+        [cellId: string]: { content: string; times_used: number };
+    }> {
+        try {
+            const data = await fs.readFile(this.teachFile, "utf-8");
+            return JSON.parse(data);
+        } catch (error) {
+            console.error("Error reading memories:", error);
+            return {};
+        }
     }
 }

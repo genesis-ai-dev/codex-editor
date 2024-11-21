@@ -248,11 +248,48 @@
 
 .backtranslation-section {
     display: flex;
-    align-items: center;
-    gap: 8px;
+    flex-direction: column;
+    width: 100%;
+    max-width: 100%;
 }
 
-.backtranslation-editor,
 .backtranslation-content {
-    flex-grow: 1;
+    max-width: 100%;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+    word-break: normal;
+    hyphens: auto;
+}
+
+.backtranslation-content * {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.backtranslation-content p {
+    white-space: pre-wrap;
+}
+
+.backtranslation-content pre,
+.backtranslation-content code {
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.backtranslation-content img,
+.backtranslation-content table {
+    max-width: 100%;
+    height: auto;
+}
+
+.backtranslation-content table {
+    display: block;
+    overflow-x: auto;
+}
+
+.backtranslation-editor {
+    width: 100%;
+    min-height: 100px;
+    resize: vertical;
+    box-sizing: border-box;
 }

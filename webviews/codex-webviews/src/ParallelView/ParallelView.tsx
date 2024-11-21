@@ -9,7 +9,7 @@ import "./App.css";
 import { OpenFileMessage, ChatMessage } from "./types";
 import SearchTab from "./SearchTab";
 import ChatTab from "./ChatTab";
-import SilverPathTab, { SilverPathMessage, AssistantMessage } from "./SilverPathTab";
+import TeachTab, { TeachMessage, AssistantMessage } from "./TeachTab";
 import { TranslationPair } from "../../../../types";
 
 const vscode = acquireVsCodeApi();
@@ -43,12 +43,12 @@ function ParallelView() {
     const [pendingChunks, setPendingChunks] = useState<{ index: number; content: string }[]>([]);
     const [nextChunkIndex, setNextChunkIndex] = useState(0);
     const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
-    const [silverPathChatHistory, setSilverPathChatHistory] = useState<SilverPathMessage[]>([]);
-    const [silverPathChatInput, setSilverPathChatInput] = useState<string>("");
-    const [silverPathPendingChunks, setSilverPathPendingChunks] = useState<
+    const [teachChatHistory, setTeachChatHistory] = useState<TeachMessage[]>([]);
+    const [teachChatInput, setTeachChatInput] = useState<string>("");
+    const [teachPendingChunks, setTeachPendingChunks] = useState<
         { index: number; content: string }[]
     >([]);
-    const [silverPathNextChunkIndex, setSilverPathNextChunkIndex] = useState(0);
+    const [teachNextChunkIndex, setTeachNextChunkIndex] = useState(0);
     const [isLoading, setIsLoading] = useState(false);
     const [targetPassage, setTargetPassage] = useState<string | null>(null);
     const [currentPinnedCellIndex, setCurrentPinnedCellIndex] = useState<number>(0);
@@ -144,10 +144,10 @@ function ParallelView() {
                     setNextChunkIndex(0);
                     setPendingChunks([]);
                     break;
-                case "silverPathTranslation":
+                case "teachTranslation":
                     try {
                         const result = message.data;
-                        setSilverPathChatHistory((prev) => [
+                        setTeachChatHistory((prev) => [
                             ...prev,
                             {
                                 role: "assistant",
@@ -161,7 +161,7 @@ function ParallelView() {
                         ]);
                         setIsLoading(false);
                     } catch (error) {
-                        console.error("Error processing SilverPath translation:", error);
+                        console.error("Error processing Teach translation:", error);
                         setIsLoading(false);
                     }
                     break;
@@ -199,6 +199,13 @@ function ParallelView() {
         } else {
             setPinnedVerses(pinnedVerses.filter((v) => v.cellId !== item.cellId));
         }
+    };
+    const handleApplyTranslation = (translation: string, cellId: string) => {
+        vscode.postMessage({
+            command: "applyTranslation",
+            translation: translation,
+            cellId: cellId,
+        });
     };
 
     const handleEditMessage = (index: number) => {
@@ -287,27 +294,27 @@ function ParallelView() {
         }
     };
 
-    const handleSilverPathChatSubmit = () => {
-        if (!silverPathChatInput.trim()) return;
+    const handleTeachChatSubmit = () => {
+        if (!teachChatInput.trim()) return;
 
-        const newMessage: SilverPathMessage = {
+        const newMessage: TeachMessage = {
             role: "user",
-            content: silverPathChatInput,
+            content: teachChatInput,
         };
 
-        setSilverPathChatHistory((prev) => [...prev, newMessage]);
+        setTeachChatHistory((prev) => [...prev, newMessage]);
         setIsLoading(true);
 
         vscode.postMessage({
-            command: "silverPathChatStream",
-            query: silverPathChatInput,
+            command: "teachChatStream",
+            query: teachChatInput,
             targetCellId: targetPassage,
         });
 
-        setSilverPathChatInput("");
+        setTeachChatInput("");
     };
 
-    const handleSilverPathChatFocus = () => {
+    const handleTeachChatFocus = () => {
         setVerses([...pinnedVerses]);
     };
 
@@ -324,11 +331,11 @@ function ParallelView() {
             setTargetPassage(nextCellId);
 
             // Clear previous chat history
-            setSilverPathChatHistory([]);
+            setTeachChatHistory([]);
 
             // Simulate user input for translation
             const translationPrompt = "Now translate this";
-            setSilverPathChatHistory([{ role: "user", content: translationPrompt }]);
+            setTeachChatHistory([{ role: "user", content: translationPrompt }]);
             setIsLoading(true);
 
             // Send the translation request
@@ -360,7 +367,7 @@ function ParallelView() {
         <VSCodePanels>
             <VSCodePanelTab id="tab-search">Search</VSCodePanelTab>
             <VSCodePanelTab id="tab-chat">Chat</VSCodePanelTab>
-            <VSCodePanelTab id="tab-silverpath">SilverPath</VSCodePanelTab>
+            <VSCodePanelTab id="tab-silverpath">Teach</VSCodePanelTab>
 
             {/* Search Tab */}
             <VSCodePanelView id="view-search">
@@ -393,14 +400,14 @@ function ParallelView() {
                 />
             </VSCodePanelView>
 
-            {/* SilverPath Tab */}
+            {/* Teach Tab */}
             <VSCodePanelView id="view-silverpath">
-                <SilverPathTab
-                    chatHistory={silverPathChatHistory}
-                    chatInput={silverPathChatInput}
-                    onChatInputChange={setSilverPathChatInput}
-                    onChatSubmit={handleSilverPathChatSubmit}
-                    onChatFocus={handleSilverPathChatFocus}
+                <TeachTab
+                    chatHistory={teachChatHistory}
+                    chatInput={teachChatInput}
+                    onChatInputChange={setTeachChatInput}
+                    onChatSubmit={handleTeachChatSubmit}
+                    onChatFocus={handleTeachChatFocus}
                     onCopy={handleCopy}
                     messageStyles={messageStyles}
                     pinnedVerses={pinnedVerses}
@@ -408,6 +415,7 @@ function ParallelView() {
                     onSelectTargetPassage={handleSelectTargetPassage}
                     targetPassage={targetPassage}
                     onNavigateToNextPinnedCell={handleNavigateToNextPinnedCell}
+                    applyTranslation={handleApplyTranslation}
                 />
             </VSCodePanelView>
         </VSCodePanels>

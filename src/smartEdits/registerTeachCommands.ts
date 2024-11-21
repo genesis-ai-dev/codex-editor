@@ -1,22 +1,22 @@
 import * as vscode from "vscode";
-import { SilverPath } from "./silverPath";
+import { Teach } from "./teach";
 import { getWorkSpaceFolder } from "../utils";
 
-export const registerSilverPathCommands = (context: vscode.ExtensionContext) => {
+export const registerTeachCommands = (context: vscode.ExtensionContext) => {
     const workspaceFolder = getWorkSpaceFolder();
     if (!workspaceFolder) {
         console.error("No workspace folder found");
         return;
     }
 
-    const silverPath = new SilverPath(vscode.Uri.file(workspaceFolder));
+    const teach = new Teach(vscode.Uri.file(workspaceFolder));
 
     context.subscriptions.push(
         vscode.commands.registerCommand(
-            "silverPath.generateTranslation",
+            "teach.generateTranslation",
             async (userQuery: string, text: string, cellId: string) => {
                 try {
-                    const { translation, usedCellIds } = await silverPath.generateTranslation(
+                    const { translation, usedCellIds } = await teach.generateTranslation(
                         userQuery,
                         text,
                         cellId
