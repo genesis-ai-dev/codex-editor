@@ -250,26 +250,30 @@
     display: flex;
     flex-direction: column;
     width: 100%;
-    max-width: 100%; /* Ensure it doesn't exceed container width */
+    max-width: 100%;
 }
 
 .backtranslation-content {
     max-width: 100%;
     overflow-wrap: break-word;
     word-wrap: break-word;
-    word-break: break-all; /* Change to break-all for more aggressive wrapping */
-    hyphens: auto; /* Enable hyphenation for better word breaks */
+    word-break: normal;
+    hyphens: auto;
 }
 
 .backtranslation-content * {
-    max-width: 100%; /* Ensure all child elements respect the container width */
-    overflow-x: auto; /* Add horizontal scrolling for elements that can't wrap */
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.backtranslation-content p {
+    white-space: pre-wrap;
 }
 
 .backtranslation-content pre,
 .backtranslation-content code {
-    white-space: pre-wrap; /* Allow wrapping for code blocks */
-    word-break: break-all; /* Break long strings in code blocks */
+    white-space: pre-wrap;
+    word-break: break-all;
 }
 
 .backtranslation-content img,
@@ -287,5 +291,5 @@
     width: 100%;
     min-height: 100px;
     resize: vertical;
-    box-sizing: border-box; /* Include padding and border in the element's total width and height */
+    box-sizing: border-box;
 }
