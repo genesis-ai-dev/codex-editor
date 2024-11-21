@@ -324,37 +324,45 @@ function ParallelView() {
     };
 
     const handleNavigateToNextPinnedCell = () => {
-        if (pinnedVerses.length > 0) {
+        if (pinnedVerses.length > 1) {
             const nextIndex = (currentPinnedCellIndex + 1) % pinnedVerses.length;
-            setCurrentPinnedCellIndex(nextIndex);
-            const nextCellId = pinnedVerses[nextIndex].cellId;
-            setTargetPassage(nextCellId);
+            if (nextIndex !== currentPinnedCellIndex) {
+                setCurrentPinnedCellIndex(nextIndex);
+                const nextCellId = pinnedVerses[nextIndex].cellId;
+                setTargetPassage(nextCellId);
 
-            // Clear previous chat history
-            setTeachChatHistory([]);
+                // Clear previous chat history
+                setTeachChatHistory([]);
 
-            // Simulate user input for translation
-            const translationPrompt = "Now translate this";
-            setTeachChatHistory([{ role: "user", content: translationPrompt }]);
-            setIsLoading(true);
+                // Simulate user input for translation
+                const translationPrompt = "Now translate this";
+                setTeachChatHistory([{ role: "user", content: translationPrompt }]);
+                setIsLoading(true);
 
-            // Send the translation request
-            vscode.postMessage({
-                command: "chatStream",
-                query: translationPrompt,
-                context: [nextCellId],
-            });
+                // Send the translation request
+                vscode.postMessage({
+                    command: "chatStream",
+                    query: translationPrompt,
+                    context: [nextCellId],
+                });
 
-            // Scroll to the chat input
-            setTimeout(() => {
-                const textarea = document.querySelector(".silver-path-textarea") as HTMLElement;
-                if (textarea) {
-                    textarea.scrollIntoView({ behavior: "smooth" });
-                    textarea.focus();
-                }
-            }, 0);
+                // Scroll to the chat input
+                setTimeout(() => {
+                    const textarea = document.querySelector(".silver-path-textarea") as HTMLElement;
+                    if (textarea) {
+                        textarea.scrollIntoView({ behavior: "smooth" });
+                        textarea.focus();
+                    }
+                }, 0);
+            }
         }
     };
+
+    const hasNextPinnedCell =
+        pinnedVerses.length > 1 &&
+        pinnedVerses.some(
+            (verse, index) => index !== currentPinnedCellIndex && verse.cellId !== targetPassage
+        );
 
     const handlePinAll = () => {
         const unpinnedVerses = verses.filter(
@@ -416,6 +424,7 @@ function ParallelView() {
                     targetPassage={targetPassage}
                     onNavigateToNextPinnedCell={handleNavigateToNextPinnedCell}
                     applyTranslation={handleApplyTranslation}
+                    hasNextPinnedCell={hasNextPinnedCell}
                 />
             </VSCodePanelView>
         </VSCodePanels>

@@ -41,6 +41,7 @@ interface TeachTabProps {
     isLoading: boolean;
     onNavigateToNextPinnedCell: () => void;
     applyTranslation: (translation: string, cellId: string) => void;
+    hasNextPinnedCell: boolean;
 }
 
 const defaultAssistantMessage: AssistantMessage = {
@@ -78,6 +79,7 @@ function TeachTab({
     isLoading,
     onNavigateToNextPinnedCell,
     applyTranslation,
+    hasNextPinnedCell,
 }: TeachTabProps) {
     const chatHistoryRef = useRef<HTMLDivElement>(null);
 
@@ -174,11 +176,13 @@ function TeachTab({
                     </div>
                 )}
 
-                <div className="silver-path-segment next-cell-silver-path">
-                    <VSCodeButton onClick={onNavigateToNextPinnedCell}>
-                        Navigate to Next Pinned Cell
-                    </VSCodeButton>
-                </div>
+                {hasNextPinnedCell && (
+                    <div className="silver-path-segment next-cell-silver-path">
+                        <VSCodeButton onClick={onNavigateToNextPinnedCell}>
+                            Navigate to Next Pinned Cell
+                        </VSCodeButton>
+                    </div>
+                )}
             </>
         );
     };
