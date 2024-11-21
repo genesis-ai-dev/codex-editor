@@ -74,7 +74,6 @@ export async function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    const fs = vscode.workspace.fs;
     const workspaceFolders = vscode.workspace.workspaceFolders;
 
     // Always register the project manager
@@ -100,7 +99,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
         let metadataExists = false;
         try {
-            await fs.stat(metadataUri);
+            await vscode.workspace.fs.stat(metadataUri);
             metadataExists = true;
         } catch {
             metadataExists = false;

@@ -157,14 +157,6 @@ export class CodexModel {
                         label: testament,
                     };
                 }
-            } else if (metadata.corpusMarker) {
-                if (!corpora[metadata.corpusMarker]) {
-                    corpora[metadata.corpusMarker] = {
-                        resource: vscode.Uri.parse(`codex-corpus:${metadata.corpusMarker}`),
-                        type: "corpus",
-                        label: metadata.corpusMarker,
-                    };
-                }
             } else {
                 debug("Adding to ungrouped notebooks:", fileNameWithoutExtension);
                 ungroupedNotebooks.push({
@@ -209,7 +201,7 @@ export class CodexModel {
             const bookData = vrefData[fileNameWithoutExtension];
             const testament = bookData?.testament === "OT" ? "Old Testament" : "New Testament";
 
-            if (testament === corpus || metadata.corpusMarker === corpus) {
+            if (testament === corpus) {
                 notebooks.push({
                     resource: notebookUri,
                     type: "document",

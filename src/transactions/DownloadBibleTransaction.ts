@@ -9,6 +9,7 @@ import {
 } from "../../types";
 import { CodexCellTypes } from "../../types/enums";
 import { allORGBibleVerseRefs } from "../utils/verseRefUtils/verseData";
+import { getTestamentForBook } from "../utils/verseRefUtils/verseData";
 import { NotebookMetadataManager } from "../utils/notebookMetadataManager";
 import { getWorkSpaceUri } from "../utils";
 
@@ -380,7 +381,7 @@ export class DownloadBibleTransaction extends BaseTransaction {
                     sourceCreatedAt: new Date().toISOString(),
                     codexLastModified: new Date().toISOString(),
                     gitStatus: "untracked" as const,
-                    corpusMarker: "",
+                    corpusMarker: getTestamentForBook(bookName),
                 };
 
                 sourceNotebook.metadata = commonMetadata;
