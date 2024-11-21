@@ -286,6 +286,22 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
+    const openDictionaryFileCommand = vscode.commands.registerCommand("codex-editor-extension.openDictionaryFile", async () => {
+        const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceUri) {
+            vscode.window.showErrorMessage(
+                "No workspace found. Please open a workspace first."
+            );
+            return;
+        }
+        const dictionaryUri = vscode.Uri.joinPath(workspaceUri, "files", "project.dictionary");
+        try {
+            await vscode.commands.executeCommand("vscode.open", dictionaryUri);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to open dictionary: ${error}`);
+        }
+    });
+
     context.subscriptions.push(
         navigationTreeViewProvider,
         navigationExplorerRefreshCommand,
@@ -305,6 +321,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         uploadSourceFolderCommand,
         uploadTranslationFolderCommand,
         navigationExplorerOpenChapterCommand,
-        downloadSourceBibleCommand
+        downloadSourceBibleCommand,
+        openDictionaryFileCommand
     );
 }
