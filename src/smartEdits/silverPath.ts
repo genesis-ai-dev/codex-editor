@@ -3,27 +3,28 @@ import * as path from "path";
 import Chatbot from "./chat";
 import { TranslationPair } from "../../types";
 import * as fs from "fs/promises";
+import { SavedPrompt } from "./types";
 
 const SYSTEM_MESSAGE = `
 You are an AI assistant specialized in Bible translation. Your task is to translate Bible verses based on provided translation pairs and additional data. You will receive three key pieces of information:
 
 1. The verse to be translated
 2. Translation pairs to guide your work
-3. Additional relevant data
+3. Additional relevant data (memories) specific to this verse
 
 Instructions:
 1. Carefully analyze the verse, translation pairs, and additional data.
 2. Generate a translation for the given verse.
 3. Explain your thinking process, including any challenges or considerations.
 4. Present your translation.
-5. If the user suggests improvements, consider them carefully and update your approach if necessary.
+5. Manage memories by updating them as needed.
 
 Important considerations:
 - Think each aspect through carefully.
 - Ensure you understand the context of the text.
-- Be prepared to refine your translation based on user feedback.
+- Be proactive in managing memories for future translations.
 
-Please provide your response in the following JSON format, but replace all the text with YOUR thoughts etc...
+Please provide your response in the following JSON format:
 
 {
     "message": "Your response in natural language goes here.",
@@ -31,39 +32,44 @@ Please provide your response in the following JSON format, but replace all the t
         "A list of thoughts you have while translating the verse goes here.",
     ],
     "memoriesUsed": [
-        {
-            "id": "unique_id",
-            "memory": "Description of a specific piece of information from the translation pairs or additional data that you found particularly useful"
-        }
+        "List of cellIds for memories you found useful. Always actually impliment the memories and advice here!"
     ],
     "translation": "Your translated verse goes here.",
-    "addMemory": {
-        "id": "some-feedback-id",
-        "memory": "If the user suggests an improvement that you want to remember for future translations, include it here with a brief explanation. Don't use this unless the user suggests something!"
-    }
+    "memoryUpdates": [
+        {
+            "cellId": "The cellId associated with this memory. ",
+            "content": "The updated memory content",
+            "reason": "Brief explanation of why this memory is being updated"
+        }
+    ]
 }
 
-After providing your initial translation, be prepared to refine it based on user feedback. If the user suggests improvements, carefully consider them and update your translation if appropriate. You can add new insights to your memory using the addMemory field.
-Don't add memories unless the user suggests an improvement that may be applicable to the future!
-Remember to maintain a helpful and collaborative tone throughout the interaction.
-The "id" for new memories should be made up of several words that relate to the memory.
+You have control over memory management. Use the "memoryUpdates" field to update memories as you see fit. Consider the following:
+
+1. Update existing memories if you have new insights or information.
+2. If a cell doesn't have a memory yet, you can create one by providing an update for it.
+3. To effectively delete a memory, update its content to an empty string.
+4. You should update a memory at least once every translation if you can.
+5. Always update it given relevant user feedback.
+6. Don't use it to save translations, only use it to save information you find useful, notes, or user feedback (especially user feedback!).
 `;
-
-const MAX_MEMORIES = 100;
-
 interface Memory {
-    id: string;
-    memory: string;
+    content: string;
     times_used: number;
-    active: boolean;
+}
+
+interface MemoryUpdate {
+    cellId: string;
+    content: string;
+    reason: string;
 }
 
 interface Response {
     message: string;
     thinking: string[];
     translation: string;
-    memoriesUsed?: Memory[];
-    addMemory?: Memory;
+    memoriesUsed?: string[];
+    memoryUpdates?: MemoryUpdate[];
 }
 
 export class SilverPath {
@@ -72,7 +78,7 @@ export class SilverPath {
 
     constructor(workspaceUri: vscode.Uri) {
         this.chatbot = new Chatbot(SYSTEM_MESSAGE);
-        this.silverPathFile = path.join(workspaceUri.fsPath, "files", "silver_path.json");
+        this.silverPathFile = path.join(workspaceUri.fsPath, "files", "silver_path_memories.json");
     }
 
     async generateTranslation(
@@ -81,12 +87,10 @@ export class SilverPath {
         cellId: string
     ): Promise<{ translation: Response; usedCellIds: string[] }> {
         const similarPairs = await this.findSimilarPairs(text);
-        const context = this.formatSimilarPairs(similarPairs);
-        const additionalData = await this.getAdditionalData();
+        const context = await this.formatSimilarPairsWithMemories(similarPairs);
 
         const prompt = JSON.stringify({
             translation_pairs: context,
-            additional_data: additionalData,
             verse_to_translate: text,
             user_query: userQuery,
         });
@@ -95,7 +99,7 @@ export class SilverPath {
         console.log("SilverPath response:", response);
         await this.updateMemories(response);
 
-        const usedCellIds = similarPairs.map((pair) => pair.cellId);
+        const usedCellIds = [cellId, ...similarPairs.map((pair) => pair.cellId)];
         return { translation: response, usedCellIds };
     }
 
@@ -112,88 +116,65 @@ export class SilverPath {
         }
     }
 
-    private formatSimilarPairs(pairs: TranslationPair[]): string {
+    private async formatSimilarPairsWithMemories(pairs: TranslationPair[]): Promise<string> {
+        const allMemories = await this.readAllMemories();
+
         return pairs
-            .map(
-                (pair) => `
+            .map((pair) => {
+                const memory = allMemories[pair.cellId] || { content: "", times_used: 0 };
+                return `
 CellId: ${pair.cellId}
 Source: ${pair.sourceCell.content}
 Target: ${pair.targetCell.content}
-`
-            )
+Memory: ${memory.content}
+`;
+            })
             .join("\n");
     }
 
-    private async getAdditionalData(): Promise<string> {
+    private async readAllMemories(): Promise<{ [cellId: string]: Memory }> {
         try {
             await fs.access(this.silverPathFile);
         } catch (error) {
-            // File doesn't exist, create it with an empty array
-            await fs.writeFile(this.silverPathFile, "[]", "utf-8");
+            // File doesn't exist, create it with an empty object
+            await fs.writeFile(this.silverPathFile, "{}", "utf-8");
         }
 
         try {
             const data = await fs.readFile(this.silverPathFile, "utf-8");
-            const memories: Memory[] = JSON.parse(data);
-            const activeMemories = memories
-                .filter((m) => m.active)
-                .sort((a, b) => b.times_used - a.times_used)
-                .slice(0, MAX_MEMORIES);
-            return JSON.stringify(activeMemories);
+            return JSON.parse(data);
         } catch (error) {
-            console.error("Error reading additional data:", error);
-            return "[]";
+            console.error("Error reading memories:", error);
+            return {};
         }
     }
 
     private async updateMemories(response: Response): Promise<void> {
         try {
             const data = await fs.readFile(this.silverPathFile, "utf-8");
-            let memories: Memory[] = JSON.parse(data);
+            const allMemories: { [cellId: string]: Memory } = JSON.parse(data);
 
-            // Update existing memories
+            // Update used memories
             if (response.memoriesUsed) {
-                for (const usedMemory of response.memoriesUsed) {
-                    const existingIndex = memories.findIndex((m) => m.id === usedMemory.id);
-                    if (existingIndex !== -1) {
-                        memories[existingIndex].times_used++;
-                        memories[existingIndex].active = true;
+                for (const cellId of response.memoriesUsed) {
+                    if (allMemories[cellId]) {
+                        allMemories[cellId].times_used++;
                     }
                 }
             }
 
-            // Add new memory if suggested and not already existing
-            if (response.addMemory) {
-                const existingIndex = memories.findIndex((m) => m.id === response.addMemory?.id);
-                if (existingIndex === -1) {
-                    // Only add if it doesn't exist
-                    memories.push({
-                        ...response.addMemory,
-                        times_used: 1,
-                        active: true,
-                    });
-                } else {
-                    // If it exists, just increment times_used and ensure it's active
-                    memories[existingIndex].times_used++;
-                    memories[existingIndex].active = true;
+            // Process memory updates
+            if (response.memoryUpdates) {
+                for (const update of response.memoryUpdates) {
+                    if (!allMemories[update.cellId]) {
+                        allMemories[update.cellId] = { content: "", times_used: 0 };
+                    }
+                    allMemories[update.cellId].content = update.content;
+                    allMemories[update.cellId].times_used++;
                 }
             }
 
-            // Sort memories by times_used (descending) and active status
-            memories.sort((a, b) => {
-                if (a.active === b.active) {
-                    return b.times_used - a.times_used;
-                }
-                return a.active ? -1 : 1;
-            });
-
-            // Keep only the top MAX_MEMORIES active, inactivate the rest
-            memories = memories.map((memory, index) => ({
-                ...memory,
-                active: index < MAX_MEMORIES,
-            }));
-
-            await fs.writeFile(this.silverPathFile, JSON.stringify(memories, null, 2));
+            await fs.writeFile(this.silverPathFile, JSON.stringify(allMemories, null, 2));
         } catch (error) {
             console.error("Error updating memories:", error);
         }

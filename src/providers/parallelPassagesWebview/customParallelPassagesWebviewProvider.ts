@@ -42,7 +42,6 @@ async function openFileAtLocation(uri: string, cellId: string) {
         vscode.window.showErrorMessage(`Failed to open file: ${uri}`);
     }
 }
-
 async function handleSilverPathChatStream(
     webviewView: vscode.WebviewView,
     cellIds: string[],
@@ -64,38 +63,29 @@ async function handleSilverPathChatStream(
 
         // Generate translation using the SilverPath command
         const result = await vscode.commands.executeCommand<{
-            translation: AssistantMessage;
+            translation: Response;
             usedCellIds: string[];
-            nextUntranslatedCell?: {
-                cellId: string;
-                content: string;
-            };
         }>("silverPath.generateTranslation", query, sourceContent, cellIds[0]);
 
         if (!result || !result.translation) {
             throw new Error("Failed to generate translation");
         }
 
-        // Send the translation back to the webview
+        // Send the entire result object back to the webview
         webviewView.webview.postMessage({
             command: "silverPathTranslation",
-            data: {
-                translation: result.translation,
-                usedCellIds: result.usedCellIds,
-                nextUntranslatedCell: result.nextUntranslatedCell,
-            },
+            data: result,
         });
 
-        // Send the used cell IDs back to the webview
+        // Optionally, you can handle pinning cells here if needed
         // for (const cellId of result.usedCellIds) {
         //     await vscode.commands.executeCommand("parallelPassages.pinCellById", cellId);
         // }
-        // I commented this out for now, but we should think about a way to display these? FIXME
     } catch (error) {
-        console.error("Error in chat stream:", error);
+        console.error("Error in SilverPath chat stream:", error);
         webviewView.webview.postMessage({
             command: "chatResponseStream",
-            data: `Error: Failed to process chat request. ${error instanceof Error ? error.message : "Unknown error"}`,
+            data: `Error: Failed to process SilverPath request. ${error instanceof Error ? error.message : "Unknown error"}`,
         });
         webviewView.webview.postMessage({
             command: "chatResponseComplete",

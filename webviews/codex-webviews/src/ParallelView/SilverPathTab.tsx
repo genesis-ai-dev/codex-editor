@@ -15,10 +15,11 @@ export interface UserMessage extends SilverPathMessageBase {
 
 export interface AssistantMessage extends SilverPathMessageBase {
     role: "assistant";
+    message: string;
     thinking: string[];
     translation: string;
     memoriesUsed: string[];
-    addMemory: string[];
+    memoryUpdates?: { cellId: string; content: string; reason: string }[];
 }
 
 export type SilverPathMessage = UserMessage | AssistantMessage;
@@ -53,7 +54,13 @@ const defaultAssistantMessage: AssistantMessage = {
     ],
     translation: "This is where the translated verse or response will appear.",
     memoriesUsed: ["Example relevant information 1", "Example relevant information 2"],
-    addMemory: ["New information or insight gained from this interaction"],
+    memoryUpdates: [
+        {
+            cellId: "1",
+            content: "New information or insight gained from this interaction",
+            reason: "Reason for update",
+        },
+    ],
 };
 
 function SilverPathTab({
@@ -94,6 +101,11 @@ function SilverPathTab({
     const renderAssistantResponse = (message: AssistantMessage, index: number) => {
         return (
             <>
+                <div className="silver-path-segment message-silver-path">
+                    <h3>Message</h3>
+                    <p>{message.message}</p>
+                </div>
+
                 <div
                     className={`silver-path-segment thinking-silver-path ${
                         expandedThoughts.has(index) ? "expanded" : ""
@@ -112,9 +124,7 @@ function SilverPathTab({
                     <div
                         className="translation-content-silver-path silver-path-code"
                         dangerouslySetInnerHTML={{
-                            __html: message.translation.startsWith("<span>")
-                                ? message.translation
-                                : `<span>${message.translation}</span>`,
+                            __html: message.translation,
                         }}
                     />
                     <div className="translation-actions-silver-path">
@@ -150,12 +160,12 @@ function SilverPathTab({
                     )}
                 </div>
 
-                {message.addMemory.length > 0 && (
+                {message.memoryUpdates && message.memoryUpdates.length > 0 && (
                     <div className="silver-path-segment new-memory-silver-path">
                         <h3>New Information</h3>
                         <ul>
-                            {message.addMemory.map((memory, idx) => (
-                                <li key={idx}>{memory}</li>
+                            {message.memoryUpdates?.map((memory, idx) => (
+                                <li key={idx}>{memory.content}</li>
                             ))}
                         </ul>
                     </div>

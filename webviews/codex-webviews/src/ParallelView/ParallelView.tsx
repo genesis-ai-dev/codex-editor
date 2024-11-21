@@ -151,14 +151,11 @@ function ParallelView() {
                             {
                                 role: "assistant",
                                 content: result.translation.message,
+                                message: result.translation.message,
                                 thinking: result.translation.thinking,
                                 translation: result.translation.translation,
-                                memoriesUsed:
-                                    result.translation.memoriesUsed?.map((m: any) => m.memory) ||
-                                    [],
-                                addMemory: result.translation.addMemory
-                                    ? [result.translation.addMemory.memory]
-                                    : [],
+                                memoriesUsed: result.translation.memoriesUsed || [],
+                                memoryUpdates: result.translation.memoryUpdates || [],
                             } as AssistantMessage,
                         ]);
                         setIsLoading(false);
