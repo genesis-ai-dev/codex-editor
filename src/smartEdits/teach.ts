@@ -72,13 +72,13 @@ interface Response {
     memoryUpdates?: MemoryUpdate[];
 }
 
-export class SilverPath {
+export class Teach {
     private chatbot: Chatbot;
-    private silverPathFile: string;
+    private teachFile: string;
 
     constructor(workspaceUri: vscode.Uri) {
         this.chatbot = new Chatbot(SYSTEM_MESSAGE);
-        this.silverPathFile = path.join(workspaceUri.fsPath, "files", "silver_path_memories.json");
+        this.teachFile = path.join(workspaceUri.fsPath, "files", "silver_path_memories.json");
     }
 
     async generateTranslation(
@@ -96,7 +96,7 @@ export class SilverPath {
         });
 
         const response = await this.chatbot.getJsonCompletionWithHistory(prompt);
-        console.log("SilverPath response:", response);
+        console.log("Teach response:", response);
         await this.updateMemories(response);
 
         const usedCellIds = [cellId, ...similarPairs.map((pair) => pair.cellId)];
@@ -134,14 +134,14 @@ Memory: ${memory.content}
 
     private async readAllMemories(): Promise<{ [cellId: string]: Memory }> {
         try {
-            await fs.access(this.silverPathFile);
+            await fs.access(this.teachFile);
         } catch (error) {
             // File doesn't exist, create it with an empty object
-            await fs.writeFile(this.silverPathFile, "{}", "utf-8");
+            await fs.writeFile(this.teachFile, "{}", "utf-8");
         }
 
         try {
-            const data = await fs.readFile(this.silverPathFile, "utf-8");
+            const data = await fs.readFile(this.teachFile, "utf-8");
             return JSON.parse(data);
         } catch (error) {
             console.error("Error reading memories:", error);
@@ -151,7 +151,7 @@ Memory: ${memory.content}
 
     private async updateMemories(response: Response): Promise<void> {
         try {
-            const data = await fs.readFile(this.silverPathFile, "utf-8");
+            const data = await fs.readFile(this.teachFile, "utf-8");
             const allMemories: { [cellId: string]: Memory } = JSON.parse(data);
 
             // Update used memories
@@ -174,7 +174,7 @@ Memory: ${memory.content}
                 }
             }
 
-            await fs.writeFile(this.silverPathFile, JSON.stringify(allMemories, null, 2));
+            await fs.writeFile(this.teachFile, JSON.stringify(allMemories, null, 2));
         } catch (error) {
             console.error("Error updating memories:", error);
         }

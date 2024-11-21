@@ -215,7 +215,7 @@
     }
 }
 
-/* Additional styles from SilverPathTab.css */
+/* Additional styles from TeachTab.css */
 .current-passage {
     position: static;
     background-color: var(--vscode-activityBarBadge-background);

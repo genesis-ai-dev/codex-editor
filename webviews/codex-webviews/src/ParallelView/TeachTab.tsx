@@ -4,16 +4,16 @@ import ReactMarkdown from "react-markdown";
 import { TranslationPair } from "../../../../types";
 import "./SharedStyles.css";
 
-export interface SilverPathMessageBase {
+export interface TeachMessageBase {
     role: "user" | "assistant";
     content: string;
 }
 
-export interface UserMessage extends SilverPathMessageBase {
+export interface UserMessage extends TeachMessageBase {
     role: "user";
 }
 
-export interface AssistantMessage extends SilverPathMessageBase {
+export interface AssistantMessage extends TeachMessageBase {
     role: "assistant";
     message: string;
     thinking: string[];
@@ -22,10 +22,10 @@ export interface AssistantMessage extends SilverPathMessageBase {
     memoryUpdates?: { cellId: string; content: string; reason: string }[];
 }
 
-export type SilverPathMessage = UserMessage | AssistantMessage;
+export type TeachMessage = UserMessage | AssistantMessage;
 
-interface SilverPathTabProps {
-    chatHistory: SilverPathMessage[];
+interface TeachTabProps {
+    chatHistory: TeachMessage[];
     chatInput: string;
     onChatInputChange: (input: string) => void;
     onChatSubmit: () => void;
@@ -64,7 +64,7 @@ const defaultAssistantMessage: AssistantMessage = {
     ],
 };
 
-function SilverPathTab({
+function TeachTab({
     chatHistory,
     chatInput,
     onChatInputChange,
@@ -76,7 +76,7 @@ function SilverPathTab({
     targetPassage,
     isLoading,
     onNavigateToNextPinnedCell,
-}: SilverPathTabProps) {
+}: TeachTabProps) {
     const chatHistoryRef = useRef<HTMLDivElement>(null);
 
     const [expandedThoughts, setExpandedThoughts] = useState<Set<number>>(new Set());
@@ -267,4 +267,4 @@ function SilverPathTab({
     );
 }
 
-export default React.memo(SilverPathTab);
+export default React.memo(TeachTab);
