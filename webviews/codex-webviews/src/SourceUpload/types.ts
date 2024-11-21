@@ -4,8 +4,8 @@ import { DownloadBibleTransaction } from "../../../../src/transactions/DownloadB
 // Add ImportType type
 export type ImportType = "source" | "translation" | "bible-download";
 
-// Update WorkflowStep to include the new initial step
-export type WorkflowStep = "type-select" | "select" | "preview" | "processing" | "complete";
+// Update WorkflowStep to include the new initial steps
+export type WorkflowStep = "auth" | "project-select" | "type-select" | "select" | "preview" | "processing" | "complete";
 
 export type ProcessingStatus = "pending" | "active" | "complete" | "error";
 
@@ -41,6 +41,25 @@ export interface BibleDownloadState {
     };
 }
 
+// Add project selection type
+export type ProjectSelectionType = "clone" | "open" | "new";
+
+// Add authentication state interface
+export interface AuthState {
+    isAuthenticated: boolean;
+    isAuthExtensionInstalled: boolean;
+    isLoading: boolean;
+    error?: string;
+}
+
+// Add project selection state interface
+export interface ProjectSelectionState {
+    type?: ProjectSelectionType;
+    path?: string;
+    repoUrl?: string;
+    error?: string;
+}
+
 export interface MultiPreviewItem {
     id: string; // Unique ID for each preview
     fileName: string;
@@ -65,6 +84,8 @@ export interface TranslationAssociation {
 export interface WorkflowState {
     step: WorkflowStep;
     importType: ImportType | null;
+    authState: AuthState;
+    projectSelection: ProjectSelectionState;
     selectedFiles: string[];
     fileObjects: File[];
     selectedSourceId?: string;

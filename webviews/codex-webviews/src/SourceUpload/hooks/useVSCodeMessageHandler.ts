@@ -3,7 +3,6 @@ import { SourceUploadResponseMessages } from "../../../../../types";
 import { WorkflowState, BibleDownloadStages } from "../types";
 import path from "path";
 
-const vscode = acquireVsCodeApi();
 const initialWorkflowState: WorkflowState = {
     step: "type-select",
     selectedFiles: [],
@@ -12,6 +11,16 @@ const initialWorkflowState: WorkflowState = {
     previews: [],
     processingStages: {},
     importType: null,
+    authState: {
+        isAuthExtensionInstalled: false,
+        isLoading: false,
+        isAuthenticated: false,
+        error: undefined,
+    },
+    projectSelection: {
+        path: undefined,
+        error: undefined,
+    },
 };
 
 const getBibleDownloadStages = (): BibleDownloadStages => ({
@@ -47,17 +56,62 @@ const getBibleDownloadStages = (): BibleDownloadStages => ({
     },
 });
 
-export function useVSCodeMessageHandler() {
-    const [workflow, setWorkflow] = useState<WorkflowState>(initialWorkflowState);
+export const useVSCodeMessageHandler = (vscode: any) => {
+    const [workflowState, setWorkflowState] = useState<WorkflowState>(initialWorkflowState);
 
-    const handleMessage = useCallback(
-        (event: MessageEvent<SourceUploadResponseMessages>) => {
+    useEffect(() => {
+        const handleMessage = (event: MessageEvent<SourceUploadResponseMessages>) => {
             const message = event.data;
 
             switch (message.command) {
+                case "extension.checkResponse":
+                    setWorkflowState((prev) => ({
+                        ...prev,
+                        authState: {
+                            ...prev.authState,
+                            isAuthExtensionInstalled: message.isInstalled,
+                            isLoading: false,
+                        },
+                    }));
+                    break;
+
+                case "auth.statusResponse":
+                    setWorkflowState((prev) => ({
+                        ...prev,
+                        authState: {
+                            ...prev.authState,
+                            isAuthenticated: message.isAuthenticated,
+                            isLoading: false,
+                            error: message.error,
+                        },
+                    }));
+                    break;
+
+                case "project.response":
+                    if (message.success) {
+                        setWorkflowState((prev) => ({
+                            ...prev,
+                            step: "type-select",
+                            projectSelection: {
+                                ...prev.projectSelection,
+                                path: message.projectPath,
+                                error: undefined,
+                            },
+                        }));
+                    } else {
+                        setWorkflowState((prev) => ({
+                            ...prev,
+                            projectSelection: {
+                                ...prev.projectSelection,
+                                error: message.error,
+                            },
+                        }));
+                    }
+                    break;
+
                 case "bibleDownloadProgress":
                     if (message.progress) {
-                        setWorkflow((prev) => ({
+                        setWorkflowState((prev) => ({
                             ...prev,
                             step: "processing",
                             processingStages: Object.entries(message.progress?.status || {}).reduce(
@@ -81,7 +135,7 @@ export function useVSCodeMessageHandler() {
                     break;
 
                 case "bibleDownloadComplete":
-                    setWorkflow((prev) => ({
+                    setWorkflowState((prev) => ({
                         ...prev,
                         step: "complete",
                         processingStages: Object.entries(getBibleDownloadStages()).reduce(
@@ -100,7 +154,7 @@ export function useVSCodeMessageHandler() {
 
                 case "availableCodexFiles":
                     if (message.files) {
-                        setWorkflow((prev) => ({
+                        setWorkflowState((prev) => ({
                             ...prev,
                             availableCodexFiles: message.files,
                         }));
@@ -109,7 +163,7 @@ export function useVSCodeMessageHandler() {
 
                 case "sourcePreview":
                     if (message.previews) {
-                        setWorkflow((prev) => ({
+                        setWorkflowState((prev) => ({
                             ...prev,
                             step: "preview",
                             previews: message.previews.map((preview) => ({
@@ -125,7 +179,7 @@ export function useVSCodeMessageHandler() {
 
                 case "translationPreview":
                     if (message.previews) {
-                        setWorkflow((prev) => ({
+                        setWorkflowState((prev) => ({
                             ...prev,
                             step: "preview",
                             previews: message.previews.map((preview) => ({
@@ -147,7 +201,7 @@ export function useVSCodeMessageHandler() {
 
                 case "bibleDownloadError":
                     if (message.error) {
-                        setWorkflow((prev) => ({
+                        setWorkflowState((prev) => ({
                             ...prev,
                             error: message.error,
                             bibleDownload: {
@@ -160,7 +214,7 @@ export function useVSCodeMessageHandler() {
 
                 case "updateProcessingStatus":
                     if (message.status) {
-                        setWorkflow((prev) => ({
+                        setWorkflowState((prev) => ({
                             ...prev,
                             step: "processing",
                             processingStages: Object.entries(message.status || {}).reduce(
@@ -178,7 +232,7 @@ export function useVSCodeMessageHandler() {
                     break;
 
                 case "importComplete":
-                    setWorkflow((prev) => ({
+                    setWorkflowState((prev) => ({
                         ...prev,
                         step: "complete",
                     }));
@@ -186,7 +240,7 @@ export function useVSCodeMessageHandler() {
 
                 case "error":
                     if (message) {
-                        setWorkflow((prev) => ({
+                        setWorkflowState((prev) => ({
                             ...prev,
                             error: message.message,
                         }));
@@ -195,7 +249,7 @@ export function useVSCodeMessageHandler() {
 
                 case "biblePreview":
                     if (message.preview) {
-                        setWorkflow((prev) => ({
+                        setWorkflowState((prev) => ({
                             ...prev,
                             step: "preview",
                             preview: message.preview,
@@ -204,14 +258,14 @@ export function useVSCodeMessageHandler() {
                     }
                     break;
             }
-        },
-        [setWorkflow]
-    );
+        };
 
-    useEffect(() => {
         window.addEventListener("message", handleMessage);
         return () => window.removeEventListener("message", handleMessage);
-    }, [handleMessage]);
+    }, []);
 
-    return { vscode, workflow, setWorkflow };
-}
+    return {
+        workflowState,
+        setWorkflowState,
+    };
+};

@@ -216,7 +216,14 @@ export type SourceUploadPostMessages =
     | { command: "importRemoteTranslation" }
     | { command: "importLocalTranslation" }
     | { command: "closePanel" }
-    | { command: "previewSourceText"; fileContent: string; fileName: string };
+    | { command: "previewSourceText"; fileContent: string; fileName: string }
+    | { command: "extension.check"; extensionId: string }
+    | { command: "auth.login"; email: string; password: string }
+    | { command: "auth.signup"; email: string; password: string }
+    | { command: "auth.status" }
+    | { command: "project.clone"; repoUrl: string }
+    | { command: "project.open" }
+    | { command: "project.new" };
 
 export type SourceUploadResponseMessages =
     | {
@@ -265,7 +272,10 @@ export type SourceUploadResponseMessages =
           preview: BiblePreviewData;
           transaction: DownloadBibleTransaction;
       }
-    | { command: "bibleDownloadCancelled" };
+    | { command: "bibleDownloadCancelled" }
+    | { command: "extension.checkResponse"; isInstalled: boolean }
+    | { command: "auth.statusResponse"; isAuthenticated: boolean; error?: string }
+    | { command: "project.response"; success: boolean; projectPath?: string; error?: string };
 
 type DictionaryPostMessages =
     | {
