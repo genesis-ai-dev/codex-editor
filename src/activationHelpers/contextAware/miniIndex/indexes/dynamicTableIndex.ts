@@ -63,7 +63,6 @@ function detectDelimiter(firstLine: string): string {
 export async function parseTableFile(uri: vscode.Uri): Promise<[TableRecord[], string[]]> {
     const document = await vscode.workspace.openTextDocument(uri);
     const content = document.getText();
-    console.log({ content });
     const records: TableRecord[] = [];
     const lines = content.split("\n").filter((line) => line.trim() !== "");
 

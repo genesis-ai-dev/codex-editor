@@ -22,13 +22,6 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
     const [isRegistering, setIsRegistering] = useState(false);
 
     useEffect(() => {
-        // Check auth status when component mounts
-        vscode.postMessage({
-            command: "checkAuthStatus",
-        });
-    }, []);
-
-    useEffect(() => {
         if (authState.isAuthenticated) {
             onAuthComplete();
         }
@@ -41,6 +34,12 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
             command,
             email,
             password,
+        });
+    };
+
+    const handleLogin = () => {
+        vscode.postMessage({
+            command: "auth.status",
         });
     };
 

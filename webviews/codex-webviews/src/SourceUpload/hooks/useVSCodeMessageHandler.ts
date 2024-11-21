@@ -60,9 +60,17 @@ export const useVSCodeMessageHandler = (vscode: any) => {
     const [workflowState, setWorkflowState] = useState<WorkflowState>(initialWorkflowState);
 
     useEffect(() => {
+        // Request auth status when component mounts
+        console.log("Requesting initial auth status");
+        vscode.postMessage({
+            command: "auth.status",
+        });
+    }, [vscode]);
+
+    useEffect(() => {
         const handleMessage = (event: MessageEvent<SourceUploadResponseMessages>) => {
             const message = event.data;
-
+            console.log("useVSCodeMessageHandler Received message:", message);
             switch (message.command) {
                 case "extension.checkResponse":
                     setWorkflowState((prev) => ({
@@ -70,19 +78,17 @@ export const useVSCodeMessageHandler = (vscode: any) => {
                         authState: {
                             ...prev.authState,
                             isAuthExtensionInstalled: message.isInstalled,
-                            isLoading: false,
                         },
                     }));
                     break;
 
-                case "auth.statusResponse":
+                case "updateAuthState":
+                    console.log("useVSCodeMessageHandler Received auth state update:", message);
                     setWorkflowState((prev) => ({
                         ...prev,
                         authState: {
                             ...prev.authState,
-                            isAuthenticated: message.isAuthenticated,
-                            isLoading: false,
-                            error: message.error,
+                            ...message.authState,
                         },
                     }));
                     break;

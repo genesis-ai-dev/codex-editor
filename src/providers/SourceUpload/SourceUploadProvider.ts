@@ -102,6 +102,14 @@ function getNonce(): string {
     return text;
 }
 
+const DEBUG_MODE = true; // Set to true to enable debug logging
+
+function debugLog(...args: any[]): void {
+    if (DEBUG_MODE) {
+        console.log("[SourceUploadProvider]", ...args);
+    }
+}
+
 export class SourceUploadProvider
     implements vscode.TextDocumentContentProvider, vscode.CustomTextEditorProvider
 {
@@ -153,9 +161,6 @@ export class SourceUploadProvider
         webviewPanel.webview.onDidReceiveMessage(async (message: SourceUploadPostMessages) => {
             try {
                 switch (message.command) {
-                    case "getMetadata":
-                        await this.updateMetadata(webviewPanel);
-                        break;
                     case "uploadSourceText": {
                         try {
                             if (Array.isArray(message.files)) {
@@ -631,6 +636,7 @@ export class SourceUploadProvider
                     case "auth.status":
                     case "auth.login":
                     case "auth.signup":
+                        debugLog("Handling authentication message", message.command);
                         await this.handleAuthenticationMessage(webviewPanel, message);
                         break;
 
@@ -692,22 +698,6 @@ export class SourceUploadProvider
         const metadataManager = new NotebookMetadataManager();
         await metadataManager.initialize();
         await metadataManager.loadMetadata();
-        const allMetadata = metadataManager.getAllMetadata();
-
-        const aggregatedMetadata = allMetadata.map((metadata) => ({
-            id: metadata.id,
-            originalName: metadata.originalName,
-            sourceFsPath: metadata.sourceFsPath,
-            codexFsPath: metadata.codexFsPath,
-            videoUrl: metadata.videoUrl,
-            lastModified: metadata.codexLastModified,
-            gitStatus: metadata?.gitStatus,
-        }));
-
-        webviewPanel.webview.postMessage({
-            command: "updateMetadata",
-            metadata: aggregatedMetadata,
-        });
     }
 
     private async updateCodexFiles(webviewPanel: vscode.WebviewPanel) {
@@ -1265,11 +1255,13 @@ export class SourceUploadProvider
         webviewPanel: vscode.WebviewPanel,
         message: SourceUploadPostMessages
     ) {
+        debugLog("Handling authentication message", message.command);
         const extension = await vscode.extensions
             .getExtension("frontier-rnd.frontier-authentication")
             ?.activate();
 
         if (!extension) {
+            debugLog("Authentication extension not found");
             webviewPanel.webview.postMessage({
                 command: "updateAuthState",
                 authState: {
@@ -1283,8 +1275,10 @@ export class SourceUploadProvider
 
         switch (message.command) {
             case "auth.status": {
+                debugLog("Getting auth status");
                 try {
                     const status = await extension.getAuthStatus();
+                    debugLog("Got auth status", status);
                     webviewPanel.webview.postMessage({
                         command: "updateAuthState",
                         authState: {
@@ -1294,6 +1288,7 @@ export class SourceUploadProvider
                         },
                     } as SourceUploadResponseMessages);
                 } catch (error) {
+                    debugLog("Error getting auth status", error);
                     webviewPanel.webview.postMessage({
                         command: "updateAuthState",
                         authState: {
@@ -1310,8 +1305,10 @@ export class SourceUploadProvider
                 break;
             }
             case "auth.login": {
+                debugLog("Attempting login");
                 try {
                     await extension.login(message.email, message.password);
+                    debugLog("Login successful");
                     webviewPanel.webview.postMessage({
                         command: "updateAuthState",
                         authState: {
@@ -1321,6 +1318,7 @@ export class SourceUploadProvider
                         },
                     } as SourceUploadResponseMessages);
                 } catch (error) {
+                    debugLog("Login failed", error);
                     webviewPanel.webview.postMessage({
                         command: "updateAuthState",
                         authState: {
