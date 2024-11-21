@@ -7,7 +7,8 @@ interface EmptyCellDisplayProps {
     cellLabel?: string;
     setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorCellContent>>;
     textDirection: "ltr" | "rtl";
-    vscode: any; // Add vscode prop
+    vscode: any;
+    openCellById: (cellId: string, text: string) => void;
 }
 
 const EmptyCellDisplay: React.FC<EmptyCellDisplayProps> = ({
@@ -15,22 +16,19 @@ const EmptyCellDisplay: React.FC<EmptyCellDisplayProps> = ({
     cellLabel,
     setContentBeingUpdated,
     textDirection,
-    vscode, // Add vscode to the destructured props
+    vscode,
+    openCellById,
 }) => {
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
+
     const handleClick = () => {
         if (unsavedChanges) {
             toggleFlashingBorder();
             return;
         }
-        setContentBeingUpdated({
-            cellMarkers,
-            cellContent: "",
-            cellChanged: false,
-            cellLabel: cellLabel || "",
-        });
 
-        // Add this block to update the global state
+        openCellById(cellMarkers[0], "");
+
         vscode.postMessage({
             command: "setCurrentIdToGlobalState",
             content: { currentLineId: cellMarkers[0] },

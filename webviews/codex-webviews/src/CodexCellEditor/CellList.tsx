@@ -167,6 +167,7 @@ const CellList: React.FC<CellListProps> = ({
                             handleCloseEditor={handleCloseEditor}
                             handleSaveHtml={handleSaveHtml}
                             textDirection={textDirection}
+                            openCellById={openCellById}
                         />
                     </span>
                 );
@@ -184,6 +185,7 @@ const CellList: React.FC<CellListProps> = ({
                         setContentBeingUpdated={setContentBeingUpdated}
                         textDirection={textDirection}
                         vscode={vscode}
+                        openCellById={openCellById}
                     />
                 );
                 groupStartIndex = i + 1;
@@ -208,6 +210,27 @@ const CellList: React.FC<CellListProps> = ({
         textDirection,
         vscode,
     ]);
+
+    const openCellById = useCallback(
+        (cellId: string, text: string) => {
+            const cellToOpen = translationUnits.find((unit) => unit.cellMarkers[0] === cellId);
+
+            if (cellToOpen) {
+                setContentBeingUpdated({
+                    cellMarkers: cellToOpen.cellMarkers,
+                    cellContent: text,
+                    cellChanged: true,
+                    cellLabel: cellToOpen.cellLabel,
+                });
+            } else {
+                vscode.postMessage({
+                    command: "showErrorMessage",
+                    text: `Cell with ID ${cellId} not found.`,
+                });
+            }
+        },
+        [translationUnits, setContentBeingUpdated, vscode]
+    );
 
     return (
         <div

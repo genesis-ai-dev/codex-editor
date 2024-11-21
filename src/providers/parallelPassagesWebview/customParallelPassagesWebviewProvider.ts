@@ -301,6 +301,14 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 case "teachChatStream":
                     await handleTeachChatStream(webviewView, message.targetCellId, message.query);
                     break;
+                case "applyTranslation":
+                    console.log("applyTranslation", message);
+                    await vscode.commands.executeCommand(
+                        "codex-cell-editor.openCellById",
+                        message.cellId,
+                        message.translation
+                    );
+                    break;
                 case "search":
                     try {
                         const command = message.completeOnly

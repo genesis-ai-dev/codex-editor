@@ -200,6 +200,13 @@ function ParallelView() {
             setPinnedVerses(pinnedVerses.filter((v) => v.cellId !== item.cellId));
         }
     };
+    const handleApplyTranslation = (translation: string, cellId: string) => {
+        vscode.postMessage({
+            command: "applyTranslation",
+            translation: translation,
+            cellId: cellId,
+        });
+    };
 
     const handleEditMessage = (index: number) => {
         if (chatHistory[index].role === "user") {
@@ -408,6 +415,7 @@ function ParallelView() {
                     onSelectTargetPassage={handleSelectTargetPassage}
                     targetPassage={targetPassage}
                     onNavigateToNextPinnedCell={handleNavigateToNextPinnedCell}
+                    applyTranslation={handleApplyTranslation}
                 />
             </VSCodePanelView>
         </VSCodePanels>

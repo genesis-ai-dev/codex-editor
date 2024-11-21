@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useRef, useState } from "react";
+import React, { useContext, useEffect, useRef, useState, useCallback } from "react";
 import {
     EditorCellContent,
     EditorPostMessages,
@@ -41,6 +41,7 @@ interface CellEditorProps {
     cellLabel?: string;
     cellTimestamps: Timestamps | undefined;
     cellIsChild: boolean;
+    openCellById: (cellId: string, text: string) => void;
 }
 
 const CellEditor: React.FC<CellEditorProps> = ({
@@ -57,6 +58,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     cellLabel,
     cellTimestamps,
     cellIsChild,
+    openCellById,
 }) => {
     const { setUnsavedChanges, showFlashingBorder, unsavedChanges } =
         useContext(UnsavedChangesContext);
@@ -371,6 +373,41 @@ const CellEditor: React.FC<CellEditorProps> = ({
             },
         });
     };
+
+    const handleOpenCellById = useCallback(
+        (cellId: string, text: string) => {
+            // First, save the current cell if there are unsaved changes
+            if (unsavedChanges) {
+                handleSaveHtml();
+            }
+            // Then, open the new cell and set its content
+            openCellById(cellId, text);
+
+            // Update the local state with the new content
+            setContentBeingUpdated((prev) => ({
+                ...prev,
+                cellContent: text,
+                cellChanged: true,
+            }));
+
+            // Update the editor content
+            setEditorContent(text);
+        },
+        [unsavedChanges, handleSaveHtml, openCellById, setContentBeingUpdated, setEditorContent]
+    );
+
+    useEffect(() => {
+        const handleMessage = (event: MessageEvent) => {
+            const message = event.data;
+            if (message.type === "openCellById") {
+                handleOpenCellById(message.cellId, message.text);
+            }
+        };
+
+        window.addEventListener("message", handleMessage);
+
+        // We're not returning a cleanup function here
+    }, []); // Empty dependency array means this effect runs once on mount
 
     return (
         <div ref={cellEditorRef} className="cell-editor" style={{ direction: textDirection }}>

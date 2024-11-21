@@ -40,6 +40,7 @@ interface TeachTabProps {
     targetPassage: string | null;
     isLoading: boolean;
     onNavigateToNextPinnedCell: () => void;
+    applyTranslation: (translation: string, cellId: string) => void;
 }
 
 const defaultAssistantMessage: AssistantMessage = {
@@ -76,6 +77,7 @@ function TeachTab({
     targetPassage,
     isLoading,
     onNavigateToNextPinnedCell,
+    applyTranslation,
 }: TeachTabProps) {
     const chatHistoryRef = useRef<HTMLDivElement>(null);
 
@@ -137,7 +139,9 @@ function TeachTab({
                         <VSCodeButton
                             appearance="icon"
                             onClick={() => {
-                                /* TODO: Implement apply functionality */
+                                if (targetPassage) {
+                                    applyTranslation(message.translation, targetPassage);
+                                }
                             }}
                             title="Apply translation"
                         >
