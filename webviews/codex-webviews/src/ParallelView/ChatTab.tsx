@@ -107,6 +107,10 @@ function ChatTab({
         <div className="tab-container">
             <div className="pinned-verses">
                 <h3>Pinned Verses:</h3>
+                <p className="select-target-instruction">
+                    These verses are used as context for conversing with the Codex Assistant. You
+                    may edit them in the 'search' tab.
+                </p>
                 {pinnedVerses.length > 0 ? (
                     <div className="pinned-verses-list">
                         {pinnedVerses.map((verse) => (

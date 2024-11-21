@@ -49,10 +49,9 @@ You have control over memory management. Use the "memoryUpdates" field to update
 1. Update existing memories if you have new insights or information.
 2. If a cell doesn't have a memory yet, you can create one by providing an update for it.
 3. To effectively delete a memory, update its content to an empty string.
-4. You should update a memory at least once every translation if you can.
-5. Always update it given relevant user feedback.
-6. Don't use it to save translations, only use it to save information you find useful, notes, or user feedback (especially user feedback!).
-7. They should be as generally applicable as possible, and concise.
+4. Update memories whenever the user gives feedback.
+5. Don't use it to save translations, only use it to save information you find useful, notes, or user feedback (especially user feedback!).
+6. They should be as generally applicable as possible, and concise.
 `;
 interface Memory {
     content: string;
