@@ -300,7 +300,7 @@ function ParallelView() {
         vscode.postMessage({
             command: "silverPathChatStream",
             query: silverPathChatInput,
-            context: verses.map((verse) => verse.cellId),
+            targetCellId: targetPassage,
         });
 
         setSilverPathChatInput("");
@@ -311,6 +311,7 @@ function ParallelView() {
     };
 
     const handleSelectTargetPassage = (cellId: string) => {
+        console.log("handleSelectTargetPassage", cellId);
         setTargetPassage(cellId);
     };
 

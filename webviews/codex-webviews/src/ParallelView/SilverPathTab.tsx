@@ -45,6 +45,7 @@ interface SilverPathTabProps {
 const defaultAssistantMessage: AssistantMessage = {
     role: "assistant",
     content: "Here's an example of how I'll respond to your query.",
+    message: "This is a default message.",
     thinking: [
         "1. Analyze the verse and context",
         "2. Consider translation pairs",
@@ -101,11 +102,6 @@ function SilverPathTab({
     const renderAssistantResponse = (message: AssistantMessage, index: number) => {
         return (
             <>
-                <div className="silver-path-segment message-silver-path">
-                    <h3>Message</h3>
-                    <p>{message.message}</p>
-                </div>
-
                 <div
                     className={`silver-path-segment thinking-silver-path ${
                         expandedThoughts.has(index) ? "expanded" : ""
@@ -118,7 +114,10 @@ function SilverPathTab({
                         ))}
                     </ul>
                 </div>
-
+                <div className="silver-path-segment">
+                    <h3>Message</h3>
+                    <p>{message.message}</p>
+                </div>
                 <div className="silver-path-segment translation-silver-path">
                     <h3>Translation / Response</h3>
                     <div

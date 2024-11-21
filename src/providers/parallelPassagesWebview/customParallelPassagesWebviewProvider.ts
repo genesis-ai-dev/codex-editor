@@ -44,19 +44,18 @@ async function openFileAtLocation(uri: string, cellId: string) {
 }
 async function handleSilverPathChatStream(
     webviewView: vscode.WebviewView,
-    cellIds: string[],
-    query: string,
-    editIndex?: number
+    targetCellId: string,
+    query: string
 ) {
     try {
         // Get source content directly
         const sourceCell = await vscode.commands.executeCommand<SourceCellVersions | null>(
             "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
-            cellIds[0]
+            targetCellId
         );
 
         if (!sourceCell || !sourceCell.content) {
-            throw new Error(`No source content found for cell ID: ${cellIds[0]}`);
+            throw new Error(`No source content found for cell ID: ${targetCellId}`);
         }
 
         const sourceContent = sourceCell.content;
@@ -65,7 +64,7 @@ async function handleSilverPathChatStream(
         const result = await vscode.commands.executeCommand<{
             translation: Response;
             usedCellIds: string[];
-        }>("silverPath.generateTranslation", query, sourceContent, cellIds[0]);
+        }>("silverPath.generateTranslation", query, sourceContent, targetCellId);
 
         if (!result || !result.translation) {
             throw new Error("Failed to generate translation");
@@ -302,9 +301,8 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 case "silverPathChatStream":
                     await handleSilverPathChatStream(
                         webviewView,
-                        message.context,
-                        message.query,
-                        message.editIndex
+                        message.targetCellId,
+                        message.query
                     );
                     break;
                 case "search":

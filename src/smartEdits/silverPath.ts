@@ -52,6 +52,7 @@ You have control over memory management. Use the "memoryUpdates" field to update
 4. You should update a memory at least once every translation if you can.
 5. Always update it given relevant user feedback.
 6. Don't use it to save translations, only use it to save information you find useful, notes, or user feedback (especially user feedback!).
+7. They should be as generally applicable as possible, and concise.
 `;
 interface Memory {
     content: string;
