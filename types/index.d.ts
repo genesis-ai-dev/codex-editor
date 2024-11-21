@@ -221,6 +221,7 @@ export type SourceUploadPostMessages =
     | { command: "auth.login"; email: string; password: string }
     | { command: "auth.signup"; email: string; password: string }
     | { command: "auth.status" }
+    | { command: "auth.checkAuthStatus" }
     | { command: "project.clone"; repoUrl: string }
     | { command: "project.open" }
     | { command: "project.new" };
@@ -275,7 +276,17 @@ export type SourceUploadResponseMessages =
     | { command: "bibleDownloadCancelled" }
     | { command: "extension.checkResponse"; isInstalled: boolean }
     | { command: "auth.statusResponse"; isAuthenticated: boolean; error?: string }
-    | { command: "project.response"; success: boolean; projectPath?: string; error?: string };
+    | { command: "project.response"; success: boolean; projectPath?: string; error?: string }
+    | {
+          command: "updateAuthState";
+          success: boolean;
+          authState: {
+              isAuthExtensionInstalled: boolean;
+              isAuthenticated: boolean;
+              isLoading: boolean;
+              error?: string;
+          };
+      };
 
 type DictionaryPostMessages =
     | {

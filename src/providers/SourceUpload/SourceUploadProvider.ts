@@ -628,6 +628,12 @@ export class SourceUploadProvider
                         }
                         break;
 
+                    case "auth.status":
+                    case "auth.login":
+                    case "auth.signup":
+                        await this.handleAuthenticationMessage(webviewPanel, message);
+                        break;
+
                     default:
                         console.log("Unknown message command", { message });
                         break;
@@ -1252,6 +1258,81 @@ export class SourceUploadProvider
             } as SourceUploadResponseMessages);
 
             throw error;
+        }
+    }
+
+    private async handleAuthenticationMessage(
+        webviewPanel: vscode.WebviewPanel,
+        message: SourceUploadPostMessages
+    ) {
+        const extension = await vscode.extensions
+            .getExtension("frontier-rnd.frontier-authentication")
+            ?.activate();
+
+        if (!extension) {
+            webviewPanel.webview.postMessage({
+                command: "updateAuthState",
+                authState: {
+                    isAuthExtensionInstalled: false,
+                    isAuthenticated: false,
+                    isLoading: false,
+                },
+            } as SourceUploadResponseMessages);
+            return;
+        }
+
+        switch (message.command) {
+            case "auth.status": {
+                try {
+                    const status = await extension.getAuthStatus();
+                    webviewPanel.webview.postMessage({
+                        command: "updateAuthState",
+                        authState: {
+                            isAuthExtensionInstalled: true,
+                            isAuthenticated: status.isAuthenticated,
+                            isLoading: false,
+                        },
+                    } as SourceUploadResponseMessages);
+                } catch (error) {
+                    webviewPanel.webview.postMessage({
+                        command: "updateAuthState",
+                        authState: {
+                            isAuthExtensionInstalled: true,
+                            isAuthenticated: false,
+                            isLoading: false,
+                            error:
+                                error instanceof Error
+                                    ? error.message
+                                    : "Failed to get auth status",
+                        },
+                    } as SourceUploadResponseMessages);
+                }
+                break;
+            }
+            case "auth.login": {
+                try {
+                    await extension.login(message.email, message.password);
+                    webviewPanel.webview.postMessage({
+                        command: "updateAuthState",
+                        authState: {
+                            isAuthExtensionInstalled: true,
+                            isAuthenticated: true,
+                            isLoading: false,
+                        },
+                    } as SourceUploadResponseMessages);
+                } catch (error) {
+                    webviewPanel.webview.postMessage({
+                        command: "updateAuthState",
+                        authState: {
+                            isAuthExtensionInstalled: true,
+                            isAuthenticated: false,
+                            isLoading: false,
+                            error: error instanceof Error ? error.message : "Login failed",
+                        },
+                    } as SourceUploadResponseMessages);
+                }
+                break;
+            }
         }
     }
 }

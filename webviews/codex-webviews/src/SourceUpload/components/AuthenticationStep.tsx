@@ -22,6 +22,13 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
     const [isRegistering, setIsRegistering] = useState(false);
 
     useEffect(() => {
+        // Check auth status when component mounts
+        vscode.postMessage({
+            command: "checkAuthStatus",
+        });
+    }, []);
+
+    useEffect(() => {
         if (authState.isAuthenticated) {
             onAuthComplete();
         }
@@ -29,7 +36,7 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        const command = isRegistering ? "frontier.signup" : "frontier.login";
+        const command = isRegistering ? "auth.signup" : "auth.login";
         vscode.postMessage({
             command,
             email,
