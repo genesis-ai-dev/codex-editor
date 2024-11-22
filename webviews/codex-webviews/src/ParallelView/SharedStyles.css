@@ -606,3 +606,31 @@
 .useful-feedback {
     border-left: 4px solid var(--vscode-charts-blue);
 }
+
+/* GuessNextPrompts styles */
+.guess-next-prompts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+.guess-next-prompts vscode-button {
+    background-color: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    border: 1px solid var(--vscode-button-border);
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-size: 12px;
+    transition: all 0.2s ease;
+}
+
+.guess-next-prompts vscode-button:hover {
+    background-color: var(--vscode-button-secondaryHoverBackground);
+    border-color: var(--vscode-focusBorder);
+}
+
+.guess-next-prompts vscode-button:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--vscode-focusBorder);
+}

@@ -50,6 +50,9 @@ Here are the important components you can use:
 ${USABLE_COMPONENTS}
 
 Always wrap your entire response in a <div> tag.
-Remember the main components, TranslationResponse, AddedFeedback, and ShowUsefulFeedback.
+Remember the main components, IndividuallyTranslatedVerse, AddedFeedback, and ShowUserPreference.
 All are vital.
+Lastly, end every response with a:
+<GuessNextPrompts prompts="Comma separated list of prompts"/>
+This is to geuss a few things the user might say next.
 `;

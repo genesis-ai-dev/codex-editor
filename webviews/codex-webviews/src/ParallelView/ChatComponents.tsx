@@ -19,14 +19,32 @@ interface ShowUserPreferenceProps {
     cellId: string;
 }
 
+interface GuessNextPromptsProps {
+    prompts: string[];
+    onClick: (prompt: string) => void;
+}
+
 export const RegEx = {
     IndividuallyTranslatedVerse: /<IndividuallyTranslatedVerse\s+([^>]+)\s*\/>/g,
     AddedFeedback: /<AddedFeedback\s+([^>]+)\s*\/>/g,
     ShowUserPreference: /<ShowUserPreference\s+([^>]+)\s*\/>/g,
+    GuessNextPrompts: /<GuessNextPrompts\s+([^>]+)\s*\/>/g,
 } as const;
 
 export const onCopy = (content: string) => {
     navigator.clipboard.writeText(content);
+};
+export const GuessNextPromptsComponent: React.FC<GuessNextPromptsProps> = ({
+    prompts,
+    onClick,
+}) => {
+    return (
+        <div className="guess-next-prompts">
+            {prompts.map((prompt) => (
+                <VSCodeButton onClick={() => onClick(prompt)}>{prompt}</VSCodeButton>
+            ))}
+        </div>
+    );
 };
 
 export const AddedFeedbackComponent: React.FC<AddedFeedbackProps> = ({

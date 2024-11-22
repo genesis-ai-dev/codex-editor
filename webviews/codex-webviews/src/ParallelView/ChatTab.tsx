@@ -10,6 +10,7 @@ import {
     IndividuallyTranslatedVerseComponent,
     ShowUserPreferenceComponent,
     AddedFeedbackComponent,
+    GuessNextPromptsComponent,
 } from "./ChatComponents";
 
 interface ChatTabProps {
@@ -33,6 +34,7 @@ const components = {
     IndividuallyTranslatedVerseComponent,
     AddedFeedbackComponent,
     ShowUserPreferenceComponent,
+    GuessNextPromptsComponent,
 };
 
 function ChatTab({
@@ -90,6 +92,14 @@ function ChatTab({
             setIsStreaming(false);
         }
     }, []);
+
+    const handlePromptClick = useCallback(
+        (prompt: string) => {
+            onChatInputChange(prompt);
+            onChatSubmit();
+        },
+        [onChatInputChange, onChatSubmit]
+    );
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
@@ -206,6 +216,14 @@ function ChatTab({
                                 key={`sf-${index}`}
                                 feedback={part.props.feedback}
                                 cellId={part.props.cellId}
+                            />
+                        );
+                    } else if (part.type === "GuessNextPrompts" && part.props) {
+                        return (
+                            <GuessNextPromptsComponent
+                                key={`gp-${index}`}
+                                prompts={part.props.prompts.split(",")}
+                                onClick={(prompt) => handlePromptClick(prompt)}
                             />
                         );
                     }
