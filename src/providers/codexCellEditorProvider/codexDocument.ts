@@ -20,11 +20,17 @@ export class CodexCellDocument implements vscode.CustomDocument {
     private _onDidDispose = new vscode.EventEmitter<void>();
     public readonly onDidDispose = this._onDidDispose.event;
 
-    private readonly _onDidChangeDocument = new vscode.EventEmitter<{
+    private readonly _onDidChangeForVsCodeAndWebview = new vscode.EventEmitter<{
         readonly content?: string;
         readonly edits: any[];
     }>();
-    public readonly onDidChangeContent = this._onDidChangeDocument.event;
+    public readonly onDidChangeForVsCodeAndWebview = this._onDidChangeForVsCodeAndWebview.event;
+
+    private readonly _onDidChangeForWebview = new vscode.EventEmitter<{
+        readonly content?: string;
+        readonly edits: any[];
+    }>();
+    public readonly onDidChangeForWebview = this._onDidChangeForWebview.event;
 
     constructor(uri: vscode.Uri, initialContent: string) {
         this.uri = uri;
@@ -57,7 +63,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
     dispose(): void {
         this._onDidDispose.fire();
         this._onDidDispose.dispose();
-        this._onDidChangeDocument.dispose();
+        this._onDidChangeForVsCodeAndWebview.dispose();
+        this._onDidChangeForWebview.dispose();
     }
 
     static async create(
@@ -118,7 +125,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
-        this._onDidChangeDocument.fire({
+        this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, newContent, editType }],
         });
     }
@@ -172,7 +179,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         this._documentData = JSON.parse(diskContent.toString());
         this._edits = [];
         this._isDirty = false; // Reset dirty flag
-        this._onDidChangeDocument.fire({
+        this._onDidChangeForWebview.fire({
             content: this.getText(),
             edits: [],
         });
@@ -217,7 +224,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
-        this._onDidChangeDocument.fire({
+        this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, timestamps }],
         });
     }
@@ -239,7 +246,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         });
 
         this._isDirty = true;
-        this._onDidChangeDocument.fire({
+        this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId }],
         });
     }
@@ -294,7 +301,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
-        this._onDidChangeDocument.fire({
+        this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ newCellId, referenceCellId, cellType, data }],
         });
     }
@@ -315,7 +322,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
-        this._onDidChangeDocument.fire({
+        this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ metadata: newMetadata }],
         });
     }
@@ -347,7 +354,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Set dirty flag and notify listeners about the change
         this._isDirty = true;
-        this._onDidChangeDocument.fire({
+        this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, newLabel }],
         });
     }

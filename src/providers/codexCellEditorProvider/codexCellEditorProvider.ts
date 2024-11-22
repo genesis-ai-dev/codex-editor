@@ -131,12 +131,19 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const listeners: vscode.Disposable[] = [];
 
         listeners.push(
-            document.onDidChangeContent((e) => {
+            document.onDidChangeForVsCodeAndWebview((e) => {
                 // Update the webview when the document changes
                 updateWebview();
 
                 // Fire the event to let VS Code know the document has changed
                 this._onDidChangeCustomDocument.fire({ document });
+            })
+        );
+
+        listeners.push(
+            document.onDidChangeForWebview((e) => {
+                // Update the webview when the document changes
+                updateWebview();
             })
         );
 
