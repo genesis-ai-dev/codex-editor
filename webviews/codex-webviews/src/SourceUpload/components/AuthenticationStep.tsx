@@ -20,8 +20,10 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
 }) => {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
+    const [confirmPassword, setConfirmPassword] = useState("");
     const [username, setUsername] = useState("");
     const [isRegistering, setIsRegistering] = useState(false);
+    const [passwordError, setPasswordError] = useState<string>("");
 
     useEffect(() => {
         if (authState.isAuthenticated) {
@@ -29,25 +31,47 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
         }
     }, [authState.isAuthenticated, onAuthComplete]);
 
+    const validatePassword = (password: string): boolean => {
+        if (password.length < 10) {
+            setPasswordError("Password must be at least 10 characters long");
+            return false;
+        }
+        if (!/[A-Z]/.test(password)) {
+            setPasswordError("Password must contain at least one capital letter");
+            return false;
+        }
+        if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
+            setPasswordError("Password must contain at least one special character");
+            return false;
+        }
+        setPasswordError("");
+        return true;
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         const command = isRegistering ? "auth.signup" : "auth.login";
-        console.log("Submitting", { command, username, password, email });
-        if (command === "auth.login") {
-            vscode.postMessage({
-                command,
-                username,
-                password,
-            } as SourceUploadPostMessages);
-            return;
-        } else if (command === "auth.signup") {
+
+        if (isRegistering) {
+            if (!validatePassword(password)) {
+                return;
+            }
+            if (password !== confirmPassword) {
+                setPasswordError("Passwords do not match");
+                return;
+            }
             vscode.postMessage({
                 command,
                 username,
                 password,
                 email,
             } as SourceUploadPostMessages);
-            return;
+        } else {
+            vscode.postMessage({
+                command,
+                username,
+                password,
+            } as SourceUploadPostMessages);
         }
     };
 
@@ -71,8 +95,21 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
     }
 
     return (
-        <div style={{ maxWidth: "400px", margin: "0 auto", padding: "2rem" }}>
-            <h2>{isRegistering ? "Create Account" : "Sign In"}</h2>
+        <div style={{ maxWidth: "300px", margin: "0 auto", padding: "2rem", width: "100%" }}>
+            <div
+                style={{
+                    display: "flex",
+                    gap: "1rem",
+                    flexDirection: "row",
+                    justifyContent: "flex-end",
+                    marginBottom: "1rem",
+                }}
+            >
+                <VSCodeButton appearance="icon" onClick={() => setIsRegistering(!isRegistering)}>
+                    {isRegistering ? "Already have an account?" : "Need an account?"}
+                </VSCodeButton>
+            </div>
+            <h2 style={{ marginBottom: "1rem" }}>{isRegistering ? "Create Account" : "Sign In"}</h2>
             <form onSubmit={handleSubmit}>
                 <div style={{ marginBottom: "1rem" }}>
                     <VSCodeTextField
@@ -81,6 +118,7 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
                         onChange={(e) => setUsername((e.target as HTMLInputElement).value)}
                         placeholder="Username"
                         required
+                        style={{ width: "100%" }}
                     />
                 </div>
                 {isRegistering && (
@@ -91,6 +129,7 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
                             onChange={(e) => setEmail((e.target as HTMLInputElement).value)}
                             placeholder="Email"
                             required
+                            style={{ width: "100%" }}
                         />
                     </div>
                 )}
@@ -98,25 +137,52 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
                     <VSCodeTextField
                         type="password"
                         value={password}
-                        onChange={(e) => setPassword((e.target as HTMLInputElement).value)}
+                        onChange={(e) => {
+                            const newPassword = (e.target as HTMLInputElement).value;
+                            setPassword(newPassword);
+                            if (isRegistering) {
+                                validatePassword(newPassword);
+                            }
+                        }}
                         placeholder="Password"
                         required
+                        style={{ width: "100%" }}
                     />
                 </div>
+                {isRegistering && (
+                    <div style={{ marginBottom: "1rem" }}>
+                        <VSCodeTextField
+                            type="password"
+                            value={confirmPassword}
+                            onChange={(e) =>
+                                setConfirmPassword((e.target as HTMLInputElement).value)
+                            }
+                            placeholder="Confirm Password"
+                            required
+                            style={{ width: "100%" }}
+                        />
+                    </div>
+                )}
+                {passwordError && (
+                    <div style={{ color: "var(--vscode-errorForeground)", marginBottom: "1rem" }}>
+                        {passwordError}
+                    </div>
+                )}
                 {authState.error && (
                     <div style={{ color: "var(--vscode-errorForeground)", marginBottom: "1rem" }}>
                         {authState.error}
                     </div>
                 )}
-                <div style={{ display: "flex", gap: "1rem" }}>
+                <div
+                    style={{
+                        display: "flex",
+                        gap: "1rem",
+                        flexDirection: "column",
+                        alignItems: "center",
+                    }}
+                >
                     <VSCodeButton type="submit">
                         {isRegistering ? "Sign Up" : "Sign In"}
-                    </VSCodeButton>
-                    <VSCodeButton
-                        appearance="secondary"
-                        onClick={() => setIsRegistering(!isRegistering)}
-                    >
-                        {isRegistering ? "Already have an account?" : "Need an account?"}
                     </VSCodeButton>
                 </div>
             </form>
