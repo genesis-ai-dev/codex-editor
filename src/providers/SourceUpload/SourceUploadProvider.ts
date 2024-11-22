@@ -636,6 +636,7 @@ export class SourceUploadProvider
                     case "auth.status":
                     case "auth.login":
                     case "auth.signup":
+                    case "auth.logout":
                         debugLog("Handling authentication message", message.command);
                         await this.handleAuthenticationMessage(webviewPanel, message);
                         break;
@@ -1307,7 +1308,7 @@ export class SourceUploadProvider
             case "auth.login": {
                 debugLog("Attempting login");
                 try {
-                    await extension.login(message.email, message.password);
+                    await extension.login(message.username, message.password);
                     debugLog("Login successful");
                     webviewPanel.webview.postMessage({
                         command: "updateAuthState",
@@ -1326,6 +1327,60 @@ export class SourceUploadProvider
                             isAuthenticated: false,
                             isLoading: false,
                             error: error instanceof Error ? error.message : "Login failed",
+                        },
+                    } as SourceUploadResponseMessages);
+                }
+                break;
+            }
+            case "auth.signup": {
+                debugLog("Attempting registration");
+                try {
+                    await extension.register(message.username, message.email, message.password);
+                    debugLog("Registration successful");
+                    webviewPanel.webview.postMessage({
+                        command: "updateAuthState",
+                        authState: {
+                            isAuthExtensionInstalled: true,
+                            isAuthenticated: true,
+                            isLoading: false,
+                        },
+                    } as SourceUploadResponseMessages);
+                } catch (error) {
+                    debugLog("Registration failed", error);
+                    webviewPanel.webview.postMessage({
+                        command: "updateAuthState",
+                        authState: {
+                            isAuthExtensionInstalled: true,
+                            isAuthenticated: false,
+                            isLoading: false,
+                            error: error instanceof Error ? error.message : "Registration failed",
+                        },
+                    } as SourceUploadResponseMessages);
+                }
+                break;
+            }
+            case "auth.logout": {
+                debugLog("Attempting logout");
+                try {
+                    await extension.logout();
+                    debugLog("Logout successful");
+                    webviewPanel.webview.postMessage({
+                        command: "updateAuthState",
+                        authState: {
+                            isAuthExtensionInstalled: true,
+                            isAuthenticated: false,
+                            isLoading: false,
+                        },
+                    } as SourceUploadResponseMessages);
+                } catch (error) {
+                    debugLog("Logout failed", error);
+                    webviewPanel.webview.postMessage({
+                        command: "updateAuthState",
+                        authState: {
+                            isAuthExtensionInstalled: true,
+                            isAuthenticated: true,
+                            isLoading: false,
+                            error: error instanceof Error ? error.message : "Logout failed",
                         },
                     } as SourceUploadResponseMessages);
                 }

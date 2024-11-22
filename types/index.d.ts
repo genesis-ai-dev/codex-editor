@@ -217,8 +217,9 @@ export type SourceUploadPostMessages =
     | { command: "closePanel" }
     | { command: "previewSourceText"; fileContent: string; fileName: string }
     | { command: "extension.check"; extensionId: string }
-    | { command: "auth.login"; email: string; password: string }
-    | { command: "auth.signup"; email: string; password: string }
+    | { command: "auth.login"; username: string; password: string }
+    | { command: "auth.signup"; username: string; email: string; password: string }
+    | { command: "auth.logout" }
     | { command: "auth.status" }
     | { command: "auth.checkAuthStatus" }
     | { command: "project.clone"; repoUrl: string }

@@ -5,6 +5,7 @@ import {
     VSCodeProgressRing,
 } from "@vscode/webview-ui-toolkit/react";
 import { AuthState } from "../types";
+import { SourceUploadPostMessages } from "../../../../../types";
 
 interface AuthenticationStepProps {
     authState: AuthState;
@@ -31,12 +32,23 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         const command = isRegistering ? "auth.signup" : "auth.login";
-        vscode.postMessage({
-            command,
-            email,
-            password,
-            ...(isRegistering ? { username } : {}),
-        });
+        console.log("Submitting", { command, username, password, email });
+        if (command === "auth.login") {
+            vscode.postMessage({
+                command,
+                username,
+                password,
+            } as SourceUploadPostMessages);
+            return;
+        } else if (command === "auth.signup") {
+            vscode.postMessage({
+                command,
+                username,
+                password,
+                email,
+            } as SourceUploadPostMessages);
+            return;
+        }
     };
 
     const handleLogin = () => {
