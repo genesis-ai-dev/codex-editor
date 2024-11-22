@@ -280,5 +280,25 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
         )
     );
 
+    // Add new command for updating/creating feedback
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-smart-edits.updateFeedback",
+            async (cellId: string, content: string) => {
+                try {
+                    await smartPassages.updateFeedback(cellId, content);
+                    console.log(`Feedback updated for cellId: ${cellId}`);
+                    return true;
+                } catch (error) {
+                    console.error("Error updating feedback:", error);
+                    vscode.window.showErrorMessage(
+                        "Failed to update feedback. Please check the console for more details."
+                    );
+                    return false;
+                }
+            }
+        )
+    );
+
     console.log("Smart Edit commands registered");
 };

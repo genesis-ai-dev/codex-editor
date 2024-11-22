@@ -52,8 +52,15 @@ export const AddedFeedbackComponent: React.FC<AddedFeedbackProps> = ({
     cellId,
     handleAddedFeedback,
 }) => {
-    React.useCallback(() => {
-        handleAddedFeedback(cellId, feedback);
+    const isInitialMount = React.useRef(true);
+
+    React.useEffect(() => {
+        if (isInitialMount.current) {
+            handleAddedFeedback(cellId, feedback);
+            isInitialMount.current = false;
+        } else {
+            handleAddedFeedback(cellId, feedback);
+        }
     }, [cellId, feedback, handleAddedFeedback]);
 
     return (

@@ -535,7 +535,11 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 if (!cellId) return; // User cancelled the input
                 showInfo = true;
             }
-            const result = await getTranslationPairFromProject(translationPairsIndex, cellId);
+            const result = await getTranslationPairFromProject(
+                translationPairsIndex,
+                sourceTextIndex,
+                cellId
+            );
             if (showInfo) {
                 if (result) {
                     vscode.window.showInformationMessage(

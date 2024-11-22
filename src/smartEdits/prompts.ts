@@ -15,7 +15,7 @@ Here are some components you should use to respond to the user:
 Include one TranslationResponse per verse or cell you translate.
 To use when suggesting a translation:
 IMPORTANT: Always include this when suggesting a translation.
-<IndividuallyTranslatedVerse text="Suggested translation" cellId="Optional cell ID" /> 
+<IndividuallyTranslatedVerse text="Suggested translation" cellId="GEN 1:20 or MAT 1:1 etc.." /> 
 
 To use when you wish to acknowledge that the user has submitted feedback:
 BASICALLY USE THIS WHENEVER THE USER CORRECTS OR PROVIDES FEEDBACK.

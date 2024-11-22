@@ -250,6 +250,14 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                         message.translation
                     );
                     break;
+                case "addedFeedback":
+                    console.log("addedFeedback", message.feedback, message.cellId);
+                    await vscode.commands.executeCommand(
+                        "codex-smart-edits.updateFeedback",
+                        message.cellId,
+                        message.feedback
+                    );
+                    break;
                 case "search":
                     try {
                         const command = message.completeOnly

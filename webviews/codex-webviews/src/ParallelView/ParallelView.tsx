@@ -267,6 +267,7 @@ function ParallelView() {
     };
 
     const handleAddedFeedback = (cellId: string, feedback: string) => {
+        console.log("handleAddedFeedback", cellId, feedback);
         vscode.postMessage({
             command: "addedFeedback",
             cellId: cellId,

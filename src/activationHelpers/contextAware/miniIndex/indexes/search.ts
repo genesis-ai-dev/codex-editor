@@ -48,31 +48,53 @@ export function getTargetCellByCellId(translationPairsIndex: MiniSearch, cellId:
 
 export function getTranslationPairFromProject(
     translationPairsIndex: MiniSearch,
+    sourceTextIndex: MiniSearch,
     cellId: string
 ): TranslationPair | null {
-    const result = translationPairsIndex.search(cellId, {
+    // First, try to find a complete pair in the translationPairsIndex
+    const translationPairResult = translationPairsIndex.search(cellId, {
         fields: ["cellId"],
         combineWith: "AND",
         filter: (result) => result.cellId === cellId,
     })[0];
 
-    if (result) {
+    if (translationPairResult) {
         return {
             cellId,
             sourceCell: {
-                cellId: result.cellId,
-                content: result.sourceContent,
-                uri: result.uri,
-                line: result.line,
+                cellId: translationPairResult.cellId,
+                content: translationPairResult.sourceContent,
+                uri: translationPairResult.uri,
+                line: translationPairResult.line,
             },
             targetCell: {
-                cellId: result.cellId,
-                content: result.targetContent,
-                uri: result.uri,
-                line: result.line,
+                cellId: translationPairResult.cellId,
+                content: translationPairResult.targetContent,
+                uri: translationPairResult.uri,
+                line: translationPairResult.line,
             },
         };
     }
+
+    // If no complete pair is found, look for an incomplete pair in the sourceTextIndex
+    const sourceOnlyResult = sourceTextIndex.getStoredFields(cellId) as SourceCellVersions | null;
+
+    if (sourceOnlyResult) {
+        return {
+            cellId,
+            sourceCell: {
+                cellId: sourceOnlyResult.cellId,
+                content: sourceOnlyResult.content,
+                notebookId: sourceOnlyResult.notebookId,
+            },
+            targetCell: {
+                cellId: sourceOnlyResult.cellId,
+                content: "",
+                notebookId: "",
+            },
+        };
+    }
+
     return null;
 }
 
