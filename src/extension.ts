@@ -67,12 +67,12 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
 
     // Register trust change listener
-    context.subscriptions.push(
-        vscode.workspace.onDidGrantWorkspaceTrust(async () => {
-            console.log("Workspace trust granted, reactivating extension");
-            await vscode.commands.executeCommand("workbench.action.reloadWindow");
-        })
-    );
+    // context.subscriptions.push(
+    //     vscode.workspace.onDidGrantWorkspaceTrust(async () => {
+    //         console.log("Workspace trust granted, reactivating extension");
+    //         await vscode.commands.executeCommand("workbench.action.reloadWindow");
+    //     })
+    // );
 
     const workspaceFolders = vscode.workspace.workspaceFolders;
 
