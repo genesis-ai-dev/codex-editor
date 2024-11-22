@@ -127,22 +127,43 @@ function ParallelView() {
                 case "chatResponseStream":
                     try {
                         const chunk = JSON.parse(message.data);
+
+                        // Skip processing if content is empty and isLast is true
+                        if (chunk.isLast && !chunk.content) {
+                            setChatHistory((prev) => {
+                                const newHistory = [...prev];
+                                if (newHistory.length > 0) {
+                                    newHistory[newHistory.length - 1].isStreaming = false;
+                                }
+                                return newHistory;
+                            });
+                            // Reset indices for next stream
+                            setNextChunkIndex(0);
+                            setPendingChunks([]);
+                            return;
+                        }
+
                         setPendingChunks((prev) => [...prev, chunk]);
+
+                        // If this is the last chunk, update the chat history
+                        if (chunk.isLast) {
+                            setChatHistory((prev) => {
+                                const newHistory = [...prev];
+                                if (newHistory.length > 0) {
+                                    newHistory[newHistory.length - 1].isStreaming = false;
+                                }
+                                return newHistory;
+                            });
+                            // Reset indices for next stream
+                            setNextChunkIndex(0);
+                            setPendingChunks([]);
+                        }
                     } catch (error) {
                         console.error("Error parsing chunk:", error);
                     }
                     break;
                 case "chatResponseComplete":
-                    setChatHistory((prev) => {
-                        const newHistory = [...prev];
-                        if (newHistory.length > 0) {
-                            newHistory[newHistory.length - 1].isStreaming = false;
-                        }
-                        return newHistory;
-                    });
-                    // Reset indices for next stream
-                    setNextChunkIndex(0);
-                    setPendingChunks([]);
+                    // This case is now handled in the chatResponseStream case when isLast is true
                     break;
                 case "teachTranslation":
                     try {
@@ -402,7 +423,6 @@ function ParallelView() {
                     onChatSubmit={handleChatSubmit}
                     onChatFocus={handleChatFocus}
                     onEditMessage={handleEditMessage}
-                    onCopy={handleCopy}
                     messageStyles={messageStyles}
                     pinnedVerses={pinnedVerses}
                 />

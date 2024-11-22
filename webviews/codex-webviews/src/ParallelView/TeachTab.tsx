@@ -103,7 +103,7 @@ function TeachTab({
         }
     }, [chatHistory]);
 
-    const renderAssistantResponse = (message: AssistantMessage, index: number) => {
+    const renderTranslationResponse = (message: AssistantMessage, index: number) => {
         return (
             <>
                 <div
@@ -231,7 +231,7 @@ function TeachTab({
                 {chatHistory.length > 0 &&
                     chatHistory[chatHistory.length - 1].role === "assistant" && (
                         <div className="silver-path-message assistant">
-                            {renderAssistantResponse(
+                            {renderTranslationResponse(
                                 chatHistory[chatHistory.length - 1] as AssistantMessage,
                                 chatHistory.length - 1
                             )}

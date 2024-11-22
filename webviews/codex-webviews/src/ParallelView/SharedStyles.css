@@ -533,3 +533,37 @@
     display: flex;
     justify-content: center;
 }
+
+.assistant-response {
+    background-color: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-editor-lineHighlightBorder);
+    border-radius: 4px;
+    margin: 8px 0;
+    padding: 12px;
+}
+
+.assistant-response .cell-id {
+    font-size: 0.9em;
+    color: var(--vscode-descriptionForeground);
+    margin-bottom: 8px;
+}
+
+.assistant-response .response-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.assistant-response .response-text {
+    flex-grow: 1;
+    margin-right: 16px;
+}
+
+.assistant-response .response-actions {
+    display: flex;
+    flex-direction: column;
+}
+
+.assistant-response .response-actions button {
+    margin-bottom: 4px;
+}

@@ -160,8 +160,8 @@ class Chatbot {
             fullResponse += chunk;
         }
 
-        // Send a final chunk to indicate the end of the stream
-        onChunk({ index: chunkIndex, content: fullResponse }, true);
+        // Send a final empty chunk to indicate the end of the stream
+        onChunk({ index: chunkIndex, content: "" }, true);
 
         await this.addMessage("assistant", fullResponse);
         if (this.messages.length > this.maxBuffer) {

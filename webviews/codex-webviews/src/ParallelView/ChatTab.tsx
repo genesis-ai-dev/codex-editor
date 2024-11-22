@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useCallback, useState } from "react";
-import { VSCodeDivider, VSCodeButton } from "@vscode/webview-ui-toolkit/react";
-import ReactMarkdown from "react-markdown";
+import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import ChatInput from "./ChatInput";
 import { ChatMessage } from "./types";
 import { TranslationPair } from "../../../../types";
 import "./SharedStyles.css";
+import TranslationResponseComponent, { onCopy } from "./ChatComponents";
 
 interface ChatTabProps {
     chatHistory: ChatMessage[];
@@ -13,7 +13,6 @@ interface ChatTabProps {
     onChatSubmit: () => void;
     onChatFocus: () => void;
     onEditMessage: (index: number) => void;
-    onCopy: (content: string) => void;
     messageStyles: {
         user: React.CSSProperties;
         assistant: React.CSSProperties;
@@ -21,19 +20,9 @@ interface ChatTabProps {
     pinnedVerses: TranslationPair[];
 }
 
-const reconstructMessage = (content: string | object): string => {
-    // If content is already a string, return it directly
-    if (typeof content === "string") {
-        return content;
-    }
-
-    // If content is an object, check if it has a 'content' property
-    if (typeof content === "object" && content !== null && "content" in content) {
-        return content.content as string;
-    }
-
-    // If it's an object but doesn't have a 'content' property, stringify it
-    return JSON.stringify(content);
+const components = {
+    VSCodeButton,
+    TranslationResponseComponent,
 };
 
 function ChatTab({
@@ -43,8 +32,6 @@ function ChatTab({
     onChatSubmit,
     onChatFocus,
     onEditMessage,
-    onCopy,
-    messageStyles,
     pinnedVerses,
 }: ChatTabProps) {
     const chatHistoryRef = useRef<HTMLDivElement>(null);
@@ -103,6 +90,66 @@ function ChatTab({
         return () => window.removeEventListener("message", handleMessage);
     }, [handleIncomingChunk]);
 
+    const parseMessage = (content: string) => {
+        const regex = /<TranslationResponse\s+([^>]+)\s*\/>/g;
+        const parts = [];
+        let lastIndex = 0;
+        let match;
+
+        while ((match = regex.exec(content)) !== null) {
+            if (match.index > lastIndex) {
+                parts.push({ type: "text", content: content.slice(lastIndex, match.index) });
+            }
+            const propsString = match[1]; // e.g., text="..." cellId="..."
+            const propsMatch = propsString.match(/(\w+)="([^"]*)"/g);
+
+            if (propsMatch) {
+                const props = Object.fromEntries(
+                    propsMatch.map((prop) => {
+                        const [key, value] = prop.split("=");
+                        return [key, value.replace(/(^")|("$)/g, "")];
+                    })
+                );
+                parts.push({ type: "TranslationResponse", props });
+            }
+            lastIndex = regex.lastIndex;
+        }
+
+        if (lastIndex < content.length) {
+            parts.push({ type: "text", content: content.slice(lastIndex) });
+        }
+
+        return parts;
+    };
+
+    const renderMessage = useCallback((content: string) => {
+        const parsedContent = parseMessage(content);
+
+        return (
+            <>
+                {parsedContent.map((part, index) => {
+                    if (part.type === "text") {
+                        return (
+                            <p
+                                key={index}
+                                dangerouslySetInnerHTML={{ __html: part.content || "" }}
+                            />
+                        );
+                    } else if (part.type === "TranslationResponse" && part.props) {
+                        return (
+                            <TranslationResponseComponent
+                                key={`tr-${index}`}
+                                text={part.props.text || ""}
+                                cellId={part.props.cellId}
+                            />
+                        );
+                    }
+                    return null;
+                })}
+            </>
+        );
+    }, []);
+
     return (
         <div className="tab-container">
             <div className="pinned-verses">
@@ -129,11 +176,7 @@ function ChatTab({
                     <div className="chat-messages">
                         {chatHistory.map((message, index) => (
                             <div key={index} className={`chat-message ${message.role}`}>
-                                <div className="chat-message-content">
-                                    <ReactMarkdown>
-                                        {reconstructMessage(message.content)}
-                                    </ReactMarkdown>
-                                </div>
+                                {renderMessage(message.content)}
                                 <div className="chat-message-actions">
                                     {message.role === "user" && (
                                         <>
@@ -176,9 +219,7 @@ function ChatTab({
                         ))}
                         {isStreaming && (
                             <div className="chat-message assistant">
-                                <div className="chat-message-content">
-                                    <ReactMarkdown>{currentMessage}</ReactMarkdown>
-                                </div>
+                                {renderMessage(currentMessage)}
                             </div>
                         )}
                     </div>

@@ -124,12 +124,7 @@ async function handleChatStream(
                     data: JSON.stringify(parsedChunk),
                 });
 
-                // If this is the last chunk, send a separate completion message
-                if (parsedChunk.isLast) {
-                    webviewView.webview.postMessage({
-                        command: "chatResponseComplete",
-                    });
-                }
+                // No need to handle isLast here as the frontend will process it accordingly
             },
             editIndex
         );
@@ -144,9 +139,6 @@ async function handleChatStream(
                 }`,
                 isLast: true,
             }),
-        });
-        webviewView.webview.postMessage({
-            command: "chatResponseComplete",
         });
     }
 }
