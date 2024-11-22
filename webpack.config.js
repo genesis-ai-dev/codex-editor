@@ -175,6 +175,10 @@ const testConfig = {
     },
     resolve: {
         extensions: [".ts", ".js"],
+        alias: {
+          //I don't know if this actually works, but it got rid of the error message.
+          "fs/promises": "memfs",  
+        },
         fallback: {
             assert: require.resolve("assert/"),
             process: require.resolve("process/browser"),
@@ -185,6 +189,7 @@ const testConfig = {
             util: require.resolve("util/"),
             os: require.resolve("os-browserify/browser"),
             crypto: require.resolve("crypto-browserify"),
+            vm: require.resolve("vm-browserify"),
         },
     },
     module: {

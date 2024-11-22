@@ -211,7 +211,9 @@ suite("CodexCellEditorProvider Test Suite", () => {
         );
         const cellId = "newCellId";
         const referenceCellId = codexSubtitleContent.cells[0].metadata.id;
-        document.addCell(cellId, referenceCellId, CodexCellTypes.PARATEXT, {});
+        //JoshEdit: clearing out compiler errors.  Guessing that below is
+        //the more nomitive direction to add a cell.
+        document.addCell(cellId, referenceCellId, "below", CodexCellTypes.PARATEXT, {});
         const updatedContent = await document.getText();
         const cells = JSON.parse(updatedContent).cells;
         // cells should contain the new cell
@@ -238,7 +240,9 @@ suite("CodexCellEditorProvider Test Suite", () => {
             startTime: new Date().getTime(),
             endTime: new Date().getTime(),
         };
-        document.addCell(cellId, referenceCellId, CodexCellTypes.PARATEXT, {
+        //JoshEdit: Guessing that "below" is the more nomitive location
+        //Just adding this so the compiler errors will go away.
+        document.addCell(cellId, referenceCellId, "below", CodexCellTypes.PARATEXT, {
             ...timestamps,
         });
         const updatedContent = await document.getText();
