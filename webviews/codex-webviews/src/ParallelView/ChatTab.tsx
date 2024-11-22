@@ -4,7 +4,7 @@ import ChatInput from "./ChatInput";
 import { ChatMessage } from "./types";
 import { TranslationPair } from "../../../../types";
 import "./SharedStyles.css";
-import TranslationResponseComponent, { onCopy } from "./ChatComponents";
+import TranslationResponseComponent, { onCopy, RegEx } from "./ChatComponents";
 
 interface ChatTabProps {
     chatHistory: ChatMessage[];
@@ -91,32 +91,65 @@ function ChatTab({
     }, [handleIncomingChunk]);
 
     const parseMessage = (content: string) => {
-        const regex = /<TranslationResponse\s+([^>]+)\s*\/>/g;
         const parts = [];
         let lastIndex = 0;
-        let match;
 
-        while ((match = regex.exec(content)) !== null) {
-            if (match.index > lastIndex) {
-                parts.push({ type: "text", content: content.slice(lastIndex, match.index) });
+        // Get all component regex patterns from RegEx
+        const regexPatterns = Object.entries(RegEx);
+
+        for (let i = 0; i < content.length; ) {
+            let earliestMatch: {
+                regex: RegExp;
+                match: RegExpExecArray;
+                type: string;
+            } | null = null;
+
+            // Find the earliest matching component
+            for (const [type, regex] of regexPatterns) {
+                regex.lastIndex = i;
+                const match = regex.exec(content);
+                if (match && (!earliestMatch || match.index < earliestMatch.match.index)) {
+                    earliestMatch = {
+                        regex,
+                        match,
+                        type,
+                    };
+                }
             }
-            const propsString = match[1]; // e.g., text="..." cellId="..."
-            const propsMatch = propsString.match(/(\w+)="([^"]*)"/g);
 
-            if (propsMatch) {
-                const props = Object.fromEntries(
-                    propsMatch.map((prop) => {
-                        const [key, value] = prop.split("=");
-                        return [key, value.replace(/(^")|("$)/g, "")];
-                    })
-                );
-                parts.push({ type: "TranslationResponse", props });
+            if (earliestMatch) {
+                // Add text content before the component if any
+                if (earliestMatch.match.index > lastIndex) {
+                    parts.push({
+                        type: "text",
+                        content: content.slice(lastIndex, earliestMatch.match.index),
+                    });
+                }
+
+                // Parse the component props
+                const propsString = earliestMatch.match[1];
+                const propsMatch = propsString.match(/(\w+)="([^"]*)"/g);
+
+                if (propsMatch) {
+                    const props = Object.fromEntries(
+                        propsMatch.map((prop) => {
+                            const [key, value] = prop.split("=");
+                            return [key, value.replace(/(^")|("$)/g, "")];
+                        })
+                    );
+                    parts.push({ type: earliestMatch.type, props });
+                }
+
+                lastIndex = earliestMatch.regex.lastIndex;
+                i = lastIndex;
+            } else {
+                // No more components found, add remaining text
+                parts.push({
+                    type: "text",
+                    content: content.slice(lastIndex),
+                });
+                break;
             }
-            lastIndex = regex.lastIndex;
-        }
-
-        if (lastIndex < content.length) {
-            parts.push({ type: "text", content: content.slice(lastIndex) });
         }
 
         return parts;

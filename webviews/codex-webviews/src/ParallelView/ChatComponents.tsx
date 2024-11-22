@@ -6,6 +6,9 @@ interface TranslationResponseProps {
     text: string;
     cellId?: string;
 }
+export const RegEx = {
+    TranslationResponse: /<TranslationResponse\s+([^>]+)\s*\/>/g,
+} as const;
 
 export const onCopy = (content: string) => {
     navigator.clipboard.writeText(content);
