@@ -2,20 +2,63 @@ import React from "react";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import "./SharedStyles.css";
 
-interface TranslationResponseProps {
+interface IndividuallyTranslatedVerseProps {
     text: string;
-    cellId?: string;
+    cellId: string;
     onApplyTranslation: (cellId: string, text: string) => void;
 }
+
+interface AddedFeedbackProps {
+    feedback: string;
+    cellId: string;
+    handleAddedFeedback: (cellId: string, feedback: string) => void;
+}
+
+interface ShowUserPreferenceProps {
+    feedback: string;
+    cellId: string;
+}
+
 export const RegEx = {
-    TranslationResponse: /<TranslationResponse\s+([^>]+)\s*\/>/g,
+    IndividuallyTranslatedVerse: /<IndividuallyTranslatedVerse\s+([^>]+)\s*\/>/g,
+    AddedFeedback: /<AddedFeedback\s+([^>]+)\s*\/>/g,
+    ShowUserPreference: /<ShowUserPreference\s+([^>]+)\s*\/>/g,
 } as const;
 
 export const onCopy = (content: string) => {
     navigator.clipboard.writeText(content);
 };
 
-const TranslationResponseComponent: React.FC<TranslationResponseProps> = ({
+export const AddedFeedbackComponent: React.FC<AddedFeedbackProps> = ({
+    feedback,
+    cellId,
+    handleAddedFeedback,
+}) => {
+    React.useCallback(() => {
+        handleAddedFeedback(cellId, feedback);
+    }, [cellId, feedback, handleAddedFeedback]);
+
+    return (
+        <div className="added-feedback">
+            <p>🧠 Added to Memory: {cellId}</p>
+            <p>{feedback}</p>
+        </div>
+    );
+};
+
+export const ShowUserPreferenceComponent: React.FC<ShowUserPreferenceProps> = ({
+    feedback,
+    cellId,
+}) => {
+    return (
+        <div className="useful-feedback">
+            <p>🧠 Found in Context: {cellId}</p>
+            <p>{feedback}</p>
+        </div>
+    );
+};
+
+export const IndividuallyTranslatedVerseComponent: React.FC<IndividuallyTranslatedVerseProps> = ({
     text,
     cellId,
     onApplyTranslation,
@@ -51,5 +94,3 @@ const TranslationResponseComponent: React.FC<TranslationResponseProps> = ({
         </div>
     );
 };
-
-export default TranslationResponseComponent;

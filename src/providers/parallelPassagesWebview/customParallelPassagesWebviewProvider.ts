@@ -42,55 +42,6 @@ async function openFileAtLocation(uri: string, cellId: string) {
         vscode.window.showErrorMessage(`Failed to open file: ${uri}`);
     }
 }
-async function handleTeachChatStream(
-    webviewView: vscode.WebviewView,
-    targetCellId: string,
-    query: string
-) {
-    try {
-        // Get source content directly
-        const sourceCell = await vscode.commands.executeCommand<SourceCellVersions | null>(
-            "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
-            targetCellId
-        );
-
-        if (!sourceCell || !sourceCell.content) {
-            throw new Error(`No source content found for cell ID: ${targetCellId}`);
-        }
-
-        const sourceContent = sourceCell.content;
-
-        // Generate translation using the Teach command
-        const result = await vscode.commands.executeCommand<{
-            translation: Response;
-            usedCellIds: string[];
-        }>("teach.generateTranslation", query, sourceContent, targetCellId);
-
-        if (!result || !result.translation) {
-            throw new Error("Failed to generate translation");
-        }
-
-        // Send the entire result object back to the webview
-        webviewView.webview.postMessage({
-            command: "teachTranslation",
-            data: result,
-        });
-
-        // Optionally, you can handle pinning cells here if needed
-        // for (const cellId of result.usedCellIds) {
-        //     await vscode.commands.executeCommand("parallelPassages.pinCellById", cellId);
-        // }
-    } catch (error) {
-        console.error("Error in Teach chat stream:", error);
-        webviewView.webview.postMessage({
-            command: "chatResponseStream",
-            data: `Error: Failed to process Teach request. ${error instanceof Error ? error.message : "Unknown error"}`,
-        });
-        webviewView.webview.postMessage({
-            command: "chatResponseComplete",
-        });
-    }
-}
 
 async function handleChatStream(
     webviewView: vscode.WebviewView,
@@ -142,6 +93,7 @@ async function handleChatStream(
         });
     }
 }
+
 const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.Uri) => {
     webviewView.webview.options = {
         enableScripts: true,
@@ -289,9 +241,6 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                         message.query,
                         message.editIndex
                     );
-                    break;
-                case "teachChatStream":
-                    await handleTeachChatStream(webviewView, message.targetCellId, message.query);
                     break;
                 case "applyTranslation":
                     console.log("applyTranslation", message);

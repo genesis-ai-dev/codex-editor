@@ -567,3 +567,42 @@
 .assistant-response .response-actions button {
     margin-bottom: 4px;
 }
+
+/* Feedback styles */
+.added-feedback,
+.useful-feedback {
+    background-color: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-widget-border);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 16px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s ease;
+}
+
+.added-feedback:hover,
+.useful-feedback:hover {
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.added-feedback p,
+.useful-feedback p {
+    margin: 0 0 8px;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--vscode-foreground);
+}
+
+.added-feedback p:first-child,
+.useful-feedback p:first-child {
+    font-weight: bold;
+    color: var(--vscode-textLink-foreground);
+}
+
+.added-feedback {
+    border-left: 4px solid var(--vscode-charts-green);
+}
+
+.useful-feedback {
+    border-left: 4px solid var(--vscode-charts-blue);
+}

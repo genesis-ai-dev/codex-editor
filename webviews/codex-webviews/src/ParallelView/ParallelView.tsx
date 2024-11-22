@@ -1,15 +1,9 @@
 import React, { useState, useEffect } from "react";
-import {
-    VSCodePanelTab,
-    VSCodePanelView,
-    VSCodePanels,
-    VSCodeDivider,
-} from "@vscode/webview-ui-toolkit/react";
+import { VSCodePanelTab, VSCodePanelView, VSCodePanels } from "@vscode/webview-ui-toolkit/react";
 import "./App.css";
 import { OpenFileMessage, ChatMessage } from "./types";
 import SearchTab from "./SearchTab";
 import ChatTab from "./ChatTab";
-import TeachTab, { TeachMessage, AssistantMessage } from "./TeachTab";
 import { TranslationPair } from "../../../../types";
 
 const vscode = acquireVsCodeApi();
@@ -43,15 +37,6 @@ function ParallelView() {
     const [pendingChunks, setPendingChunks] = useState<{ index: number; content: string }[]>([]);
     const [nextChunkIndex, setNextChunkIndex] = useState(0);
     const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
-    const [teachChatHistory, setTeachChatHistory] = useState<TeachMessage[]>([]);
-    const [teachChatInput, setTeachChatInput] = useState<string>("");
-    const [teachPendingChunks, setTeachPendingChunks] = useState<
-        { index: number; content: string }[]
-    >([]);
-    const [teachNextChunkIndex, setTeachNextChunkIndex] = useState(0);
-    const [isLoading, setIsLoading] = useState(false);
-    const [targetPassage, setTargetPassage] = useState<string | null>(null);
-    const [currentPinnedCellIndex, setCurrentPinnedCellIndex] = useState<number>(0);
     const [completeOnly, setCompleteOnly] = useState<boolean>(false);
 
     // Helper function to process pending chunks in order
@@ -165,27 +150,6 @@ function ParallelView() {
                 case "chatResponseComplete":
                     // This case is now handled in the chatResponseStream case when isLast is true
                     break;
-                case "teachTranslation":
-                    try {
-                        const result = message.data;
-                        setTeachChatHistory((prev) => [
-                            ...prev,
-                            {
-                                role: "assistant",
-                                content: result.translation.message,
-                                message: result.translation.message,
-                                thinking: result.translation.thinking,
-                                translation: result.translation.translation,
-                                memoriesUsed: result.translation.memoriesUsed || [],
-                                memoryUpdates: result.translation.memoryUpdates || [],
-                            } as AssistantMessage,
-                        ]);
-                        setIsLoading(false);
-                    } catch (error) {
-                        console.error("Error processing Teach translation:", error);
-                        setIsLoading(false);
-                    }
-                    break;
             }
         };
 
@@ -263,7 +227,7 @@ function ParallelView() {
             // Send edit request
             vscode.postMessage({
                 command: "chatStream",
-                query: chatInput,
+                query: "Potential Feedback: " + chatInput, // Adding "Potential Feedback" helps the LLM trigger the memory feature.
                 context: verses.map((verse) => verse.cellId),
                 editIndex: editingMessageIndex,
             });
@@ -302,89 +266,13 @@ function ParallelView() {
         setVerses([...pinnedVerses]);
     };
 
-    const handleCopy = async (content: string) => {
-        try {
-            await navigator.clipboard.writeText(content);
-            // Optional: Show some feedback that the copy was successful
-            vscode.postMessage({
-                command: "showInfo",
-                text: "Copied to clipboard",
-            });
-        } catch (err) {
-            console.error("Failed to copy text: ", err);
-        }
-    };
-
-    const handleTeachChatSubmit = () => {
-        if (!teachChatInput.trim()) return;
-
-        const newMessage: TeachMessage = {
-            role: "user",
-            content: teachChatInput,
-        };
-
-        setTeachChatHistory((prev) => [...prev, newMessage]);
-        setIsLoading(true);
-
+    const handleAddedFeedback = (cellId: string, feedback: string) => {
         vscode.postMessage({
-            command: "teachChatStream",
-            query: teachChatInput,
-            targetCellId: targetPassage,
+            command: "addedFeedback",
+            cellId: cellId,
+            feedback: feedback,
         });
-
-        setTeachChatInput("");
     };
-
-    const handleTeachChatFocus = () => {
-        setVerses([...pinnedVerses]);
-    };
-
-    const handleSelectTargetPassage = (cellId: string) => {
-        console.log("handleSelectTargetPassage", cellId);
-        setTargetPassage(cellId);
-    };
-
-    const handleNavigateToNextPinnedCell = () => {
-        if (pinnedVerses.length > 1) {
-            const nextIndex = (currentPinnedCellIndex + 1) % pinnedVerses.length;
-            if (nextIndex !== currentPinnedCellIndex) {
-                setCurrentPinnedCellIndex(nextIndex);
-                const nextCellId = pinnedVerses[nextIndex].cellId;
-                setTargetPassage(nextCellId);
-
-                // Clear previous chat history
-                setTeachChatHistory([]);
-
-                // Simulate user input for translation
-                const translationPrompt = "Now translate this";
-                setTeachChatHistory([{ role: "user", content: translationPrompt }]);
-                setIsLoading(true);
-
-                // Send the translation request
-                vscode.postMessage({
-                    command: "chatStream",
-                    query: translationPrompt,
-                    context: [nextCellId],
-                });
-
-                // Scroll to the chat input
-                setTimeout(() => {
-                    const textarea = document.querySelector(".silver-path-textarea") as HTMLElement;
-                    if (textarea) {
-                        textarea.scrollIntoView({ behavior: "smooth" });
-                        textarea.focus();
-                    }
-                }, 0);
-            }
-        }
-    };
-
-    const hasNextPinnedCell =
-        pinnedVerses.length > 1 &&
-        pinnedVerses.some(
-            (verse, index) => index !== currentPinnedCellIndex && verse.cellId !== targetPassage
-        );
-
     const handlePinAll = () => {
         const unpinnedVerses = verses.filter(
             (verse) => !pinnedVerses.some((pinned) => pinned.cellId === verse.cellId)
@@ -396,7 +284,6 @@ function ParallelView() {
         <VSCodePanels>
             <VSCodePanelTab id="tab-search">Search</VSCodePanelTab>
             <VSCodePanelTab id="tab-chat">Chat</VSCodePanelTab>
-            <VSCodePanelTab id="tab-silverpath">Teach</VSCodePanelTab>
 
             {/* Search Tab */}
             <VSCodePanelView id="view-search">
@@ -426,26 +313,7 @@ function ParallelView() {
                     messageStyles={messageStyles}
                     pinnedVerses={pinnedVerses}
                     onApplyTranslation={handleApplyTranslation}
-                />
-            </VSCodePanelView>
-
-            {/* Teach Tab */}
-            <VSCodePanelView id="view-silverpath">
-                <TeachTab
-                    chatHistory={teachChatHistory}
-                    chatInput={teachChatInput}
-                    onChatInputChange={setTeachChatInput}
-                    onChatSubmit={handleTeachChatSubmit}
-                    onChatFocus={handleTeachChatFocus}
-                    onCopy={handleCopy}
-                    messageStyles={messageStyles}
-                    pinnedVerses={pinnedVerses}
-                    isLoading={isLoading}
-                    onSelectTargetPassage={handleSelectTargetPassage}
-                    targetPassage={targetPassage}
-                    onNavigateToNextPinnedCell={handleNavigateToNextPinnedCell}
-                    applyTranslation={handleApplyTranslation}
-                    hasNextPinnedCell={hasNextPinnedCell}
+                    handleAddedFeedback={handleAddedFeedback}
                 />
             </VSCodePanelView>
         </VSCodePanels>

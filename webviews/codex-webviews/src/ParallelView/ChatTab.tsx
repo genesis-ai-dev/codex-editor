@@ -4,7 +4,13 @@ import ChatInput from "./ChatInput";
 import { ChatMessage } from "./types";
 import { TranslationPair } from "../../../../types";
 import "./SharedStyles.css";
-import TranslationResponseComponent, { onCopy, RegEx } from "./ChatComponents";
+import {
+    onCopy,
+    RegEx,
+    IndividuallyTranslatedVerseComponent,
+    ShowUserPreferenceComponent,
+    AddedFeedbackComponent,
+} from "./ChatComponents";
 
 interface ChatTabProps {
     chatHistory: ChatMessage[];
@@ -19,11 +25,14 @@ interface ChatTabProps {
     };
     pinnedVerses: TranslationPair[];
     onApplyTranslation: (cellId: string, text: string) => void;
+    handleAddedFeedback: (cellId: string, feedback: string) => void;
 }
 
 const components = {
     VSCodeButton,
-    TranslationResponseComponent,
+    IndividuallyTranslatedVerseComponent,
+    AddedFeedbackComponent,
+    ShowUserPreferenceComponent,
 };
 
 function ChatTab({
@@ -35,6 +44,7 @@ function ChatTab({
     onEditMessage,
     pinnedVerses,
     onApplyTranslation,
+    handleAddedFeedback,
 }: ChatTabProps) {
     const chatHistoryRef = useRef<HTMLDivElement>(null);
     const [pendingSubmit, setPendingSubmit] = useState(false);
@@ -170,13 +180,32 @@ function ChatTab({
                                 dangerouslySetInnerHTML={{ __html: part.content || "" }}
                             />
                         );
-                    } else if (part.type === "TranslationResponse" && part.props) {
+                    } else if (part.type === "IndividuallyTranslatedVerse" && part.props) {
                         return (
-                            <TranslationResponseComponent
+                            <IndividuallyTranslatedVerseComponent
                                 key={`tr-${index}`}
                                 text={part.props.text || ""}
                                 cellId={part.props.cellId}
                                 onApplyTranslation={onApplyTranslation}
+                            />
+                        );
+                    } else if (part.type === "AddedFeedback" && part.props) {
+                        return (
+                            <AddedFeedbackComponent
+                                key={`af-${index}`}
+                                feedback={part.props.feedback}
+                                cellId={part.props.cellId}
+                                handleAddedFeedback={(cellId, feedback) =>
+                                    handleAddedFeedback(cellId, feedback)
+                                }
+                            />
+                        );
+                    } else if (part.type === "ShowUserPreference" && part.props) {
+                        return (
+                            <ShowUserPreferenceComponent
+                                key={`sf-${index}`}
+                                feedback={part.props.feedback}
+                                cellId={part.props.cellId}
                             />
                         );
                     }
