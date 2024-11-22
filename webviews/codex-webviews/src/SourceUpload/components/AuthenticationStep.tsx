@@ -19,6 +19,7 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
 }) => {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
+    const [username, setUsername] = useState("");
     const [isRegistering, setIsRegistering] = useState(false);
 
     useEffect(() => {
@@ -34,6 +35,7 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
             command,
             email,
             password,
+            ...(isRegistering ? { username } : {}),
         });
     };
 
@@ -62,13 +64,24 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
             <form onSubmit={handleSubmit}>
                 <div style={{ marginBottom: "1rem" }}>
                     <VSCodeTextField
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail((e.target as HTMLInputElement).value)}
-                        placeholder="Email"
+                        type="text"
+                        value={username}
+                        onChange={(e) => setUsername((e.target as HTMLInputElement).value)}
+                        placeholder="Username"
                         required
                     />
                 </div>
+                {isRegistering && (
+                    <div style={{ marginBottom: "1rem" }}>
+                        <VSCodeTextField
+                            type="email"
+                            value={email}
+                            onChange={(e) => setEmail((e.target as HTMLInputElement).value)}
+                            placeholder="Email"
+                            required
+                        />
+                    </div>
+                )}
                 <div style={{ marginBottom: "1rem" }}>
                     <VSCodeTextField
                         type="password"
