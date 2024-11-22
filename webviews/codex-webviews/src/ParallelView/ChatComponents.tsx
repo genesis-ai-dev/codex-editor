@@ -5,6 +5,7 @@ import "./SharedStyles.css";
 interface TranslationResponseProps {
     text: string;
     cellId?: string;
+    onApplyTranslation: (cellId: string, text: string) => void;
 }
 export const RegEx = {
     TranslationResponse: /<TranslationResponse\s+([^>]+)\s*\/>/g,
@@ -14,11 +15,11 @@ export const onCopy = (content: string) => {
     navigator.clipboard.writeText(content);
 };
 
-const onApply = (content: string) => {
-    console.log("Apply", content);
-};
-
-const TranslationResponseComponent: React.FC<TranslationResponseProps> = ({ text, cellId }) => {
+const TranslationResponseComponent: React.FC<TranslationResponseProps> = ({
+    text,
+    cellId,
+    onApplyTranslation,
+}) => {
     return (
         <div className="assistant-response">
             {cellId && (
@@ -40,7 +41,7 @@ const TranslationResponseComponent: React.FC<TranslationResponseProps> = ({ text
                     </VSCodeButton>
                     <VSCodeButton
                         appearance="icon"
-                        onClick={() => onApply(text)}
+                        onClick={() => cellId && onApplyTranslation(text, cellId)}
                         title="Apply response"
                     >
                         <span className="codicon codicon-check"></span>

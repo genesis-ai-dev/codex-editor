@@ -18,6 +18,7 @@ interface ChatTabProps {
         assistant: React.CSSProperties;
     };
     pinnedVerses: TranslationPair[];
+    onApplyTranslation: (cellId: string, text: string) => void;
 }
 
 const components = {
@@ -33,6 +34,7 @@ function ChatTab({
     onChatFocus,
     onEditMessage,
     pinnedVerses,
+    onApplyTranslation,
 }: ChatTabProps) {
     const chatHistoryRef = useRef<HTMLDivElement>(null);
     const [pendingSubmit, setPendingSubmit] = useState(false);
@@ -174,6 +176,7 @@ function ChatTab({
                                 key={`tr-${index}`}
                                 text={part.props.text || ""}
                                 cellId={part.props.cellId}
+                                onApplyTranslation={onApplyTranslation}
                             />
                         );
                     }

@@ -425,6 +425,7 @@ function ParallelView() {
                     onEditMessage={handleEditMessage}
                     messageStyles={messageStyles}
                     pinnedVerses={pinnedVerses}
+                    onApplyTranslation={handleApplyTranslation}
                 />
             </VSCodePanelView>
 
