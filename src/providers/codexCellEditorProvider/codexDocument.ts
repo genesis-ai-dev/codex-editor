@@ -159,14 +159,15 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
     public async saveAs(
         targetResource: vscode.Uri,
-        cancellation: vscode.CancellationToken
+        cancellation: vscode.CancellationToken,
+        backup: boolean = false,
     ): Promise<void> {
         const text = JSON.stringify(this._documentData, null, 2);
         await vscode.workspace.fs.writeFile(targetResource, new TextEncoder().encode(text));
-        this._isDirty = false; // Reset dirty flag
+        if(!backup) this._isDirty = false; // Reset dirty flag
     }
 
-    public async revert(cancellation: vscode.CancellationToken): Promise<void> {
+    public async revert(cancellation?: vscode.CancellationToken): Promise<void> {
         const diskContent = await vscode.workspace.fs.readFile(this.uri);
         this._documentData = JSON.parse(diskContent.toString());
         this._edits = [];
@@ -181,7 +182,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         destination: vscode.Uri,
         cancellation: vscode.CancellationToken
     ): Promise<vscode.CustomDocumentBackup> {
-        await this.saveAs(destination, cancellation);
+        await this.saveAs(destination, cancellation, true);
         return {
             id: destination.toString(),
             delete: () => vscode.workspace.fs.delete(destination),
