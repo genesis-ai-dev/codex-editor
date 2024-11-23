@@ -24,7 +24,6 @@ export function run(): Promise<void> {
         const importAll = (r: { keys: () => string[]; (key: string): any }) =>
             r.keys().forEach((key) => r(key));
         // Use webpack's require without accessing context property
-        // @ts-expect-error: webpack require.context is not typed
         importAll(require.context(".", true, /\.test$/));
 
         try {

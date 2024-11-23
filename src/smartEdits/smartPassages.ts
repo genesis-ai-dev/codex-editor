@@ -7,6 +7,7 @@ import { SavedBacktranslation } from "./smartBacktranslation";
 import { SYSTEM_MESSAGE } from "./prompts";
 import * as readline from "readline";
 import { createReadStream, createWriteStream } from "fs";
+import { findRelevantVideos, VideoEntry } from "./utils/videoUtil";
 
 interface TranslationPairWithBacktranslation extends TranslationPair {
     backtranslation?: string;
@@ -73,6 +74,16 @@ export class SmartPassages {
         const cells: TranslationPairWithBacktranslation[] = [];
         const generalEntries: { cellId: string; content: string }[] = [];
         const allMemories = await this.readAllMemories();
+        const videos: VideoEntry[] = [];
+
+        for (const cellId of cellIds) {
+            try {
+                const relevantVideos = await findRelevantVideos(cellId);
+                videos.push(...relevantVideos);
+            } catch (error) {
+                console.error(`Error finding relevant videos for cellId ${cellId}:`, error);
+            }
+        }
 
         // Separate general entries
         Object.entries(allMemories).forEach(([id, feedback]) => {
@@ -191,7 +202,18 @@ export class SmartPassages {
 
         const allFormattedEntries = [...formattedGeneralEntries, ...formattedCells];
 
-        return `Context:\n${allFormattedEntries.join("\n\n")}`;
+        // Add video information to the formatted context
+        const formattedVideos = videos
+            .map(
+                (video) => `
+    "${video.videoId}": {
+        title: ${video.title}
+        range: ${video.range}
+    }`
+            )
+            .join("\n");
+
+        return `Context:\n${allFormattedEntries.join("\n\n")}\n\nRelevant Videos:\n${formattedVideos}`;
     }
 
     async updateFeedback(cellId: string, content: string): Promise<void> {
@@ -287,5 +309,11 @@ export class SmartPassages {
             console.error("Error reading memories:", error);
             return {};
         }
+    }
+
+    private convertCellIdToVerseReference(cellId: string): string {
+        // Implement the conversion logic here
+        // This is just a placeholder example
+        return cellId.replace("_", " ").toUpperCase();
     }
 }

@@ -11,6 +11,7 @@ import {
     ShowUserPreferenceComponent,
     AddedFeedbackComponent,
     GuessNextPromptsComponent,
+    YoutubeVideoComponent,
 } from "./ChatComponents";
 
 interface ChatTabProps {
@@ -28,14 +29,6 @@ interface ChatTabProps {
     onApplyTranslation: (cellId: string, text: string) => void;
     handleAddedFeedback: (cellId: string, feedback: string) => void;
 }
-
-const components = {
-    VSCodeButton,
-    IndividuallyTranslatedVerseComponent,
-    AddedFeedbackComponent,
-    ShowUserPreferenceComponent,
-    GuessNextPromptsComponent,
-};
 
 function ChatTab({
     chatHistory,
@@ -226,6 +219,13 @@ function ChatTab({
                                 onClick={(prompt) => handlePromptClick(prompt)}
                             />
                         );
+                    } else if (part.type === "YoutubeVideo" && part.props) {
+                        return (
+                            <YoutubeVideoComponent
+                                key={`yv-${index}`}
+                                videoId={part.props.videoId}
+                            />
+                        );
                     }
                     return null;
                 })}
@@ -324,4 +324,3 @@ function ChatTab({
 }
 
 export default React.memo(ChatTab);
-

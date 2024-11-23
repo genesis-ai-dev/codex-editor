@@ -26,6 +26,9 @@ To use when you wish to show the user that you have found a useful piece of feed
 Use this to display that you are aware of the user's past preferences.
 <ShowUserPreference feedback="Quoted useful preference from your context" cellId="Cell ID" />
 
+Sometimes, a user may want a more in-depth explanation of a verse. In these cases, you may use:
+<YoutubeVideo videoId="Video ID" />
+
 Do not shy away from using these whenever, but adhere strictly to the instructions above.
 `;
 
