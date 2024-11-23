@@ -12,7 +12,7 @@ export interface VideoEntry {
 
 export async function findRelevantVideos(
     verseReference: string,
-    languages: string[] = ["en", "de", "fr"]
+    languages: string[] = ["en"] //, "de", "fr"] Default to English right now
 ): Promise<VideoEntry[]> {
     const [book, chapter, verse] = parseVerseReference(verseReference);
     const relevantVideos: VideoEntry[] = [];
