@@ -18,6 +18,7 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
     onAuthComplete,
     vscode,
 }) => {
+    console.log("AuthenticationStep", { authState });
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");

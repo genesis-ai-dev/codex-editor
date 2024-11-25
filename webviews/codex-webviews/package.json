@@ -22,6 +22,7 @@
         "watch:SourceUpload": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:SourceUpload",
         "watch:CommentsView": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:CommentsView",
         "watch:ParallelView": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:ParallelView",
+        "watch:StartupFlow": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:StartupFlow",
         "watch:EditableReactTable": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:EditableReactTable",
         "watch:ProjectManagerView": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:ProjectManagerView",
         "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
@@ -31,6 +32,7 @@
         "@popperjs/core": "^2.0.0",
         "@uidotdev/usehooks": "^2.4.1",
         "@vscode/webview-ui-toolkit": "^1.4.0",
+        "@xstate/react": "^5.0.0",
         "antd": "^5.21.4",
         "clsx": "1.1.1",
         "codex-types": "^0.0.2",
@@ -60,7 +62,8 @@
         "remark-html": "^16.0.1",
         "remark-stringify": "^11.0.0",
         "uuid": "^9.0.1",
-        "webvtt-parser": "^2.2.0"
+        "webvtt-parser": "^2.2.0",
+        "xstate": "^5.19.0"
     },
     "devDependencies": {
         "@babel/plugin-transform-private-property-in-object": "^7.16.7",

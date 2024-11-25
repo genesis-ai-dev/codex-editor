@@ -1,4 +1,4 @@
-import { StartupFlowPostMessages, StartupFlowResponseMessages } from "../../../types";
+import { MessagesToStartupFlowProvider, MessagesFromStartupFlowProvider } from "../../../types";
 import * as vscode from "vscode";
 
 function getNonce(): string {
@@ -25,25 +25,19 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
     private async handleAuthenticationMessage(
         webviewPanel: vscode.WebviewPanel,
-        message: StartupFlowPostMessages
+        message: MessagesToStartupFlowProvider
     ) {
         debugLog("Handling authentication message", message.command);
         const extension = await vscode.extensions
             .getExtension("frontier-rnd.frontier-authentication")
             ?.activate();
 
-        if (!extension) {
-            debugLog("Authentication extension not found");
-            webviewPanel.webview.postMessage({
-                command: "updateAuthState",
-                authState: {
-                    isAuthExtensionInstalled: false,
-                    isAuthenticated: false,
-                    isLoading: false,
-                },
-            } as StartupFlowResponseMessages);
-            return;
-        }
+        // Send immediate response about extension status
+        webviewPanel.webview.postMessage({
+            command: "auth.statusResponse",
+            isAuthenticated: false,
+            isAuthExtensionInstalled: !!extension,
+        } as MessagesFromStartupFlowProvider);
 
         switch (message.command) {
             case "auth.status": {
@@ -58,7 +52,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             isAuthenticated: status.isAuthenticated,
                             isLoading: false,
                         },
-                    } as StartupFlowResponseMessages);
+                    } as MessagesFromStartupFlowProvider);
                 } catch (error) {
                     debugLog("Error getting auth status", error);
                     webviewPanel.webview.postMessage({
@@ -72,7 +66,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                     ? error.message
                                     : "Failed to get auth status",
                         },
-                    } as StartupFlowResponseMessages);
+                    } as MessagesFromStartupFlowProvider);
                 }
                 break;
             }
@@ -88,7 +82,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             isAuthenticated: true,
                             isLoading: false,
                         },
-                    } as StartupFlowResponseMessages);
+                    } as MessagesFromStartupFlowProvider);
                 } catch (error) {
                     debugLog("Login failed", error);
                     webviewPanel.webview.postMessage({
@@ -99,7 +93,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             isLoading: false,
                             error: error instanceof Error ? error.message : "Login failed",
                         },
-                    } as StartupFlowResponseMessages);
+                    } as MessagesFromStartupFlowProvider);
                 }
                 break;
             }
@@ -115,7 +109,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             isAuthenticated: true,
                             isLoading: false,
                         },
-                    } as StartupFlowResponseMessages);
+                    } as MessagesFromStartupFlowProvider);
                 } catch (error) {
                     debugLog("Registration failed", error);
                     webviewPanel.webview.postMessage({
@@ -126,7 +120,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             isLoading: false,
                             error: error instanceof Error ? error.message : "Registration failed",
                         },
-                    } as StartupFlowResponseMessages);
+                    } as MessagesFromStartupFlowProvider);
                 }
                 break;
             }
@@ -142,7 +136,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             isAuthenticated: false,
                             isLoading: false,
                         },
-                    } as StartupFlowResponseMessages);
+                    } as MessagesFromStartupFlowProvider);
                 } catch (error) {
                     debugLog("Logout failed", error);
                     webviewPanel.webview.postMessage({
@@ -153,7 +147,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             isLoading: false,
                             error: error instanceof Error ? error.message : "Logout failed",
                         },
-                    } as StartupFlowResponseMessages);
+                    } as MessagesFromStartupFlowProvider);
                 }
                 break;
             }
@@ -183,7 +177,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview);
 
         // Handle messages from webview
-        webviewPanel.webview.onDidReceiveMessage(async (message: StartupFlowPostMessages) => {
+        webviewPanel.webview.onDidReceiveMessage(async (message: MessagesToStartupFlowProvider) => {
             switch (message.command) {
                 case "auth.status":
                 case "auth.login":

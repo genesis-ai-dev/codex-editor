@@ -91,7 +91,6 @@ export interface WorkflowState {
     selectedSourceId?: string;
     preview?: PreviewContent | BiblePreviewData;
     error?: string | null;
-    processingStages: ProcessingStages | BibleDownloadStages;
     progress?: {
         message: string;
         increment: number;

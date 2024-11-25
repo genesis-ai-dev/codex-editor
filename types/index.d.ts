@@ -289,7 +289,7 @@ export type SourceUploadResponseMessages =
           };
       };
 
-export type StartupFlowPostMessages =
+export type MessagesToStartupFlowProvider =
     | { command: "error"; errorMessage: string }
     | { command: "extension.check"; extensionId: string }
     | { command: "auth.login"; username: string; password: string }
@@ -301,7 +301,7 @@ export type StartupFlowPostMessages =
     | { command: "project.open" }
     | { command: "project.new" };
 
-export type StartupFlowResponseMessages =
+export type MessagesFromStartupFlowProvider =
     | {
           command: "checkWorkspaceState";
           isWorkspaceOpen: boolean;
