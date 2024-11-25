@@ -353,7 +353,7 @@ export class SmartPassages {
         }
     }
 
-    public async loadChatHistory(sessionId?: string): Promise<void> {
+    public async loadChatHistory(sessionId?: string): Promise<ChatHistoryEntry | null> {
         try {
             const content = await fs.readFile(this.chatHistoryFile, "utf-8");
             const lines = content.split("\n").filter((line) => line.trim() !== "");
@@ -382,14 +382,16 @@ export class SmartPassages {
                 this.currentSessionId = latestSession.sessionId;
                 this.currentSessionName = latestSession.name;
                 this.chatbot.messages = [
-                    this.chatbot.messages[0], // Keep the system message
-                    ...latestSession.messages.slice(1), // Skip the system message from the loaded history
+                    this.chatbot.messages[0],
+                    ...latestSession.messages.slice(1),
                 ];
                 console.log(
                     `Loaded chat history for session ${this.currentSessionId}: ${this.currentSessionName}`
                 );
+                return latestSession;
             } else {
                 console.log("No matching chat history found. Starting a new session.");
+                return null;
             }
         } catch (error) {
             if ((error as NodeJS.ErrnoException).code === "ENOENT") {
@@ -397,6 +399,7 @@ export class SmartPassages {
             } else {
                 console.error("Error loading chat history:", error);
             }
+            return null; // Add this line to ensure a return value in all cases
         }
     }
 

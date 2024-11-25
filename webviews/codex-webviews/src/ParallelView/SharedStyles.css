@@ -651,3 +651,15 @@
     aspect-ratio: 16 / 9;
     border: none;
 }
+
+.session-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.current-session-info {
+    font-size: 0.9em;
+    color: var(--vscode-descriptionForeground);
+}

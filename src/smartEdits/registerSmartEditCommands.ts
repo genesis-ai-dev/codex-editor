@@ -142,7 +142,8 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
             async (cellIds: string[], query: string) => {
                 try {
                     const response = await smartPassages.chat(cellIds, query);
-                    return response;
+                    const sessionInfo = smartPassages.getCurrentSessionInfo();
+                    return { response, sessionInfo };
                 } catch (error) {
                     console.error("Error in smart passages chat:", error);
                     vscode.window.showErrorMessage(
@@ -165,13 +166,16 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
                 editIndex?: number
             ) => {
                 try {
+                    const sessionInfo = smartPassages.getCurrentSessionInfo();
+                    onChunk(JSON.stringify({ sessionInfo })); // Send session info as the first chunk
+
                     await smartPassages.chatStream(cellIds, query, onChunk, editIndex);
                 } catch (error) {
                     console.error("Error in smart passages chat stream:", error);
                     vscode.window.showErrorMessage(
                         "Failed to process chat request. Please check the console for more details."
                     );
-                    onChunk("Error processing request.");
+                    onChunk(JSON.stringify({ error: "Error processing request." }));
                 }
             }
         )
@@ -296,6 +300,42 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
                     );
                     return false;
                 }
+            }
+        )
+    );
+
+    // Add command to start a new chat session
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-smart-edits.startNewChatSession", () => {
+            smartPassages.startNewSession();
+            return smartPassages.getCurrentSessionInfo();
+        })
+    );
+
+    // Add command to get current session info
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-smart-edits.getCurrentChatSessionInfo", () => {
+            return smartPassages.getCurrentSessionInfo();
+        })
+    );
+
+    // Add command to get all saved chat sessions
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-smart-edits.getAllChatSessions", async () => {
+            return await smartPassages.getAllSessions();
+        })
+    );
+
+    // Add command to load a specific chat session
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-smart-edits.loadChatSession",
+            async (sessionId: string) => {
+                const loadedSession = await smartPassages.loadChatHistory(sessionId);
+                return {
+                    sessionInfo: smartPassages.getCurrentSessionInfo(),
+                    messages: loadedSession ? loadedSession.messages : [],
+                };
             }
         )
     );

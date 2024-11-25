@@ -1,5 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { VSCodePanelTab, VSCodePanelView, VSCodePanels } from "@vscode/webview-ui-toolkit/react";
+import {
+    VSCodePanelTab,
+    VSCodePanelView,
+    VSCodePanels,
+    VSCodeButton,
+} from "@vscode/webview-ui-toolkit/react";
 import "./App.css";
 import { OpenFileMessage, ChatMessage } from "./types";
 import SearchTab from "./SearchTab";
@@ -28,6 +33,13 @@ const messageStyles = {
     },
 };
 
+// Add this new type
+interface SessionInfo {
+    id: string;
+    name: string;
+    createdAt: string;
+}
+
 function ParallelView() {
     const [verses, setVerses] = useState<TranslationPair[]>([]);
     const [pinnedVerses, setPinnedVerses] = useState<TranslationPair[]>([]);
@@ -38,6 +50,9 @@ function ParallelView() {
     const [nextChunkIndex, setNextChunkIndex] = useState(0);
     const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
     const [completeOnly, setCompleteOnly] = useState<boolean>(false);
+    const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null);
+    const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
+    const [loadedMessages, setLoadedMessages] = useState<ChatMessage[]>([]);
 
     // Helper function to process pending chunks in order
     const processNextChunk = () => {
@@ -149,6 +164,18 @@ function ParallelView() {
                     break;
                 case "chatResponseComplete":
                     // This case is now handled in the chatResponseStream case when isLast is true
+                    break;
+                case "updateSessionInfo":
+                    setSessionInfo(message.data);
+                    // Don't clear chat history here, as it's handled in handleStartNewSession
+                    break;
+                case "updateAllSessions":
+                    setAllSessions(message.data);
+                    break;
+                case "loadedSessionData":
+                    // Replace the entire chat history with the loaded messages
+                    setChatHistory(message.data.messages);
+                    setSessionInfo(message.data.sessionInfo);
                     break;
             }
         };
@@ -281,6 +308,32 @@ function ParallelView() {
         setPinnedVerses([...pinnedVerses, ...unpinnedVerses]);
     };
 
+    const handleStartNewSession = () => {
+        vscode.postMessage({ command: "startNewChatSession" });
+        // Clear chat history and add an initial system message
+        // setChatHistory([
+        //     {
+        //         role: "system",
+        //         content: "New session started. How can I assist you today?",
+        //     },
+        // ]);
+    };
+
+    const handleLoadSession = (sessionId: string) => {
+        vscode.postMessage({
+            command: "loadChatSession",
+            sessionId: sessionId,
+        });
+        // Clear chat history immediately in the frontend
+        setChatHistory([]);
+    };
+
+    useEffect(() => {
+        // Request current session info and all sessions on component mount
+        vscode.postMessage({ command: "getCurrentChatSessionInfo" });
+        vscode.postMessage({ command: "getAllChatSessions" });
+    }, []);
+
     return (
         <VSCodePanels>
             <VSCodePanelTab id="tab-search">Search</VSCodePanelTab>
@@ -315,6 +368,10 @@ function ParallelView() {
                     pinnedVerses={pinnedVerses}
                     onApplyTranslation={handleApplyTranslation}
                     handleAddedFeedback={handleAddedFeedback}
+                    sessionInfo={sessionInfo}
+                    allSessions={allSessions}
+                    onStartNewSession={handleStartNewSession}
+                    onLoadSession={handleLoadSession}
                 />
             </VSCodePanelView>
         </VSCodePanels>

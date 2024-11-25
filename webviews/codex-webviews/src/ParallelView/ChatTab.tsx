@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useCallback, useState } from "react";
-import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { VSCodeButton, VSCodeDropdown, VSCodeOption } from "@vscode/webview-ui-toolkit/react";
 import ChatInput from "./ChatInput";
 import { ChatMessage } from "./types";
 import { TranslationPair } from "../../../../types";
@@ -13,6 +13,12 @@ import {
     GuessNextPromptsComponent,
     YoutubeVideoComponent,
 } from "./ChatComponents";
+
+interface SessionInfo {
+    id: string;
+    name: string;
+    createdAt: string;
+}
 
 interface ChatTabProps {
     chatHistory: ChatMessage[];
@@ -28,6 +34,10 @@ interface ChatTabProps {
     pinnedVerses: TranslationPair[];
     onApplyTranslation: (cellId: string, text: string) => void;
     handleAddedFeedback: (cellId: string, feedback: string) => void;
+    sessionInfo: SessionInfo | null;
+    allSessions: SessionInfo[];
+    onStartNewSession: () => void;
+    onLoadSession: (sessionId: string) => void;
 }
 
 function ChatTab({
@@ -40,6 +50,10 @@ function ChatTab({
     pinnedVerses,
     onApplyTranslation,
     handleAddedFeedback,
+    sessionInfo,
+    allSessions,
+    onStartNewSession,
+    onLoadSession,
 }: ChatTabProps) {
     const chatHistoryRef = useRef<HTMLDivElement>(null);
     const [pendingSubmit, setPendingSubmit] = useState(false);
@@ -50,7 +64,7 @@ function ChatTab({
         if (chatHistoryRef.current) {
             chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
         }
-    }, [chatHistory, currentMessage]);
+    }, [chatHistory]);
 
     const handleRedoMessage = useCallback(
         (index: number, content: string) => {
@@ -235,6 +249,26 @@ function ChatTab({
 
     return (
         <div className="tab-container">
+            <div className="session-controls">
+                <VSCodeButton onClick={onStartNewSession}>New Session</VSCodeButton>
+                <VSCodeDropdown
+                    onChange={(e) => onLoadSession((e.target as HTMLSelectElement).value)}
+                >
+                    <VSCodeOption value="">Load Session</VSCodeOption>
+                    {allSessions.map((session) => (
+                        <VSCodeOption key={session.id} value={session.id}>
+                            {session.name}
+                        </VSCodeOption>
+                    ))}
+                </VSCodeDropdown>
+                {sessionInfo && (
+                    <div className="current-session-info">
+                        Current Session: {sessionInfo.name} (Created:{" "}
+                        {new Date(sessionInfo.createdAt).toLocaleString()})
+                    </div>
+                )}
+            </div>
+
             <div className="pinned-verses">
                 <h3>Pinned Verses:</h3>
                 <p className="select-target-instruction">
@@ -255,9 +289,9 @@ function ChatTab({
             </div>
 
             <div ref={chatHistoryRef} className="message-history">
-                {chatHistory.length > 0 ? (
+                {chatHistory.length > 1 ? (
                     <div className="chat-messages">
-                        {chatHistory.map((message, index) => (
+                        {chatHistory.slice(1).map((message, index) => (
                             <div key={index} className={`chat-message ${message.role}`}>
                                 {renderMessage(message.content)}
                                 <div className="chat-message-actions">
@@ -265,7 +299,7 @@ function ChatTab({
                                         <>
                                             <VSCodeButton
                                                 appearance="icon"
-                                                onClick={() => onEditMessage(index)}
+                                                onClick={() => onEditMessage(index + 1)}
                                                 title="Edit message"
                                             >
                                                 <span className="codicon codicon-edit" />
@@ -273,7 +307,7 @@ function ChatTab({
                                             <VSCodeButton
                                                 appearance="icon"
                                                 onClick={() =>
-                                                    handleRedoMessage(index, message.content)
+                                                    handleRedoMessage(index + 1, message.content)
                                                 }
                                                 title="Redo message"
                                             >
