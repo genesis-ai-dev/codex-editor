@@ -287,6 +287,37 @@ export type SourceUploadResponseMessages =
           };
       };
 
+export type StartupFlowPostMessages =
+    | { command: "error"; errorMessage: string }
+    | { command: "extension.check"; extensionId: string }
+    | { command: "auth.login"; username: string; password: string }
+    | { command: "auth.signup"; username: string; email: string; password: string }
+    | { command: "auth.logout" }
+    | { command: "auth.status" }
+    | { command: "auth.checkAuthStatus" }
+    | { command: "project.clone"; repoUrl: string }
+    | { command: "project.open" }
+    | { command: "project.new" };
+
+export type StartupFlowResponseMessages =
+    | {
+          command: "checkWorkspaceState";
+          isWorkspaceOpen: boolean;
+      }
+    | { command: "error"; message: string }
+    | { command: "extension.checkResponse"; isInstalled: boolean }
+    | { command: "auth.statusResponse"; isAuthenticated: boolean; error?: string }
+    | {
+          command: "updateAuthState";
+          success: boolean;
+          authState: {
+              isAuthExtensionInstalled: boolean;
+              isAuthenticated: boolean;
+              isLoading: boolean;
+              error?: string;
+          };
+      };
+
 type DictionaryPostMessages =
     | {
           command: "webviewTellsProviderToUpdateData";

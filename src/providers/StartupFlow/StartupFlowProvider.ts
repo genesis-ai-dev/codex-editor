@@ -1,3 +1,4 @@
+import { StartupFlowPostMessages, StartupFlowResponseMessages } from "../../../types";
 import * as vscode from "vscode";
 
 function getNonce(): string {
@@ -9,10 +10,155 @@ function getNonce(): string {
     return text;
 }
 
+const DEBUG_MODE = true; // Set to true to enable debug logging
+
+function debugLog(...args: any[]): void {
+    if (DEBUG_MODE) {
+        console.log("[StartupFlowProvider]", ...args);
+    }
+}
+
 export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     public static readonly viewType = "startupFlowProvider";
 
     constructor(private readonly context: vscode.ExtensionContext) {}
+
+    private async handleAuthenticationMessage(
+        webviewPanel: vscode.WebviewPanel,
+        message: StartupFlowPostMessages
+    ) {
+        debugLog("Handling authentication message", message.command);
+        const extension = await vscode.extensions
+            .getExtension("frontier-rnd.frontier-authentication")
+            ?.activate();
+
+        if (!extension) {
+            debugLog("Authentication extension not found");
+            webviewPanel.webview.postMessage({
+                command: "updateAuthState",
+                authState: {
+                    isAuthExtensionInstalled: false,
+                    isAuthenticated: false,
+                    isLoading: false,
+                },
+            } as StartupFlowResponseMessages);
+            return;
+        }
+
+        switch (message.command) {
+            case "auth.status": {
+                debugLog("Getting auth status");
+                try {
+                    const status = await extension.getAuthStatus();
+                    debugLog("Got auth status", status);
+                    webviewPanel.webview.postMessage({
+                        command: "updateAuthState",
+                        authState: {
+                            isAuthExtensionInstalled: true,
+                            isAuthenticated: status.isAuthenticated,
+                            isLoading: false,
+                        },
+                    } as StartupFlowResponseMessages);
+                } catch (error) {
+                    debugLog("Error getting auth status", error);
+                    webviewPanel.webview.postMessage({
+                        command: "updateAuthState",
+                        authState: {
+                            isAuthExtensionInstalled: true,
+                            isAuthenticated: false,
+                            isLoading: false,
+                            error:
+                                error instanceof Error
+                                    ? error.message
+                                    : "Failed to get auth status",
+                        },
+                    } as StartupFlowResponseMessages);
+                }
+                break;
+            }
+            case "auth.login": {
+                debugLog("Attempting login");
+                try {
+                    await extension.login(message.username, message.password);
+                    debugLog("Login successful");
+                    webviewPanel.webview.postMessage({
+                        command: "updateAuthState",
+                        authState: {
+                            isAuthExtensionInstalled: true,
+                            isAuthenticated: true,
+                            isLoading: false,
+                        },
+                    } as StartupFlowResponseMessages);
+                } catch (error) {
+                    debugLog("Login failed", error);
+                    webviewPanel.webview.postMessage({
+                        command: "updateAuthState",
+                        authState: {
+                            isAuthExtensionInstalled: true,
+                            isAuthenticated: false,
+                            isLoading: false,
+                            error: error instanceof Error ? error.message : "Login failed",
+                        },
+                    } as StartupFlowResponseMessages);
+                }
+                break;
+            }
+            case "auth.signup": {
+                debugLog("Attempting registration");
+                try {
+                    await extension.register(message.username, message.email, message.password);
+                    debugLog("Registration successful");
+                    webviewPanel.webview.postMessage({
+                        command: "updateAuthState",
+                        authState: {
+                            isAuthExtensionInstalled: true,
+                            isAuthenticated: true,
+                            isLoading: false,
+                        },
+                    } as StartupFlowResponseMessages);
+                } catch (error) {
+                    debugLog("Registration failed", error);
+                    webviewPanel.webview.postMessage({
+                        command: "updateAuthState",
+                        authState: {
+                            isAuthExtensionInstalled: true,
+                            isAuthenticated: false,
+                            isLoading: false,
+                            error: error instanceof Error ? error.message : "Registration failed",
+                        },
+                    } as StartupFlowResponseMessages);
+                }
+                break;
+            }
+            case "auth.logout": {
+                debugLog("Attempting logout");
+                try {
+                    await extension.logout();
+                    debugLog("Logout successful");
+                    webviewPanel.webview.postMessage({
+                        command: "updateAuthState",
+                        authState: {
+                            isAuthExtensionInstalled: true,
+                            isAuthenticated: false,
+                            isLoading: false,
+                        },
+                    } as StartupFlowResponseMessages);
+                } catch (error) {
+                    debugLog("Logout failed", error);
+                    webviewPanel.webview.postMessage({
+                        command: "updateAuthState",
+                        authState: {
+                            isAuthExtensionInstalled: true,
+                            isAuthenticated: true,
+                            isLoading: false,
+                            error: error instanceof Error ? error.message : "Logout failed",
+                        },
+                    } as StartupFlowResponseMessages);
+                }
+                break;
+            }
+        }
+    }
 
     async openCustomDocument(
         uri: vscode.Uri,
@@ -37,10 +183,14 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview);
 
         // Handle messages from webview
-        webviewPanel.webview.onDidReceiveMessage(async (message) => {
+        webviewPanel.webview.onDidReceiveMessage(async (message: StartupFlowPostMessages) => {
             switch (message.command) {
-                case "alert":
-                    vscode.window.showInformationMessage(message.text);
+                case "auth.status":
+                case "auth.login":
+                case "auth.signup":
+                case "auth.logout":
+                    debugLog("Handling authentication message", message.command);
+                    await this.handleAuthenticationMessage(webviewPanel, message);
                     break;
             }
         });
