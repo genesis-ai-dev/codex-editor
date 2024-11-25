@@ -6,7 +6,7 @@
         "target": "ES2020",
         "outDir": "out",
         "lib": ["ES2020", "DOM"],
-        "types": ["node", "vscode", "mocha"],
+        "types": ["node", "vscode", "mocha", "webpack-env"],
         "sourceMap": true,
         "rootDir": ".",
         "resolveJsonModule": true,

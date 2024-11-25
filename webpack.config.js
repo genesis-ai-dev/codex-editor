@@ -48,6 +48,7 @@ const extensionConfig = {
             buffer: require.resolve("buffer/"),
             util: require.resolve("util/"),
             vm: false,
+            readline: false,
         },
     },
     module: {
@@ -190,6 +191,7 @@ const testConfig = {
             os: require.resolve("os-browserify/browser"),
             crypto: require.resolve("crypto-browserify"),
             vm: require.resolve("vm-browserify"),
+            readline: require.resolve("readline-browserify"),
         },
     },
     module: {
