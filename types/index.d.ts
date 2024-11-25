@@ -211,6 +211,7 @@ export type SourceUploadPostMessages =
     | { command: "downloadBible"; ebibleMetadata: ExtendedMetadata; asTranslationOnly: boolean }
     | { command: "confirmBibleDownload"; transaction: DownloadBibleTransaction }
     | { command: "cancelBibleDownload"; transaction: DownloadBibleTransaction }
+    | { command: "getMetadata" }
     | { command: "createSourceFolder"; data: { sourcePath: string } }
     | { command: "importRemoteTranslation" }
     | { command: "importLocalTranslation" }
@@ -246,6 +247,7 @@ export type SourceUploadResponseMessages =
               preview: SourcePreview;
           }>;
       }
+    | { command: "getMetadata"; metadata: any[] }
     | { command: "error"; message: string }
     | { command: "importComplete" }
     | { command: "setupComplete"; data: { path: string } }
