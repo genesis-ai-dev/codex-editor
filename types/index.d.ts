@@ -5,7 +5,7 @@ import { CodexCell } from "src/utils/codexNotebookUtils";
 import { SavedBacktranslation } from "../smartEdits/smartBacktranslation";
 
 interface ChatMessage {
-    role: "system" | "user" | "assistant";
+    role: "system" | "user" | "assistant" | "context";
     content: string;
 }
 
