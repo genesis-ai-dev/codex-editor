@@ -27,17 +27,15 @@ export const registerStartupFlowCommands = (context: vscode.ExtensionContext) =>
 
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-project-manager.openStartupFlow", () => {
-            const workspaceFolder = getWorkSpaceFolder();
-            if (workspaceFolder) {
-                const uri = vscode.Uri.parse(
-                    `startupFlowProvider-scheme:Startup Flow.startupFlowProvider`
-                );
-                vscode.commands.executeCommand(
-                    "vscode.openWith",
-                    uri,
-                    StartupFlowProvider.viewType
-                );
-            }
+            // Always create the URI, regardless of workspace state
+            const uri = vscode.Uri.parse(
+                `startupFlowProvider-scheme:Startup Flow.startupFlowProvider`
+            );
+            vscode.commands.executeCommand(
+                "vscode.openWith",
+                uri,
+                StartupFlowProvider.viewType
+            );
         })
     );
 };

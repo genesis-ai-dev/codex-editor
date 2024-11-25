@@ -650,7 +650,8 @@
             },
             {
                 "command": "codex-project-manager.openStartupFlow",
-                "title": "Open Startup Flow"
+                "title": "Open Startup Flow",
+                "category": "Codex Project Manager"
             },
             {
                 "command": "codexNotebookTreeView.openSourceFile",
