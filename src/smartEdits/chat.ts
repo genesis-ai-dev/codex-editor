@@ -8,16 +8,24 @@ class Chatbot {
     private messages: ChatMessage[];
     private contextMessage: ChatMessage | null;
     private maxBuffer: number;
+    private language: string;
 
     constructor(private systemMessage: string) {
         this.config = vscode.workspace.getConfiguration("translators-copilot");
+        this.language = this.config.get("main_chat_language") || "en";
         this.openai = new OpenAI({
             apiKey: this.getApiKey(),
             baseURL: this.config.get("llmEndpoint") || "https://api.openai.com/v1",
         });
-        this.messages = [{ role: "system", content: systemMessage }];
+        this.messages = [
+            {
+                role: "system",
+                content:
+                    systemMessage + `\n\nTalk with the user in this language: ${this.language}.`,
+            },
+        ];
         this.contextMessage = null;
-        this.maxBuffer = 50;
+        this.maxBuffer = 30;
     }
 
     private getApiKey(): string {

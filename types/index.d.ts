@@ -216,7 +216,16 @@ export type SourceUploadPostMessages =
     | { command: "importRemoteTranslation" }
     | { command: "importLocalTranslation" }
     | { command: "closePanel" }
-    | { command: "previewSourceText"; fileContent: string; fileName: string };
+    | { command: "previewSourceText"; fileContent: string; fileName: string }
+    | { command: "extension.check"; extensionId: string }
+    | { command: "auth.login"; username: string; password: string }
+    | { command: "auth.signup"; username: string; email: string; password: string }
+    | { command: "auth.logout" }
+    | { command: "auth.status" }
+    | { command: "auth.checkAuthStatus" }
+    | { command: "project.clone"; repoUrl: string }
+    | { command: "project.open" }
+    | { command: "project.new" };
 
 export type SourceUploadResponseMessages =
     | {
@@ -238,7 +247,7 @@ export type SourceUploadResponseMessages =
               preview: SourcePreview;
           }>;
       }
-    | { command: "updateMetadata"; metadata: any[] }
+    | { command: "getMetadata"; metadata: any[] }
     | { command: "error"; message: string }
     | { command: "importComplete" }
     | { command: "setupComplete"; data: { path: string } }
@@ -265,7 +274,51 @@ export type SourceUploadResponseMessages =
           preview: BiblePreviewData;
           transaction: DownloadBibleTransaction;
       }
-    | { command: "bibleDownloadCancelled" };
+    | { command: "bibleDownloadCancelled" }
+    | { command: "extension.checkResponse"; isInstalled: boolean }
+    | { command: "auth.statusResponse"; isAuthenticated: boolean; error?: string }
+    | { command: "project.response"; success: boolean; projectPath?: string; error?: string }
+    | {
+          command: "updateAuthState";
+          success: boolean;
+          authState: {
+              isAuthExtensionInstalled: boolean;
+              isAuthenticated: boolean;
+              isLoading: boolean;
+              error?: string;
+          };
+      };
+
+export type MessagesToStartupFlowProvider =
+    | { command: "error"; errorMessage: string }
+    | { command: "extension.check"; extensionId: string }
+    | { command: "auth.login"; username: string; password: string }
+    | { command: "auth.signup"; username: string; email: string; password: string }
+    | { command: "auth.logout" }
+    | { command: "auth.status" }
+    | { command: "auth.checkAuthStatus" }
+    | { command: "project.clone"; repoUrl: string }
+    | { command: "project.open" }
+    | { command: "project.new" };
+
+export type MessagesFromStartupFlowProvider =
+    | {
+          command: "checkWorkspaceState";
+          isWorkspaceOpen: boolean;
+      }
+    | { command: "error"; message: string }
+    | { command: "extension.checkResponse"; isInstalled: boolean }
+    | { command: "auth.statusResponse"; isAuthenticated: boolean; error?: string }
+    | {
+          command: "updateAuthState";
+          success: boolean;
+          authState: {
+              isAuthExtensionInstalled: boolean;
+              isAuthenticated: boolean;
+              isLoading: boolean;
+              error?: string;
+          };
+      };
 
 type DictionaryPostMessages =
     | {

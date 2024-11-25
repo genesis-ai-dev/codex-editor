@@ -82,6 +82,20 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             isSourceText
         );
 
+        // Create a file system watcher for the current file
+        const watcher = vscode.workspace.createFileSystemWatcher(
+            new vscode.RelativePattern(vscode.workspace.getWorkspaceFolder(document.uri)!, vscode.workspace.asRelativePath(document.uri))
+        );
+
+        // Listen for file changes
+        watcher.onDidChange(uri => {
+            if (uri.toString() === document.uri.toString()) {
+                if( !document.isDirty ){
+                    document.revert(); // Reload the document to reflect changes if it isn't dirty already.
+                }
+            }
+        });
+
         const updateWebview = () => {
             const notebookData: vscode.NotebookData = this.getDocumentAsJson(document);
 
@@ -117,7 +131,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const listeners: vscode.Disposable[] = [];
 
         listeners.push(
-            document.onDidChangeContent((e) => {
+            document.onDidChangeForVsCodeAndWebview((e) => {
                 // Update the webview when the document changes
                 updateWebview();
 
@@ -126,9 +140,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             })
         );
 
+        listeners.push(
+            document.onDidChangeForWebview((e) => {
+                // Update the webview when the document changes
+                updateWebview();
+            })
+        );
+
         webviewPanel.onDidDispose(() => {
             jumpToCellListenerDispose();
             listeners.forEach((l) => l.dispose());
+            watcher.dispose();
         });
 
         webviewPanel.webview.onDidReceiveMessage(async (e: EditorPostMessages) => {

@@ -5,6 +5,9 @@ import Chatbot from "./chat";
 import { TranslationPair, MinimalCellResult } from "../../types";
 import { SavedBacktranslation } from "./smartBacktranslation";
 import { SYSTEM_MESSAGE } from "./prompts";
+import * as readline from "readline";
+import { createReadStream, createWriteStream } from "fs";
+import { findRelevantVideos, VideoEntry } from "./utils/videoUtil";
 
 interface TranslationPairWithBacktranslation extends TranslationPair {
     backtranslation?: string;
@@ -71,6 +74,16 @@ export class SmartPassages {
         const cells: TranslationPairWithBacktranslation[] = [];
         const generalEntries: { cellId: string; content: string }[] = [];
         const allMemories = await this.readAllMemories();
+        const videos: VideoEntry[] = [];
+
+        for (const cellId of cellIds) {
+            try {
+                const relevantVideos = await findRelevantVideos(cellId);
+                videos.push(...relevantVideos);
+            } catch (error) {
+                console.error(`Error finding relevant videos for cellId ${cellId}:`, error);
+            }
+        }
 
         // Separate general entries
         Object.entries(allMemories).forEach(([id, feedback]) => {
@@ -189,78 +202,118 @@ export class SmartPassages {
 
         const allFormattedEntries = [...formattedGeneralEntries, ...formattedCells];
 
-        return `Context:\n${allFormattedEntries.join("\n\n")}`;
+        // Add video information to the formatted context
+        const formattedVideos = videos
+            .map(
+                (video) => `
+    "${video.videoId}": {
+        title: ${video.title}
+        range: ${video.range}
+    }`
+            )
+            .join("\n");
+
+        return `Context:\n${allFormattedEntries.join("\n\n")}\n\nRelevant Videos:\n${formattedVideos}`;
     }
 
     async updateFeedback(cellId: string, content: string): Promise<void> {
-        const allMemories = await this.readAllMemories();
+        const trimmedContent = content.trim();
+        const cellIds = cellId.includes(",") ? cellId.split(",").map((id) => id.trim()) : [cellId];
 
-        if (!allMemories[cellId]) {
-            allMemories[cellId] = { content: "" };
+        for (const id of cellIds) {
+            // Check if this content already exists for this cellId
+            const existingEntries = await this.readEntriesForCell(id);
+            if (existingEntries.some((entry) => entry.content === trimmedContent)) {
+                console.log(`Skipping duplicate content for cellId: ${id}`);
+                continue;
+            }
+
+            const newEntry = {
+                cellId: id,
+                content: trimmedContent,
+                timestamp: new Date().toISOString(),
+            };
+
+            const jsonLine = JSON.stringify(newEntry) + "\n";
+
+            try {
+                await fs.appendFile(this.feedbackFile, jsonLine, "utf-8");
+            } catch (error) {
+                console.error(`Error appending feedback for cellId ${id}:`, error);
+            }
         }
+    }
 
-        // Trim the existing content and the new content
-        const existingContent = allMemories[cellId].content.trim();
-        const newContent = content.trim();
+    private async readEntriesForCell(
+        cellId: string
+    ): Promise<Array<{ content: string; timestamp: string }>> {
+        const entries: Array<{ content: string; timestamp: string }> = [];
 
-        // Add a newline only if there's existing content
-        allMemories[cellId].content = existingContent
-            ? `${existingContent}\n- ${newContent}`
-            : `- ${newContent}`;
+        try {
+            const fileStream = createReadStream(this.feedbackFile);
+            const rl = readline.createInterface({
+                input: fileStream,
+                crlfDelay: Infinity,
+            });
 
-        await this.writeAllMemories(allMemories);
+            for await (const line of rl) {
+                try {
+                    const entry = JSON.parse(line);
+                    if (entry.cellId === cellId) {
+                        entries.push({ content: entry.content, timestamp: entry.timestamp });
+                    }
+                } catch (parseError) {
+                    console.error("Error parsing line:", parseError);
+                }
+            }
+
+            return entries;
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+                // File doesn't exist, return an empty array
+                return [];
+            }
+            console.error("Error reading entries:", error);
+            return [];
+        }
     }
 
     private async readAllMemories(): Promise<{ [cellId: string]: Feedback }> {
+        const memories: { [cellId: string]: Feedback } = {};
+
         try {
-            const data = await fs.readFile(this.feedbackFile, "utf-8");
-            const trimmedData = data.trim();
-            if (!trimmedData) {
-                return {};
+            const fileStream = createReadStream(this.feedbackFile);
+            const rl = readline.createInterface({
+                input: fileStream,
+                crlfDelay: Infinity,
+            });
+
+            for await (const line of rl) {
+                try {
+                    const entry = JSON.parse(line);
+                    if (!memories[entry.cellId]) {
+                        memories[entry.cellId] = { content: "" };
+                    }
+                    memories[entry.cellId].content += `- ${entry.content}\n`;
+                } catch (parseError) {
+                    console.error("Error parsing line:", parseError);
+                }
             }
-            try {
-                const parsedData = JSON.parse(trimmedData);
-                return typeof parsedData === "object" && parsedData !== null ? parsedData : {};
-            } catch (parseError) {
-                console.error("Error parsing memories JSON:", parseError);
-                // If parsing fails, attempt to repair the file
-                await this.validateAndRepairMemories();
-                return {};
-            }
+
+            return memories;
         } catch (error) {
             if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-                // File doesn't exist, create it with an empty object
-                await this.writeAllMemories({});
+                // File doesn't exist, return an empty object
                 return {};
             }
             console.error("Error reading memories:", error);
-            // In case of any error, return an empty object
             return {};
         }
     }
 
-    private async writeAllMemories(memories: { [cellId: string]: Feedback }): Promise<void> {
-        try {
-            const safeMemories = typeof memories === "object" && memories !== null ? memories : {};
-            const jsonString = JSON.stringify(safeMemories, null, 2);
-            await fs.writeFile(this.feedbackFile, jsonString, "utf-8");
-        } catch (error) {
-            console.error("Error writing memories:", error);
-        }
-    }
-
-    private async validateAndRepairMemories(): Promise<void> {
-        try {
-            const data = await fs.readFile(this.feedbackFile, "utf-8");
-            const lines = data.split("\n");
-            const repairedLines = lines.filter((line) => line.trim() !== "");
-            const repairedData = repairedLines.join("\n");
-            const parsedData = JSON.parse(repairedData);
-            await this.writeAllMemories(parsedData);
-        } catch (error) {
-            console.error("Error validating and repairing memories:", error);
-            // If all else fails, reset to an empty object
-            await this.writeAllMemories({});
-        }
+    private convertCellIdToVerseReference(cellId: string): string {
+        // Implement the conversion logic here
+        // This is just a placeholder example
+        return cellId.replace("_", " ").toUpperCase();
     }
 }

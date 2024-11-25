@@ -102,6 +102,14 @@ function getNonce(): string {
     return text;
 }
 
+const DEBUG_MODE = false; // Set to true to enable debug logging
+
+function debugLog(...args: any[]): void {
+    if (DEBUG_MODE) {
+        console.log("[SourceUploadProvider]", ...args);
+    }
+}
+
 export class SourceUploadProvider
     implements vscode.TextDocumentContentProvider, vscode.CustomTextEditorProvider
 {

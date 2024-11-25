@@ -19,6 +19,7 @@
     ],
     "activationEvents": [
         "onCustomEditor:sourceUploadProvider-scheme",
+        "onCustomEditor:startupFlowProvider-scheme",
         "onNotebook:codex-type",
         "onStartupFinished"
     ],
@@ -648,6 +649,10 @@
                 "title": "Open Source Upload"
             },
             {
+                "command": "codex-project-manager.openStartupFlow",
+                "title": "Open Startup Flow"
+            },
+            {
                 "command": "codexNotebookTreeView.openSourceFile",
                 "title": "Open Source File",
                 "icon": "$(open-preview)"
@@ -1044,6 +1049,17 @@
                     {
                         "filenamePattern": "*.sourceUploadProvider",
                         "scheme": "sourceUploadProvider-scheme"
+                    }
+                ],
+                "priority": "default"
+            },
+            {
+                "viewType": "startupFlowProvider",
+                "displayName": "Startup Flow Editor",
+                "selector": [
+                    {
+                        "filenamePattern": "*.startupFlowProvider",
+                        "scheme": "startupFlowProvider-scheme"
                     }
                 ],
                 "priority": "default"

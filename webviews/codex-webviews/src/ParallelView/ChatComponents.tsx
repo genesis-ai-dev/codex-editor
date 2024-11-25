@@ -24,11 +24,16 @@ interface GuessNextPromptsProps {
     onClick: (prompt: string) => void;
 }
 
+interface YoutubeVideoProps {
+    videoId: string;
+}
+
 export const RegEx = {
     IndividuallyTranslatedVerse: /<IndividuallyTranslatedVerse\s+([^>]+)\s*\/>/g,
     AddedFeedback: /<AddedFeedback\s+([^>]+)\s*\/>/g,
     ShowUserPreference: /<ShowUserPreference\s+([^>]+)\s*\/>/g,
     GuessNextPrompts: /<GuessNextPrompts\s+([^>]+)\s*\/>/g,
+    YoutubeVideo: /<YoutubeVideo\s+([^>]+)\s*\/>/g,
 } as const;
 
 export const onCopy = (content: string) => {
@@ -116,6 +121,19 @@ export const IndividuallyTranslatedVerseComponent: React.FC<IndividuallyTranslat
                     </VSCodeButton>
                 </div>
             </div>
+        </div>
+    );
+};
+
+export const YoutubeVideoComponent: React.FC<YoutubeVideoProps> = ({ videoId }) => {
+    return (
+        <div className="youtube-video">
+            <iframe
+                src={`https://www.youtube.com/embed/${videoId}`}
+                title="YouTube video player"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+            ></iframe>
         </div>
     );
 };

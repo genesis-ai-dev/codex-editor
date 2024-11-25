@@ -12,7 +12,6 @@ import { registerLanguageServer } from "./tsServer/registerLanguageServer";
 import { registerClientCommands } from "./tsServer/registerClientCommands";
 import registerClientOnRequests from "./tsServer/registerClientOnRequests";
 import { registerSmartEditCommands } from "./smartEdits/registerSmartEditCommands";
-import { registerTeachCommands } from "./smartEdits/registerTeachCommands";
 import { LanguageClient } from "vscode-languageclient/node";
 import { registerProjectManager } from "./projectManager";
 import {
@@ -36,6 +35,7 @@ import {
     TableRecord,
 } from "./activationHelpers/contextAware/miniIndex/indexes/dynamicTableIndex";
 import MiniSearch from "minisearch";
+import { registerStartupFlowCommands } from "./providers/StartupFlow/registerCommands";
 
 declare global {
     // eslint-disable-next-line
@@ -119,7 +119,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Register these commands regardless of metadata existence
     registerSmartEditCommands(context); // For the language server onRequest stuff
-    registerTeachCommands(context);
     await registerSourceUploadCommands(context);
     registerProviders(context);
     await registerCommands(context);
@@ -161,6 +160,7 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
         registerCodeLensProviders(context);
         registerTextSelectionHandler(context, () => undefined);
         await initializeBibleData(context);
+        await registerStartupFlowCommands(context);
 
         client = await registerLanguageServer(context);
         if (client && global.db) {

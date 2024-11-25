@@ -227,7 +227,7 @@ function ParallelView() {
             // Send edit request
             vscode.postMessage({
                 command: "chatStream",
-                query: "Potential Feedback: " + chatInput, // Adding "Potential Feedback" helps the LLM trigger the memory feature.
+                query: `Edited message: "${chatInput}"\nThis is an edited message. Please review the changes and respond accordingly. If you need more context about the translation or previous conversation, please ask before proceeding. Also don't forget about the AddedFeedback component when needed.`,
                 context: verses.map((verse) => verse.cellId),
                 editIndex: editingMessageIndex,
             });

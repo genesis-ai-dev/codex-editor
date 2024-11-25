@@ -5,6 +5,7 @@
     "type": "module",
     "scripts": {
         "dev": "vite",
+        "build:StartupFlow": "cross-env tsc --noEmitOnError && APP_NAME=StartupFlow vite build",
         "build:ParallelView": "cross-env tsc --noEmitOnError && APP_NAME=ParallelView vite build",
         "build:CodexCellEditor": "cross-env tsc --noEmitOnError && APP_NAME=CodexCellEditor vite build",
         "build:SemanticView": "cross-env tsc --noEmitOnError && APP_NAME=SemanticView vite build",
@@ -13,7 +14,7 @@
         "build:EditableReactTable": "cross-env tsc --noEmitOnError && APP_NAME=EditableReactTable vite build",
         "build:ProjectManagerView": "cross-env tsc --noEmitOnError && APP_NAME=ProjectManagerView vite build",
         "build:SourceUpload": "cross-env tsc --noEmitOnError && APP_NAME=SourceUpload vite build",
-        "build:all": "pnpm run build:ParallelView && pnpm run build:EditableReactTable && pnpm run build:ChatView && pnpm run build:CommentsView && pnpm run build:CodexCellEditor && pnpm run build:ProjectManagerView && pnpm run build:SourceUpload",
+        "build:all": "pnpm run build:StartupFlow && pnpm run build:ParallelView && pnpm run build:EditableReactTable && pnpm run build:ChatView && pnpm run build:CommentsView && pnpm run build:CodexCellEditor && pnpm run build:ProjectManagerView && pnpm run build:SourceUpload",
         "watch:all": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:all",
         "watch:ChatView": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:ChatView",
         "watch:CodexCellEditor": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:CodexCellEditor",
@@ -21,6 +22,7 @@
         "watch:SourceUpload": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:SourceUpload",
         "watch:CommentsView": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:CommentsView",
         "watch:ParallelView": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:ParallelView",
+        "watch:StartupFlow": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:StartupFlow",
         "watch:EditableReactTable": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:EditableReactTable",
         "watch:ProjectManagerView": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:ProjectManagerView",
         "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
@@ -30,6 +32,7 @@
         "@popperjs/core": "^2.0.0",
         "@uidotdev/usehooks": "^2.4.1",
         "@vscode/webview-ui-toolkit": "^1.4.0",
+        "@xstate/react": "^5.0.0",
         "antd": "^5.21.4",
         "clsx": "1.1.1",
         "codex-types": "^0.0.2",
@@ -59,7 +62,8 @@
         "remark-html": "^16.0.1",
         "remark-stringify": "^11.0.0",
         "uuid": "^9.0.1",
-        "webvtt-parser": "^2.2.0"
+        "webvtt-parser": "^2.2.0",
+        "xstate": "^5.19.0"
     },
     "devDependencies": {
         "@babel/plugin-transform-private-property-in-object": "^7.16.7",
