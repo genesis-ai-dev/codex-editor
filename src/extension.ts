@@ -35,6 +35,7 @@ import {
     TableRecord,
 } from "./activationHelpers/contextAware/miniIndex/indexes/dynamicTableIndex";
 import MiniSearch from "minisearch";
+import { registerStartupFlowCommands } from "./providers/StartupFlow/registerCommands";
 
 declare global {
     // eslint-disable-next-line
@@ -159,6 +160,7 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
         registerCodeLensProviders(context);
         registerTextSelectionHandler(context, () => undefined);
         await initializeBibleData(context);
+        await registerStartupFlowCommands(context);
 
         client = await registerLanguageServer(context);
         if (client && global.db) {
