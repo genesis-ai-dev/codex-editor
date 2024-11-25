@@ -102,7 +102,7 @@ function getNonce(): string {
     return text;
 }
 
-const DEBUG_MODE = true; // Set to true to enable debug logging
+const DEBUG_MODE = false; // Set to true to enable debug logging
 
 function debugLog(...args: any[]): void {
     if (DEBUG_MODE) {
@@ -161,6 +161,9 @@ export class SourceUploadProvider
         webviewPanel.webview.onDidReceiveMessage(async (message: SourceUploadPostMessages) => {
             try {
                 switch (message.command) {
+                    case "getMetadata":
+                        await this.updateMetadata(webviewPanel);
+                        break;
                     case "uploadSourceText": {
                         try {
                             if (Array.isArray(message.files)) {
@@ -633,14 +636,6 @@ export class SourceUploadProvider
                         }
                         break;
 
-                    case "auth.status":
-                    case "auth.login":
-                    case "auth.signup":
-                    case "auth.logout":
-                        debugLog("Handling authentication message", message.command);
-                        await this.handleAuthenticationMessage(webviewPanel, message);
-                        break;
-
                     default:
                         console.log("Unknown message command", { message });
                         break;
@@ -699,6 +694,22 @@ export class SourceUploadProvider
         const metadataManager = new NotebookMetadataManager();
         await metadataManager.initialize();
         await metadataManager.loadMetadata();
+        const allMetadata = metadataManager.getAllMetadata();
+
+        const aggregatedMetadata = allMetadata.map((metadata) => ({
+            id: metadata.id,
+            originalName: metadata.originalName,
+            sourceFsPath: metadata.sourceFsPath,
+            codexFsPath: metadata.codexFsPath,
+            videoUrl: metadata.videoUrl,
+            lastModified: metadata.codexLastModified,
+            gitStatus: metadata?.gitStatus,
+        }));
+
+        webviewPanel.webview.postMessage({
+            command: "updateMetadata",
+            metadata: aggregatedMetadata,
+        });
     }
 
     private async updateCodexFiles(webviewPanel: vscode.WebviewPanel) {
@@ -1249,143 +1260,6 @@ export class SourceUploadProvider
             } as SourceUploadResponseMessages);
 
             throw error;
-        }
-    }
-
-    private async handleAuthenticationMessage(
-        webviewPanel: vscode.WebviewPanel,
-        message: SourceUploadPostMessages
-    ) {
-        debugLog("Handling authentication message", message.command);
-        const extension = await vscode.extensions
-            .getExtension("frontier-rnd.frontier-authentication")
-            ?.activate();
-
-        if (!extension) {
-            debugLog("Authentication extension not found");
-            webviewPanel.webview.postMessage({
-                command: "updateAuthState",
-                authState: {
-                    isAuthExtensionInstalled: false,
-                    isAuthenticated: false,
-                    isLoading: false,
-                },
-            } as SourceUploadResponseMessages);
-            return;
-        }
-
-        switch (message.command) {
-            case "auth.status": {
-                debugLog("Getting auth status");
-                try {
-                    const status = await extension.getAuthStatus();
-                    debugLog("Got auth status", status);
-                    webviewPanel.webview.postMessage({
-                        command: "updateAuthState",
-                        authState: {
-                            isAuthExtensionInstalled: true,
-                            isAuthenticated: status.isAuthenticated,
-                            isLoading: false,
-                        },
-                    } as SourceUploadResponseMessages);
-                } catch (error) {
-                    debugLog("Error getting auth status", error);
-                    webviewPanel.webview.postMessage({
-                        command: "updateAuthState",
-                        authState: {
-                            isAuthExtensionInstalled: true,
-                            isAuthenticated: false,
-                            isLoading: false,
-                            error:
-                                error instanceof Error
-                                    ? error.message
-                                    : "Failed to get auth status",
-                        },
-                    } as SourceUploadResponseMessages);
-                }
-                break;
-            }
-            case "auth.login": {
-                debugLog("Attempting login");
-                try {
-                    await extension.login(message.username, message.password);
-                    debugLog("Login successful");
-                    webviewPanel.webview.postMessage({
-                        command: "updateAuthState",
-                        authState: {
-                            isAuthExtensionInstalled: true,
-                            isAuthenticated: true,
-                            isLoading: false,
-                        },
-                    } as SourceUploadResponseMessages);
-                } catch (error) {
-                    debugLog("Login failed", error);
-                    webviewPanel.webview.postMessage({
-                        command: "updateAuthState",
-                        authState: {
-                            isAuthExtensionInstalled: true,
-                            isAuthenticated: false,
-                            isLoading: false,
-                            error: error instanceof Error ? error.message : "Login failed",
-                        },
-                    } as SourceUploadResponseMessages);
-                }
-                break;
-            }
-            case "auth.signup": {
-                debugLog("Attempting registration");
-                try {
-                    await extension.register(message.username, message.email, message.password);
-                    debugLog("Registration successful");
-                    webviewPanel.webview.postMessage({
-                        command: "updateAuthState",
-                        authState: {
-                            isAuthExtensionInstalled: true,
-                            isAuthenticated: true,
-                            isLoading: false,
-                        },
-                    } as SourceUploadResponseMessages);
-                } catch (error) {
-                    debugLog("Registration failed", error);
-                    webviewPanel.webview.postMessage({
-                        command: "updateAuthState",
-                        authState: {
-                            isAuthExtensionInstalled: true,
-                            isAuthenticated: false,
-                            isLoading: false,
-                            error: error instanceof Error ? error.message : "Registration failed",
-                        },
-                    } as SourceUploadResponseMessages);
-                }
-                break;
-            }
-            case "auth.logout": {
-                debugLog("Attempting logout");
-                try {
-                    await extension.logout();
-                    debugLog("Logout successful");
-                    webviewPanel.webview.postMessage({
-                        command: "updateAuthState",
-                        authState: {
-                            isAuthExtensionInstalled: true,
-                            isAuthenticated: false,
-                            isLoading: false,
-                        },
-                    } as SourceUploadResponseMessages);
-                } catch (error) {
-                    debugLog("Logout failed", error);
-                    webviewPanel.webview.postMessage({
-                        command: "updateAuthState",
-                        authState: {
-                            isAuthExtensionInstalled: true,
-                            isAuthenticated: true,
-                            isLoading: false,
-                            error: error instanceof Error ? error.message : "Logout failed",
-                        },
-                    } as SourceUploadResponseMessages);
-                }
-                break;
-            }
         }
     }
 }
