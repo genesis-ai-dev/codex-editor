@@ -14,6 +14,9 @@ export const StartupFlowView: React.FC = () => {
     const [state, send, service] = useMachine(startupFlowMachine);
 
     useEffect(() => {
+        // Notify the extension that the webview is ready
+        vscode.postMessage({ command: "webview.ready" });
+
         // Request initial auth and workspace status
         vscode.postMessage({ command: "auth.status" });
         vscode.postMessage({ command: "workspace.status" });
@@ -125,24 +128,14 @@ export const StartupFlowView: React.FC = () => {
     };
 
     return (
-        <div className="startup-flow">
-            <div className="auth-status-bar">
-                {state.context.authState.isLoading ? (
-                    <span className="loading">
-                        <VSCodeProgressRing /> Checking authentication...
-                    </span>
-                ) : state.context.authState.isAuthenticated ? (
-                    <span className="authenticated">
-                        {/* Authenticated as {state.context.authState.gitlabInfo?.username || 'User'} */}
-                        Authenticated
-                    </span>
-                ) : state.context.authState.isAuthExtensionInstalled ? (
-                    <span className="not-authenticated">Not authenticated</span>
-                ) : (
-                    <span className="no-extension">Auth extension not installed</span>
-                )}
-            </div>
-
+        <div className="startup-flow-container">
+            {state.matches("loading") && (
+                <div className="loading-container">
+                    <VSCodeProgressRing />
+                    <p>Loading...</p>
+                </div>
+            )}
+            
             {state.matches("loginRegister") && (
                 <LoginRegisterStep
                     authState={state.context.authState}
@@ -168,6 +161,27 @@ export const StartupFlowView: React.FC = () => {
             {state.matches("openSourceFlow") && (
                 <VSCodeProgressRing />
             )}
+
+            {/* Debug state display */}
+            <div className="debug-state" style={{ 
+                position: 'fixed', 
+                bottom: 0, 
+                left: 0, 
+                right: 0,
+                padding: '10px',
+                background: 'var(--vscode-editor-background)',
+                borderTop: '1px solid var(--vscode-widget-border)',
+                fontSize: '12px',
+                fontFamily: 'monospace',
+                whiteSpace: 'pre-wrap',
+                maxHeight: '200px',
+                overflowY: 'auto'
+            }}>
+                <details>
+                    <summary>Current State</summary>
+                    <pre>{JSON.stringify(state.context, null, 2)}</pre>
+                </details>
+            </div>
         </div>
     );
 };

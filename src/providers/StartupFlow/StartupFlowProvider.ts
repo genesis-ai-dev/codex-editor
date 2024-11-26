@@ -1,6 +1,7 @@
 import { waitForExtensionActivation } from "../../utils/vscode";
 import { MessagesToStartupFlowProvider, MessagesFromStartupFlowProvider } from "../../../types";
 import * as vscode from "vscode";
+import { PreflightCheck } from "./preflight";
 
 interface FrontierAPI {
     authProvider: any;
@@ -340,18 +341,37 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         _token: vscode.CancellationToken
     ): Promise<void> {
         this.webviewPanel = webviewPanel;
-        debugLog("Resolving custom text editor");
-
+        const preflightCheck = new PreflightCheck();
+        
         webviewPanel.webview.options = {
             enableScripts: true,
-            localResourceRoots: [this.context.extensionUri],
+            localResourceRoots: [
+                vscode.Uri.joinPath(this.context.extensionUri, "dist"),
+                vscode.Uri.joinPath(this.context.extensionUri, "webviews", "codex-webviews", "dist"),
+            ],
         };
 
-        // Set initial HTML content
         webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview);
 
-        // Handle messages from webview
-        const messageListener = webviewPanel.webview.onDidReceiveMessage(async (message: MessagesToStartupFlowProvider) => {
+        // Send initial state immediately after webview is ready
+        webviewPanel.webview.onDidReceiveMessage(async (message) => {
+            if (message.command === "webview.ready") {
+                const preflightState = await preflightCheck.preflight(this.context);
+                debugLog("Sending initial preflight state:", preflightState);
+                webviewPanel.webview.postMessage({
+                    command: "updateAuthState",
+                    authState: preflightState.authState
+                });
+                webviewPanel.webview.postMessage({
+                    command: "workspace.statusResponse",
+                    workspaceState: preflightState.workspaceState
+                });
+                webviewPanel.webview.postMessage({
+                    command: "project.statusResponse",
+                    projectSelection: preflightState.projectSelection
+                });
+            }
+
             switch (message.command) {
                 case "auth.status":
                 case "auth.login":
@@ -371,10 +391,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
         // Add disposables
         this.disposables.push(
-            messageListener,
             webviewPanel.onDidDispose(() => {
                 debugLog("Webview panel disposed");
-                messageListener.dispose();
             })
         );
     }

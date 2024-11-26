@@ -49,9 +49,13 @@ export class PreflightCheck {
             await this.initializeFrontierApi();
         }
         
+        if (!this.frontierApi) {
+            return false;
+        }
+
         try {
-            const authStatus = await this.frontierApi?.getAuthStatus();
-            return authStatus?.isAuthenticated ?? false;
+            const status = this.frontierApi.getAuthStatus();
+            return status.isAuthenticated;
         } catch (error) {
             console.error('Error checking authentication:', error);
             return false;
@@ -59,26 +63,17 @@ export class PreflightCheck {
     }
 
     public subscribeToAuthChanges(callback: (status: { isAuthenticated: boolean; gitlabInfo?: any }) => void): void {
-        if (this.authStateSubscription) {
-            this.authStateSubscription.dispose();
-        }
-
         if (this.frontierApi) {
+            this.authStateSubscription?.dispose();
             this.authStateSubscription = this.frontierApi.onAuthStatusChanged(callback);
         }
     }
 
     public dispose(): void {
-        if (this.authStateSubscription) {
-            this.authStateSubscription.dispose();
-        }
+        this.authStateSubscription?.dispose();
     }
-}
 
-export const preflight = async (context: vscode.ExtensionContext) => {
-    const preflightCheck = new PreflightCheck();
-
-    const getPreflightState = async (): Promise<PreflightState> => {
+    public async preflight(context: vscode.ExtensionContext): Promise<PreflightState> {
         const state: PreflightState = {
             authState: {
                 isAuthenticated: false,
@@ -101,13 +96,13 @@ export const preflight = async (context: vscode.ExtensionContext) => {
         };
 
         try {
-            const isAuthenticated = await preflightCheck.checkAuthentication();
+            const isAuthenticated = await this.checkAuthentication();
             state.authState.isAuthenticated = isAuthenticated;
             state.authState.isLoading = false;
             state.authState.isAuthExtensionInstalled = true;
 
             // Subscribe to auth status changes
-            preflightCheck.subscribeToAuthChanges((newAuthState) => {
+            this.subscribeToAuthChanges(() => {
                 vscode.commands.executeCommand('extension.preflight');
             });
 
@@ -133,15 +128,19 @@ export const preflight = async (context: vscode.ExtensionContext) => {
         }
 
         return state;
-    };
+    }
+}
 
+// Register the preflight command
+export const registerPreflightCommand = (context: vscode.ExtensionContext) => {
+    const preflightCheck = new PreflightCheck();
     const disposables: vscode.Disposable[] = [];
     
     const preflightCommand = vscode.commands.registerCommand(
         "extension.preflight",
         async () => {
-            const state = await getPreflightState();
-            console.log('Preflight state:', state); // Helpful for debugging
+            const state = await preflightCheck.preflight(context);
+            console.log('Preflight state:', state);
             
             // Decision tree matching the state machine:
             if (state.authState.isAuthExtensionInstalled) {
@@ -167,5 +166,5 @@ export const preflight = async (context: vscode.ExtensionContext) => {
     context.subscriptions.push(...disposables);
     
     // Run initial preflight check
-    await vscode.commands.executeCommand('extension.preflight');
+    vscode.commands.executeCommand('extension.preflight');
 };

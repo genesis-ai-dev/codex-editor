@@ -36,7 +36,7 @@ import {
 } from "./activationHelpers/contextAware/miniIndex/indexes/dynamicTableIndex";
 import MiniSearch from "minisearch";
 import { registerStartupFlowCommands } from "./providers/StartupFlow/registerCommands";
-import { preflight } from "./providers/StartupFlow/preflight";
+import { registerPreflightCommand } from "./providers/StartupFlow/preflight";
 
 declare global {
     // eslint-disable-next-line
@@ -51,9 +51,8 @@ let tableIndexMap: Map<string, MiniSearch<TableRecord>>;
 export async function activate(context: vscode.ExtensionContext) {
     // Register startup flow commands early, as they handle the initial setup flow
     await registerStartupFlowCommands(context);
+    registerPreflightCommand(context);
 
-    await preflight(context);
-    
     try {
         global.db = await initializeSqlJs(context);
         console.log("initializeSqlJs db", global.db);

@@ -1,9 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import App from "./StartupFlowView";
+import {StartupFlowView} from "./StartupFlowView";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
     <React.StrictMode>
-        <App />
+        <StartupFlowView />
     </React.StrictMode>
 );
