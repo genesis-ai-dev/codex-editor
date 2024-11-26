@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
-import { waitForExtensionActivation } from '../../utils/vscode';
-import { FrontierAPI } from '../../../webviews/codex-webviews/src/StartupFLow/types';
+import { waitForExtensionActivation } from "../../utils/vscode";
+import { FrontierAPI } from "../../../webviews/codex-webviews/src/StartupFLow/types";
 
 interface AuthState {
     isAuthenticated: boolean;
@@ -35,12 +35,14 @@ export class PreflightCheck {
 
     private async initializeFrontierApi() {
         try {
-            const extension = await waitForExtensionActivation('frontier-rnd.frontier-authentication');
+            const extension = await waitForExtensionActivation(
+                "frontier-rnd.frontier-authentication"
+            );
             if (extension?.isActive) {
                 this.frontierApi = extension.exports;
             }
         } catch (error) {
-            console.error('Failed to initialize Frontier API:', error);
+            console.error("Failed to initialize Frontier API:", error);
         }
     }
 
@@ -48,7 +50,7 @@ export class PreflightCheck {
         if (!this.frontierApi) {
             await this.initializeFrontierApi();
         }
-        
+
         if (!this.frontierApi) {
             return false;
         }
@@ -57,12 +59,14 @@ export class PreflightCheck {
             const status = this.frontierApi.getAuthStatus();
             return status.isAuthenticated;
         } catch (error) {
-            console.error('Error checking authentication:', error);
+            console.error("Error checking authentication:", error);
             return false;
         }
     }
 
-    public subscribeToAuthChanges(callback: (status: { isAuthenticated: boolean; gitlabInfo?: any }) => void): void {
+    public subscribeToAuthChanges(
+        callback: (status: { isAuthenticated: boolean; gitlabInfo?: any }) => void
+    ): void {
         if (this.frontierApi) {
             this.authStateSubscription?.dispose();
             this.authStateSubscription = this.frontierApi.onAuthStatusChanged(callback);
@@ -80,19 +84,19 @@ export class PreflightCheck {
                 isAuthExtensionInstalled: false,
                 isLoading: true,
                 error: undefined,
-                gitlabInfo: undefined
+                gitlabInfo: undefined,
             },
             workspaceState: {
                 isOpen: false,
                 hasMetadata: false,
-                error: undefined
+                error: undefined,
             },
             projectSelection: {
                 type: undefined,
                 path: undefined,
                 repoUrl: undefined,
-                error: undefined
-            }
+                error: undefined,
+            },
         };
 
         try {
@@ -103,12 +107,11 @@ export class PreflightCheck {
 
             // Subscribe to auth status changes
             this.subscribeToAuthChanges(() => {
-                vscode.commands.executeCommand('extension.preflight');
+                vscode.commands.executeCommand("codex-project-manager.preflight");
             });
-
         } catch (error) {
-            console.error('Error during auth extension check:', error);
-            state.authState.error = 'Failed to check authentication status';
+            console.error("Error during auth extension check:", error);
+            state.authState.error = "Failed to check authentication status";
         } finally {
             state.authState.isLoading = false;
         }
@@ -119,7 +122,7 @@ export class PreflightCheck {
 
         if (workspaceFolders?.length) {
             try {
-                const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, 'metadata.json');
+                const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
                 await vscode.workspace.fs.stat(metadataUri);
                 state.workspaceState.hasMetadata = true;
             } catch {
@@ -135,36 +138,36 @@ export class PreflightCheck {
 export const registerPreflightCommand = (context: vscode.ExtensionContext) => {
     const preflightCheck = new PreflightCheck();
     const disposables: vscode.Disposable[] = [];
-    
+
     const preflightCommand = vscode.commands.registerCommand(
-        "extension.preflight",
+        "codex-project-manager.preflight",
         async () => {
             const state = await preflightCheck.preflight(context);
-            console.log('Preflight state:', state);
-            
+            console.log("Preflight state:", state);
+
             // Decision tree matching the state machine:
             if (state.authState.isAuthExtensionInstalled) {
                 if (!state.authState.isAuthenticated) {
-                    vscode.commands.executeCommand('codex-startup-flow.show');
+                    vscode.commands.executeCommand("codex-project-manager.openStartupFlow");
                     return;
                 }
             }
-            
+
             if (!state.workspaceState.isOpen) {
-                vscode.commands.executeCommand('codex-startup-flow.show');
+                vscode.commands.executeCommand("codex-project-manager.openStartupFlow");
                 return;
             }
-            
+
             if (!state.workspaceState.hasMetadata) {
-                vscode.commands.executeCommand('codex-startup-flow.show');
+                vscode.commands.executeCommand("codex-project-manager.openStartupFlow");
                 return;
             }
         }
     );
-    
+
     disposables.push(preflightCommand);
     context.subscriptions.push(...disposables);
-    
+
     // Run initial preflight check
-    vscode.commands.executeCommand('extension.preflight');
+    vscode.commands.executeCommand("codex-project-manager.preflight");
 };
