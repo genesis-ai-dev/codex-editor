@@ -492,13 +492,23 @@ export class CustomWebviewProvider {
                         const reflectionConfig = await fetchCompletionConfig();
                         const num_improverrs = 3;
                         const number_of_loops = 2;
-                        const chatReflectionConcern = vscode.workspace.getConfiguration("translators-copilot").get<string>("chatReflectionConcern") ?? "";
-                        const reflectedMessage = await performReflection(message.messageToReflect, message.context, num_improverrs, number_of_loops, chatReflectionConcern, reflectionConfig);
+                        const chatReflectionConcern =
+                            vscode.workspace
+                                .getConfiguration("translators-copilot")
+                                .get<string>("chatReflectionConcern") ?? "";
+                        const reflectedMessage = await performReflection(
+                            message.messageToReflect,
+                            message.context,
+                            num_improverrs,
+                            number_of_loops,
+                            chatReflectionConcern,
+                            reflectionConfig
+                        );
 
                         webviewView.webview.postMessage({
                             command: "reflectionResponse",
                             reflectedMessage,
-                            lastMessageCreatedAt: message.lastMessageCreatedAt
+                            lastMessageCreatedAt: message.lastMessageCreatedAt,
                         });
 
                         break;

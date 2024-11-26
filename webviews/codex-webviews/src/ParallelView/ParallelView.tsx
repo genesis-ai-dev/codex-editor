@@ -37,7 +37,7 @@ const messageStyles = {
 interface SessionInfo {
     id: string;
     name: string;
-    createdAt: string;
+    timestamp: string;
 }
 
 function ParallelView() {
