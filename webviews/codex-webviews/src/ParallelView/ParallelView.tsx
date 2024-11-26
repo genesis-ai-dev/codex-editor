@@ -54,6 +54,7 @@ function ParallelView() {
     const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
     const [loadedMessages, setLoadedMessages] = useState<ChatMessage[]>([]);
     const [isStreaming, setIsStreaming] = useState(false);
+    const [isSessionMenuOpen, setIsSessionMenuOpen] = useState(true);
 
     // Helper function to process pending chunks in order
     const processNextChunk = () => {
@@ -250,6 +251,7 @@ function ParallelView() {
 
         sendMessage(chatInput);
         setChatInput("");
+        setIsSessionMenuOpen(false);
     };
 
     const sendMessage = (messageContent: string) => {
@@ -377,6 +379,8 @@ function ParallelView() {
                     onDeleteSession={handleDeleteSession}
                     setChatHistory={setChatHistory}
                     onSendFeedback={handleSendFeedback}
+                    isSessionMenuOpen={isSessionMenuOpen}
+                    setIsSessionMenuOpen={setIsSessionMenuOpen}
                 />
             </VSCodePanelView>
         </VSCodePanels>

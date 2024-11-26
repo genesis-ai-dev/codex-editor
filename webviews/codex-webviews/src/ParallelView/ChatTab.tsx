@@ -48,6 +48,8 @@ interface ChatTabProps {
     onDeleteSession: (sessionId: string) => void;
     setChatHistory: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
     onSendFeedback: (originalText: string, feedbackText: string, cellId: string) => void;
+    isSessionMenuOpen: boolean;
+    setIsSessionMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 function ChatTab({
@@ -67,6 +69,8 @@ function ChatTab({
     onDeleteSession,
     setChatHistory,
     onSendFeedback,
+    isSessionMenuOpen,
+    setIsSessionMenuOpen,
 }: ChatTabProps) {
     const chatHistoryRef = useRef<HTMLDivElement>(null);
     const [pendingSubmit, setPendingSubmit] = useState(false);
@@ -74,7 +78,6 @@ function ChatTab({
     const [isStreaming, setIsStreaming] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
     const [filteredSessions, setFilteredSessions] = useState(allSessions);
-    const [isSessionMenuOpen, setIsSessionMenuOpen] = useState(false);
     const [pendingAssistantMessage, setPendingAssistantMessage] = useState<string | null>(null);
 
     useEffect(() => {
