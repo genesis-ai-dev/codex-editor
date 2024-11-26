@@ -75,6 +75,7 @@ function ChatTab({
     const [searchTerm, setSearchTerm] = useState("");
     const [filteredSessions, setFilteredSessions] = useState(allSessions);
     const [isSessionMenuOpen, setIsSessionMenuOpen] = useState(false);
+    const [pendingAssistantMessage, setPendingAssistantMessage] = useState<string | null>(null);
 
     useEffect(() => {
         if (chatHistoryRef.current) {
@@ -109,23 +110,50 @@ function ChatTab({
         }
     }, [pendingSubmit, onChatSubmit]);
 
-    const handleIncomingChunk = useCallback((message: any) => {
-        if (message.command === "chatResponseStream") {
-            try {
-                const parsedChunk = JSON.parse(message.data);
-                const { content, isLast } = parsedChunk;
+    const handleIncomingChunk = useCallback(
+        (message: any) => {
+            if (message.command === "chatResponseStream") {
+                try {
+                    const parsedChunk = JSON.parse(message.data);
+                    const { content, isLast } = parsedChunk;
 
-                if (content) {
-                    setCurrentMessage((prevMessage) => prevMessage + content);
-                    setIsStreaming(true);
+                    if (content) {
+                        setPendingAssistantMessage((prevMessage) => (prevMessage || "") + content);
+                        setIsStreaming(true);
+                    }
+
+                    if (isLast) {
+                        setChatHistory((prevHistory) => {
+                            const newHistory = [...prevHistory];
+                            const lastMessage = newHistory[newHistory.length - 1];
+                            if (
+                                lastMessage &&
+                                lastMessage.role === "assistant" &&
+                                !lastMessage.content
+                            ) {
+                                // Update the last message if it's an empty assistant message
+                                lastMessage.content = pendingAssistantMessage || "";
+                            } else {
+                                // Add a new message only if there's content
+                                if (pendingAssistantMessage) {
+                                    newHistory.push({
+                                        role: "assistant",
+                                        content: pendingAssistantMessage,
+                                    });
+                                }
+                            }
+                            return newHistory;
+                        });
+                        setPendingAssistantMessage(null);
+                        setIsStreaming(false);
+                    }
+                } catch (error) {
+                    console.error("Error parsing chunk data:", error);
                 }
-            } catch (error) {
-                console.error("Error parsing chunk data:", error);
             }
-        } else if (message.command === "chatResponseComplete") {
-            setIsStreaming(false);
-        }
-    }, []);
+        },
+        [pendingAssistantMessage, setChatHistory]
+    );
 
     const handlePromptClick = useCallback(
         (prompt: string) => {
@@ -374,52 +402,57 @@ function ChatTab({
             <div ref={chatHistoryRef} className="message-history">
                 {chatHistory.length > 1 ? (
                     <div className="chat-messages">
-                        {chatHistory.slice(1).map((message, index) => (
-                            <div key={index} className={`chat-message ${message.role}`}>
-                                {renderMessage(message.content, message.role)}
-                                <div className="chat-message-actions">
-                                    {message.role === "user" && (
-                                        <>
-                                            <VSCodeButton
-                                                appearance="icon"
-                                                onClick={() => onEditMessage(index + 1)}
-                                                title="Edit message"
-                                            >
-                                                <span className="codicon codicon-edit" />
-                                            </VSCodeButton>
-                                            <VSCodeButton
-                                                appearance="icon"
-                                                onClick={() =>
-                                                    handleRedoMessage(index + 1, message.content)
-                                                }
-                                                title="Redo message"
-                                            >
-                                                <span className="codicon codicon-refresh" />
-                                            </VSCodeButton>
+                        {chatHistory.slice(1).map((message, index) =>
+                            message.content ? (
+                                <div key={index} className={`chat-message ${message.role}`}>
+                                    {renderMessage(message.content, message.role)}
+                                    <div className="chat-message-actions">
+                                        {message.role === "user" && (
+                                            <>
+                                                <VSCodeButton
+                                                    appearance="icon"
+                                                    onClick={() => onEditMessage(index + 1)}
+                                                    title="Edit message"
+                                                >
+                                                    <span className="codicon codicon-edit" />
+                                                </VSCodeButton>
+                                                <VSCodeButton
+                                                    appearance="icon"
+                                                    onClick={() =>
+                                                        handleRedoMessage(
+                                                            index + 1,
+                                                            message.content
+                                                        )
+                                                    }
+                                                    title="Redo message"
+                                                >
+                                                    <span className="codicon codicon-refresh" />
+                                                </VSCodeButton>
+                                                <VSCodeButton
+                                                    appearance="icon"
+                                                    onClick={() => onCopy(message.content)}
+                                                    title="Copy message"
+                                                >
+                                                    <span className="codicon codicon-copy" />
+                                                </VSCodeButton>
+                                            </>
+                                        )}
+                                        {message.role === "assistant" && !message.isStreaming && (
                                             <VSCodeButton
                                                 appearance="icon"
                                                 onClick={() => onCopy(message.content)}
-                                                title="Copy message"
+                                                title="Copy response"
                                             >
                                                 <span className="codicon codicon-copy" />
                                             </VSCodeButton>
-                                        </>
-                                    )}
-                                    {message.role === "assistant" && !message.isStreaming && (
-                                        <VSCodeButton
-                                            appearance="icon"
-                                            onClick={() => onCopy(message.content)}
-                                            title="Copy response"
-                                        >
-                                            <span className="codicon codicon-copy" />
-                                        </VSCodeButton>
-                                    )}
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
-                        {isStreaming && (
+                            ) : null
+                        )}
+                        {pendingAssistantMessage && (
                             <div className="chat-message assistant">
-                                {renderMessage(currentMessage, "assistant")}
+                                {renderMessage(pendingAssistantMessage, "assistant")}
                             </div>
                         )}
                     </div>
