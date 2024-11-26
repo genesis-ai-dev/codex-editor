@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
 import { SmartEdits } from "./smartEdits";
-import { PromptedSmartEdits } from "./smartPrompts";
 import { getWorkSpaceFolder } from "../utils";
 import { SmartPassages } from "./smartPassages";
 import { SmartBacktranslation, SavedBacktranslation } from "./smartBacktranslation";
@@ -13,7 +12,6 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
     }
 
     const smartEdits = new SmartEdits(vscode.Uri.file(workspaceFolder));
-    const promptedSmartEdits = new PromptedSmartEdits(vscode.Uri.file(workspaceFolder));
     const smartPassages = new SmartPassages();
     const smartBacktranslation = new SmartBacktranslation(vscode.Uri.file(workspaceFolder));
 
@@ -34,14 +32,7 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
             }
         )
     );
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-smart-edits.hasApplicablePrompts",
-            async (cellId: string, text: string) => {
-                return await promptedSmartEdits.hasApplicablePrompts(cellId, text);
-            }
-        )
-    );
+
     context.subscriptions.push(
         vscode.commands.registerCommand(
             "codex-smart-edits.getSavedSuggestions",
@@ -55,64 +46,6 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
                         "Failed to get smart edits. Please check the console for more details."
                     );
                     return [];
-                }
-            }
-        )
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-smart-edits.applyPromptedEdit",
-            async (text: string, prompt: string, cellId: string) => {
-                try {
-                    const modifiedText = await promptedSmartEdits.applyPromptedEdit(
-                        text,
-                        prompt,
-                        cellId
-                    );
-                    console.log("Modified text: ", modifiedText);
-                    return modifiedText;
-                } catch (error) {
-                    console.error("Error applying prompted edit:", error);
-                    vscode.window.showErrorMessage(
-                        "Failed to apply prompted edit. Please check the console for more details."
-                    );
-                    return text;
-                }
-            }
-        )
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-smart-edits.getPromptFromCellId",
-            async (cellId: string) => {
-                try {
-                    const prompt = await promptedSmartEdits.getPromptFromCellId(cellId);
-                    return prompt;
-                } catch (error) {
-                    console.error("Error getting prompt:", error);
-                    vscode.window.showErrorMessage(
-                        "Failed to get prompt. Please check the console for more details."
-                    );
-                    return null;
-                }
-            }
-        )
-    );
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-smart-edits.getTopPrompts",
-            async (cellId: string, text: string) => {
-                try {
-                    const prompts = await promptedSmartEdits.getTopPrompts(cellId, text);
-                    return prompts;
-                } catch (error) {
-                    console.error("Error getting top prompts:", error);
-                    vscode.window.showErrorMessage(
-                        "Failed to get top prompts. Please check the console for more details."
-                    );
-                    return null;
                 }
             }
         )
@@ -176,24 +109,6 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
                         "Failed to process chat request. Please check the console for more details."
                     );
                     onChunk(JSON.stringify({ error: "Error processing request." }));
-                }
-            }
-        )
-    );
-    // Add command for toggling pin status of prompts
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-smart-edits.togglePinPrompt",
-            async (cellId: string, promptText: string) => {
-                try {
-                    const isPinned = await promptedSmartEdits.togglePinPrompt(cellId, promptText);
-                    return isPinned;
-                } catch (error) {
-                    console.error("Error toggling pin status:", error);
-                    vscode.window.showErrorMessage(
-                        "Failed to toggle pin status. Please check the console for more details."
-                    );
-                    return false;
                 }
             }
         )

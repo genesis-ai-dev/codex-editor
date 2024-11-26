@@ -17,7 +17,6 @@ import { generateChildCellId } from "../../../../src/providers/codexCellEditorPr
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import { VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react";
 import { AddParatextButton } from "./AddParatextButton";
-import { Prompts } from "./Prompts";
 import ReactMarkdown from "react-markdown";
 
 import "./TextCellEditorStyles.css";
@@ -248,36 +247,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const cellHasContent =
         getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !== "";
 
-    useEffect(() => {
-        const handlePromptedEditResponse = (event: MessageEvent) => {
-            const message = event.data;
-            if (message.type === "providerSendsPromptedEditResponse") {
-                setContentBeingUpdated((prev) => ({
-                    ...prev,
-                    cellContent: message.content,
-                }));
-                // Update the editor content as well
-                setEditorContent(message.content);
-            }
-        };
-
-        window.addEventListener("message", handlePromptedEditResponse);
-        return () => window.removeEventListener("message", handlePromptedEditResponse);
-    }, []);
-
-    useEffect(() => {
-        if (contentBeingUpdated.cellContent) {
-            const messageContent: EditorPostMessages = {
-                command: "getTopPrompts",
-                content: {
-                    cellId: cellMarkers[0],
-                    text: contentBeingUpdated.cellContent,
-                },
-            };
-            window.vscodeApi.postMessage(messageContent);
-        }
-    }, [contentBeingUpdated.cellContent]);
-
     const handleContentUpdate = (newContent: string) => {
         setContentBeingUpdated((prev) => ({
             ...prev,
@@ -501,11 +470,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             </VSCodeButton>
                         </div>
                     </div>
-                    <Prompts
-                        cellId={cellMarkers[0]}
-                        cellContent={contentBeingUpdated.cellContent}
-                        onContentUpdate={handleContentUpdate}
-                    />
                 </div>
             )}
 

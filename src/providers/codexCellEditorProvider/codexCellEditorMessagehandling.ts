@@ -339,44 +339,7 @@ export class CodexCellEditorMessageHandling {
                 }
                 return;
             }
-            case "applyPromptedEdit": {
-                try {
-                    const result = await vscode.commands.executeCommand(
-                        "codex-smart-edits.applyPromptedEdit",
-                        event.content.text,
-                        event.content.prompt,
-                        event.content.cellId
-                    );
-                    console.log("providerSendsPromptedEditResponse", { result });
-                    this.provider.postMessageToWebview(webviewPanel, {
-                        type: "providerSendsPromptedEditResponse",
-                        content: result as string,
-                    });
-                } catch (error) {
-                    console.error("Error applying prompted edit:", error);
-                    vscode.window.showErrorMessage("Failed to apply prompted edit.");
-                }
-                return;
-            }
-            case "getTopPrompts": {
-                console.log("getTopPrompts message received", { event });
-                try {
-                    const result = await vscode.commands.executeCommand(
-                        "codex-smart-edits.getTopPrompts",
-                        event.content.cellId,
-                        event.content.text
-                    );
-                    console.log("providerSendsTopPrompts", { result });
-                    this.provider.postMessageToWebview(webviewPanel, {
-                        type: "providerSendsTopPrompts",
-                        content: result as Array<{ prompt: string; isPinned: boolean }>,
-                    });
-                } catch (error) {
-                    console.error("Error getting and applying prompted edit:", error);
-                    vscode.window.showErrorMessage("Failed to get top prompts.");
-                }
-                return;
-            }
+
             case "supplyRecentEditHistory": {
                 console.log("supplyRecentEditHistory message received", { event });
                 const result = await vscode.commands.executeCommand(
