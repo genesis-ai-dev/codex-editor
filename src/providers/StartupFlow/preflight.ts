@@ -1,12 +1,17 @@
 import * as vscode from "vscode";
+import { waitForExtensionActivation } from '../../utils/vscode';
+import { FrontierAPI } from '../../../webviews/codex-webviews/src/StartupFLow/types';
+
+interface AuthState {
+    isAuthenticated: boolean;
+    isAuthExtensionInstalled: boolean;
+    isLoading: boolean;
+    error?: string;
+    gitlabInfo?: any;
+}
 
 interface PreflightState {
-    authState: {
-        isAuthenticated: boolean;
-        isAuthExtensionInstalled: boolean;
-        isLoading: boolean;
-        error?: string;
-    };
+    authState: AuthState;
     workspaceState: {
         isOpen: boolean;
         hasMetadata: boolean;
@@ -20,32 +25,70 @@ interface PreflightState {
     };
 }
 
-/**
- * Checks the current state of the workspace and authentication
- * to determine if and when to show the startup flow.
- * 
- * This preflight check aligns with the startupFlowMachine states:
- * 1. loginRegister -> Checks auth extension and login state
- * 2. workspaceCheck -> Checks if workspace is open
- * 3. metadataCheck -> Checks for metadata.json
- * 4. createNewProject/openSourceFlow/complicatedState -> Handled by the UI
- * 5. alreadyWorking -> Final state when everything is set up
- */
-export const preflight = async (context: vscode.ExtensionContext) => {
-    const getPreflightState = async (): Promise<PreflightState> => {
-        const authExtension = vscode.extensions.getExtension('frontier-rnd.frontier-authentication');
-        const workspaceFolders = vscode.workspace.workspaceFolders;
+export class PreflightCheck {
+    private frontierApi?: FrontierAPI;
+    private authStateSubscription?: vscode.Disposable;
+
+    constructor() {
+        this.initializeFrontierApi();
+    }
+
+    private async initializeFrontierApi() {
+        try {
+            const extension = await waitForExtensionActivation('frontier-rnd.frontier-authentication');
+            if (extension?.isActive) {
+                this.frontierApi = extension.exports;
+            }
+        } catch (error) {
+            console.error('Failed to initialize Frontier API:', error);
+        }
+    }
+
+    public async checkAuthentication(): Promise<boolean> {
+        if (!this.frontierApi) {
+            await this.initializeFrontierApi();
+        }
         
-        // Initialize state to match startupFlowMachine's initial context
+        try {
+            const authStatus = await this.frontierApi?.getAuthStatus();
+            return authStatus?.isAuthenticated ?? false;
+        } catch (error) {
+            console.error('Error checking authentication:', error);
+            return false;
+        }
+    }
+
+    public subscribeToAuthChanges(callback: (status: { isAuthenticated: boolean; gitlabInfo?: any }) => void): void {
+        if (this.authStateSubscription) {
+            this.authStateSubscription.dispose();
+        }
+
+        if (this.frontierApi) {
+            this.authStateSubscription = this.frontierApi.onAuthStatusChanged(callback);
+        }
+    }
+
+    public dispose(): void {
+        if (this.authStateSubscription) {
+            this.authStateSubscription.dispose();
+        }
+    }
+}
+
+export const preflight = async (context: vscode.ExtensionContext) => {
+    const preflightCheck = new PreflightCheck();
+
+    const getPreflightState = async (): Promise<PreflightState> => {
         const state: PreflightState = {
             authState: {
                 isAuthenticated: false,
-                isAuthExtensionInstalled: !!authExtension,
+                isAuthExtensionInstalled: false,
                 isLoading: true,
-                error: undefined
+                error: undefined,
+                gitlabInfo: undefined
             },
             workspaceState: {
-                isOpen: !!workspaceFolders?.length,
+                isOpen: false,
                 hasMetadata: false,
                 error: undefined
             },
@@ -57,32 +100,43 @@ export const preflight = async (context: vscode.ExtensionContext) => {
             }
         };
 
-        // Check auth state if extension exists
-        if (authExtension) {
-            try {
-                const isLoggedIn = await vscode.commands.executeCommand('frontier-authentication.isLoggedIn');
-                state.authState.isAuthenticated = !!isLoggedIn;
-            } catch (error) {
-                state.authState.error = error instanceof Error ? error.message : 'Unknown error checking auth status';
-            }
+        try {
+            const isAuthenticated = await preflightCheck.checkAuthentication();
+            state.authState.isAuthenticated = isAuthenticated;
+            state.authState.isLoading = false;
+            state.authState.isAuthExtensionInstalled = true;
+
+            // Subscribe to auth status changes
+            preflightCheck.subscribeToAuthChanges((newAuthState) => {
+                vscode.commands.executeCommand('extension.preflight');
+            });
+
+        } catch (error) {
+            console.error('Error during auth extension check:', error);
+            state.authState.error = 'Failed to check authentication status';
+        } finally {
+            state.authState.isLoading = false;
         }
-        state.authState.isLoading = false;
 
         // Check workspace state
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        state.workspaceState.isOpen = !!workspaceFolders?.length;
+
         if (workspaceFolders?.length) {
             try {
                 const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, 'metadata.json');
                 await vscode.workspace.fs.stat(metadataUri);
                 state.workspaceState.hasMetadata = true;
-            } catch (error) {
+            } catch {
                 state.workspaceState.hasMetadata = false;
-                // We don't set error here as missing metadata is an expected state
             }
         }
 
         return state;
     };
 
+    const disposables: vscode.Disposable[] = [];
+    
     const preflightCommand = vscode.commands.registerCommand(
         "extension.preflight",
         async () => {
@@ -90,36 +144,28 @@ export const preflight = async (context: vscode.ExtensionContext) => {
             console.log('Preflight state:', state); // Helpful for debugging
             
             // Decision tree matching the state machine:
-            
-            // 1. loginRegister state
             if (state.authState.isAuthExtensionInstalled) {
                 if (!state.authState.isAuthenticated) {
-                    console.log('Auth extension found but not logged in, showing startup flow');
-                    return vscode.commands.executeCommand('codex-project-manager.openStartupFlow');
+                    vscode.commands.executeCommand('codex-startup-flow.show');
+                    return;
                 }
-            } else {
-                console.log('No auth extension, proceeding to workspace check');
             }
             
-            // 2. workspaceCheck state
             if (!state.workspaceState.isOpen) {
-                console.log('No workspace open, showing startup flow for project creation');
-                return vscode.commands.executeCommand('codex-project-manager.openStartupFlow');
+                vscode.commands.executeCommand('codex-startup-flow.show');
+                return;
             }
             
-            // 3. metadataCheck state
             if (!state.workspaceState.hasMetadata) {
-                console.log('No metadata.json found, showing startup flow for project initialization');
-                return vscode.commands.executeCommand('codex-project-manager.openStartupFlow');
+                vscode.commands.executeCommand('codex-startup-flow.show');
+                return;
             }
-            
-            // 4. alreadyWorking state (final)
-            console.log('User is already working on a project, skipping startup flow');
         }
     );
     
-    context.subscriptions.push(preflightCommand);
+    disposables.push(preflightCommand);
+    context.subscriptions.push(...disposables);
     
-    // Run preflight check immediately on activation
-    return vscode.commands.executeCommand('extension.preflight');
+    // Run initial preflight check
+    await vscode.commands.executeCommand('extension.preflight');
 };

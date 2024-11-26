@@ -50,6 +50,7 @@ export interface AuthState {
     isAuthExtensionInstalled: boolean;
     isLoading: boolean;
     error?: string;
+    gitlabInfo?: GitLabInfo;
 }
 
 // Add project selection state interface
@@ -106,4 +107,39 @@ export interface WorkflowState {
 export interface ImportProgress {
     message: string;
     increment: number;
+}
+
+export interface GitLabInfo {
+    username: string;
+    email?: string;
+    id?: string;
+    // Add other GitLab user properties as needed
+}
+
+export interface LoginRegisterStepProps {
+    authState: AuthState;
+    onLogin: (username: string, password: string) => void;
+    onRegister: (username: string, email: string, password: string) => void;
+    onLogout: () => void;
+    onSkip: () => void;
+}
+
+export interface WorkspaceStepProps {
+    onOpenWorkspace: () => void;
+    onCreateNew: () => void;
+}
+
+export interface FrontierAPI {
+    authProvider: any;
+    getAuthStatus: () => { 
+        isAuthenticated: boolean; 
+        gitlabInfo?: any;
+    };
+    onAuthStatusChanged: (callback: (status: { 
+        isAuthenticated: boolean; 
+        gitlabInfo?: any 
+    }) => void) => any;
+    login: (username: string, password: string) => Promise<boolean>;
+    register: (username: string, email: string, password: string) => Promise<boolean>;
+    logout: () => Promise<void>;
 }

@@ -1,143 +1,173 @@
-import React, { useCallback, useEffect } from "react";
-import {
-    VSCodeButton,
-    VSCodePanels,
-    VSCodePanelTab,
-    VSCodePanelView,
-    VSCodeDropdown,
-    VSCodeOption,
-} from "@vscode/webview-ui-toolkit/react";
-import {
-    BiblePreviewData,
-    PreviewContent,
-    SourceUploadPostMessages,
-    SourceUploadResponseMessages,
-    MessagesFromStartupFlowProvider,
-    MessagesToStartupFlowProvider,
-} from "../../../../types";
-import { WorkflowProgress } from "./components/WorkflowProgress";
-
-import { AuthenticationStep } from "./components/AuthenticationStep";
-
-import { WorkflowState, WorkflowStep, ProcessingStatus } from "./types";
-import { ProjectPicker } from "./components/ProjectPicker";
+import React, { useEffect } from "react";
 import { useMachine } from "@xstate/react";
 import { startupFlowMachine } from "./machines/startupFlowMachine";
-
-const initialWorkflowState: WorkflowState = {
-    step: "auth",
-    importType: null,
-    selectedFiles: [],
-    translationAssociations: [],
-    fileObjects: [],
-    previews: [],
-
-    authState: {
-        isAuthenticated: false,
-        isAuthExtensionInstalled: false,
-        isLoading: true,
-        error: undefined,
-    },
-    projectSelection: {
-        type: undefined,
-        path: undefined,
-        repoUrl: undefined,
-        error: undefined,
-    },
-};
+import { LoginRegisterStep } from "./components/LoginRegisterStep";
+import { WorkspaceStep } from "./components/WorkspaceStep";
+import { ProjectSetupStep } from "./components/ProjectSetupStep";
+import { VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
+import "./StartupFlowView.css";
+import { AuthState } from "./types";
 
 const vscode = acquireVsCodeApi();
 
-export const SourceUploader: React.FC = () => {
-    const [state, send] = useMachine(startupFlowMachine);
-    console.log({ state });
+export const StartupFlowView: React.FC = () => {
+    const [state, send, service] = useMachine(startupFlowMachine);
 
     useEffect(() => {
-        // Initial auth check
-        vscode.postMessage({
-            command: "auth.status",
-        } as MessagesToStartupFlowProvider);
+        // Request initial auth and workspace status
+        vscode.postMessage({ command: "auth.status" });
+        vscode.postMessage({ command: "workspace.status" });
 
-        // Listen for VSCode messages
-        window.addEventListener("message", handleVSCodeMessage);
-        return () => window.removeEventListener("message", handleVSCodeMessage);
-    }, []);
-
-    const handleVSCodeMessage = useCallback(
-        (event: MessageEvent<MessagesFromStartupFlowProvider>) => {
+        // Listen for messages from the extension
+        const messageHandler = (event: MessageEvent) => {
             const message = event.data;
-            console.log({ message });
             switch (message.command) {
-                case "auth.statusResponse":
-                    if (message.isAuthenticated) {
-                        send({ type: "AUTH.LOGGED_IN" });
+                case "updateAuthState": {
+                    const authState: AuthState = message.authState;
+                    if (!authState.isAuthExtensionInstalled) {
+                        send({
+                            type: "AUTH.NO_EXTENSION",
+                            data: {
+                                isAuthenticated: false,
+                                isAuthExtensionInstalled: false,
+                                isLoading: false,
+                                gitlabInfo: undefined
+                            }
+                        });
+                    } else {
+                        send({
+                            type: authState.isAuthenticated ? "AUTH.LOGGED_IN" : "AUTH.NOT_AUTHENTICATED",
+                            data: {
+                                isAuthenticated: authState.isAuthenticated,
+                                isAuthExtensionInstalled: true,
+                                isLoading: false,
+                                error: authState.error,
+                                gitlabInfo: authState.gitlabInfo
+                            }
+                        });
                     }
                     break;
-                case "checkWorkspaceState":
-                    if (message.isWorkspaceOpen) {
+                }
+                case "workspace.statusResponse":
+                    if (message.isOpen) {
                         send({ type: "WORKSPACE.OPEN" });
+                        vscode.postMessage({ command: "metadata.check" });
                     } else {
                         send({ type: "WORKSPACE.CLOSED" });
                     }
                     break;
-                case "extension.checkResponse":
-                    if (message.isInstalled) {
-                        send({ type: "AUTH.EXTENSION_INSTALLED" });
-                    } else {
-                        send({ type: "AUTH.NO_EXTENSION" });
-                    }
+                case "workspace.opened":
+                    send({ type: "WORKSPACE.OPEN" });
+                    vscode.postMessage({ command: "metadata.check" });
                     break;
-                // Add other message handlers
+                case "workspace.closed":
+                    send({ type: "WORKSPACE.CLOSED" });
+                    break;
+                case "metadata.check":
+                    send({
+                        type: message.exists ? "METADATA.EXISTS" : "METADATA.NOT_EXISTS"
+                    });
+                    break;
             }
-        },
-        [send]
-    );
+        };
 
-    const renderContent = () => {
-        const currentState = state.value.toString();
-        console.log({ currentState });
-        switch (currentState) {
-            case "loginRegister":
-                return (
-                    <AuthenticationStep
-                        authState={state.context.authState}
-                        onAuthComplete={() => send({ type: "AUTH.COMPLETE" })}
-                        vscode={vscode}
-                    />
-                );
-            case "projectSelect":
-                return (
-                    <ProjectPicker
-                        projectSelection={state.context.projectSelection}
-                        onProjectSelected={() => send({ type: "PROJECT.SELECTED" })}
-                        vscode={vscode}
-                    />
-                );
-            default:
-                return <div>Unknown state: {currentState}</div>;
-        }
+        window.addEventListener('message', messageHandler);
+        return () => {
+            window.removeEventListener('message', messageHandler);
+            service.stop(); // Clean up the state machine
+        };
+    }, [send]);
+
+    const handleLogin = (username: string, password: string) => {
+        vscode.postMessage({ 
+            command: "auth.login",
+            username,
+            password
+        });
+    };
+
+    const handleRegister = (username: string, email: string, password: string) => {
+        vscode.postMessage({ 
+            command: "auth.signup",
+            username,
+            email,
+            password
+        });
+    };
+
+    const handleLogout = () => {
+        vscode.postMessage({ command: "auth.logout" });
+    };
+
+    const handleSkipAuth = () => {
+        send({ type: "AUTH.NO_EXTENSION" });
+    };
+
+    const handleOpenWorkspace = () => {
+        vscode.postMessage({ command: "workspace.open" });
+    };
+
+    const handleCreateNew = () => {
+        vscode.postMessage({ command: "workspace.create" });
+    };
+
+    const handleCreateEmpty = () => {
+        send({ type: "PROJECT.CREATE_EMPTY" });
+        vscode.postMessage({ command: "project.createEmpty" });
+    };
+
+    const handleCloneRepo = (repoUrl: string) => {
+        send({ type: "PROJECT.CLONE" });
+        vscode.postMessage({ 
+            command: "project.clone",
+            repoUrl
+        });
     };
 
     return (
-        <VSCodePanels>
-            <VSCodePanelTab id="setup">Project Setup</VSCodePanelTab>
-            <VSCodePanelView id="setup-view">
-                <div
-                    style={{
-                        maxWidth: "100dvw",
-                        margin: "0 auto",
-                        padding: "2rem",
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "2rem",
-                    }}
-                >
-                    <WorkflowProgress currentState={state.value} context={state.context} />
-                    {renderContent()}
-                </div>
-            </VSCodePanelView>
-        </VSCodePanels>
+        <div className="startup-flow">
+            <div className="auth-status-bar">
+                {state.context.authState.isLoading ? (
+                    <span className="loading">
+                        <VSCodeProgressRing /> Checking authentication...
+                    </span>
+                ) : state.context.authState.isAuthenticated ? (
+                    <span className="authenticated">
+                        {/* Authenticated as {state.context.authState.gitlabInfo?.username || 'User'} */}
+                        Authenticated
+                    </span>
+                ) : state.context.authState.isAuthExtensionInstalled ? (
+                    <span className="not-authenticated">Not authenticated</span>
+                ) : (
+                    <span className="no-extension">Auth extension not installed</span>
+                )}
+            </div>
+
+            {state.matches("loginRegister") && (
+                <LoginRegisterStep
+                    authState={state.context.authState}
+                    onLogin={handleLogin}
+                    onRegister={handleRegister}
+                    onLogout={handleLogout}
+                    onSkip={handleSkipAuth}
+                />
+            )}
+            {state.matches("workspaceCheck") && (
+                <WorkspaceStep
+                    onOpenWorkspace={handleOpenWorkspace}
+                    onCreateNew={handleCreateNew}
+                />
+            )}
+            {state.matches("createNewProject") && (
+                <ProjectSetupStep
+                    projectSelection={state.context.projectSelection}
+                    onCreateEmpty={handleCreateEmpty}
+                    onCloneRepo={handleCloneRepo}
+                />
+            )}
+            {state.matches("openSourceFlow") && (
+                <VSCodeProgressRing />
+            )}
+        </div>
     );
 };
-
-export default SourceUploader;

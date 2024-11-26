@@ -286,6 +286,11 @@ export type SourceUploadResponseMessages =
               isAuthenticated: boolean;
               isLoading: boolean;
               error?: string;
+              gitlabInfo?: {
+                  username: string;
+                  email?: string;
+                  id?: string;
+              };
           };
       };
 
@@ -299,7 +304,10 @@ export type MessagesToStartupFlowProvider =
     | { command: "auth.checkAuthStatus" }
     | { command: "project.clone"; repoUrl: string }
     | { command: "project.open" }
-    | { command: "project.new" };
+    | { command: "project.new" }
+    | { command: "workspace.status" }
+    | { command: "workspace.open" }
+    | { command: "workspace.create" };
 
 export type MessagesFromStartupFlowProvider =
     | {
@@ -317,7 +325,21 @@ export type MessagesFromStartupFlowProvider =
               isAuthenticated: boolean;
               isLoading: boolean;
               error?: string;
+              gitlabInfo?: {
+                  username: string;
+                  email?: string;
+                  id?: string;
+              };
           };
+      }
+    | {
+          command: "workspace.statusResponse";
+          isOpen: boolean;
+          path?: string;
+      }
+    | {
+          command: "metadata.check";
+          exists: boolean;
       };
 
 type DictionaryPostMessages =

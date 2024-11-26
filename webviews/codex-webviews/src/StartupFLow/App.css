@@ -138,3 +138,90 @@
     display: flex;
     gap: 1rem;
 }
+
+.startup-flow-container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+.login-register-step,
+.workspace-step,
+.project-setup-step {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    align-items: center;
+    text-align: center;
+}
+
+.workspace-options {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    width: 100%;
+    margin-top: 1rem;
+}
+
+.option {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1.5rem;
+    border: 1px solid var(--vscode-button-background);
+    border-radius: 4px;
+}
+
+.option h3 {
+    margin: 0;
+    color: var(--vscode-foreground);
+}
+
+.option p {
+    margin: 0;
+    color: var(--vscode-descriptionForeground);
+}
+
+.project-type-selection {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    width: 100%;
+    max-width: 500px;
+}
+
+.clone-options,
+.empty-project-options {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.error-message {
+    color: var(--vscode-errorForeground);
+    margin-top: 1rem;
+    padding: 0.5rem;
+    border: 1px solid var(--vscode-errorForeground);
+    border-radius: 4px;
+}
+
+h2 {
+    color: var(--vscode-foreground);
+    margin: 0 0 1rem 0;
+}
+
+vscode-button {
+    margin-top: 0.5rem;
+}
+
+vscode-text-field {
+    width: 100%;
+}
+
+vscode-dropdown {
+    width: 100%;
+}

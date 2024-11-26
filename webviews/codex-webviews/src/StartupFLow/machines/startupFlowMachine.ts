@@ -9,6 +9,7 @@ export const startupFlowMachine = createMachine({
             isAuthExtensionInstalled: false,
             isLoading: true,
             error: undefined,
+            gitlabInfo: undefined
         },
         projectSelection: {
             type: undefined,
