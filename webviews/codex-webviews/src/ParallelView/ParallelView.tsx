@@ -53,6 +53,7 @@ function ParallelView() {
     const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null);
     const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
     const [loadedMessages, setLoadedMessages] = useState<ChatMessage[]>([]);
+    const [isStreaming, setIsStreaming] = useState(false);
 
     // Helper function to process pending chunks in order
     const processNextChunk = () => {
@@ -128,32 +129,28 @@ function ParallelView() {
                     try {
                         const chunk = JSON.parse(message.data);
 
-                        // Skip processing if content is empty and isLast is true
-                        if (chunk.isLast && !chunk.content) {
-                            setChatHistory((prev) => {
-                                const newHistory = [...prev];
-                                if (newHistory.length > 0) {
-                                    newHistory[newHistory.length - 1].isStreaming = false;
-                                }
-                                return newHistory;
-                            });
-                            // Reset indices for next stream
-                            setNextChunkIndex(0);
-                            setPendingChunks([]);
-                            return;
-                        }
+                        setChatHistory((prev) => {
+                            const newHistory = [...prev];
+                            if (newHistory.length === 0 || !isStreaming) {
+                                return [
+                                    ...prev,
+                                    {
+                                        role: "assistant",
+                                        content: chunk.content,
+                                        isStreaming: true,
+                                    },
+                                ];
+                            }
 
-                        setPendingChunks((prev) => [...prev, chunk]);
+                            const lastMessage = newHistory[newHistory.length - 1];
+                            lastMessage.content += chunk.content;
+                            return [...newHistory];
+                        });
 
-                        // If this is the last chunk, update the chat history
+                        setIsStreaming(true);
+
+                        // If this is the last chunk, don't end streaming yet
                         if (chunk.isLast) {
-                            setChatHistory((prev) => {
-                                const newHistory = [...prev];
-                                if (newHistory.length > 0) {
-                                    newHistory[newHistory.length - 1].isStreaming = false;
-                                }
-                                return newHistory;
-                            });
                             // Reset indices for next stream
                             setNextChunkIndex(0);
                             setPendingChunks([]);
@@ -182,7 +179,7 @@ function ParallelView() {
 
         window.addEventListener("message", handleMessage);
         return () => window.removeEventListener("message", handleMessage);
-    }, [pinnedVerses]);
+    }, [pinnedVerses, isStreaming]);
 
     const handleUriClick = (uri: string, word: string) => {
         console.log("handleUriClick", uri, word);
@@ -240,6 +237,16 @@ function ParallelView() {
 
     const handleChatSubmit = () => {
         if (!chatInput.trim()) return;
+
+        // End streaming when a new user message is sent
+        setIsStreaming(false);
+        setChatHistory((prev) => {
+            const newHistory = [...prev];
+            if (newHistory.length > 0) {
+                newHistory[newHistory.length - 1].isStreaming = false;
+            }
+            return newHistory;
+        });
 
         sendMessage(chatInput);
         setChatInput("");
