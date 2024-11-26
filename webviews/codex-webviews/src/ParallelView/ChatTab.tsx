@@ -282,7 +282,6 @@ function ChatTab({
                 </VSCodeButton>
                 <VSCodeButton onClick={onStartNewSession}>
                     <span className="codicon codicon-add"></span>
-                    New Session
                 </VSCodeButton>
             </div>
 
