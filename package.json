@@ -69,15 +69,6 @@
                     "icon": "$(compass)"
                 }
             ],
-            "genesis-translator-sidebar-view": [
-                {
-                    "type": "webview",
-                    "id": "genesis-translator-sidebar",
-                    "name": "Translator's Copilot",
-                    "icon": "$(comment-discussion)",
-                    "contextualTitle": "Translator's Copilot"
-                }
-            ],
             "comments-sidebar-view": [
                 {
                     "type": "webview",
