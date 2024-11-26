@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import "./SharedStyles.css";
 
@@ -6,6 +6,7 @@ interface IndividuallyTranslatedVerseProps {
     text: string;
     cellId: string;
     onApplyTranslation: (cellId: string, text: string) => void;
+    onSendFeedback: (originalText: string, feedbackText: string, cellId: string) => void;
 }
 
 interface AddedFeedbackProps {
@@ -92,7 +93,15 @@ export const IndividuallyTranslatedVerseComponent: React.FC<IndividuallyTranslat
     text,
     cellId,
     onApplyTranslation,
+    onSendFeedback,
 }) => {
+    const [feedbackText, setFeedbackText] = useState("");
+
+    const handleSendFeedback = () => {
+        onSendFeedback(text, feedbackText, cellId);
+        setFeedbackText("");
+    };
+
     return (
         <div className="assistant-response">
             {cellId && (
@@ -120,6 +129,14 @@ export const IndividuallyTranslatedVerseComponent: React.FC<IndividuallyTranslat
                         <span className="codicon codicon-check"></span>
                     </VSCodeButton>
                 </div>
+            </div>
+            <div className="feedback-input">
+                <textarea
+                    value={feedbackText}
+                    onChange={(e) => setFeedbackText(e.target.value)}
+                    placeholder="Suggest feedback..."
+                />
+                <VSCodeButton onClick={handleSendFeedback} disabled={!feedbackText.trim()} />
             </div>
         </div>
     );

@@ -19,6 +19,7 @@ import {
     YoutubeVideoComponent,
 } from "./ChatComponents";
 import { format } from "date-fns";
+import { UserFeedbackComponent, RegEx as UserChatRegEx } from "./UserChatComponents";
 
 interface SessionInfo {
     id: string;
@@ -45,6 +46,8 @@ interface ChatTabProps {
     onStartNewSession: () => void;
     onLoadSession: (sessionId: string) => void;
     onDeleteSession: (sessionId: string) => void;
+    setChatHistory: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+    onSendFeedback: (originalText: string, feedbackText: string, cellId: string) => void;
 }
 
 function ChatTab({
@@ -62,6 +65,8 @@ function ChatTab({
     onStartNewSession,
     onLoadSession,
     onDeleteSession,
+    setChatHistory,
+    onSendFeedback,
 }: ChatTabProps) {
     const chatHistoryRef = useRef<HTMLDivElement>(null);
     const [pendingSubmit, setPendingSubmit] = useState(false);
@@ -145,8 +150,8 @@ function ChatTab({
         const parts = [];
         let lastIndex = 0;
 
-        // Get all component regex patterns from RegEx
-        const regexPatterns = Object.entries(RegEx);
+        // Combine RegEx from ChatComponents and UserChatComponents
+        const regexPatterns = [...Object.entries(RegEx), ...Object.entries(UserChatRegEx)];
 
         for (let i = 0; i < content.length; ) {
             let earliestMatch: {
@@ -178,7 +183,7 @@ function ChatTab({
                 }
 
                 // Parse the component props
-                const propsString = earliestMatch.match[1];
+                const propsString = earliestMatch.match[0];
                 const propsMatch = propsString.match(/(\w+)="([^"]*)"/g);
 
                 if (propsMatch) {
@@ -206,68 +211,98 @@ function ChatTab({
         return parts;
     };
 
-    const renderMessage = useCallback((content: string) => {
-        const parsedContent = parseMessage(content);
+    const handleSendFeedback = useCallback(
+        (originalText: string, feedbackText: string, cellId: string) => {
+            const newMessage: ChatMessage = {
+                role: "user",
+                content: `<UserFeedback cellId="${cellId}" originalText="${originalText}" feedbackText="${feedbackText}" />`,
+            };
+            setChatHistory((prev) => [...prev, newMessage]);
 
-        return (
-            <>
-                {parsedContent.map((part, index) => {
-                    if (part.type === "text") {
-                        return (
-                            <p
-                                key={index}
-                                dangerouslySetInnerHTML={{ __html: part.content || "" }}
-                            />
-                        );
-                    } else if (part.type === "IndividuallyTranslatedVerse" && part.props) {
-                        return (
-                            <IndividuallyTranslatedVerseComponent
-                                key={`tr-${index}`}
-                                text={part.props.text || ""}
-                                cellId={part.props.cellId}
-                                onApplyTranslation={onApplyTranslation}
-                            />
-                        );
-                    } else if (part.type === "AddedFeedback" && part.props) {
-                        return (
-                            <AddedFeedbackComponent
-                                key={`af-${index}`}
-                                feedback={part.props.feedback}
-                                cellId={part.props.cellId}
-                                handleAddedFeedback={(cellId, feedback) =>
-                                    handleAddedFeedback(cellId, feedback)
-                                }
-                            />
-                        );
-                    } else if (part.type === "ShowUserPreference" && part.props) {
-                        return (
-                            <ShowUserPreferenceComponent
-                                key={`sf-${index}`}
-                                feedback={part.props.feedback}
-                                cellId={part.props.cellId}
-                            />
-                        );
-                    } else if (part.type === "GuessNextPrompts" && part.props) {
-                        return (
-                            <GuessNextPromptsComponent
-                                key={`gp-${index}`}
-                                prompts={part.props.prompts.split(",")}
-                                onClick={(prompt) => handlePromptClick(prompt)}
-                            />
-                        );
-                    } else if (part.type === "YoutubeVideo" && part.props) {
-                        return (
-                            <YoutubeVideoComponent
-                                key={`yv-${index}`}
-                                videoId={part.props.videoId}
-                            />
-                        );
-                    }
-                    return null;
-                })}
-            </>
-        );
-    }, []);
+            onSendFeedback(originalText, feedbackText, cellId);
+        },
+        [setChatHistory, onSendFeedback]
+    );
+
+    const renderMessage = useCallback(
+        (content: string, role: "user" | "assistant") => {
+            console.log("Rendering message:", content);
+            const parsedContent = parseMessage(content);
+            console.log("Parsed content:", parsedContent);
+
+            return (
+                <>
+                    {parsedContent.map((part, index) => {
+                        console.log("Rendering part:", part);
+                        if (part.type === "text") {
+                            return (
+                                <p
+                                    key={index}
+                                    dangerouslySetInnerHTML={{ __html: part.content || "" }}
+                                />
+                            );
+                        } else if (part.type === "UserFeedback" && part.props) {
+                            console.log("Rendering UserFeedback component");
+                            return (
+                                <UserFeedbackComponent
+                                    key={`uf-${index}`}
+                                    cellId={part.props.cellId}
+                                    originalText={decodeURIComponent(part.props.originalText)}
+                                    feedbackText={decodeURIComponent(part.props.feedbackText)}
+                                />
+                            );
+                        } else if (part.type === "IndividuallyTranslatedVerse" && part.props) {
+                            return (
+                                <IndividuallyTranslatedVerseComponent
+                                    key={`tr-${index}`}
+                                    text={part.props.text || ""}
+                                    cellId={part.props.cellId}
+                                    onApplyTranslation={onApplyTranslation}
+                                    onSendFeedback={handleSendFeedback}
+                                />
+                            );
+                        } else if (part.type === "AddedFeedback" && part.props) {
+                            return (
+                                <AddedFeedbackComponent
+                                    key={`af-${index}`}
+                                    feedback={part.props.feedback}
+                                    cellId={part.props.cellId}
+                                    handleAddedFeedback={(cellId, feedback) =>
+                                        handleAddedFeedback(cellId, feedback)
+                                    }
+                                />
+                            );
+                        } else if (part.type === "ShowUserPreference" && part.props) {
+                            return (
+                                <ShowUserPreferenceComponent
+                                    key={`sf-${index}`}
+                                    feedback={part.props.feedback}
+                                    cellId={part.props.cellId}
+                                />
+                            );
+                        } else if (part.type === "GuessNextPrompts" && part.props) {
+                            return (
+                                <GuessNextPromptsComponent
+                                    key={`gp-${index}`}
+                                    prompts={part.props.prompts.split(",")}
+                                    onClick={(prompt) => handlePromptClick(prompt)}
+                                />
+                            );
+                        } else if (part.type === "YoutubeVideo" && part.props) {
+                            return (
+                                <YoutubeVideoComponent
+                                    key={`yv-${index}`}
+                                    videoId={part.props.videoId}
+                                />
+                            );
+                        }
+                        return null;
+                    })}
+                </>
+            );
+        },
+        [onApplyTranslation, handleSendFeedback, handleAddedFeedback, handlePromptClick]
+    );
 
     return (
         <div className="tab-container">
@@ -341,7 +376,7 @@ function ChatTab({
                     <div className="chat-messages">
                         {chatHistory.slice(1).map((message, index) => (
                             <div key={index} className={`chat-message ${message.role}`}>
-                                {renderMessage(message.content)}
+                                {renderMessage(message.content, message.role)}
                                 <div className="chat-message-actions">
                                     {message.role === "user" && (
                                         <>
@@ -384,7 +419,7 @@ function ChatTab({
                         ))}
                         {isStreaming && (
                             <div className="chat-message assistant">
-                                {renderMessage(currentMessage)}
+                                {renderMessage(currentMessage, "assistant")}
                             </div>
                         )}
                     </div>

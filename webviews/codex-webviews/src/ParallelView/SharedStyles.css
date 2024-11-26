@@ -862,3 +862,124 @@ vscode-badge {
     display: flex;
     gap: 4px;
 }
+
+/* UserFeedbackComponent styles */
+.user-feedback {
+    background-color: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-widget-border);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    transition: box-shadow 0.3s ease;
+}
+
+.user-feedback:hover {
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.user-feedback-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.user-feedback h4 {
+    margin: 0;
+    color: var(--vscode-foreground);
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.user-feedback .cell-id {
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
+    background-color: var(--vscode-badge-background);
+    color: var(--vscode-badge-foreground);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.user-feedback .original-text,
+.user-feedback .feedback-text {
+    margin-bottom: 12px;
+}
+
+.user-feedback h5 {
+    margin: 0 0 6px;
+    color: var(--vscode-descriptionForeground);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.user-feedback p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--vscode-foreground);
+}
+
+.user-feedback .original-text {
+    background-color: var(--vscode-textBlockQuote-background);
+    border-left: 3px solid var(--vscode-textBlockQuote-border);
+    padding: 8px;
+    margin-bottom: 12px;
+}
+
+.user-feedback .feedback-text {
+    background-color: var(--vscode-textCodeBlock-background);
+    border-radius: 4px;
+    padding: 8px;
+}
+
+.feedback-input {
+    position: relative;
+    margin-top: 12px;
+}
+
+.feedback-input textarea {
+    width: 100%;
+    min-height: 60px;
+    padding: 12px 40px 12px 16px;
+    background-color: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 20px;
+    color: var(--vscode-input-foreground);
+    font-family: var(--vscode-font-family);
+    font-size: 14px;
+    line-height: 1.5;
+    resize: vertical;
+    transition: all 0.2s ease;
+}
+
+.feedback-input textarea:focus {
+    outline: none;
+    border-color: var(--vscode-focusBorder);
+    box-shadow: 0 0 0 2px rgba(var(--vscode-focusBorder), 0.3);
+}
+
+.feedback-input vscode-button {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.feedback-input vscode-button:hover {
+    transform: scale(1.1);
+}
+
+.feedback-input vscode-button::before {
+    content: "\E724";
+    font-family: codicon;
+    font-size: 18px;
+    color: var(--vscode-button-foreground);
+}
