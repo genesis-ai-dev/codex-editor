@@ -50,7 +50,7 @@ async function handleChatStream(
     editIndex?: number
 ) {
     try {
-        await vscode.commands.executeCommand(
+        const result = await vscode.commands.executeCommand(
             "codex-smart-edits.chatStream",
             cellIds,
             query,
@@ -70,15 +70,26 @@ async function handleChatStream(
                     return;
                 }
 
-                webviewView.webview.postMessage({
-                    command: "chatResponseStream",
-                    data: JSON.stringify(parsedChunk),
-                });
+                // Check if the chunk contains session info
+                if (parsedChunk.sessionInfo) {
+                    webviewView.webview.postMessage({
+                        command: "updateSessionInfo",
+                        data: parsedChunk.sessionInfo,
+                    });
+                } else {
+                    webviewView.webview.postMessage({
+                        command: "chatResponseStream",
+                        data: JSON.stringify(parsedChunk),
+                    });
+                }
 
                 // No need to handle isLast here as the frontend will process it accordingly
             },
             editIndex
         );
+
+        // Handle the result if needed
+        console.log("Chat stream completed:", result);
     } catch (error) {
         console.error("Error in chat stream:", error);
         webviewView.webview.postMessage({
@@ -277,6 +288,78 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                         }
                     } catch (error) {
                         console.error("Error searching cells:", error);
+                    }
+                    break;
+                case "deleteChatSession":
+                    await vscode.commands.executeCommand(
+                        "codex-smart-edits.deleteChatSession",
+                        message.sessionId
+                    );
+                    break;
+                case "startNewChatSession":
+                    try {
+                        const sessionInfo = await vscode.commands.executeCommand(
+                            "codex-smart-edits.startNewChatSession"
+                        );
+                        webviewView.webview.postMessage({
+                            command: "updateSessionInfo",
+                            data: sessionInfo,
+                        });
+                    } catch (error) {
+                        console.error("Error starting new chat session:", error);
+                    }
+                    break;
+
+                case "getCurrentChatSessionInfo":
+                    try {
+                        const sessionInfo = await vscode.commands.executeCommand(
+                            "codex-smart-edits.getCurrentChatSessionInfo"
+                        );
+                        webviewView.webview.postMessage({
+                            command: "updateSessionInfo",
+                            data: sessionInfo,
+                        });
+                    } catch (error) {
+                        console.error("Error getting current chat session info:", error);
+                    }
+                    break;
+
+                case "getAllChatSessions":
+                    try {
+                        const sessions = await vscode.commands.executeCommand(
+                            "codex-smart-edits.getAllChatSessions"
+                        );
+                        webviewView.webview.postMessage({
+                            command: "updateAllSessions",
+                            data: sessions,
+                        });
+                    } catch (error) {
+                        console.error("Error getting all chat sessions:", error);
+                    }
+                    break;
+
+                case "loadChatSession":
+                    try {
+                        const result = await vscode.commands.executeCommand(
+                            "codex-smart-edits.loadChatSession",
+                            message.sessionId
+                        );
+                        if (
+                            result &&
+                            typeof result === "object" &&
+                            "sessionInfo" in result &&
+                            "messages" in result
+                        ) {
+                            const { sessionInfo, messages } = result;
+                            webviewView.webview.postMessage({
+                                command: "loadedSessionData",
+                                data: { sessionInfo, messages },
+                            });
+                        } else {
+                            console.error("Unexpected result format from loadChatSession");
+                        }
+                    } catch (error) {
+                        console.error("Error loading chat session:", error);
                     }
                     break;
                 default:

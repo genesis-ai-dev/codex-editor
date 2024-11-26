@@ -1,5 +1,10 @@
 import React, { useEffect, useRef, useCallback, useState } from "react";
-import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import {
+    VSCodeButton,
+    VSCodeTextField,
+    VSCodeBadge,
+    VSCodeDivider,
+} from "@vscode/webview-ui-toolkit/react";
 import ChatInput from "./ChatInput";
 import { ChatMessage } from "./types";
 import { TranslationPair } from "../../../../types";
@@ -13,6 +18,13 @@ import {
     GuessNextPromptsComponent,
     YoutubeVideoComponent,
 } from "./ChatComponents";
+import { format } from "date-fns";
+
+interface SessionInfo {
+    id: string;
+    name: string;
+    timestamp: string;
+}
 
 interface ChatTabProps {
     chatHistory: ChatMessage[];
@@ -28,6 +40,11 @@ interface ChatTabProps {
     pinnedVerses: TranslationPair[];
     onApplyTranslation: (cellId: string, text: string) => void;
     handleAddedFeedback: (cellId: string, feedback: string) => void;
+    sessionInfo: SessionInfo | null;
+    allSessions: SessionInfo[];
+    onStartNewSession: () => void;
+    onLoadSession: (sessionId: string) => void;
+    onDeleteSession: (sessionId: string) => void;
 }
 
 function ChatTab({
@@ -40,17 +57,36 @@ function ChatTab({
     pinnedVerses,
     onApplyTranslation,
     handleAddedFeedback,
+    sessionInfo,
+    allSessions,
+    onStartNewSession,
+    onLoadSession,
+    onDeleteSession,
 }: ChatTabProps) {
     const chatHistoryRef = useRef<HTMLDivElement>(null);
     const [pendingSubmit, setPendingSubmit] = useState(false);
     const [currentMessage, setCurrentMessage] = useState("");
     const [isStreaming, setIsStreaming] = useState(false);
+    const [searchTerm, setSearchTerm] = useState("");
+    const [filteredSessions, setFilteredSessions] = useState(allSessions);
+    const [isSessionMenuOpen, setIsSessionMenuOpen] = useState(false);
 
     useEffect(() => {
         if (chatHistoryRef.current) {
             chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
         }
-    }, [chatHistory, currentMessage]);
+    }, [chatHistory]);
+
+    useEffect(() => {
+        const filtered = allSessions
+            .filter((session) => session.name.toLowerCase().includes(searchTerm.toLowerCase()))
+            .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        setFilteredSessions(filtered);
+
+        if (searchTerm.length > 0) {
+            setIsSessionMenuOpen(true);
+        }
+    }, [searchTerm, allSessions]);
 
     const handleRedoMessage = useCallback(
         (index: number, content: string) => {
@@ -235,29 +271,75 @@ function ChatTab({
 
     return (
         <div className="tab-container">
-            <div className="pinned-verses">
-                <h3>Pinned Verses:</h3>
-                <p className="select-target-instruction">
-                    These verses are used as context for conversing with the Codex Assistant. You
-                    may edit them in the 'search' tab.
-                </p>
-                {pinnedVerses.length > 0 ? (
-                    <div className="pinned-verses-list">
-                        {pinnedVerses.map((verse) => (
-                            <span key={verse.cellId} className="pinned-verse-id">
-                                {verse.cellId}
-                            </span>
-                        ))}
-                    </div>
-                ) : (
-                    <p>No pinned verses.</p>
-                )}
+            <div className="session-management">
+                <div className="session-controls">
+                    <VSCodeTextField
+                        placeholder="Search or create a session..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm((e.target as HTMLInputElement).value)}
+                    >
+                        <span slot="start" className="codicon codicon-search"></span>
+                    </VSCodeTextField>
+                    <VSCodeButton
+                        appearance="icon"
+                        onClick={() => setIsSessionMenuOpen(!isSessionMenuOpen)}
+                        title="Session list"
+                    >
+                        <span className="codicon codicon-clock"></span>
+                    </VSCodeButton>
+                </div>
+                <div className="pinned-verses-section">
+                    {pinnedVerses.length > 0 ? (
+                        <div className="pinned-verses-list">
+                            {pinnedVerses.map((verse) => (
+                                <VSCodeBadge key={verse.cellId}>{verse.cellId}</VSCodeBadge>
+                            ))}
+                        </div>
+                    ) : (
+                        <br></br>
+                    )}
+                </div>
             </div>
 
+            {(isSessionMenuOpen || searchTerm.length > 0) && (
+                <div className="session-menu">
+                    <div className="session-list">
+                        {filteredSessions.map((session) => (
+                            <div
+                                key={session.id}
+                                className={`session-item ${
+                                    sessionInfo?.id === session.id ? "active" : ""
+                                }`}
+                            >
+                                <div
+                                    className="session-item-content"
+                                    onClick={() => onLoadSession(session.id)}
+                                >
+                                    <span>{session.name}</span>
+                                    {/* <span>{format(new Date(session.timestamp), "PP")}</span> */}
+                                </div>
+                                <div className="session-item-actions">
+                                    <VSCodeButton
+                                        appearance="icon"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onDeleteSession(session.id);
+                                        }}
+                                        title="Delete session"
+                                    >
+                                        <span className="codicon codicon-trash"></span>
+                                    </VSCodeButton>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             <div ref={chatHistoryRef} className="message-history">
-                {chatHistory.length > 0 ? (
+                {chatHistory.length > 1 ? (
                     <div className="chat-messages">
-                        {chatHistory.map((message, index) => (
+                        {chatHistory.slice(1).map((message, index) => (
                             <div key={index} className={`chat-message ${message.role}`}>
                                 {renderMessage(message.content)}
                                 <div className="chat-message-actions">
@@ -265,7 +347,7 @@ function ChatTab({
                                         <>
                                             <VSCodeButton
                                                 appearance="icon"
-                                                onClick={() => onEditMessage(index)}
+                                                onClick={() => onEditMessage(index + 1)}
                                                 title="Edit message"
                                             >
                                                 <span className="codicon codicon-edit" />
@@ -273,7 +355,7 @@ function ChatTab({
                                             <VSCodeButton
                                                 appearance="icon"
                                                 onClick={() =>
-                                                    handleRedoMessage(index, message.content)
+                                                    handleRedoMessage(index + 1, message.content)
                                                 }
                                                 title="Redo message"
                                             >

@@ -8,6 +8,8 @@ import { SYSTEM_MESSAGE } from "./prompts";
 import * as readline from "readline";
 import { createReadStream, createWriteStream } from "fs";
 import { findRelevantVideos, VideoEntry } from "./utils/videoUtil";
+import { v4 as uuidv4 } from "uuid";
+import * as os from "os";
 
 interface TranslationPairWithBacktranslation extends TranslationPair {
     backtranslation?: string;
@@ -18,10 +20,34 @@ interface Feedback {
     content: string;
 }
 
+interface ChatMessage {
+    role: "user" | "assistant" | "system" | "context";
+    content: string;
+}
+
+interface SingleChatHistoryEntry {
+    messages: ChatMessage[];
+    name: string;
+    timestamp: string;
+}
+
+interface ChatHistory {
+    entries: SingleChatHistoryEntry[];
+}
+
+interface ChatHistoryEntry {
+    sessionId: string;
+    name: string;
+    messages: ChatMessage[];
+    timestamp: string;
+}
+
 export class SmartPassages {
     private chatbot: Chatbot;
     private feedbackFile: string;
-
+    private chatHistoryFile: string;
+    private currentSessionId: string;
+    private currentSessionName: string | null;
     constructor() {
         this.chatbot = new Chatbot(SYSTEM_MESSAGE);
         // Assuming the workspace URI is available. You might need to pass it to the constructor.
@@ -32,14 +58,31 @@ export class SmartPassages {
                 "files",
                 "smart_passages_memories.json"
             );
+            this.chatHistoryFile = path.join(workspaceUri.fsPath, "files", "chat_history.jsonl");
         } else {
             throw new Error("No workspace found");
         }
+        this.currentSessionId = uuidv4();
+        this.currentSessionName = null;
+    }
+
+    private generateSessionName(query: string): string {
+        // Truncate the query if it's too long
+        const maxLength = 50;
+        let name = query.trim().substring(0, maxLength);
+        if (query.length > maxLength) {
+            name += "...";
+        }
+        return name;
     }
 
     async chat(cellIds: string[], query: string) {
+        if (!this.currentSessionName) {
+            this.currentSessionName = this.generateSessionName(query);
+        }
         await this.updateContext(cellIds);
         const response = await this.chatbot.sendMessage(query);
+        await this.saveChatHistory();
         return response;
     }
 
@@ -49,6 +92,9 @@ export class SmartPassages {
         onChunk: (chunk: string) => void,
         editIndex?: number
     ) {
+        if (!this.currentSessionName) {
+            this.currentSessionName = this.generateSessionName(query);
+        }
         await this.updateContext(cellIds);
         if (editIndex !== undefined) {
             await this.chatbot.editMessage(editIndex, query);
@@ -62,6 +108,7 @@ export class SmartPassages {
                 })
             );
         });
+        await this.saveChatHistory();
         return response;
     }
 
@@ -244,6 +291,166 @@ export class SmartPassages {
         }
     }
 
+    public async saveChatHistory(): Promise<void> {
+        const currentEntry: ChatHistoryEntry = {
+            sessionId: this.currentSessionId,
+            name: this.currentSessionName || "Unnamed Chat",
+            messages: this.chatbot.messages,
+            timestamp: new Date().toISOString(),
+        };
+
+        const tempFile = path.join(os.tmpdir(), `chat_history_temp_${Date.now()}.jsonl`);
+
+        try {
+            const writeStream = createWriteStream(tempFile);
+            const readStream = createReadStream(this.chatHistoryFile);
+            const rl = readline.createInterface({
+                input: readStream,
+                crlfDelay: Infinity,
+            });
+
+            let currentSessionUpdated = false;
+
+            for await (const line of rl) {
+                try {
+                    const entry: ChatHistoryEntry = JSON.parse(line);
+                    if (entry.sessionId === this.currentSessionId) {
+                        // Update the current session
+                        writeStream.write(JSON.stringify(currentEntry) + "\n");
+                        currentSessionUpdated = true;
+                    } else {
+                        // Write other sessions as they are
+                        writeStream.write(line + "\n");
+                    }
+                } catch (parseError) {
+                    console.error("Error parsing chat history line:", parseError);
+                    // Write the line as is if there's a parsing error
+                    writeStream.write(line + "\n");
+                }
+            }
+
+            // If the current session wasn't in the file, append it
+            if (!currentSessionUpdated) {
+                writeStream.write(JSON.stringify(currentEntry) + "\n");
+            }
+
+            writeStream.end();
+
+            // Wait for the write stream to finish
+            await new Promise<void>((resolve, reject) => {
+                writeStream.on("finish", resolve);
+                writeStream.on("error", reject);
+            });
+
+            // Replace the old file with the new one
+            await fs.rename(tempFile, this.chatHistoryFile);
+
+            console.log(`Chat history saved for session ${this.currentSessionId}`);
+        } catch (error) {
+            console.error("Error saving chat history:", error);
+            // Clean up the temp file if there was an error
+            await fs.unlink(tempFile).catch(console.error);
+        }
+    }
+
+    public async loadChatHistory(sessionId?: string): Promise<ChatHistoryEntry | null> {
+        try {
+            const content = await fs.readFile(this.chatHistoryFile, "utf-8");
+            const lines = content.split("\n").filter((line) => line.trim() !== "");
+
+            let latestSession: ChatHistoryEntry | null = null;
+
+            for (const line of lines) {
+                try {
+                    const entry: ChatHistoryEntry = JSON.parse(line);
+                    if (sessionId && entry.sessionId === sessionId) {
+                        latestSession = entry;
+                        break;
+                    } else if (
+                        !sessionId &&
+                        (!latestSession ||
+                            new Date(entry.timestamp) > new Date(latestSession.timestamp))
+                    ) {
+                        latestSession = entry;
+                    }
+                } catch (parseError) {
+                    console.error("Error parsing chat history line:", parseError);
+                }
+            }
+
+            if (latestSession) {
+                this.currentSessionId = latestSession.sessionId;
+                this.currentSessionName = latestSession.name;
+                this.chatbot.messages = [
+                    this.chatbot.messages[0],
+                    ...latestSession.messages.slice(1),
+                ];
+                console.log(
+                    `Loaded chat history for session ${this.currentSessionId}: ${this.currentSessionName}`
+                );
+                return latestSession;
+            } else {
+                console.log("No matching chat history found. Starting a new session.");
+                return null;
+            }
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+                console.log("Chat history file not found. Starting with a fresh history.");
+            } else {
+                console.error("Error loading chat history:", error);
+            }
+            return null; // Add this line to ensure a return value in all cases
+        }
+    }
+
+    public startNewSession(): void {
+        this.currentSessionId = uuidv4();
+        this.currentSessionName = null;
+        this.chatbot.messages = [this.chatbot.messages[0]]; // Keep only the system message
+        console.log(`Started new chat session with ID: ${this.currentSessionId}`);
+    }
+
+    public getCurrentSessionInfo(): { id: string; name: string | null } {
+        return {
+            id: this.currentSessionId,
+            name: this.currentSessionName,
+        };
+    }
+
+    public async getAllSessions(): Promise<Array<{ id: string; name: string; timestamp: string }>> {
+        const sessions: Array<{ id: string; name: string; timestamp: string }> = [];
+
+        try {
+            const fileStream = createReadStream(this.chatHistoryFile);
+            const rl = readline.createInterface({
+                input: fileStream,
+                crlfDelay: Infinity,
+            });
+
+            for await (const line of rl) {
+                try {
+                    const entry: ChatHistoryEntry = JSON.parse(line);
+                    sessions.push({
+                        id: entry.sessionId,
+                        name: entry.name,
+                        timestamp: entry.timestamp,
+                    });
+                } catch (parseError) {
+                    console.error("Error parsing chat history line:", parseError);
+                }
+            }
+
+            return sessions;
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+                // File doesn't exist, return an empty array
+                return [];
+            }
+            console.error("Error reading chat history:", error);
+            return [];
+        }
+    }
+
     private async readEntriesForCell(
         cellId: string
     ): Promise<Array<{ content: string; timestamp: string }>> {
@@ -315,5 +522,64 @@ export class SmartPassages {
         // Implement the conversion logic here
         // This is just a placeholder example
         return cellId.replace("_", " ").toUpperCase();
+    }
+
+    public async deleteChatSession(sessionId: string): Promise<boolean> {
+        const tempFile = path.join(os.tmpdir(), `chat_history_temp_${Date.now()}.jsonl`);
+
+        try {
+            const writeStream = createWriteStream(tempFile);
+            const readStream = createReadStream(this.chatHistoryFile);
+            const rl = readline.createInterface({
+                input: readStream,
+                crlfDelay: Infinity,
+            });
+
+            let sessionFound = false;
+
+            for await (const line of rl) {
+                try {
+                    const entry: ChatHistoryEntry = JSON.parse(line);
+                    if (entry.sessionId !== sessionId) {
+                        // Write sessions that are not being deleted
+                        writeStream.write(line + "\n");
+                    } else {
+                        sessionFound = true;
+                    }
+                } catch (parseError) {
+                    console.error("Error parsing chat history line:", parseError);
+                    // Write the line as is if there's a parsing error
+                    writeStream.write(line + "\n");
+                }
+            }
+
+            writeStream.end();
+
+            // Wait for the write stream to finish
+            await new Promise<void>((resolve, reject) => {
+                writeStream.on("finish", resolve);
+                writeStream.on("error", reject);
+            });
+
+            // Replace the old file with the new one
+            await fs.rename(tempFile, this.chatHistoryFile);
+
+            if (sessionFound) {
+                console.log(`Chat session ${sessionId} deleted successfully`);
+                // If the deleted session was the current one, start a new session
+                if (sessionId === this.currentSessionId) {
+                    this.startNewSession();
+                }
+                return true;
+            } else {
+                console.log(`Chat session ${sessionId} not found`);
+                return false;
+            }
+        } catch (error) {
+            console.error("Error deleting chat session:", error);
+            // Clean up the temp file if there was an error
+            await fs.unlink(tempFile).catch(console.error);
+            return false;
+        }
     }
 }

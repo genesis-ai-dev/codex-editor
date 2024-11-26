@@ -1,11 +1,12 @@
 import * as vscode from "vscode";
 import OpenAI from "openai";
 import { ChatMessage } from "../../types";
+import { ChatCompletionMessageParam } from "openai/resources/chat";
 
 class Chatbot {
     private openai: OpenAI;
     private config: vscode.WorkspaceConfiguration;
-    private messages: ChatMessage[];
+    public messages: ChatMessage[];
     private contextMessage: ChatMessage | null;
     private maxBuffer: number;
     private language: string;
@@ -32,6 +33,19 @@ class Chatbot {
         return this.config.get("api_key") || "";
     }
 
+    private mapMessageRole(role: string): "system" | "user" | "assistant" {
+        switch (role) {
+            case "context":
+                return "user";
+            case "system":
+            case "user":
+            case "assistant":
+                return role;
+            default:
+                return "user";
+        }
+    }
+
     private async callLLM(messages: ChatMessage[]): Promise<string> {
         try {
             let model = this.config.get("model") as string;
@@ -41,7 +55,10 @@ class Chatbot {
 
             const completion = await this.openai.chat.completions.create({
                 model: model,
-                messages: messages,
+                messages: messages.map((message) => ({
+                    role: this.mapMessageRole(message.role),
+                    content: message.content,
+                })) as ChatCompletionMessageParam[],
                 max_tokens: this.config.get("max_tokens") || 2048,
                 temperature: this.config.get("temperature") || 0.8,
                 stream: false,
@@ -76,7 +93,10 @@ class Chatbot {
 
             const stream = await this.openai.chat.completions.create({
                 model: model,
-                messages: messages,
+                messages: messages.map((message) => ({
+                    role: this.mapMessageRole(message.role),
+                    content: message.content,
+                })) as ChatCompletionMessageParam[],
                 max_tokens: this.config.get("max_tokens") || 2048,
                 temperature: this.config.get("temperature") || 0.8,
                 stream: true,

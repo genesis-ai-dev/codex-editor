@@ -4,23 +4,95 @@
     flex-direction: column;
     height: 100%;
     padding: 16px;
+    gap: 16px;
+}
+
+/* Session management styles */
+.session-controls {
+    background-color: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-widget-border);
+    border-radius: 8px;
+    padding: 16px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.session-controls-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.session-search {
+    flex-grow: 1;
+    margin-left: 16px;
+}
+
+.session-search vscode-text-field {
+    width: 100%;
+}
+
+.session-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.session-chip {
+    background-color: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    padding: 6px 12px;
+    border-radius: 16px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 1px solid transparent;
+}
+
+.session-chip:hover {
+    background-color: var(--vscode-button-secondaryHoverBackground);
+    border-color: var(--vscode-focusBorder);
+}
+
+.session-chip.active {
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    font-weight: bold;
+}
+
+.current-session-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--vscode-widget-border);
 }
 
 /* Pinned verses styles */
 .pinned-verses {
     background-color: var(--vscode-editor-background);
     border: 1px solid var(--vscode-widget-border);
-    border-radius: 4px;
-    padding: 12px;
-    margin-bottom: 16px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
+    padding: 16px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .pinned-verses h3 {
-    margin: 0 0 8px;
+    margin: 0 0 12px;
     color: var(--vscode-foreground);
     font-size: 14px;
     font-weight: 600;
+}
+
+.select-target-instruction {
+    margin-bottom: 12px;
+    font-style: italic;
+    color: var(--vscode-descriptionForeground);
+    font-size: 12px;
 }
 
 .pinned-verses-list {
@@ -32,20 +104,20 @@
 .pinned-verse-id {
     background-color: var(--vscode-badge-background);
     color: var(--vscode-badge-foreground);
-    padding: 4px 8px;
-    border-radius: 4px;
+    padding: 4px 10px;
+    border-radius: 12px;
     font-size: 12px;
     cursor: pointer;
     transition: all 0.2s ease;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-    border: 2px solid transparent;
+    border: 1px solid transparent;
 }
 
 .pinned-verse-id:hover {
     background-color: var(--vscode-button-hoverBackground);
     transform: translateY(-1px);
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-    border-color: var(--vscode-button-hoverBackground);
+    border-color: var(--vscode-focusBorder);
 }
 
 .pinned-verse-id.target-passage {
@@ -55,41 +127,55 @@
     border-color: var(--vscode-charts-green);
 }
 
-/* History/messages styles */
+/* Chat history styles */
 .message-history {
     flex: 1;
     overflow-y: auto;
     padding: 16px;
     border: 1px solid var(--vscode-input-border);
     border-radius: 8px;
-    margin-bottom: 16px;
+    /* background-color: var(--vscode-editor-background); */
+    /* box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.05); */
 }
 
-.message {
-    background-color: var(--vscode-editor-background);
-    border: 1px solid var(--vscode-widget-border);
-    border-radius: 8px;
-    padding: 16px;
-    margin-bottom: 16px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    transition: all 0.2s ease;
+.chat-messages {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
 }
 
-.message:hover {
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-}
-
-.message-content {
+.chat-message {
+    max-width: 80%;
+    padding: 12px 16px;
+    border-radius: 12px;
     font-size: 13px;
-    line-height: 1.4;
+    line-height: 1.5;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.chat-message.user {
+    align-self: flex-end;
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+}
+
+.chat-message.assistant {
+    align-self: flex-start;
+    background-color: var(--vscode-editor-lineHighlightBackground);
     color: var(--vscode-foreground);
 }
 
-.message-actions {
+.chat-message-actions {
     display: flex;
     justify-content: flex-end;
     margin-top: 8px;
     gap: 4px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.chat-message:hover .chat-message-actions {
+    opacity: 1;
 }
 
 /* Input styles */
@@ -108,14 +194,14 @@
     min-height: 60px;
     max-height: 200px;
     resize: vertical;
-    padding: 12px 40px 12px 12px;
+    padding: 12px 40px 12px 16px;
     background-color: var(--vscode-input-background);
     border: 1px solid var(--vscode-input-border);
     border-radius: 8px;
     color: var(--vscode-input-foreground);
     font-family: var(--vscode-font-family);
     font-size: 14px;
-    line-height: 1.4;
+    line-height: 1.5;
     transition: all 0.2s ease;
 }
 
@@ -150,27 +236,14 @@
 }
 
 /* Utility styles */
-.empty-message {
+.chat-empty-message {
     color: var(--vscode-descriptionForeground);
     font-style: italic;
     text-align: center;
     padding: 20px;
-    background-color: rgba(var(--vscode-editor-background), 0.7);
+    background-color: var(--vscode-editor-background);
     border-radius: 8px;
-    backdrop-filter: blur(5px);
-    animation: pulse 2s infinite;
-}
-
-@keyframes pulse {
-    0% {
-        opacity: 0.7;
-    }
-    50% {
-        opacity: 1;
-    }
-    100% {
-        opacity: 0.7;
-    }
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .loading {
@@ -179,9 +252,9 @@
     justify-content: center;
     padding: 20px;
     color: var(--vscode-descriptionForeground);
-    background-color: rgba(var(--vscode-editor-background), 0.7);
+    background-color: var(--vscode-editor-background);
     border-radius: 8px;
-    backdrop-filter: blur(5px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .loading-spinner {
@@ -190,7 +263,7 @@
     border-radius: 50%;
     width: 24px;
     height: 24px;
-    animation: spin 1s linear infinite, glow 2s ease-in-out infinite;
+    animation: spin 1s linear infinite;
     margin-right: 10px;
 }
 
@@ -200,18 +273,6 @@
     }
     100% {
         transform: rotate(360deg);
-    }
-}
-
-@keyframes glow {
-    0% {
-        box-shadow: 0 0 5px var(--vscode-button-background);
-    }
-    50% {
-        box-shadow: 0 0 20px var(--vscode-button-background);
-    }
-    100% {
-        box-shadow: 0 0 5px var(--vscode-button-background);
     }
 }
 
@@ -650,4 +711,154 @@
     width: 100%;
     aspect-ratio: 16 / 9;
     border: none;
+}
+
+vscode-badge {
+    cursor: pointer;
+}
+
+.top-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.session-dropdown {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.session-dropdown vscode-dropdown {
+    width: 250px;
+}
+
+.session-menu {
+    background-color: var(--vscode-dropdown-background);
+    border: 1px solid var(--vscode-dropdown-border);
+    border-radius: 4px;
+    padding: 8px;
+    margin-top: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.session-list {
+    max-height: 200px;
+    overflow-y: auto;
+    margin-top: 8px;
+}
+
+.session-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.session-item:hover {
+    background-color: var(--vscode-list-hoverBackground);
+}
+
+.session-item.active {
+    background-color: var(--vscode-list-activeSelectionBackground);
+    color: var(--vscode-list-activeSelectionForeground);
+}
+
+.pinned-verses-section {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.pinned-verses-label {
+    font-size: 12px;
+    color: var(--vscode-foreground);
+    white-space: nowrap;
+}
+
+.pinned-verses-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.no-pinned-verses {
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
+    font-style: italic;
+}
+
+.session-management {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 16px;
+    padding: 8px;
+    background-color: var(--vscode-input-background);
+    border-radius: 4px;
+}
+
+.session-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.session-controls vscode-text-field {
+    flex-grow: 1;
+}
+
+.session-controls vscode-button {
+    min-width: 28px;
+    min-height: 28px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.session-management vscode-button {
+    min-width: 28px;
+    min-height: 28px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.session-management vscode-button[appearance="icon"] {
+    background-color: transparent;
+}
+
+.session-management vscode-button:last-child {
+    margin-left: auto;
+}
+
+/* Adjust the search icon position */
+.session-management .codicon-search {
+    margin-left: 8px;
+}
+
+/* Style for the "New Session" button */
+.session-management vscode-button:last-child {
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    padding: 0 12px;
+}
+
+.session-management vscode-button:last-child:hover {
+    background-color: var(--vscode-button-hoverBackground);
+}
+
+.session-item-content {
+    flex-grow: 1;
+}
+
+.session-item-actions {
+    display: flex;
+    gap: 4px;
 }
