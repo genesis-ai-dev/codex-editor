@@ -1,6 +1,11 @@
-import React, { useState } from 'react';
-import { VSCodeButton, VSCodeTextField } from '@vscode/webview-ui-toolkit/react';
-import { GitLabInfo } from '../types';
+import React, { useEffect, useState } from "react";
+import { VSCodeButton, VSCodeTextField } from "@vscode/webview-ui-toolkit/react";
+import { GitLabInfo } from "../types";
+import {
+    GitLabProject,
+    MessagesFromStartupFlowProvider,
+    MessagesToStartupFlowProvider,
+} from "../../../../../types";
 
 export interface ProjectSetupStepProps {
     projectSelection: {
@@ -12,15 +17,36 @@ export interface ProjectSetupStepProps {
     onCreateEmpty: () => void;
     onCloneRepo: (repoUrl: string) => void;
     gitlabInfo?: GitLabInfo;
+    vscode: any;
 }
 
 export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
     projectSelection,
     onCreateEmpty,
     onCloneRepo,
-    gitlabInfo
+    gitlabInfo,
+    vscode,
 }) => {
-    const [repoUrl, setRepoUrl] = useState(projectSelection.repoUrl || '');
+    const [repoUrl, setRepoUrl] = useState(projectSelection.repoUrl || "");
+    const [projectsList, setProjectsList] = useState<GitLabProject[]>([]);
+
+    useEffect(() => {
+        vscode.postMessage({
+            command: "getProjectsListFromGitLab",
+        } as MessagesToStartupFlowProvider);
+
+        const messageHandler = (event: MessageEvent<MessagesFromStartupFlowProvider>) => {
+            const message = event.data;
+            if (message.command === "projectsListFromGitLab") {
+                setProjectsList(message.projects);
+            }
+        };
+
+        window.addEventListener("message", messageHandler);
+        return () => {
+            window.removeEventListener("message", messageHandler);
+        };
+    }, []);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -32,6 +58,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
     return (
         <div className="project-setup-step">
             <h2>Project Setup</h2>
+            <pre>{JSON.stringify(projectsList, null, 2)}</pre>
             {gitlabInfo && (
                 <div className="gitlab-info">
                     <p>Logged in as {gitlabInfo.username}</p>
@@ -41,9 +68,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                 <div className="option">
                     <h3>Create Empty Project</h3>
                     <p>Start with a blank project and add files as needed.</p>
-                    <VSCodeButton onClick={onCreateEmpty}>
-                        Create Empty Project
-                    </VSCodeButton>
+                    <VSCodeButton onClick={onCreateEmpty}>Create Empty Project</VSCodeButton>
                 </div>
                 <div className="option">
                     <h3>Clone Repository</h3>
@@ -55,15 +80,11 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                             placeholder="Repository URL"
                             required
                         />
-                        <VSCodeButton type="submit">
-                            Clone Repository
-                        </VSCodeButton>
+                        <VSCodeButton type="submit">Clone Repository</VSCodeButton>
                     </form>
                 </div>
             </div>
-            {projectSelection.error && (
-                <p className="error-message">{projectSelection.error}</p>
-            )}
+            {projectSelection.error && <p className="error-message">{projectSelection.error}</p>}
         </div>
     );
 };

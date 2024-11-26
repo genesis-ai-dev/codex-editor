@@ -1,20 +1,93 @@
 import { waitForExtensionActivation } from "../../utils/vscode";
-import { MessagesToStartupFlowProvider, MessagesFromStartupFlowProvider } from "../../../types";
+import {
+    MessagesToStartupFlowProvider,
+    MessagesFromStartupFlowProvider,
+    GitLabProject,
+} from "../../../types";
 import * as vscode from "vscode";
 import { PreflightCheck } from "./preflight";
 
-interface FrontierAPI {
-    authProvider: any;
+interface TokenResponse {
+    access_token: string;
+    gitlab_token: string;
+    gitlab_url: string;
+}
+
+interface FrontierSessionData {
+    accessToken: string;
+    gitlabToken: string;
+    gitlabUrl: string;
+}
+
+interface GitLabInfoResponse {
+    // Add GitLab info response type here
+    [key: string]: any;
+}
+
+interface ExtendedAuthSession extends vscode.AuthenticationSession {
+    gitlabToken: string;
+    gitlabUrl: string;
+}
+
+interface IFrontierAuthProvider extends vscode.AuthenticationProvider, vscode.Disposable {
+    readonly onDidChangeSessions: vscode.Event<vscode.AuthenticationProviderAuthenticationSessionsChangeEvent>;
+    readonly onDidChangeAuthentication: vscode.Event<void>;
+
+    // Core authentication methods
+    initialize(): Promise<void>;
+    getSessions(): Promise<vscode.AuthenticationSession[]>;
+    createSession(scopes: readonly string[]): Promise<vscode.AuthenticationSession>;
+    removeSession(sessionId: string): Promise<void>;
+
+    // Authentication status
+    readonly isAuthenticated: boolean;
+    getAuthStatus(): { isAuthenticated: boolean; gitlabInfo?: any };
+    onAuthStatusChanged(
+        callback: (status: { isAuthenticated: boolean; gitlabInfo?: any }) => void
+    ): vscode.Disposable;
+
+    // Token management
+    getToken(): Promise<string | undefined>;
+    setToken(token: string): Promise<void>;
+    setTokens(tokenResponse: TokenResponse): Promise<void>;
+
+    // GitLab specific methods
+    getGitLabToken(): Promise<string | undefined>;
+    getGitLabUrl(): Promise<string | undefined>;
+
+    // User authentication methods
+    login(username: string, password: string): Promise<boolean>;
+    register(username: string, email: string, password: string): Promise<boolean>;
+    logout(): Promise<void>;
+
+    // Resource cleanup
+    dispose(): void;
+}
+
+export interface FrontierAPI {
+    authProvider: IFrontierAuthProvider;
     getAuthStatus: () => {
         isAuthenticated: boolean;
-        gitlabInfo?: any;
     };
     onAuthStatusChanged: (
-        callback: (status: { isAuthenticated: boolean; gitlabInfo?: any }) => void
+        callback: (status: { isAuthenticated: boolean }) => void
     ) => vscode.Disposable;
     login: (username: string, password: string) => Promise<boolean>;
     register: (username: string, email: string, password: string) => Promise<boolean>;
     logout: () => Promise<void>;
+    listProjects: (showUI?: boolean) => Promise<
+        Array<{
+            id: number;
+            name: string;
+            description: string | null;
+            visibility: string;
+            url: string;
+            webUrl: string;
+            lastActivity: string;
+            namespace: string;
+            owner: string;
+        }>
+    >;
 }
 
 function getNonce(): string {
@@ -60,7 +133,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     isAuthExtensionInstalled: true,
                     isAuthenticated: initialStatus?.isAuthenticated,
                     isLoading: false,
-                    gitlabInfo: initialStatus?.gitlabInfo,
                 });
 
                 // Subscribe to auth status changes
@@ -69,7 +141,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         isAuthExtensionInstalled: true,
                         isAuthenticated: status?.isAuthenticated,
                         isLoading: false,
-                        gitlabInfo: status.gitlabInfo,
                     });
                 });
                 disposable && this.disposables.push(disposable);
@@ -147,7 +218,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             isAuthExtensionInstalled: true,
                             isAuthenticated: status.isAuthenticated,
                             isLoading: false,
-                            gitlabInfo: status.gitlabInfo,
                         },
                     } as MessagesFromStartupFlowProvider);
                 } catch (error) {
@@ -183,7 +253,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 isAuthExtensionInstalled: true,
                                 isAuthenticated: true,
                                 isLoading: false,
-                                gitlabInfo: status.gitlabInfo,
                             },
                         } as MessagesFromStartupFlowProvider);
                     } else {
@@ -418,6 +487,30 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     debugLog("Handling workspace message", message.command);
                     await this.handleWorkspaceMessage(webviewPanel, message);
                     break;
+                case "getProjectsListFromGitLab": {
+                    debugLog("Fetching GitLab projects list");
+                    try {
+                        if (!this.frontierApi) {
+                            throw new Error("Frontier API not initialized");
+                        }
+                        const projects = await this.frontierApi.listProjects(false);
+                        webviewPanel.webview.postMessage({
+                            command: "projectsListFromGitLab",
+                            projects,
+                        } as MessagesFromStartupFlowProvider);
+                    } catch (error) {
+                        console.error("Failed to fetch GitLab projects:", error);
+                        webviewPanel.webview.postMessage({
+                            command: "projectsListFromGitLab",
+                            projects: [],
+                            error:
+                                error instanceof Error
+                                    ? error.message
+                                    : "Failed to fetch GitLab projects",
+                        } as MessagesFromStartupFlowProvider);
+                    }
+                    break;
+                }
             }
         });
 

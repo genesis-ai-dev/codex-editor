@@ -308,9 +308,26 @@ export type MessagesToStartupFlowProvider =
     | { command: "workspace.status" }
     | { command: "workspace.open" }
     | { command: "workspace.create" }
-    | { command: "workspace.continue" };
+    | { command: "workspace.continue" }
+    | { command: "getProjectsListFromGitLab" };
+
+export type GitLabProject = {
+    id: number;
+    name: string;
+    description: string | null;
+    visibility: string;
+    url: string;
+    webUrl: string;
+    lastActivity: string;
+    namespace: string;
+    owner: string;
+};
 
 export type MessagesFromStartupFlowProvider =
+    | {
+          command: "projectsListFromGitLab";
+          projects: Array<GitLabProject>;
+      }
     | {
           command: "checkWorkspaceState";
           isWorkspaceOpen: boolean;

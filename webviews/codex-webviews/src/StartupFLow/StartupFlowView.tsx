@@ -162,6 +162,7 @@ export const StartupFlowView: React.FC = () => {
                     projectSelection={state.context.projectSelection}
                     onCreateEmpty={handleCreateEmpty}
                     onCloneRepo={handleCloneRepo}
+                    vscode={vscode}
                 />
             )}
             {state.matches("openSourceFlow") && <VSCodeProgressRing />}
