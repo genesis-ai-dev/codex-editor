@@ -307,7 +307,8 @@ export type MessagesToStartupFlowProvider =
     | { command: "project.new" }
     | { command: "workspace.status" }
     | { command: "workspace.open" }
-    | { command: "workspace.create" };
+    | { command: "workspace.create" }
+    | { command: "workspace.continue" };
 
 export type MessagesFromStartupFlowProvider =
     | {

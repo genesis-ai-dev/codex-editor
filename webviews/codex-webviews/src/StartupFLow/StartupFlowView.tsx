@@ -4,9 +4,10 @@ import { startupFlowMachine } from "./machines/startupFlowMachine";
 import { LoginRegisterStep } from "./components/LoginRegisterStep";
 import { WorkspaceStep } from "./components/WorkspaceStep";
 import { ProjectSetupStep } from "./components/ProjectSetupStep";
-import { VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
+import { VSCodeButton, VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
 import "./StartupFlowView.css";
 import { AuthState } from "./types";
+import { MessagesToStartupFlowProvider } from "../../../../types";
 
 const vscode = acquireVsCodeApi();
 
@@ -26,6 +27,7 @@ export const StartupFlowView: React.FC = () => {
             const message = event.data;
             switch (message.command) {
                 case "updateAuthState": {
+                    console.log("updateAuthState", message);
                     const authState: AuthState = message.authState;
                     if (!authState.isAuthExtensionInstalled) {
                         send({
@@ -34,19 +36,21 @@ export const StartupFlowView: React.FC = () => {
                                 isAuthenticated: false,
                                 isAuthExtensionInstalled: false,
                                 isLoading: false,
-                                gitlabInfo: undefined
-                            }
+                                gitlabInfo: undefined,
+                            },
                         });
                     } else {
                         send({
-                            type: authState.isAuthenticated ? "AUTH.LOGGED_IN" : "AUTH.NOT_AUTHENTICATED",
+                            type: authState.isAuthenticated
+                                ? "AUTH.LOGGED_IN"
+                                : "AUTH.NOT_AUTHENTICATED",
                             data: {
                                 isAuthenticated: authState.isAuthenticated,
                                 isAuthExtensionInstalled: true,
                                 isLoading: false,
                                 error: authState.error,
-                                gitlabInfo: authState.gitlabInfo
-                            }
+                                gitlabInfo: authState.gitlabInfo,
+                            },
                         });
                     }
                     break;
@@ -68,33 +72,33 @@ export const StartupFlowView: React.FC = () => {
                     break;
                 case "metadata.check":
                     send({
-                        type: message.exists ? "METADATA.EXISTS" : "METADATA.NOT_EXISTS"
+                        type: message.exists ? "METADATA.EXISTS" : "METADATA.NOT_EXISTS",
                     });
                     break;
             }
         };
 
-        window.addEventListener('message', messageHandler);
+        window.addEventListener("message", messageHandler);
         return () => {
-            window.removeEventListener('message', messageHandler);
+            window.removeEventListener("message", messageHandler);
             service.stop(); // Clean up the state machine
         };
     }, [send]);
 
     const handleLogin = (username: string, password: string) => {
-        vscode.postMessage({ 
+        vscode.postMessage({
             command: "auth.login",
             username,
-            password
+            password,
         });
     };
 
     const handleRegister = (username: string, email: string, password: string) => {
-        vscode.postMessage({ 
+        vscode.postMessage({
             command: "auth.signup",
             username,
             email,
-            password
+            password,
         });
     };
 
@@ -121,11 +125,13 @@ export const StartupFlowView: React.FC = () => {
 
     const handleCloneRepo = (repoUrl: string) => {
         send({ type: "PROJECT.CLONE" });
-        vscode.postMessage({ 
+        vscode.postMessage({
             command: "project.clone",
-            repoUrl
+            repoUrl,
         });
     };
+
+    console.log({ state });
 
     return (
         <div className="startup-flow-container">
@@ -135,7 +141,7 @@ export const StartupFlowView: React.FC = () => {
                     <p>Loading...</p>
                 </div>
             )}
-            
+
             {state.matches("loginRegister") && (
                 <LoginRegisterStep
                     authState={state.context.authState}
@@ -158,25 +164,40 @@ export const StartupFlowView: React.FC = () => {
                     onCloneRepo={handleCloneRepo}
                 />
             )}
-            {state.matches("openSourceFlow") && (
-                <VSCodeProgressRing />
+            {state.matches("openSourceFlow") && <VSCodeProgressRing />}
+            {state.matches("alreadyWorking") && (
+                <div className="already-working-container">
+                    <p>You are already working on a project.</p>
+                    <VSCodeButton
+                        onClick={() =>
+                            vscode.postMessage({
+                                command: "workspace.continue",
+                            } as MessagesToStartupFlowProvider)
+                        }
+                    >
+                        Continue Working
+                    </VSCodeButton>
+                </div>
             )}
 
             {/* Debug state display */}
-            <div className="debug-state" style={{ 
-                position: 'fixed', 
-                bottom: 0, 
-                left: 0, 
-                right: 0,
-                padding: '10px',
-                background: 'var(--vscode-editor-background)',
-                borderTop: '1px solid var(--vscode-widget-border)',
-                fontSize: '12px',
-                fontFamily: 'monospace',
-                whiteSpace: 'pre-wrap',
-                maxHeight: '200px',
-                overflowY: 'auto'
-            }}>
+            <div
+                className="debug-state"
+                style={{
+                    position: "fixed",
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    padding: "10px",
+                    background: "var(--vscode-editor-background)",
+                    borderTop: "1px solid var(--vscode-widget-border)",
+                    fontSize: "12px",
+                    fontFamily: "monospace",
+                    whiteSpace: "pre-wrap",
+                    maxHeight: "200px",
+                    overflowY: "auto",
+                }}
+            >
                 <details>
                     <summary>Current State</summary>
                     <pre>{JSON.stringify(state.context, null, 2)}</pre>
