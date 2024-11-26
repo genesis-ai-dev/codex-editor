@@ -6,6 +6,7 @@ import {
     MessagesFromStartupFlowProvider,
     MessagesToStartupFlowProvider,
 } from "../../../../../types";
+import { GitLabProjectsList } from "./GitLabProjectsList";
 
 export interface ProjectSetupStepProps {
     projectSelection: {
@@ -37,7 +38,9 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
 
         const messageHandler = (event: MessageEvent<MessagesFromStartupFlowProvider>) => {
             const message = event.data;
+            console.log({ message }, "message in ProjectSetupStep");
             if (message.command === "projectsListFromGitLab") {
+                console.log(message.projects, "message in ProjectSetupStep");
                 setProjectsList(message.projects);
             }
         };
@@ -55,15 +58,19 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
         }
     };
 
+    const handleProjectSelect = (project: GitLabProject) => {
+        setRepoUrl(project.url);
+    };
+
     return (
         <div className="project-setup-step">
             <h2>Project Setup</h2>
-            <pre>{JSON.stringify(projectsList, null, 2)}</pre>
             {gitlabInfo && (
                 <div className="gitlab-info">
                     <p>Logged in as {gitlabInfo.username}</p>
                 </div>
             )}
+            <GitLabProjectsList projects={projectsList} onSelectProject={handleProjectSelect} />
             <div className="setup-options">
                 <div className="option">
                     <h3>Create Empty Project</h3>
