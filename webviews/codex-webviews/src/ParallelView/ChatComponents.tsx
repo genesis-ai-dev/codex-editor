@@ -98,8 +98,17 @@ export const IndividuallyTranslatedVerseComponent: React.FC<IndividuallyTranslat
     const [feedbackText, setFeedbackText] = useState("");
 
     const handleSendFeedback = () => {
-        onSendFeedback(text, feedbackText, cellId);
-        setFeedbackText("");
+        if (feedbackText.trim()) {
+            onSendFeedback(text, feedbackText, cellId);
+            setFeedbackText("");
+        }
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === "Enter" && e.ctrlKey) {
+            e.preventDefault();
+            handleSendFeedback();
+        }
     };
 
     return (
@@ -134,9 +143,18 @@ export const IndividuallyTranslatedVerseComponent: React.FC<IndividuallyTranslat
                 <textarea
                     value={feedbackText}
                     onChange={(e) => setFeedbackText(e.target.value)}
+                    onKeyDown={handleKeyDown}
                     placeholder="Suggest feedback..."
                 />
-                <VSCodeButton onClick={handleSendFeedback} disabled={!feedbackText.trim()} />
+                <VSCodeButton
+                    onClick={handleSendFeedback}
+                    className="send-button"
+                    appearance="icon"
+                    title="Send Feedback"
+                    disabled={!feedbackText.trim()}
+                >
+                    <span className="codicon codicon-send"></span>
+                </VSCodeButton>
             </div>
         </div>
     );

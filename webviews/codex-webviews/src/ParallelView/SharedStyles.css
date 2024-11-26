@@ -601,6 +601,7 @@
     border-radius: 4px;
     margin: 8px 0;
     padding: 12px;
+    max-width: 100%;
 }
 
 .assistant-response .cell-id {
@@ -936,21 +937,23 @@ vscode-badge {
 .feedback-input {
     position: relative;
     margin-top: 12px;
+    width: 100%;
 }
 
 .feedback-input textarea {
     width: 100%;
     min-height: 60px;
-    padding: 12px 40px 12px 16px;
+    max-height: 200px;
     background-color: var(--vscode-input-background);
     border: 1px solid var(--vscode-input-border);
-    border-radius: 20px;
+    border-radius: 8px;
     color: var(--vscode-input-foreground);
     font-family: var(--vscode-font-family);
     font-size: 14px;
     line-height: 1.5;
     resize: vertical;
     transition: all 0.2s ease;
+    box-sizing: border-box;
 }
 
 .feedback-input textarea:focus {
@@ -959,7 +962,7 @@ vscode-badge {
     box-shadow: 0 0 0 2px rgba(var(--vscode-focusBorder), 0.3);
 }
 
-.feedback-input vscode-button {
+.feedback-input .send-button {
     position: absolute;
     right: 12px;
     bottom: 12px;
@@ -973,13 +976,16 @@ vscode-badge {
     transition: all 0.2s ease;
 }
 
-.feedback-input vscode-button:hover {
+.feedback-input .send-button:hover {
     transform: scale(1.1);
 }
 
-.feedback-input vscode-button::before {
-    content: "\E724";
-    font-family: codicon;
+.feedback-input .send-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.feedback-input .send-button .codicon {
     font-size: 18px;
     color: var(--vscode-button-foreground);
 }
