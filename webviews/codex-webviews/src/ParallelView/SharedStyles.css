@@ -752,6 +752,7 @@ vscode-badge {
 .session-item {
     display: flex;
     justify-content: space-between;
+    align-items: center;
     padding: 8px;
     cursor: pointer;
     transition: background-color 0.2s ease;
@@ -767,13 +768,16 @@ vscode-badge {
 }
 
 .pinned-verses-section {
-    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
 }
 
-.pinned-verses-section h4 {
-    margin: 0 0 8px;
+.pinned-verses-label {
     font-size: 12px;
     color: var(--vscode-foreground);
+    white-space: nowrap;
 }
 
 .pinned-verses-list {
@@ -790,7 +794,7 @@ vscode-badge {
 
 .session-management {
     display: flex;
-    align-items: center;
+    flex-direction: column;
     gap: 8px;
     margin-bottom: 16px;
     padding: 8px;
@@ -798,12 +802,23 @@ vscode-badge {
     border-radius: 4px;
 }
 
-.session-management vscode-text-field {
+.session-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.session-controls vscode-text-field {
     flex-grow: 1;
 }
 
-.session-management vscode-text-field::part(root) {
+.session-controls vscode-button {
+    min-width: 28px;
     min-height: 28px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .session-management vscode-button {
@@ -837,4 +852,13 @@ vscode-badge {
 
 .session-management vscode-button:last-child:hover {
     background-color: var(--vscode-button-hoverBackground);
+}
+
+.session-item-content {
+    flex-grow: 1;
+}
+
+.session-item-actions {
+    display: flex;
+    gap: 4px;
 }

@@ -340,5 +340,30 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
         )
     );
 
+    // Add command to delete a specific chat session
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-smart-edits.deleteChatSession",
+            async (sessionId: string) => {
+                try {
+                    const success = await smartPassages.deleteChatSession(sessionId);
+                    if (success) {
+                        console.log(`Chat session ${sessionId} deleted successfully`);
+                        return true;
+                    } else {
+                        console.log(`Failed to delete chat session ${sessionId}`);
+                        return false;
+                    }
+                } catch (error) {
+                    console.error("Error deleting chat session:", error);
+                    vscode.window.showErrorMessage(
+                        "Failed to delete chat session. Please check the console for more details."
+                    );
+                    return false;
+                }
+            }
+        )
+    );
+
     console.log("Smart Edit commands registered");
 };

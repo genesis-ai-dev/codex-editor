@@ -44,6 +44,7 @@ interface ChatTabProps {
     allSessions: SessionInfo[];
     onStartNewSession: () => void;
     onLoadSession: (sessionId: string) => void;
+    onDeleteSession: (sessionId: string) => void;
 }
 
 function ChatTab({
@@ -60,6 +61,7 @@ function ChatTab({
     allSessions,
     onStartNewSession,
     onLoadSession,
+    onDeleteSession,
 }: ChatTabProps) {
     const chatHistoryRef = useRef<HTMLDivElement>(null);
     const [pendingSubmit, setPendingSubmit] = useState(false);
@@ -80,6 +82,10 @@ function ChatTab({
             .filter((session) => session.name.toLowerCase().includes(searchTerm.toLowerCase()))
             .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
         setFilteredSessions(filtered);
+
+        if (searchTerm.length > 0) {
+            setIsSessionMenuOpen(true);
+        }
     }, [searchTerm, allSessions]);
 
     const handleRedoMessage = useCallback(
@@ -266,26 +272,36 @@ function ChatTab({
     return (
         <div className="tab-container">
             <div className="session-management">
-                <VSCodeTextField
-                    placeholder="Search or create a session..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm((e.target as HTMLInputElement).value)}
-                >
-                    <span slot="start" className="codicon codicon-search"></span>
-                </VSCodeTextField>
-                <VSCodeButton
-                    appearance="icon"
-                    onClick={() => setIsSessionMenuOpen(!isSessionMenuOpen)}
-                    title="Session list"
-                >
-                    <span className="codicon codicon-list-flat"></span>
-                </VSCodeButton>
-                <VSCodeButton onClick={onStartNewSession}>
-                    <span className="codicon codicon-add"></span>
-                </VSCodeButton>
+                <div className="session-controls">
+                    <VSCodeTextField
+                        placeholder="Search or create a session..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm((e.target as HTMLInputElement).value)}
+                    >
+                        <span slot="start" className="codicon codicon-search"></span>
+                    </VSCodeTextField>
+                    <VSCodeButton
+                        appearance="icon"
+                        onClick={() => setIsSessionMenuOpen(!isSessionMenuOpen)}
+                        title="Session list"
+                    >
+                        <span className="codicon codicon-clock"></span>
+                    </VSCodeButton>
+                </div>
+                <div className="pinned-verses-section">
+                    {pinnedVerses.length > 0 ? (
+                        <div className="pinned-verses-list">
+                            {pinnedVerses.map((verse) => (
+                                <VSCodeBadge key={verse.cellId}>{verse.cellId}</VSCodeBadge>
+                            ))}
+                        </div>
+                    ) : (
+                        <br></br>
+                    )}
+                </div>
             </div>
 
-            {isSessionMenuOpen && (
+            {(isSessionMenuOpen || searchTerm.length > 0) && (
                 <div className="session-menu">
                     <div className="session-list">
                         {filteredSessions.map((session) => (
@@ -294,25 +310,28 @@ function ChatTab({
                                 className={`session-item ${
                                     sessionInfo?.id === session.id ? "active" : ""
                                 }`}
-                                onClick={() => onLoadSession(session.id)}
                             >
-                                <span>{session.name}</span>
-                                <span>{format(new Date(session.timestamp), "PP")}</span>
+                                <div
+                                    className="session-item-content"
+                                    onClick={() => onLoadSession(session.id)}
+                                >
+                                    <span>{session.name}</span>
+                                    {/* <span>{format(new Date(session.timestamp), "PP")}</span> */}
+                                </div>
+                                <div className="session-item-actions">
+                                    <VSCodeButton
+                                        appearance="icon"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onDeleteSession(session.id);
+                                        }}
+                                        title="Delete session"
+                                    >
+                                        <span className="codicon codicon-trash"></span>
+                                    </VSCodeButton>
+                                </div>
                             </div>
                         ))}
-                    </div>
-                    <VSCodeDivider />
-                    <div className="pinned-verses-section">
-                        <h4>Pinned Verses</h4>
-                        {pinnedVerses.length > 0 ? (
-                            <div className="pinned-verses-list">
-                                {pinnedVerses.map((verse) => (
-                                    <VSCodeBadge key={verse.cellId}>{verse.cellId}</VSCodeBadge>
-                                ))}
-                            </div>
-                        ) : (
-                            <p className="no-pinned-verses">No pinned verses</p>
-                        )}
                     </div>
                 </div>
             )}

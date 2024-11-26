@@ -523,4 +523,63 @@ export class SmartPassages {
         // This is just a placeholder example
         return cellId.replace("_", " ").toUpperCase();
     }
+
+    public async deleteChatSession(sessionId: string): Promise<boolean> {
+        const tempFile = path.join(os.tmpdir(), `chat_history_temp_${Date.now()}.jsonl`);
+
+        try {
+            const writeStream = createWriteStream(tempFile);
+            const readStream = createReadStream(this.chatHistoryFile);
+            const rl = readline.createInterface({
+                input: readStream,
+                crlfDelay: Infinity,
+            });
+
+            let sessionFound = false;
+
+            for await (const line of rl) {
+                try {
+                    const entry: ChatHistoryEntry = JSON.parse(line);
+                    if (entry.sessionId !== sessionId) {
+                        // Write sessions that are not being deleted
+                        writeStream.write(line + "\n");
+                    } else {
+                        sessionFound = true;
+                    }
+                } catch (parseError) {
+                    console.error("Error parsing chat history line:", parseError);
+                    // Write the line as is if there's a parsing error
+                    writeStream.write(line + "\n");
+                }
+            }
+
+            writeStream.end();
+
+            // Wait for the write stream to finish
+            await new Promise<void>((resolve, reject) => {
+                writeStream.on("finish", resolve);
+                writeStream.on("error", reject);
+            });
+
+            // Replace the old file with the new one
+            await fs.rename(tempFile, this.chatHistoryFile);
+
+            if (sessionFound) {
+                console.log(`Chat session ${sessionId} deleted successfully`);
+                // If the deleted session was the current one, start a new session
+                if (sessionId === this.currentSessionId) {
+                    this.startNewSession();
+                }
+                return true;
+            } else {
+                console.log(`Chat session ${sessionId} not found`);
+                return false;
+            }
+        } catch (error) {
+            console.error("Error deleting chat session:", error);
+            // Clean up the temp file if there was an error
+            await fs.unlink(tempFile).catch(console.error);
+            return false;
+        }
+    }
 }

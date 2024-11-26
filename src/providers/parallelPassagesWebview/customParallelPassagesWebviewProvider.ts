@@ -290,6 +290,12 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                         console.error("Error searching cells:", error);
                     }
                     break;
+                case "deleteChatSession":
+                    await vscode.commands.executeCommand(
+                        "codex-smart-edits.deleteChatSession",
+                        message.sessionId
+                    );
+                    break;
                 case "startNewChatSession":
                     try {
                         const sessionInfo = await vscode.commands.executeCommand(

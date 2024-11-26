@@ -328,6 +328,17 @@ function ParallelView() {
         setChatHistory([]);
     };
 
+    const handleDeleteSession = (sessionId: string) => {
+        vscode.postMessage({
+            command: "deleteChatSession",
+            sessionId: sessionId,
+        });
+        // Remove the deleted session from the allSessions state
+        setAllSessions((prevSessions) =>
+            prevSessions.filter((session) => session.id !== sessionId)
+        );
+    };
+
     useEffect(() => {
         // Request current session info and all sessions on component mount
         vscode.postMessage({ command: "getCurrentChatSessionInfo" });
@@ -372,6 +383,7 @@ function ParallelView() {
                     allSessions={allSessions}
                     onStartNewSession={handleStartNewSession}
                     onLoadSession={handleLoadSession}
+                    onDeleteSession={handleDeleteSession}
                 />
             </VSCodePanelView>
         </VSCodePanels>
