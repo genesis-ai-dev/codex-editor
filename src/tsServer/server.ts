@@ -118,12 +118,8 @@ connection.onRequest(
 
                     // debugLog("No smart edits found, checking for applicable prompt");
                     // If no spelling errors or smart edits, check for applicable prompt
-                    const prompt = await connection.sendRequest(ExecuteCommandRequest, {
-                        command: "codex-smart-edits.hasApplicablePrompts",
-                        args: [param.cellId, param.text],
-                    });
-
-                    const code = prompt ? 3 : 0;
+                   
+                    const code = 0;
 
                     return {
                         code,
