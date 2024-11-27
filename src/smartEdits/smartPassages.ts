@@ -240,9 +240,9 @@ export class SmartPassages {
                         : "";
 
                 return `"${pair.cellId}": {
-    source text: ${sourceText}
-    target text: ${targetText}
-    backtranslation: ${backtranslation}${feedbackText}${editHistory ? "\n    edit history:\n" + editHistory : ""}
+                    source text: ${sourceText}
+                    target text: ${targetText}
+                    backtranslation: ${backtranslation}${feedbackText}${editHistory ? "\n    edit history:\n" + editHistory : ""}
 }`;
             })
             .filter((text) => text !== "");
@@ -260,7 +260,7 @@ export class SmartPassages {
             )
             .join("\n");
 
-        return `Context:\n${allFormattedEntries.join("\n\n")}\n\nRelevant Videos:\n${formattedVideos}`;
+        return `\nRelevant Videos:\n${formattedVideos} Context and Pinned Passages:\n${allFormattedEntries.join("\n\n")}`;
     }
 
     async updateFeedback(cellId: string, content: string): Promise<void> {

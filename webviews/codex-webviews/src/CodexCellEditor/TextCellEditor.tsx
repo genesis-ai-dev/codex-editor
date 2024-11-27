@@ -255,29 +255,75 @@ const CellEditor: React.FC<CellEditorProps> = ({
         setEditorContent(newContent);
     };
 
-    // Add effect to fetch source text
+    // Add a ref to store the latest sourceText
+    const sourceTextRef = useRef<string | null>(null);
+
+    // Update the ref whenever sourceText changes
     useEffect(() => {
-        const messageContent: EditorPostMessages = {
-            command: "getSourceText",
-            content: {
-                cellId: cellMarkers[0],
-            },
+        sourceTextRef.current = sourceText;
+        console.log("sourceText updated:", sourceText); // New log
+    }, [sourceText]);
+
+    // Modify the existing useEffect for fetching source text
+    useEffect(() => {
+        const fetchSourceText = () => {
+            console.log("Fetching source text for cell:", cellMarkers[0]);
+            const messageContent: EditorPostMessages = {
+                command: "getSourceText",
+                content: {
+                    cellId: cellMarkers[0],
+                },
+            };
+            window.vscodeApi.postMessage(messageContent);
         };
-        window.vscodeApi.postMessage(messageContent);
+
+        fetchSourceText();
+        const intervalId = setInterval(fetchSourceText, 5000);
+
+        return () => clearInterval(intervalId);
     }, [cellMarkers]);
 
-    // Add effect to handle source text response
+    // Modify the existing useEffect for handling source text response
     useEffect(() => {
         const handleSourceTextResponse = (event: MessageEvent) => {
             const message = event.data;
             if (message.type === "providerSendsSourceText") {
+                console.log(
+                    "Received source text for cell:",
+                    cellMarkers[0],
+                    "Content:",
+                    message.content
+                );
                 setSourceText(message.content);
+                sourceTextRef.current = message.content; // Update ref immediately
             }
         };
 
         window.addEventListener("message", handleSourceTextResponse);
         return () => window.removeEventListener("message", handleSourceTextResponse);
-    }, []);
+    }, [cellMarkers]);
+
+    // Modify the handleAutocomplete function
+    const handleAutocomplete = useCallback(() => {
+        console.log("Autocomplete clicked for cell:", cellMarkers[0]);
+        console.log("sourceText from state:", sourceText);
+        console.log("sourceText from ref:", sourceTextRef.current);
+
+        const textToUse = sourceTextRef.current || sourceText;
+
+        if (textToUse) {
+            window.vscodeApi.postMessage({
+                command: "requestTranslation",
+                content: {
+                    cellId: cellMarkers[0],
+                    sourceText: textToUse,
+                },
+            });
+        } else {
+            console.error("Source text is null or undefined for cell:", cellMarkers[0]);
+            // Optionally, you could show an error message to the user here
+        }
+    }, [cellMarkers, sourceText]); // Keep sourceText in dependencies for consistency
 
     useEffect(() => {
         const handleBacktranslationResponse = (event: MessageEvent) => {
@@ -497,6 +543,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         });
                     }}
                     textDirection={textDirection}
+                    sourceText={sourceText}
+                    onAutocomplete={handleAutocomplete}
                 />
             </div>
 
@@ -572,6 +620,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     </div>
                 )}
             </div>
+
+            <VSCodeButton
+                onClick={handleAutocomplete}
+                appearance="icon"
+                title="Autocomplete"
+                disabled={!sourceTextRef.current && !sourceText}
+            >
+                <i className="codicon codicon-autocomplete"></i>
+            </VSCodeButton>
         </div>
     );
 };

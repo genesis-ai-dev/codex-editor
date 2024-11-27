@@ -521,6 +521,7 @@ export type EditorPostMessages =
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string } }
     | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata }
     | { command: "pickVideoFile" }
+    | { command: "requestTranslation"; content: { cellId: string; sourceText: string } }
     | { command: "togglePinPrompt"; content: { cellId: string; promptText: string } }
     | { command: "from-quill-spellcheck-getSpellCheckResponse"; content: EditorCellContent }
     | { command: "getSourceText"; content: { cellId: string } }
