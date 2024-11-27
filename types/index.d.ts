@@ -309,7 +309,8 @@ export type MessagesToStartupFlowProvider =
     | { command: "workspace.open" }
     | { command: "workspace.create" }
     | { command: "workspace.continue" }
-    | { command: "getProjectsListFromGitLab" };
+    | { command: "getProjectsListFromGitLab" }
+    | { command: "getProjectsSyncStatus" };
 
 export type GitLabProject = {
     id: number;
@@ -324,6 +325,7 @@ export type GitLabProject = {
 };
 
 export type MessagesFromStartupFlowProvider =
+    | { command: "projectsSyncStatus"; status: Record<string, "synced" | "cloud" | "error"> }
     | {
           command: "projectsListFromGitLab";
           projects: Array<GitLabProject>;

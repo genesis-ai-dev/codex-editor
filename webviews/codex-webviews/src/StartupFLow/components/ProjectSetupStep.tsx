@@ -30,6 +30,13 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
 }) => {
     const [repoUrl, setRepoUrl] = useState(projectSelection.repoUrl || "");
     const [projectsList, setProjectsList] = useState<GitLabProject[]>([]);
+    const [syncStatus, setSyncStatus] = useState<Record<string, "synced" | "cloud" | "error">>({});
+
+    const fetchProjectList = () => {
+        vscode.postMessage({
+            command: "getProjectsListFromGitLab",
+        } as MessagesToStartupFlowProvider);
+    };
 
     useEffect(() => {
         vscode.postMessage({
@@ -42,6 +49,24 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
             if (message.command === "projectsListFromGitLab") {
                 console.log(message.projects, "message in ProjectSetupStep");
                 setProjectsList(message.projects);
+            }
+        };
+
+        window.addEventListener("message", messageHandler);
+        return () => {
+            window.removeEventListener("message", messageHandler);
+        };
+    }, []);
+
+    useEffect(() => {
+        vscode.postMessage({
+            command: "getProjectsSyncStatus",
+        } as MessagesToStartupFlowProvider);
+
+        const messageHandler = (event: MessageEvent<MessagesFromStartupFlowProvider>) => {
+            const message = event.data;
+            if (message.command === "projectsSyncStatus") {
+                setSyncStatus(message.status);
             }
         };
 
@@ -70,7 +95,15 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                     <p>Logged in as {gitlabInfo.username}</p>
                 </div>
             )}
-            <GitLabProjectsList projects={projectsList} onSelectProject={handleProjectSelect} />
+
+            <VSCodeButton onClick={fetchProjectList} title="Refresh">
+                <i className="codicon codicon-diff-added"></i>
+            </VSCodeButton>
+            <GitLabProjectsList
+                projects={projectsList}
+                onSelectProject={handleProjectSelect}
+                syncStatus={syncStatus}
+            />
             <div className="setup-options">
                 <div className="option">
                     <h3>Create Empty Project</h3>

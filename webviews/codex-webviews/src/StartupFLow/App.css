@@ -258,3 +258,26 @@ vscode-dropdown {
     font-size: 0.9em;
     color: var(--vscode-descriptionForeground);
 }
+
+
+.project-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.status-icon {
+    font-size: 14px;
+}
+
+.status-icon.synced {
+    color: var(--vscode-testing-iconPassed); /* VS Code's green color */
+}
+
+.status-icon.error {
+    color: var(--vscode-testing-iconFailed); /* VS Code's red color */
+}
+
+.status-icon.cloud {
+    color: var(--vscode-foreground); /* VS Code's default text color */
+}

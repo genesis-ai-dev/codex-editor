@@ -8,6 +8,8 @@ import semver from "semver";
 import { ProjectMetadata, ProjectOverview } from "../../../types";
 import { initializeProject } from "../projectInitializers";
 import { getProjectMetadata } from "../../utils";
+import git from "isomorphic-git";
+import fs from "fs";
 
 export interface ProjectDetails {
     projectName?: string;
@@ -592,6 +594,7 @@ export async function findAllCodexProjects(): Promise<
         lastModified: Date;
         version: string;
         hasVersionMismatch?: boolean;
+        gitOriginUrl?: string;
     }>
 > {
     const config = vscode.workspace.getConfiguration("codex-project-manager");
@@ -605,6 +608,7 @@ export async function findAllCodexProjects(): Promise<
         lastModified: Date;
         version: string;
         hasVersionMismatch?: boolean;
+        gitOriginUrl?: string;
     }> = [];
 
     for (const folder of watchedFolders) {
@@ -617,6 +621,23 @@ export async function findAllCodexProjects(): Promise<
 
                     if (projectStatus.isValid) {
                         const stats = await vscode.workspace.fs.stat(vscode.Uri.file(projectPath));
+
+                        // Get git origin URL using isomorphic-git
+                        let gitOriginUrl: string | undefined;
+                        try {
+                            console.log({ projectPath });
+                            const config = await git.listRemotes({
+                                fs,
+                                dir: projectPath,
+                            });
+                            console.log({ config });
+                            const origin = config.find((remote: any) => remote.remote === "origin");
+                            gitOriginUrl = origin?.url;
+                        } catch (error) {
+                            // Repository might not exist or have no remotes
+                            console.debug(`No git origin found for ${projectPath}:`, error);
+                        }
+
                         projects.push({
                             name,
                             path: projectPath,
@@ -626,6 +647,7 @@ export async function findAllCodexProjects(): Promise<
                             lastModified: new Date(stats.mtime),
                             version: projectStatus.version || "unknown",
                             hasVersionMismatch: projectStatus.hasVersionMismatch,
+                            gitOriginUrl,
                         });
                     }
                 }

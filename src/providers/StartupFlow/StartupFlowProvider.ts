@@ -6,6 +6,7 @@ import {
 } from "../../../types";
 import * as vscode from "vscode";
 import { PreflightCheck } from "./preflight";
+import { findAllCodexProjects } from "../../../src/projectManager/utils/projectUtils";
 
 interface TokenResponse {
     access_token: string;
@@ -117,6 +118,32 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         this.initializeFrontierApi();
     }
 
+    private async sendList(webviewPanel: vscode.WebviewPanel) {
+        try {
+            if (!this.frontierApi) {
+                return;
+            }
+            const projects = await this.frontierApi.listProjects(false);
+            try {
+                const localProject = await findAllCodexProjects();
+                debugLog({ localProject });
+            } catch (error) {
+                console.error(error);
+            }
+            webviewPanel.webview.postMessage({
+                command: "projectsListFromGitLab",
+                projects,
+            } as MessagesFromStartupFlowProvider);
+        } catch (error) {
+            console.error("Failed to fetch GitLab projects:", error);
+            webviewPanel.webview.postMessage({
+                command: "projectsListFromGitLab",
+                projects: [],
+                error: error instanceof Error ? error.message : "Failed to fetch GitLab projects",
+            } as MessagesFromStartupFlowProvider);
+        }
+    }
+
     private async initializeFrontierApi() {
         try {
             const extension = await waitForExtensionActivation(
@@ -144,6 +171,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     });
                 });
                 disposable && this.disposables.push(disposable);
+                if (this.webviewPanel) {
+                    await this.sendList(this.webviewPanel);
+                }
             } else {
                 this.updateAuthState({
                     isAuthExtensionInstalled: false,
@@ -487,26 +517,78 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     debugLog("Handling workspace message", message.command);
                     await this.handleWorkspaceMessage(webviewPanel, message);
                     break;
+                case "extension.check": {
+                    webviewPanel.webview.postMessage({
+                        command: "extension.checkResponse",
+                        isInstalled: !!this.frontierApi,
+                    } as MessagesFromStartupFlowProvider);
+
+                    break;
+                }
                 case "getProjectsListFromGitLab": {
                     debugLog("Fetching GitLab projects list");
+                    this.sendList(webviewPanel);
+                    break;
+                }
+                case "getProjectsSyncStatus": {
+                    debugLog("Fetching projects sync status");
                     try {
-                        if (!this.frontierApi) {
-                            throw new Error("Frontier API not initialized");
+                        // Get workspace folders to check local repositories
+                        const workspaceFolders = vscode.workspace.workspaceFolders;
+                        const localRepos = new Set<string>();
+
+                        if (workspaceFolders) {
+                            // Get all git repositories in the workspace
+                            const gitExtension =
+                                vscode.extensions.getExtension("vscode.git")?.exports;
+                            const git = gitExtension?.getAPI(1);
+
+                            if (git) {
+                                const repositories = git.repositories;
+                                for (const repo of repositories) {
+                                    try {
+                                        // Get remote URL
+                                        const remoteUrl = await repo.getConfig("remote.origin.url");
+                                        if (remoteUrl) {
+                                            localRepos.add(remoteUrl.value);
+                                        }
+                                    } catch (error) {
+                                        debugLog("Error getting remote URL for repo:", error);
+                                    }
+                                }
+                            }
                         }
-                        const projects = await this.frontierApi.listProjects(false);
+
+                        // Get GitLab projects
+                        const projects = (await this.frontierApi?.listProjects(false)) || [];
+
+                        // Create status map
+                        const status: Record<number, "synced" | "cloud" | "error"> = {};
+
+                        for (const project of projects) {
+                            if (localRepos.has(project.url)) {
+                                // Project exists locally and is in GitLab
+                                status[project.id] = "synced";
+                            } else {
+                                // Project is only in GitLab
+                                status[project.id] = "cloud";
+                            }
+                        }
+
+                        // Send status back to webview
                         webviewPanel.webview.postMessage({
-                            command: "projectsListFromGitLab",
-                            projects,
+                            command: "projectsSyncStatus",
+                            status,
                         } as MessagesFromStartupFlowProvider);
                     } catch (error) {
-                        console.error("Failed to fetch GitLab projects:", error);
+                        console.error("Failed to get projects sync status:", error);
                         webviewPanel.webview.postMessage({
-                            command: "projectsListFromGitLab",
-                            projects: [],
+                            command: "projectsSyncStatus",
+                            status: {},
                             error:
                                 error instanceof Error
                                     ? error.message
-                                    : "Failed to fetch GitLab projects",
+                                    : "Failed to get projects sync status",
                         } as MessagesFromStartupFlowProvider);
                     }
                     break;
@@ -530,6 +612,15 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         const styleVSCodeUri = webview.asWebviewUri(
             vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "vscode.css")
         );
+        const codiconsUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(
+                this.context.extensionUri,
+                "node_modules",
+                "@vscode/codicons",
+                "dist",
+                "codicon.css"
+            )
+        );
         const scriptUri = webview.asWebviewUri(
             vscode.Uri.joinPath(
                 this.context.extensionUri,
@@ -538,15 +629,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 "dist",
                 "StartupFlow",
                 "index.js"
-            )
-        );
-        const codiconsUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(
-                this.context.extensionUri,
-                "node_modules",
-                "@vscode/codicons",
-                "dist",
-                "codicon.css"
             )
         );
 
