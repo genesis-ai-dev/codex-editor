@@ -468,10 +468,19 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         this.webviewPanel = webviewPanel;
         const preflightCheck = new PreflightCheck();
 
+        // Set up webview options first
         webviewPanel.webview.options = {
             enableScripts: true,
             localResourceRoots: [
                 vscode.Uri.joinPath(this.context.extensionUri, "dist"),
+                vscode.Uri.joinPath(this.context.extensionUri, "src", "assets"),
+                vscode.Uri.joinPath(
+                    this.context.extensionUri,
+                    "node_modules",
+                    "@vscode",
+                    "codicons",
+                    "dist"
+                ),
                 vscode.Uri.joinPath(
                     this.context.extensionUri,
                     "webviews",
@@ -481,6 +490,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             ],
         };
 
+        // Then generate the HTML with the updated webview
         webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview);
 
         // Send initial state immediately after webview is ready
@@ -605,7 +615,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     }
 
     private getHtmlForWebview(webview: vscode.Webview): string {
-        // Get URIs for styles and scripts
         const styleResetUri = webview.asWebviewUri(
             vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "reset.css")
         );
@@ -616,7 +625,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             vscode.Uri.joinPath(
                 this.context.extensionUri,
                 "node_modules",
-                "@vscode/codicons",
+                "@vscode",
+                "codicons",
                 "dist",
                 "codicon.css"
             )
@@ -640,11 +650,18 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} https:;">
+                <meta http-equiv="Content-Security-Policy" content="
+                    default-src 'none';
+                    style-src ${webview.cspSource} 'unsafe-inline';
+                    font-src ${webview.cspSource};
+                    img-src ${webview.cspSource} https:;
+                    script-src 'nonce-${nonce}' 'unsafe-eval';
+                    worker-src ${webview.cspSource} blob:;
+                    connect-src ${webview.cspSource} https:;
+                ">
                 <link href="${styleResetUri}" rel="stylesheet">
                 <link href="${styleVSCodeUri}" rel="stylesheet">
-                <link href="${codiconsUri}" rel="stylesheet" />
-
+                <link href="${codiconsUri}" rel="stylesheet">
                 <title>Startup Flow</title>
             </head>
             <body>
