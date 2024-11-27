@@ -256,7 +256,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 case "applyTranslation":
                     console.log("applyTranslation", message);
                     await vscode.commands.executeCommand(
-                        "codex-cell-editor.openCellById",
+                        "codex-cell-editor.updateCellContent",
                         message.cellId,
                         message.translation
                     );

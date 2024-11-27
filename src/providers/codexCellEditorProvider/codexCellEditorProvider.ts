@@ -19,7 +19,7 @@ function getNonce(): string {
 
 export class CodexCellEditorProvider implements vscode.CustomEditorProvider<CodexCellDocument> {
     private messageHandler: CodexCellEditorMessageHandling;
-    private openCellById: (cellId: string, text: string) => void;
+    private currentDocument: CodexCellDocument | undefined;
 
     public static register(context: vscode.ExtensionContext): vscode.Disposable {
         const provider = new CodexCellEditorProvider(context);
@@ -40,11 +40,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     constructor(private readonly context: vscode.ExtensionContext) {
         this.messageHandler = new CodexCellEditorMessageHandling(this);
-        this.openCellById = (cellId: string, text: string) => {
-            console.log("openCellById called, but webview not yet initialized");
-        };
+
         registerCellEditorCommands(context, (cellId: string, text: string) => {
-            this.openCellById(cellId, text);
+            if (this.currentDocument) {
+                this.currentDocument.updateCellContent(cellId, text, EditType.LLM_GENERATION);
+            } else {
+                console.error("No active document to update");
+            }
         });
     }
 
@@ -69,6 +71,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         webviewPanel: vscode.WebviewPanel,
         _token: vscode.CancellationToken
     ): Promise<void> {
+        this.currentDocument = document;
         webviewPanel.webview.options = {
             enableScripts: true,
         };
@@ -84,13 +87,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Create a file system watcher for the current file
         const watcher = vscode.workspace.createFileSystemWatcher(
-            new vscode.RelativePattern(vscode.workspace.getWorkspaceFolder(document.uri)!, vscode.workspace.asRelativePath(document.uri))
+            new vscode.RelativePattern(
+                vscode.workspace.getWorkspaceFolder(document.uri)!,
+                vscode.workspace.asRelativePath(document.uri)
+            )
         );
 
         // Listen for file changes
-        watcher.onDidChange(uri => {
+        watcher.onDidChange((uri) => {
             if (uri.toString() === document.uri.toString()) {
-                if( !document.isDirty ){
+                if (!document.isDirty) {
                     document.revert(); // Reload the document to reflect changes if it isn't dirty already.
                 }
             }
@@ -123,7 +129,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 text: text,
             });
         };
-        this.openCellById = openCellByIdImpl;
         const jumpToCellListenerDispose = workspaceStoreListener("cellToJumpTo", (value) => {
             navigateToSection(value);
         });
