@@ -1,22 +1,20 @@
 import React from "react";
-import { GitLabProject } from "../../../../../types";
+import { ProjectWithSyncStatus, ProjectSyncStatus } from "../../../../../types";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 
 interface GitLabProjectsListProps {
-    projects: GitLabProject[];
-    onSelectProject: (project: GitLabProject) => void;
+    projects: ProjectWithSyncStatus[];
+    onCloneProject: (project: ProjectWithSyncStatus) => void;
     syncStatus?: Record<string, "synced" | "cloud" | "error">;
 }
 
 export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     projects,
-    onSelectProject,
-    syncStatus = {},
+    onCloneProject,
 }) => {
-    const getStatusIcon = (projectId: number) => {
-        const status = syncStatus[projectId];
-        switch (status) {
-            case "synced":
+    const getStatusIcon = (syncStatus: ProjectSyncStatus) => {
+        switch (syncStatus) {
+            case "downloadedAndSynced":
                 return (
                     <i
                         className="codicon codicon-check status-icon synced"
@@ -26,37 +24,70 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
             case "error":
                 return (
                     <i
-                        className="codicon codicon-error status-icon error"
+                        className="codicon codicon-error status-icon"
                         title="Local only - not synced"
                     />
                 );
-            case "cloud":
-            default:
+            case "cloudOnlyNotSynced":
+                return (
+                    <i className="codicon codicon-cloud status-icon" title="Available in cloud" />
+                );
+            case "localOnlyNotSynced":
                 return (
                     <i
-                        className="codicon codicon-cloud status-icon cloud"
-                        title="Available in cloud"
+                        className="codicon codicon-vm status-icon"
+                        title="Local only - not synced with cloud"
                     />
                 );
+            default:
+                return <i className="codicon codicon-error status-icon" title="Error" />;
         }
+    };
+    const sharedStyles = {
+        cell: {
+            padding: "0.5rem",
+            textAlign: "center" as const,
+        },
+        table: {
+            padding: "0.5rem",
+            textAlign: "center" as const,
+            margin: "0 auto",
+        },
     };
 
     return (
-        <div className="gitlab-projects-list">
-            {projects.map((project) => (
-                <div key={project.id} className="project-row">
-                    <div className="project-info">
-                        <div className="project-header">
-                            <span className="project-name">{project.name}</span>
-                            {getStatusIcon(project.id)}
-                        </div>
-                        <span className="project-description">{project.description}</span>
-                    </div>
-                    <VSCodeButton appearance="secondary" onClick={() => onSelectProject(project)}>
-                        Clone
-                    </VSCodeButton>
-                </div>
-            ))}
+        <div className="gitlab-projects-list" style={{ padding: "1rem" }}>
+            <table style={sharedStyles.table}>
+                <thead>
+                    <tr>
+                        <th style={sharedStyles.cell}>Status</th>
+                        <th style={sharedStyles.cell}>Project Name</th>
+                        <th style={sharedStyles.cell}>Description</th>
+                        <th style={sharedStyles.cell}>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {projects.map((project) => (
+                        <tr key={project.name}>
+                            <td style={sharedStyles.cell}>
+                                {project.syncStatus && getStatusIcon(project.syncStatus)}
+                            </td>
+                            <td style={sharedStyles.cell}>{project.name}</td>
+                            <td style={sharedStyles.cell}>{project.description}</td>
+                            <td style={sharedStyles.cell}>
+                                {project.syncStatus === "cloudOnlyNotSynced" && (
+                                    <VSCodeButton
+                                        appearance="icon"
+                                        onClick={() => onCloneProject(project)}
+                                    >
+                                        <i className="codicon codicon-cloud-download"></i>
+                                    </VSCodeButton>
+                                )}
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
         </div>
     );
 };

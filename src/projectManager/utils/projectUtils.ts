@@ -5,7 +5,7 @@ import { getAllBookRefs } from "../../utils";
 import * as vscode from "vscode";
 import * as path from "path";
 import semver from "semver";
-import { ProjectMetadata, ProjectOverview } from "../../../types";
+import { LocalProject, ProjectMetadata, ProjectOverview } from "../../../types";
 import { initializeProject } from "../projectInitializers";
 import { getProjectMetadata } from "../../utils";
 import git from "isomorphic-git";
@@ -586,30 +586,29 @@ export async function isValidCodexProject(folderPath: string): Promise<{
     }
 }
 
-export async function findAllCodexProjects(): Promise<
-    Array<{
-        name: string;
-        path: string;
-        lastOpened?: Date;
-        lastModified: Date;
-        version: string;
-        hasVersionMismatch?: boolean;
-        gitOriginUrl?: string;
-    }>
-> {
+export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
     const config = vscode.workspace.getConfiguration("codex-project-manager");
-    const watchedFolders = config.get<string[]>("watchedFolders") || [];
+    let watchedFolders = config.get<string[]>("watchedFolders") || [];
     const projectHistory = config.get<Record<string, string>>("projectHistory") || {};
 
-    const projects: Array<{
-        name: string;
-        path: string;
-        lastOpened?: Date;
-        lastModified: Date;
-        version: string;
-        hasVersionMismatch?: boolean;
-        gitOriginUrl?: string;
-    }> = [];
+    // Filter out non-existent folders and update the configuration
+    const validFolders = [];
+    for (const folder of watchedFolders) {
+        try {
+            await vscode.workspace.fs.stat(vscode.Uri.file(folder));
+            validFolders.push(folder);
+        } catch (error) {
+            console.log(`Removing non-existent folder from watched folders: ${folder}`);
+        }
+    }
+
+    // Update watchedFolders if any invalid folders were found
+    if (validFolders.length !== watchedFolders.length) {
+        await config.update("watchedFolders", validFolders, vscode.ConfigurationTarget.Global);
+        watchedFolders = validFolders;
+    }
+
+    const projects = [];
 
     for (const folder of watchedFolders) {
         try {
@@ -625,14 +624,15 @@ export async function findAllCodexProjects(): Promise<
                         // Get git origin URL using isomorphic-git
                         let gitOriginUrl: string | undefined;
                         try {
-                            console.log({ projectPath });
                             const config = await git.listRemotes({
                                 fs,
                                 dir: projectPath,
                             });
-                            console.log({ config });
                             const origin = config.find((remote: any) => remote.remote === "origin");
-                            gitOriginUrl = origin?.url;
+                            if (origin?.url) {
+                                const urlObj = new URL(origin.url);
+                                gitOriginUrl = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}`;
+                            }
                         } catch (error) {
                             // Repository might not exist or have no remotes
                             console.debug(`No git origin found for ${projectPath}:`, error);
@@ -645,9 +645,10 @@ export async function findAllCodexProjects(): Promise<
                                 ? new Date(projectHistory[projectPath])
                                 : undefined,
                             lastModified: new Date(stats.mtime),
-                            version: projectStatus.version || "unknown",
+                            version: projectStatus.version || "🚫",
                             hasVersionMismatch: projectStatus.hasVersionMismatch,
                             gitOriginUrl,
+                            description: "...",
                         });
                     }
                 }

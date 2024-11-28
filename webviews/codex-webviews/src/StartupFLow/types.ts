@@ -1,11 +1,19 @@
 import { BiblePreviewData, PreviewContent } from "../../../../types";
 import { DownloadBibleTransaction } from "../../../../src/transactions/DownloadBibleTransaction";
+import * as vscode from "vscode";
 
 // Add ImportType type
 export type ImportType = "source" | "translation" | "bible-download";
 
 // Update WorkflowStep to include the new initial steps
-export type WorkflowStep = "auth" | "project-select" | "type-select" | "select" | "preview" | "processing" | "complete";
+export type WorkflowStep =
+    | "auth"
+    | "project-select"
+    | "type-select"
+    | "select"
+    | "preview"
+    | "processing"
+    | "complete";
 
 export type ProcessingStatus = "pending" | "active" | "complete" | "error";
 
@@ -128,18 +136,69 @@ export interface WorkspaceStepProps {
     onOpenWorkspace: () => void;
     onCreateNew: () => void;
 }
+interface TokenResponse {
+    access_token: string;
+    gitlab_token: string;
+    gitlab_url: string;
+}
 
+interface IFrontierAuthProvider extends vscode.AuthenticationProvider, vscode.Disposable {
+    readonly onDidChangeSessions: vscode.Event<vscode.AuthenticationProviderAuthenticationSessionsChangeEvent>;
+    readonly onDidChangeAuthentication: vscode.Event<void>;
+
+    // Core authentication methods
+    initialize(): Promise<void>;
+    getSessions(): Promise<vscode.AuthenticationSession[]>;
+    createSession(scopes: readonly string[]): Promise<vscode.AuthenticationSession>;
+    removeSession(sessionId: string): Promise<void>;
+
+    // Authentication status
+    readonly isAuthenticated: boolean;
+    getAuthStatus(): { isAuthenticated: boolean; gitlabInfo?: any };
+    onAuthStatusChanged(
+        callback: (status: { isAuthenticated: boolean; gitlabInfo?: any }) => void
+    ): vscode.Disposable;
+
+    // Token management
+    getToken(): Promise<string | undefined>;
+    setToken(token: string): Promise<void>;
+    setTokens(tokenResponse: TokenResponse): Promise<void>;
+
+    // GitLab specific methods
+    getGitLabToken(): Promise<string | undefined>;
+    getGitLabUrl(): Promise<string | undefined>;
+
+    // User authentication methods
+    login(username: string, password: string): Promise<boolean>;
+    register(username: string, email: string, password: string): Promise<boolean>;
+    logout(): Promise<void>;
+
+    // Resource cleanup
+    dispose(): void;
+}
 export interface FrontierAPI {
-    authProvider: any;
-    getAuthStatus: () => { 
-        isAuthenticated: boolean; 
-        gitlabInfo?: any;
+    authProvider: IFrontierAuthProvider;
+    getAuthStatus: () => {
+        isAuthenticated: boolean;
     };
-    onAuthStatusChanged: (callback: (status: { 
-        isAuthenticated: boolean; 
-        gitlabInfo?: any 
-    }) => void) => any;
+    onAuthStatusChanged: (
+        callback: (status: { isAuthenticated: boolean }) => void
+    ) => vscode.Disposable;
     login: (username: string, password: string) => Promise<boolean>;
     register: (username: string, email: string, password: string) => Promise<boolean>;
     logout: () => Promise<void>;
+    listProjects: (showUI?: boolean) => Promise<
+        Array<{
+            id: number;
+            name: string;
+            description: string | null;
+            visibility: string;
+            url: string;
+            webUrl: string;
+            lastActivity: string;
+            namespace: string;
+            owner: string;
+        }>
+    >;
+    cloneRepository: (repositoryUrl: string) => Promise<boolean>;
 }

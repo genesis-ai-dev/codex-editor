@@ -75,6 +75,9 @@ export const StartupFlowView: React.FC = () => {
                         type: message.exists ? "METADATA.EXISTS" : "METADATA.NOT_EXISTS",
                     });
                     break;
+                case "setupComplete": {
+                    send({ type: "PROJECT.CLONE" }); // fixme: this should be a generic. ex "projectSet", "workspaceOpen"
+                }
             }
         };
 
@@ -124,11 +127,12 @@ export const StartupFlowView: React.FC = () => {
     };
 
     const handleCloneRepo = (repoUrl: string) => {
-        send({ type: "PROJECT.CLONE" });
+        // console.log({ repoUrl, vscode });
+        // send({ type: "PROJECT.CLONE" });
         vscode.postMessage({
             command: "project.clone",
             repoUrl,
-        });
+        } as MessagesToStartupFlowProvider);
     };
 
     console.log({ state });

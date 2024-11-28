@@ -3,6 +3,7 @@ import { VSCodeButton, VSCodeTextField } from "@vscode/webview-ui-toolkit/react"
 import { GitLabInfo } from "../types";
 import {
     GitLabProject,
+    ProjectWithSyncStatus,
     MessagesFromStartupFlowProvider,
     MessagesToStartupFlowProvider,
 } from "../../../../../types";
@@ -29,7 +30,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
     vscode,
 }) => {
     const [repoUrl, setRepoUrl] = useState(projectSelection.repoUrl || "");
-    const [projectsList, setProjectsList] = useState<GitLabProject[]>([]);
+    const [projectsList, setProjectsList] = useState<ProjectWithSyncStatus[]>([]);
     const [syncStatus, setSyncStatus] = useState<Record<string, "synced" | "cloud" | "error">>({});
 
     const fetchProjectList = () => {
@@ -84,7 +85,11 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
     };
 
     const handleProjectSelect = (project: GitLabProject) => {
-        setRepoUrl(project.url);
+        // setRepoUrl(project.url);
+        vscode.postMessage({
+            command: "project.clone",
+            repoUrl: project.url,
+        } as MessagesToStartupFlowProvider);
     };
 
     return (
@@ -97,11 +102,13 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
             )}
 
             <VSCodeButton onClick={fetchProjectList} title="Refresh">
-                <i className="codicon codicon-diff-added"></i>
+                <i className="codicon codicon-refresh"></i>
             </VSCodeButton>
             <GitLabProjectsList
                 projects={projectsList}
-                onSelectProject={handleProjectSelect}
+                onCloneProject={(project) =>
+                    project.gitOriginUrl && onCloneRepo(project.gitOriginUrl)
+                }
                 syncStatus={syncStatus}
             />
             <div className="setup-options">

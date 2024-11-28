@@ -3,93 +3,12 @@ import {
     MessagesToStartupFlowProvider,
     MessagesFromStartupFlowProvider,
     GitLabProject,
+    ProjectWithSyncStatus,
 } from "../../../types";
 import * as vscode from "vscode";
 import { PreflightCheck } from "./preflight";
 import { findAllCodexProjects } from "../../../src/projectManager/utils/projectUtils";
-
-interface TokenResponse {
-    access_token: string;
-    gitlab_token: string;
-    gitlab_url: string;
-}
-
-interface FrontierSessionData {
-    accessToken: string;
-    gitlabToken: string;
-    gitlabUrl: string;
-}
-
-interface GitLabInfoResponse {
-    // Add GitLab info response type here
-    [key: string]: any;
-}
-
-interface ExtendedAuthSession extends vscode.AuthenticationSession {
-    gitlabToken: string;
-    gitlabUrl: string;
-}
-
-interface IFrontierAuthProvider extends vscode.AuthenticationProvider, vscode.Disposable {
-    readonly onDidChangeSessions: vscode.Event<vscode.AuthenticationProviderAuthenticationSessionsChangeEvent>;
-    readonly onDidChangeAuthentication: vscode.Event<void>;
-
-    // Core authentication methods
-    initialize(): Promise<void>;
-    getSessions(): Promise<vscode.AuthenticationSession[]>;
-    createSession(scopes: readonly string[]): Promise<vscode.AuthenticationSession>;
-    removeSession(sessionId: string): Promise<void>;
-
-    // Authentication status
-    readonly isAuthenticated: boolean;
-    getAuthStatus(): { isAuthenticated: boolean; gitlabInfo?: any };
-    onAuthStatusChanged(
-        callback: (status: { isAuthenticated: boolean; gitlabInfo?: any }) => void
-    ): vscode.Disposable;
-
-    // Token management
-    getToken(): Promise<string | undefined>;
-    setToken(token: string): Promise<void>;
-    setTokens(tokenResponse: TokenResponse): Promise<void>;
-
-    // GitLab specific methods
-    getGitLabToken(): Promise<string | undefined>;
-    getGitLabUrl(): Promise<string | undefined>;
-
-    // User authentication methods
-    login(username: string, password: string): Promise<boolean>;
-    register(username: string, email: string, password: string): Promise<boolean>;
-    logout(): Promise<void>;
-
-    // Resource cleanup
-    dispose(): void;
-}
-
-export interface FrontierAPI {
-    authProvider: IFrontierAuthProvider;
-    getAuthStatus: () => {
-        isAuthenticated: boolean;
-    };
-    onAuthStatusChanged: (
-        callback: (status: { isAuthenticated: boolean }) => void
-    ) => vscode.Disposable;
-    login: (username: string, password: string) => Promise<boolean>;
-    register: (username: string, email: string, password: string) => Promise<boolean>;
-    logout: () => Promise<void>;
-    listProjects: (showUI?: boolean) => Promise<
-        Array<{
-            id: number;
-            name: string;
-            description: string | null;
-            visibility: string;
-            url: string;
-            webUrl: string;
-            lastActivity: string;
-            namespace: string;
-            owner: string;
-        }>
-    >;
-}
+import { FrontierAPI } from "webviews/codex-webviews/src/StartupFLow/types";
 
 function getNonce(): string {
     let text = "";
@@ -123,16 +42,56 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             if (!this.frontierApi) {
                 return;
             }
-            const projects = await this.frontierApi.listProjects(false);
-            try {
-                const localProject = await findAllCodexProjects();
-                debugLog({ localProject });
-            } catch (error) {
-                console.error(error);
+
+            const projectList: ProjectWithSyncStatus[] = [];
+
+            const remoteProjects: GitLabProject[] = await this.frontierApi.listProjects(false);
+            const localProject = await findAllCodexProjects();
+
+            for (const project of remoteProjects) {
+                projectList.push({
+                    name: project.name,
+                    path: "",
+                    lastOpened: project.lastActivity ? new Date(project.lastActivity) : undefined,
+                    lastModified: new Date(project.lastActivity),
+                    version: "🚫",
+                    hasVersionMismatch: false,
+                    gitOriginUrl: project.url,
+                    description: project.description || "...",
+                    syncStatus: "cloudOnlyNotSynced",
+                });
             }
+
+            for (const project of localProject) {
+                if (!project.gitOriginUrl) {
+                    projectList.push({
+                        ...project,
+                        syncStatus: "localOnlyNotSynced",
+                    });
+                    continue;
+                }
+                const matchInRemoteIndex = projectList.findIndex(
+                    (p) => p.gitOriginUrl === project.gitOriginUrl
+                );
+                // console.log({ matchInRemoteIndex, project });
+                if (matchInRemoteIndex !== -1) {
+                    projectList[matchInRemoteIndex] = {
+                        ...project,
+                        syncStatus: "downloadedAndSynced",
+                    };
+                } else {
+                    projectList.push({
+                        ...project,
+                        syncStatus: "localOnlyNotSynced",
+                    });
+                }
+            }
+
+            // console.log({ localProject, projects: remoteProjects });
+
             webviewPanel.webview.postMessage({
                 command: "projectsListFromGitLab",
-                projects,
+                projects: projectList,
             } as MessagesFromStartupFlowProvider);
         } catch (error) {
             console.error("Failed to fetch GitLab projects:", error);
@@ -603,6 +562,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     }
                     break;
                 }
+                case "project.clone": {
+                    debugLog("Cloning repository", message.repoUrl);
+
+                    this.frontierApi?.cloneRepository(message.repoUrl);
+
+                    break;
+                }
             }
         });
 
@@ -650,18 +616,18 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="
-                    default-src 'none';
-                    style-src ${webview.cspSource} 'unsafe-inline';
-                    font-src ${webview.cspSource};
-                    img-src ${webview.cspSource} https:;
-                    script-src 'nonce-${nonce}' 'unsafe-eval';
-                    worker-src ${webview.cspSource} blob:;
-                    connect-src ${webview.cspSource} https:;
-                ">
-                <link href="${styleResetUri}" rel="stylesheet">
-                <link href="${styleVSCodeUri}" rel="stylesheet">
-                <link href="${codiconsUri}" rel="stylesheet">
+                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${
+                    webview.cspSource
+                } 'unsafe-inline'; script-src 'nonce-${nonce}' https://www.youtube.com; frame-src https://www.youtube.com; worker-src ${
+                    webview.cspSource
+                }; connect-src https://languagetool.org/api/; img-src ${
+                    webview.cspSource
+                } https:; font-src ${webview.cspSource}; media-src ${
+                    webview.cspSource
+                } https: blob:;">
+                <link href="${styleResetUri}" rel="stylesheet" nonce="${nonce}">
+                <link href="${styleVSCodeUri}" rel="stylesheet" nonce="${nonce}">
+                <link href="${codiconsUri}" rel="stylesheet" nonce="${nonce}" />
                 <title>Startup Flow</title>
             </head>
             <body>

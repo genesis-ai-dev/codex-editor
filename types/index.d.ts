@@ -275,7 +275,6 @@ export type SourceUploadResponseMessages =
           transaction: DownloadBibleTransaction;
       }
     | { command: "bibleDownloadCancelled" }
-    | { command: "extension.checkResponse"; isInstalled: boolean }
     | { command: "auth.statusResponse"; isAuthenticated: boolean; error?: string }
     | { command: "project.response"; success: boolean; projectPath?: string; error?: string }
     | {
@@ -324,11 +323,30 @@ export type GitLabProject = {
     owner: string;
 };
 
+export type LocalProject = {
+    name: string;
+    path: string;
+    lastOpened?: Date;
+    lastModified: Date;
+    version: string;
+    hasVersionMismatch?: boolean;
+    gitOriginUrl?: string;
+    description: string;
+};
+
+export type ProjectSyncStatus =
+    | "downloadedAndSynced"
+    | "cloudOnlyNotSynced"
+    | "localOnlyNotSynced"
+    | "error";
+
+export type ProjectWithSyncStatus = LocalProject & { syncStatus: ProjectSyncStatus };
+
 export type MessagesFromStartupFlowProvider =
     | { command: "projectsSyncStatus"; status: Record<string, "synced" | "cloud" | "error"> }
     | {
           command: "projectsListFromGitLab";
-          projects: Array<GitLabProject>;
+          projects: Array<ProjectWithSyncStatus>;
       }
     | {
           command: "checkWorkspaceState";
@@ -360,8 +378,8 @@ export type MessagesFromStartupFlowProvider =
     | {
           command: "metadata.check";
           exists: boolean;
-      };
-
+      }
+    | { command: "setupComplete" };
 type DictionaryPostMessages =
     | {
           command: "webviewTellsProviderToUpdateData";
