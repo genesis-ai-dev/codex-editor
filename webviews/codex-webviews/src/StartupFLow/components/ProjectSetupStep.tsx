@@ -20,12 +20,14 @@ export interface ProjectSetupStepProps {
     onCloneRepo: (repoUrl: string) => void;
     gitlabInfo?: GitLabInfo;
     vscode: any;
+    onOpenProject: (project: ProjectWithSyncStatus) => void;
 }
 
 export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
     projectSelection,
     onCreateEmpty,
     onCloneRepo,
+    onOpenProject,
     gitlabInfo,
     vscode,
 }) => {
@@ -105,6 +107,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                 <i className="codicon codicon-refresh"></i>
             </VSCodeButton>
             <GitLabProjectsList
+                onOpenProject={onOpenProject}
                 projects={projectsList}
                 onCloneProject={(project) =>
                     project.gitOriginUrl && onCloneRepo(project.gitOriginUrl)

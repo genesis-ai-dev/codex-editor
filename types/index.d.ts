@@ -302,14 +302,14 @@ export type MessagesToStartupFlowProvider =
     | { command: "auth.status" }
     | { command: "auth.checkAuthStatus" }
     | { command: "project.clone"; repoUrl: string }
-    | { command: "project.open" }
     | { command: "project.new" }
     | { command: "workspace.status" }
     | { command: "workspace.open" }
     | { command: "workspace.create" }
     | { command: "workspace.continue" }
     | { command: "getProjectsListFromGitLab" }
-    | { command: "getProjectsSyncStatus" };
+    | { command: "getProjectsSyncStatus" }
+    | { command: "project.open"; projectPath: string };
 
 export type GitLabProject = {
     id: number;

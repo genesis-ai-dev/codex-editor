@@ -7,7 +7,7 @@ import { ProjectSetupStep } from "./components/ProjectSetupStep";
 import { VSCodeButton, VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
 import "./StartupFlowView.css";
 import { AuthState } from "./types";
-import { MessagesToStartupFlowProvider } from "../../../../types";
+import { MessagesToStartupFlowProvider, ProjectWithSyncStatus } from "../../../../types";
 
 const vscode = acquireVsCodeApi();
 
@@ -135,6 +135,16 @@ export const StartupFlowView: React.FC = () => {
         } as MessagesToStartupFlowProvider);
     };
 
+    const handleOpenProject = (project: ProjectWithSyncStatus) => {
+        console.log({ project });
+        if (project.path) {
+            vscode.postMessage({
+                command: "project.open",
+                projectPath: project.path,
+            } as MessagesToStartupFlowProvider);
+        }
+    };
+
     console.log({ state });
 
     return (
@@ -166,6 +176,7 @@ export const StartupFlowView: React.FC = () => {
                     projectSelection={state.context.projectSelection}
                     onCreateEmpty={handleCreateEmpty}
                     onCloneRepo={handleCloneRepo}
+                    onOpenProject={handleOpenProject}
                     vscode={vscode}
                 />
             )}

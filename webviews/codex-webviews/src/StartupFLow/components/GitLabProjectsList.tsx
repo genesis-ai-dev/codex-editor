@@ -5,12 +5,14 @@ import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 interface GitLabProjectsListProps {
     projects: ProjectWithSyncStatus[];
     onCloneProject: (project: ProjectWithSyncStatus) => void;
+    onOpenProject: (project: ProjectWithSyncStatus) => void;
     syncStatus?: Record<string, "synced" | "cloud" | "error">;
 }
 
 export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     projects,
     onCloneProject,
+    onOpenProject,
 }) => {
     const getStatusIcon = (syncStatus: ProjectSyncStatus) => {
         switch (syncStatus) {
@@ -79,8 +81,19 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                     <VSCodeButton
                                         appearance="icon"
                                         onClick={() => onCloneProject(project)}
+                                        title="Download project"
                                     >
                                         <i className="codicon codicon-cloud-download"></i>
+                                    </VSCodeButton>
+                                )}
+                                {(project.syncStatus === "downloadedAndSynced" ||
+                                    project.syncStatus === "localOnlyNotSynced") && (
+                                    <VSCodeButton
+                                        appearance="icon"
+                                        onClick={() => onOpenProject(project)}
+                                        title="Open project"
+                                    >
+                                        <i className="codicon codicon-folder-opened"></i>
                                     </VSCodeButton>
                                 )}
                             </td>

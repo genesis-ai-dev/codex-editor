@@ -408,6 +408,14 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 webviewPanel.dispose();
                 break;
             }
+            case "project.open": {
+                debugLog("Opening local project", message.projectPath);
+                if (message.projectPath) {
+                    const projectUri = vscode.Uri.file(message.projectPath);
+                    await vscode.commands.executeCommand("vscode.openFolder", projectUri);
+                }
+                break;
+            }
         }
     }
 
@@ -483,6 +491,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 case "workspace.open":
                 case "workspace.create":
                 case "workspace.continue":
+                case "project.open":
                     debugLog("Handling workspace message", message.command);
                     await this.handleWorkspaceMessage(webviewPanel, message);
                     break;
