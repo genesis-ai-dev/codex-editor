@@ -39,13 +39,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
     private async sendList(webviewPanel: vscode.WebviewPanel) {
         try {
-            if (!this.frontierApi) {
-                return;
-            }
-
             const projectList: ProjectWithSyncStatus[] = [];
 
-            const remoteProjects: GitLabProject[] = await this.frontierApi.listProjects(false);
+            let remoteProjects: GitLabProject[] = [];
+            if (this.frontierApi) {
+                remoteProjects = await this.frontierApi.listProjects(false);
+            }
             const localProject = await findAllCodexProjects();
 
             for (const project of remoteProjects) {
