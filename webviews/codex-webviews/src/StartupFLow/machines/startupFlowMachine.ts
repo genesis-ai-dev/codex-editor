@@ -1,62 +1,99 @@
-import { createMachine } from "xstate";
+import { createMachine, assign, setup } from "xstate";
 
-export const startupFlowMachine = createMachine({
+export enum StartupFlowStates {
+    LOGIN_REGISTER = "loginRegister",
+    OPEN_OR_CREATE_PROJECT = "createNewProject",
+    ALREADY_WORKING = "alreadyWorking",
+}
+
+export enum StartupFlowEvents {
+    AUTH_LOGGED_IN = "AUTH_LOGGED_IN",
+    NO_AUTH_EXTENSION = "NO_AUTH_EXTENSION",
+    SKIP_AUTH = "SKIP_AUTH",
+    PROJECT_CREATE_EMPTY = "PROJECT_CREATE_EMPTY",
+    PROJECT_CLONE_OR_OPEN = "PROJECT_CLONE_OR_OPEN",
+    BACK_TO_LOGIN = "BACK_TO_LOGIN",
+    UPDATE_AUTH_STATE = "UPDATE_AUTH_STATE",
+}
+
+type StartupFlowContext = {
+    authState: {
+        isAuthenticated: boolean;
+        isAuthExtensionInstalled: boolean;
+        isLoading: boolean;
+        error: undefined | string;
+        gitlabInfo: undefined | any; // Replace 'any' with specific type if available
+    };
+};
+
+type StartupFlowEvent =
+    | {
+          type:
+              | StartupFlowEvents.UPDATE_AUTH_STATE
+              | StartupFlowEvents.AUTH_LOGGED_IN
+              | StartupFlowEvents.NO_AUTH_EXTENSION;
+          data: StartupFlowContext["authState"];
+      }
+    | {
+          type:
+              | StartupFlowEvents.SKIP_AUTH
+              | StartupFlowEvents.PROJECT_CREATE_EMPTY
+              | StartupFlowEvents.PROJECT_CLONE_OR_OPEN
+              | StartupFlowEvents.BACK_TO_LOGIN;
+      };
+
+export const startupFlowMachine = setup({
+    types: {} as {
+        context: StartupFlowContext;
+        events: StartupFlowEvent;
+    },
+    actions: {
+        updateAuthState: assign({
+            authState: ({ event }) => {
+                console.log("UPDATE_AUTH_STATE event:", event);
+                return "data" in event ? event.data : undefined!;
+            },
+        }),
+    },
+}).createMachine({
     id: "startupFlow",
-    initial: "loginRegister",
+    initial: StartupFlowStates.LOGIN_REGISTER,
     context: {
         authState: {
             isAuthenticated: false,
             isAuthExtensionInstalled: false,
             isLoading: true,
             error: undefined,
-            gitlabInfo: undefined
+            gitlabInfo: undefined,
         },
-        projectSelection: {
-            type: undefined,
-            path: undefined,
-            repoUrl: undefined,
-            error: undefined,
-        },
-        metadataExists: false,
     },
     states: {
-        loginRegister: {
+        [StartupFlowStates.LOGIN_REGISTER]: {
             on: {
-                "AUTH.LOGGED_IN": "workspaceCheck",
-                "AUTH.NO_EXTENSION": "workspaceCheck",
+                [StartupFlowEvents.UPDATE_AUTH_STATE]: {
+                    actions: "updateAuthState",
+                },
+                [StartupFlowEvents.AUTH_LOGGED_IN]: {
+                    target: StartupFlowStates.OPEN_OR_CREATE_PROJECT,
+                    actions: "updateAuthState",
+                },
+                [StartupFlowEvents.NO_AUTH_EXTENSION]: {
+                    target: StartupFlowStates.OPEN_OR_CREATE_PROJECT,
+                    actions: "updateAuthState",
+                },
+                [StartupFlowEvents.SKIP_AUTH]: {
+                    target: StartupFlowStates.OPEN_OR_CREATE_PROJECT,
+                },
             },
         },
-        workspaceCheck: {
+        [StartupFlowStates.OPEN_OR_CREATE_PROJECT]: {
             on: {
-                "WORKSPACE.OPEN": "metadataCheck",
-                "WORKSPACE.CLOSED": "createNewProject",
+                [StartupFlowEvents.BACK_TO_LOGIN]: StartupFlowStates.LOGIN_REGISTER,
+                [StartupFlowEvents.PROJECT_CREATE_EMPTY]: StartupFlowStates.ALREADY_WORKING,
+                [StartupFlowEvents.PROJECT_CLONE_OR_OPEN]: StartupFlowStates.ALREADY_WORKING,
             },
         },
-        createNewProject: {
-            on: {
-                "PROJECT.CREATE_EMPTY": "openSourceFlow",
-                "PROJECT.CLONE": "alreadyWorking",
-            },
-        },
-        metadataCheck: {
-            on: {
-                "METADATA.EXISTS": "alreadyWorking",
-                "METADATA.NOT_EXISTS": "complicatedState",
-            },
-        },
-        openSourceFlow: {
-            // This is where the current 'initialize project' functionality lives
-            on: {
-                "SOURCE.INITIALIZED": "alreadyWorking",
-            },
-        },
-        complicatedState: {
-            // NOTE: You could get here if the user deletes the metadata file so we should add more logic here to check if it is just a missing metadata file or something more serious
-            on: {
-                "INIT.PROJECT": "openSourceFlow",
-            },
-        },
-        alreadyWorking: {
+        [StartupFlowStates.ALREADY_WORKING]: {
             type: "final",
         },
     },

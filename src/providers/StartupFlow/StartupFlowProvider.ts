@@ -461,24 +461,20 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
         // Send initial state immediately after webview is ready
         webviewPanel.webview.onDidReceiveMessage(async (message) => {
-            if (message.command === "webview.ready") {
-                const preflightState = await preflightCheck.preflight(this.context);
-                debugLog("Sending initial preflight state:", preflightState);
-                webviewPanel.webview.postMessage({
-                    command: "updateAuthState",
-                    authState: preflightState.authState,
-                });
-                webviewPanel.webview.postMessage({
-                    command: "workspace.statusResponse",
-                    workspaceState: preflightState.workspaceState,
-                });
-                webviewPanel.webview.postMessage({
-                    command: "project.statusResponse",
-                    projectSelection: preflightState.projectSelection,
-                });
-            }
-
             switch (message.command) {
+                case "webview.ready": {
+                    const preflightState = await preflightCheck.preflight(this.context);
+                    debugLog("Sending initial preflight state:", preflightState);
+                    webviewPanel.webview.postMessage({
+                        command: "updateAuthState",
+                        authState: preflightState.authState,
+                    } as MessagesFromStartupFlowProvider);
+                    webviewPanel.webview.postMessage({
+                        command: "workspace.statusResponse",
+                        isOpen: preflightState.workspaceState.isOpen,
+                    } as MessagesFromStartupFlowProvider);
+                    break;
+                }
                 case "auth.status":
                 case "auth.login":
                 case "auth.signup":

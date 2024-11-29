@@ -1,6 +1,10 @@
 import React, { useEffect } from "react";
 import { useMachine } from "@xstate/react";
-import { startupFlowMachine } from "./machines/startupFlowMachine";
+import {
+    StartupFlowEvents,
+    startupFlowMachine,
+    StartupFlowStates,
+} from "./machines/startupFlowMachine";
 import { LoginRegisterStep } from "./components/LoginRegisterStep";
 import { WorkspaceStep } from "./components/WorkspaceStep";
 import { ProjectSetupStep } from "./components/ProjectSetupStep";
@@ -31,19 +35,18 @@ export const StartupFlowView: React.FC = () => {
                     const authState: AuthState = message.authState;
                     if (!authState.isAuthExtensionInstalled) {
                         send({
-                            type: "AUTH.NO_EXTENSION",
+                            type: StartupFlowEvents.NO_AUTH_EXTENSION,
                             data: {
                                 isAuthenticated: false,
                                 isAuthExtensionInstalled: false,
                                 isLoading: false,
+                                error: undefined,
                                 gitlabInfo: undefined,
                             },
                         });
-                    } else {
+                    } else if (authState.isAuthenticated) {
                         send({
-                            type: authState.isAuthenticated
-                                ? "AUTH.LOGGED_IN"
-                                : "AUTH.NOT_AUTHENTICATED",
+                            type: StartupFlowEvents.AUTH_LOGGED_IN,
                             data: {
                                 isAuthenticated: authState.isAuthenticated,
                                 isAuthExtensionInstalled: true,
@@ -52,31 +55,31 @@ export const StartupFlowView: React.FC = () => {
                                 gitlabInfo: authState.gitlabInfo,
                             },
                         });
+                    } else {
+                        send({
+                            type: StartupFlowEvents.UPDATE_AUTH_STATE,
+                            data: {
+                                isAuthenticated: false,
+                                isAuthExtensionInstalled: true,
+                                isLoading: false,
+                                error: authState.error,
+                                gitlabInfo: undefined,
+                            },
+                        });
                     }
                     break;
                 }
                 case "workspace.statusResponse":
                     if (message.isOpen) {
-                        send({ type: "WORKSPACE.OPEN" });
+                        // send({ type: StartupFlowEvents.WORKSPACE_OPEN });
                         vscode.postMessage({ command: "metadata.check" });
-                    } else {
-                        send({ type: "WORKSPACE.CLOSED" });
                     }
                     break;
                 case "workspace.opened":
-                    send({ type: "WORKSPACE.OPEN" });
                     vscode.postMessage({ command: "metadata.check" });
                     break;
-                case "workspace.closed":
-                    send({ type: "WORKSPACE.CLOSED" });
-                    break;
-                case "metadata.check":
-                    send({
-                        type: message.exists ? "METADATA.EXISTS" : "METADATA.NOT_EXISTS",
-                    });
-                    break;
                 case "setupComplete": {
-                    send({ type: "PROJECT.CLONE" }); // fixme: this should be a generic. ex "projectSet", "workspaceOpen"
+                    send({ type: StartupFlowEvents.PROJECT_CLONE_OR_OPEN }); // fixme: this should be a generic. ex "projectSet", "workspaceOpen"
                 }
             }
         };
@@ -110,7 +113,7 @@ export const StartupFlowView: React.FC = () => {
     };
 
     const handleSkipAuth = () => {
-        send({ type: "AUTH.NO_EXTENSION" });
+        send({ type: StartupFlowEvents.SKIP_AUTH });
     };
 
     const handleOpenWorkspace = () => {
@@ -122,13 +125,11 @@ export const StartupFlowView: React.FC = () => {
     };
 
     const handleCreateEmpty = () => {
-        send({ type: "PROJECT.CREATE_EMPTY" });
+        send({ type: StartupFlowEvents.PROJECT_CREATE_EMPTY });
         vscode.postMessage({ command: "project.createEmpty" });
     };
 
     const handleCloneRepo = (repoUrl: string) => {
-        // console.log({ repoUrl, vscode });
-        // send({ type: "PROJECT.CLONE" });
         vscode.postMessage({
             command: "project.clone",
             repoUrl,
@@ -149,14 +150,8 @@ export const StartupFlowView: React.FC = () => {
 
     return (
         <div className="startup-flow-container">
-            {state.matches("loading") && (
-                <div className="loading-container">
-                    <VSCodeProgressRing />
-                    <p>Loading...</p>
-                </div>
-            )}
 
-            {state.matches("loginRegister") && (
+            {state.matches(StartupFlowStates.LOGIN_REGISTER) && (
                 <LoginRegisterStep
                     authState={state.context.authState}
                     onLogin={handleLogin}
@@ -165,23 +160,18 @@ export const StartupFlowView: React.FC = () => {
                     onSkip={handleSkipAuth}
                 />
             )}
-            {state.matches("workspaceCheck") && (
-                <WorkspaceStep
-                    onOpenWorkspace={handleOpenWorkspace}
-                    onCreateNew={handleCreateNew}
-                />
-            )}
-            {state.matches("createNewProject") && (
+
+            {state.matches(StartupFlowStates.OPEN_OR_CREATE_PROJECT) && (
                 <ProjectSetupStep
-                    projectSelection={state.context.projectSelection}
                     onCreateEmpty={handleCreateEmpty}
                     onCloneRepo={handleCloneRepo}
                     onOpenProject={handleOpenProject}
                     vscode={vscode}
+                    state={state}
+                    send={send}
                 />
             )}
-            {state.matches("openSourceFlow") && <VSCodeProgressRing />}
-            {state.matches("alreadyWorking") && (
+            {state.matches(StartupFlowStates.ALREADY_WORKING) && (
                 <div className="already-working-container">
                     <p>You are already working on a project.</p>
                     <VSCodeButton
@@ -195,30 +185,6 @@ export const StartupFlowView: React.FC = () => {
                     </VSCodeButton>
                 </div>
             )}
-
-            {/* Debug state display */}
-            <div
-                className="debug-state"
-                style={{
-                    position: "fixed",
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    padding: "10px",
-                    background: "var(--vscode-editor-background)",
-                    borderTop: "1px solid var(--vscode-widget-border)",
-                    fontSize: "12px",
-                    fontFamily: "monospace",
-                    whiteSpace: "pre-wrap",
-                    maxHeight: "200px",
-                    overflowY: "auto",
-                }}
-            >
-                <details>
-                    <summary>Current State</summary>
-                    <pre>{JSON.stringify(state.context, null, 2)}</pre>
-                </details>
-            </div>
         </div>
     );
 };

@@ -58,7 +58,14 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     };
 
     return (
-        <div className="gitlab-projects-list" style={{ padding: "1rem" }}>
+        <div
+            className="gitlab-projects-list"
+            style={{
+                padding: "1rem",
+                maxHeight: "400px",
+                overflowY: "auto",
+            }}
+        >
             <table style={sharedStyles.table}>
                 <thead>
                     <tr>
@@ -79,7 +86,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                             <td style={sharedStyles.cell}>
                                 {project.syncStatus === "cloudOnlyNotSynced" && (
                                     <VSCodeButton
-                                        appearance="icon"
+                                        appearance="secondary"
                                         onClick={() => onCloneProject(project)}
                                         title="Download project"
                                     >
@@ -89,7 +96,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                 {(project.syncStatus === "downloadedAndSynced" ||
                                     project.syncStatus === "localOnlyNotSynced") && (
                                     <VSCodeButton
-                                        appearance="icon"
+                                        // appearance="icon"
                                         onClick={() => onOpenProject(project)}
                                         title="Open project"
                                     >

@@ -217,15 +217,7 @@ export type SourceUploadPostMessages =
     | { command: "importLocalTranslation" }
     | { command: "closePanel" }
     | { command: "previewSourceText"; fileContent: string; fileName: string }
-    | { command: "extension.check"; extensionId: string }
-    | { command: "auth.login"; username: string; password: string }
-    | { command: "auth.signup"; username: string; email: string; password: string }
-    | { command: "auth.logout" }
-    | { command: "auth.status" }
-    | { command: "auth.checkAuthStatus" }
-    | { command: "project.clone"; repoUrl: string }
-    | { command: "project.open" }
-    | { command: "project.new" };
+    | { command: "extension.check"; extensionId: string };
 
 export type SourceUploadResponseMessages =
     | {

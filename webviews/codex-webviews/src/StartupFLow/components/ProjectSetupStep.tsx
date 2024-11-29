@@ -8,32 +8,34 @@ import {
     MessagesToStartupFlowProvider,
 } from "../../../../../types";
 import { GitLabProjectsList } from "./GitLabProjectsList";
+import { StartupFlowEvents, startupFlowMachine } from "../machines/startupFlowMachine";
+import { useMachine } from "@xstate/react";
+import { WebviewApi } from "vscode-webview";
+import { EventFrom } from "xstate";
+import { StateFrom } from "xstate";
 
 export interface ProjectSetupStepProps {
-    projectSelection: {
-        type?: string;
-        path?: string;
-        repoUrl?: string;
-        error?: string;
-    };
     onCreateEmpty: () => void;
     onCloneRepo: (repoUrl: string) => void;
     gitlabInfo?: GitLabInfo;
-    vscode: any;
+    vscode: WebviewApi<any>;
     onOpenProject: (project: ProjectWithSyncStatus) => void;
+    state: StateFrom<typeof startupFlowMachine>;
+    send: (event: EventFrom<typeof startupFlowMachine>) => void;
 }
 
 export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
-    projectSelection,
     onCreateEmpty,
     onCloneRepo,
     onOpenProject,
     gitlabInfo,
     vscode,
+    state,
+    send,
 }) => {
-    const [repoUrl, setRepoUrl] = useState(projectSelection.repoUrl || "");
     const [projectsList, setProjectsList] = useState<ProjectWithSyncStatus[]>([]);
     const [syncStatus, setSyncStatus] = useState<Record<string, "synced" | "cloud" | "error">>({});
+    // const [state, send, service] = useMachine(startupFlowMachine);
 
     const fetchProjectList = () => {
         vscode.postMessage({
@@ -78,34 +80,32 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
             window.removeEventListener("message", messageHandler);
         };
     }, []);
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (repoUrl) {
-            onCloneRepo(repoUrl);
-        }
-    };
-
-    const handleProjectSelect = (project: GitLabProject) => {
-        // setRepoUrl(project.url);
-        vscode.postMessage({
-            command: "project.clone",
-            repoUrl: project.url,
-        } as MessagesToStartupFlowProvider);
-    };
-
+    console.log({ state }, "state in ProjectSetupStep");
     return (
         <div className="project-setup-step">
+            {state.context.authState.isAuthExtensionInstalled && (
+                <div>
+                    <VSCodeButton
+                        appearance="icon"
+                        onClick={() => send({ type: StartupFlowEvents.BACK_TO_LOGIN })}
+                        title="Back to login"
+                    >
+                        <i className="codicon codicon-arrow-left"></i>
+                    </VSCodeButton>
+                </div>
+            )}
             <h2>Project Setup</h2>
             {gitlabInfo && (
                 <div className="gitlab-info">
                     <p>Logged in as {gitlabInfo.username}</p>
                 </div>
             )}
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <VSCodeButton appearance="icon" onClick={fetchProjectList} title="Refresh">
+                    <i className="codicon codicon-refresh"></i>
+                </VSCodeButton>
+            </div>
 
-            <VSCodeButton onClick={fetchProjectList} title="Refresh">
-                <i className="codicon codicon-refresh"></i>
-            </VSCodeButton>
             <GitLabProjectsList
                 onOpenProject={onOpenProject}
                 projects={projectsList}
@@ -120,21 +120,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                     <p>Start with a blank project and add files as needed.</p>
                     <VSCodeButton onClick={onCreateEmpty}>Create Empty Project</VSCodeButton>
                 </div>
-                <div className="option">
-                    <h3>Clone Repository</h3>
-                    <p>Clone an existing Git repository to get started.</p>
-                    <form onSubmit={handleSubmit}>
-                        <VSCodeTextField
-                            value={repoUrl}
-                            onChange={(e) => setRepoUrl((e.target as HTMLInputElement).value)}
-                            placeholder="Repository URL"
-                            required
-                        />
-                        <VSCodeButton type="submit">Clone Repository</VSCodeButton>
-                    </form>
-                </div>
             </div>
-            {projectSelection.error && <p className="error-message">{projectSelection.error}</p>}
         </div>
     );
 };

@@ -1,18 +1,18 @@
-import React, { useState } from 'react';
-import { VSCodeButton, VSCodeTextField } from '@vscode/webview-ui-toolkit/react';
-import { LoginRegisterStepProps } from '../types';
+import React, { useState } from "react";
+import { VSCodeButton, VSCodeTextField } from "@vscode/webview-ui-toolkit/react";
+import { LoginRegisterStepProps } from "../types";
 
 export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
     authState,
     onLogin,
     onRegister,
     onLogout,
-    onSkip
+    onSkip,
 }) => {
     const [isRegistering, setIsRegistering] = useState(false);
-    const [username, setUsername] = useState('');
-    const [password, setPassword] = useState('');
-    const [email, setEmail] = useState('');
+    const [username, setUsername] = useState("");
+    const [password, setPassword] = useState("");
+    const [email, setEmail] = useState("");
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -26,7 +26,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
     if (authState.isAuthenticated) {
         return (
             <div className="login-register-step">
-                <h2>Welcome, {authState.gitlabInfo?.username || 'User'}!</h2>
+                <h2>Welcome, {authState.gitlabInfo?.username || "User"}!</h2>
                 <VSCodeButton onClick={onLogout}>Logout</VSCodeButton>
             </div>
         );
@@ -34,8 +34,23 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
 
     return (
         <div className="login-register-step">
-            <h2>{isRegistering ? 'Register' : 'Login'}</h2>
-            <form onSubmit={handleSubmit}>
+            <div style={{ display: "flex", justifyContent: "flex-end", width: "100%" }}>
+                <VSCodeButton onClick={() => setIsRegistering(!isRegistering)} appearance="icon">
+                    <span style={{ textDecoration: "underline", width: "auto", height: "auto" }}>
+                        {isRegistering ? "Back to Login" : "Create Account"}
+                    </span>
+                </VSCodeButton>
+            </div>
+            <h2>{isRegistering ? "Register" : "Login"}</h2>
+            <form
+                onSubmit={handleSubmit}
+                style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "1rem",
+                    alignItems: "center",
+                }}
+            >
                 <VSCodeTextField
                     value={username}
                     onChange={(e) => setUsername((e.target as HTMLInputElement).value)}
@@ -60,14 +75,19 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                 />
                 <div className="button-group">
                     <VSCodeButton type="submit">
-                        {isRegistering ? 'Register' : 'Login'}
-                    </VSCodeButton>
-                    <VSCodeButton onClick={() => setIsRegistering(!isRegistering)} appearance="secondary">
-                        {isRegistering ? 'Back to Login' : 'Create Account'}
+                        {isRegistering ? "Register" : "Login"}
                     </VSCodeButton>
                     {!isRegistering && (
-                        <VSCodeButton onClick={onSkip} appearance="secondary">
-                            Skip
+                        <VSCodeButton onClick={onSkip} appearance="icon">
+                            <span
+                                style={{
+                                    textDecoration: "underline",
+                                    width: "auto",
+                                    height: "auto",
+                                }}
+                            >
+                                Skip
+                            </span>
                         </VSCodeButton>
                     )}
                 </div>

@@ -5,7 +5,7 @@ import {
     VSCodeProgressRing,
 } from "@vscode/webview-ui-toolkit/react";
 import { AuthState } from "../types";
-import { SourceUploadPostMessages } from "../../../../../types";
+import { MessagesToStartupFlowProvider, SourceUploadPostMessages } from "../../../../../types";
 
 interface AuthenticationStepProps {
     authState: AuthState;
@@ -25,10 +25,12 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
     const [username, setUsername] = useState("");
     const [isRegistering, setIsRegistering] = useState(false);
     const [passwordError, setPasswordError] = useState<string>("");
+    const [isLoading, setIsLoading] = useState(false);
 
     useEffect(() => {
         if (authState.isAuthenticated) {
             onAuthComplete();
+            setIsLoading(false);
         }
     }, [authState.isAuthenticated, onAuthComplete]);
 
@@ -51,6 +53,7 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        setIsLoading(true);
         const command = isRegistering ? "auth.signup" : "auth.login";
 
         if (isRegistering) {
@@ -66,13 +69,13 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
                 username,
                 password,
                 email,
-            } as SourceUploadPostMessages);
+            } as MessagesToStartupFlowProvider);
         } else {
             vscode.postMessage({
                 command,
                 username,
                 password,
-            } as SourceUploadPostMessages);
+            } as MessagesToStartupFlowProvider);
         }
     };
 
@@ -86,7 +89,7 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
         return null;
     }
 
-    if (authState.isLoading) {
+    if (isLoading) {
         return (
             <div style={{ textAlign: "center", padding: "2rem" }}>
                 <VSCodeProgressRing />
