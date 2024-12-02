@@ -1,38 +1,33 @@
 import * as vscode from "vscode";
-import { getWorkSpaceFolder, jumpToCellInNotebook } from "../utils";
-import { ProjectOverview } from "../../types";
+import {
+    ProjectManagerMessageFromWebview,
+    ProjectManagerMessageToWebview,
+    ProjectManagerState,
+    ProjectOverview,
+} from "../../types";
 import {
     getProjectOverview,
     initializeProjectMetadata,
     findAllCodexProjects,
     checkIfMetadataIsInitialized,
 } from "./utils/projectUtils";
-import { SourceUploadProvider } from "../providers/SourceUpload/SourceUploadProvider";
-import path from "path";
-import * as semver from "semver";
+
 import {
     createNewWorkspaceAndProject,
     openProject,
     createNewProject,
 } from "../utils/projectCreationUtils/projectCreationUtils";
+import { FrontierAPI } from "webviews/codex-webviews/src/StartupFLow/types";
+import { waitForExtensionActivation } from "../utils/vscode";
+import git from "isomorphic-git";
+import * as fs from "fs";
 
-// State management
-interface ProjectManagerState {
-    projectOverview: ProjectOverview | null;
-    webviewReady: boolean;
-    watchedFolders: string[];
-    projects: Array<{
-        name: string;
-        path: string;
-        lastOpened?: Date;
-        lastModified: Date;
-        version: string;
-        hasVersionMismatch?: boolean;
-        isOutdated?: boolean;
-    }> | null;
-    isScanning: boolean;
-    canInitializeProject: boolean;
-    workspaceIsOpen: boolean;
+const DEBUG_MODE = false; // Set to true to enable debug logging
+
+function debugLog(...args: any[]): void {
+    if (DEBUG_MODE) {
+        console.log("[ProjectManagerViewProvider]", ...args);
+    }
 }
 
 class ProjectManagerStore {
@@ -44,6 +39,7 @@ class ProjectManagerStore {
         isScanning: false,
         canInitializeProject: false,
         workspaceIsOpen: false,
+        repoHasRemote: false,
     };
 
     private initialized = false;
@@ -227,6 +223,21 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
     private _context: vscode.ExtensionContext;
     private store: ProjectManagerStore;
     private refreshInterval: ReturnType<typeof setInterval> | null = null;
+    private frontierApi?: FrontierAPI;
+    private async initializeFrontierApi() {
+        try {
+            const extension = await waitForExtensionActivation(
+                "frontier-rnd.frontier-authentication"
+            );
+            debugLog("Extension status:", extension?.isActive);
+
+            if (extension?.isActive) {
+                this.frontierApi = extension.exports;
+            }
+        } catch (error) {
+            console.error("Error initializing Frontier API:", error);
+        }
+    }
 
     constructor(context: vscode.ExtensionContext) {
         this._context = context;
@@ -244,6 +255,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
 
         // Register commands when provider is created
         this.registerCommands();
+        this.initializeFrontierApi();
     }
 
     private registerCommands() {
@@ -301,7 +313,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     // Update the message handler to use the registered commands
-    private async handleMessage(message: any) {
+    private async handleMessage(message: ProjectManagerMessageFromWebview) {
         switch (message.command) {
             case "openProject":
                 await openProject(message.data.path);
@@ -357,6 +369,42 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 break;
             case "refreshState":
                 await this.updateWebviewState();
+                break;
+            case "closeProject":
+                try {
+                    const answer = await vscode.window.showWarningMessage(
+                        "Are you sure you want to close this project?",
+                        { modal: true },
+                        "Yes",
+                        "No"
+                    );
+
+                    if (answer === "Yes") {
+                        await vscode.commands.executeCommand("workbench.action.closeWindow");
+                    }
+                } catch (error) {
+                    console.error("Error closing project:", error);
+                    vscode.window.showErrorMessage(
+                        `Failed to close project: ${(error as Error).message}`
+                    );
+                }
+                break;
+            case "checkPublishStatus":
+                try {
+                    await this.checkRepoHasRemote();
+                } catch (error) {
+                    console.error("Error checking publish status:", error);
+                    this.store.setState({ repoHasRemote: false });
+                }
+                break;
+            case "publishProject":
+                await this.frontierApi?.publishWorkspace({
+                    name: "test",
+                    // description: "test",
+                    // language: "en",
+                    // targetLanguage: "es",
+                    visibility: "private",
+                });
                 break;
             default:
                 console.error(`Unknown command: ${message.command}`);
@@ -529,9 +577,10 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             const canInitializeProject = hasWorkspace && !hasMetadata;
             const workspaceIsOpen = hasWorkspace;
 
-            const [projects, overview] = await Promise.all([
+            const [projects, overview, hasRemote] = await Promise.all([
                 findAllCodexProjects(),
                 hasMetadata ? getProjectOverview() : null,
+                this.checkRepoHasRemote(),
             ]);
 
             const config = vscode.workspace.getConfiguration("codex-project-manager");
@@ -550,6 +599,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 isScanning: false,
                 canInitializeProject,
                 workspaceIsOpen,
+                repoHasRemote: hasRemote,
             });
         } catch (error) {
             console.error("Error refreshing state:", error);
@@ -592,9 +642,35 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
         if (this._view) {
             const state = this.store.getState();
             this._view.webview.postMessage({
-                type: "stateUpdate",
-                state,
+                command: "stateUpdate",
+                data: state,
+            } as ProjectManagerMessageToWebview);
+        }
+    }
+
+    private async checkRepoHasRemote(): Promise<boolean> {
+        try {
+            // Get current workspace path
+            const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (!workspacePath) {
+                return false;
+            }
+
+            // List all remotes
+            const remotes = await git.listRemotes({
+                fs,
+                dir: workspacePath,
             });
+
+            // Update store with remote status
+            this.store.setState({
+                repoHasRemote: remotes.length > 0,
+            });
+
+            return remotes.length > 0;
+        } catch (error) {
+            console.error("Error checking repo remotes:", error);
+            return false;
         }
     }
 }
