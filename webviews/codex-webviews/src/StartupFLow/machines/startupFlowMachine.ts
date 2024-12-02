@@ -3,6 +3,7 @@ import { createMachine, assign, setup } from "xstate";
 export enum StartupFlowStates {
     LOGIN_REGISTER = "loginRegister",
     OPEN_OR_CREATE_PROJECT = "createNewProject",
+    PROMPT_USER_TO_INITIALIZE_PROJECT = "promptUserToInitializeProject",
     ALREADY_WORKING = "alreadyWorking",
 }
 
@@ -14,6 +15,8 @@ export enum StartupFlowEvents {
     PROJECT_CLONE_OR_OPEN = "PROJECT_CLONE_OR_OPEN",
     BACK_TO_LOGIN = "BACK_TO_LOGIN",
     UPDATE_AUTH_STATE = "UPDATE_AUTH_STATE",
+    INITIALIZE_PROJECT = "INITIALIZE_PROJECT",
+    VALIDATE_PROJECT_IS_OPEN = "VALIDATE_PROJECT_IS_OPEN",
 }
 
 type StartupFlowContext = {
@@ -40,6 +43,12 @@ type StartupFlowEvent =
               | StartupFlowEvents.PROJECT_CREATE_EMPTY
               | StartupFlowEvents.PROJECT_CLONE_OR_OPEN
               | StartupFlowEvents.BACK_TO_LOGIN;
+      }
+    | {
+          type: StartupFlowEvents.INITIALIZE_PROJECT;
+      }
+    | {
+          type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN;
       };
 
 export const startupFlowMachine = setup({
@@ -84,6 +93,9 @@ export const startupFlowMachine = setup({
                 [StartupFlowEvents.SKIP_AUTH]: {
                     target: StartupFlowStates.OPEN_OR_CREATE_PROJECT,
                 },
+                [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]: {
+                    target: StartupFlowStates.ALREADY_WORKING,
+                },
             },
         },
         [StartupFlowStates.OPEN_OR_CREATE_PROJECT]: {
@@ -91,6 +103,13 @@ export const startupFlowMachine = setup({
                 [StartupFlowEvents.BACK_TO_LOGIN]: StartupFlowStates.LOGIN_REGISTER,
                 [StartupFlowEvents.PROJECT_CREATE_EMPTY]: StartupFlowStates.ALREADY_WORKING,
                 [StartupFlowEvents.PROJECT_CLONE_OR_OPEN]: StartupFlowStates.ALREADY_WORKING,
+                [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]: StartupFlowStates.ALREADY_WORKING,
+            },
+        },
+        [StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT]: {
+            on: {
+                [StartupFlowEvents.INITIALIZE_PROJECT]: StartupFlowStates.ALREADY_WORKING,
+                [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]: StartupFlowStates.ALREADY_WORKING,
             },
         },
         [StartupFlowStates.ALREADY_WORKING]: {

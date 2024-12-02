@@ -10,6 +10,11 @@ import {
 import { SourceUploadProvider } from "../providers/SourceUpload/SourceUploadProvider";
 import path from "path";
 import * as semver from "semver";
+import {
+    createNewWorkspaceAndProject,
+    openProject,
+    createNewProject,
+} from "../utils/projectCreationUtils/projectCreationUtils";
 
 // State management
 interface ProjectManagerState {
@@ -299,10 +304,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
     private async handleMessage(message: any) {
         switch (message.command) {
             case "openProject":
-                await vscode.commands.executeCommand(
-                    "codex-project-manager.openProject",
-                    message.data
-                );
+                await openProject(message.data.path);
                 break;
             case "refreshProjects":
                 await vscode.commands.executeCommand("codex-project-manager.refreshProjects");
@@ -318,9 +320,8 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             case "requestProjectOverview":
                 await this.updateProjectOverview();
                 break;
-            // Add these missing cases
             case "createNewWorkspaceAndProject":
-                await this.createNewWorkspaceAndProject();
+                await createNewWorkspaceAndProject();
                 break;
             case "openProjectSettings":
             case "renameProject":
@@ -338,7 +339,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 this._view?.webview.postMessage({ command: "actionCompleted" });
                 break;
             case "initializeProject":
-                await this.createNewProject();
+                await createNewProject();
                 break;
             case "exportProjectAsPlaintext":
                 await vscode.commands.executeCommand("codex-editor-extension.exportCodexContent");
@@ -438,22 +439,6 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private async createNewProject() {
-        try {
-            // Initialize project metadata
-            await initializeProjectMetadata({});
-
-            // Create necessary project files
-            await vscode.commands.executeCommand("codex-project-manager.initializeNewProject");
-
-            // Force an update of the project overview
-            await this.updateProjectOverview();
-        } catch (error) {
-            console.error("Error creating new project:", error);
-            throw error;
-        }
-    }
-
     private async setprimarySourceText(biblePath: string) {
         try {
             await vscode.workspace
@@ -467,212 +452,6 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 command: "error",
                 message: "Failed to set primary source Bible. Please try again.",
             });
-        }
-    }
-
-    private async createNewWorkspaceAndProject() {
-        // First show an info message with instructions
-        const choice = await vscode.window.showInformationMessage(
-            "Would you like to create a new folder for your project?",
-            { modal: true },
-            "Create New Folder",
-            "Select Existing Empty Folder"
-        );
-
-        if (!choice) {
-            return;
-        }
-
-        if (choice === "Create New Folder") {
-            // Show folder picker for parent directory
-            const parentFolderUri = await vscode.window.showOpenDialog({
-                canSelectFolders: true,
-                canSelectFiles: false,
-                canSelectMany: false,
-                openLabel: "Choose Location for New Project Folder",
-            });
-
-            if (!parentFolderUri || !parentFolderUri[0]) {
-                return;
-            }
-
-            // Check if parent folder is inside a project
-            const isNestedProject = await this.checkForParentProjects(parentFolderUri[0]);
-            if (isNestedProject) {
-                await vscode.window.showErrorMessage(
-                    "Cannot create a project inside another Codex project. Please choose a different location.",
-                    { modal: true }
-                );
-                return;
-            }
-
-            // Prompt for new folder name
-            const folderName = await vscode.window.showInputBox({
-                prompt: "Enter name for new project folder",
-                validateInput: (value) => {
-                    if (!value) return "Folder name cannot be empty";
-                    if (value.match(/[<>:"/\\|?*]/))
-                        return "Folder name contains invalid characters";
-                    return null;
-                },
-            });
-
-            if (!folderName) {
-                return;
-            }
-
-            // Create the new folder
-            const newFolderUri = vscode.Uri.joinPath(parentFolderUri[0], folderName);
-            try {
-                await vscode.workspace.fs.createDirectory(newFolderUri);
-                await vscode.commands.executeCommand("vscode.openFolder", newFolderUri);
-
-                // Wait for workspace to open
-                await new Promise((resolve) => setTimeout(resolve, 1000));
-
-                // Initialize the project
-                await this.createNewProject();
-
-                // After project is created, force an update of the project overview
-                await this.updateProjectOverview();
-
-                // Switch view mode to overview
-                this._view?.webview.postMessage({
-                    command: "sendProjectOverview",
-                    data: await getProjectOverview(),
-                });
-            } catch (error) {
-                console.error("Error creating new project folder:", error);
-                await vscode.window.showErrorMessage(
-                    "Failed to create new project folder. Please try again.",
-                    { modal: true }
-                );
-            }
-        } else {
-            // Use existing folder picker logic
-            const folderUri = await vscode.window.showOpenDialog({
-                canSelectFolders: true,
-                canSelectFiles: false,
-                canSelectMany: false,
-                openLabel: "Choose Empty Folder for New Project",
-            });
-
-            if (folderUri && folderUri[0]) {
-                try {
-                    // Check if the selected folder is empty
-                    const entries = await vscode.workspace.fs.readDirectory(folderUri[0]);
-                    if (entries.length > 0) {
-                        await vscode.window.showErrorMessage(
-                            "The selected folder must be empty. Please create a new empty folder for your project.",
-                            { modal: true }
-                        );
-                        return;
-                    }
-
-                    // Check if the selected folder or any parent folder is a Codex project
-                    const isNestedProject = await this.checkForParentProjects(folderUri[0]);
-                    if (isNestedProject) {
-                        await vscode.window.showErrorMessage(
-                            "Cannot create a project inside another Codex project. Please choose a different location.",
-                            { modal: true }
-                        );
-                        return;
-                    }
-
-                    await vscode.commands.executeCommand("vscode.openFolder", folderUri[0]);
-                    // Wait for workspace to open
-                    await new Promise((resolve) => setTimeout(resolve, 1000));
-                    await this.createNewProject();
-                } catch (error) {
-                    console.error("Error creating new project:", error);
-                    await vscode.window.showErrorMessage(
-                        "Failed to create new project. Please try again.",
-                        { modal: true }
-                    );
-                }
-            }
-        }
-    }
-
-    private async checkForParentProjects(folderUri: vscode.Uri): Promise<boolean> {
-        let currentPath = folderUri.fsPath;
-        const rootPath = path.parse(currentPath).root;
-
-        while (currentPath !== rootPath) {
-            try {
-                const metadataPath = vscode.Uri.file(path.join(currentPath, "metadata.json"));
-                await vscode.workspace.fs.stat(metadataPath);
-                // If we find a metadata.json file, this may be a Codex project, but we also need to check
-                // the metadata.json file json contents, specifically the meta.generator.softwareName field
-                // to see if it is "Codex Editor"
-                const metadata = await vscode.workspace.fs.readFile(metadataPath);
-                const metadataJson = JSON.parse(Buffer.from(metadata).toString("utf-8"));
-                if (metadataJson.meta.generator.softwareName === "Codex Editor") {
-                    return true;
-                }
-            } catch {
-                // No metadata.json found at this level, move up one directory
-                currentPath = path.dirname(currentPath);
-            }
-        }
-        return false;
-    }
-
-    private async openProject(projectPath: string) {
-        try {
-            const uri = vscode.Uri.file(projectPath);
-            const currentVersion =
-                vscode.extensions.getExtension("project-accelerate.codex-editor-extension")
-                    ?.packageJSON.version || "0.0.0";
-
-            // Verify this is still a valid Codex project
-            const metadataPath = vscode.Uri.joinPath(uri, "metadata.json");
-            try {
-                const metadata = await vscode.workspace.fs.readFile(metadataPath);
-                const metadataJson = JSON.parse(Buffer.from(metadata).toString("utf-8"));
-                const projectVersion = metadataJson.meta?.generator?.softwareVersion || "0.0.0";
-
-                // Check version compatibility
-                if (semver.major(projectVersion) !== semver.major(currentVersion)) {
-                    const proceed = await vscode.window.showWarningMessage(
-                        `This project was created with Codex Editor v${projectVersion}, which may be incompatible with the current version (v${currentVersion}). Opening it may cause issues.`,
-                        { modal: true },
-                        "Open Anyway",
-                        "Cancel"
-                    );
-                    if (proceed !== "Open Anyway") {
-                        return;
-                    }
-                } else if (semver.lt(projectVersion, currentVersion)) {
-                    await vscode.window.showInformationMessage(
-                        `This project was created with an older version of Codex Editor (v${projectVersion}). It will be automatically upgraded to v${currentVersion}.`
-                    );
-                }
-
-                // Update last opened time
-                const config = vscode.workspace.getConfiguration("codex-project-manager");
-                const projectHistory = config.get<Record<string, string>>("projectHistory") || {};
-                projectHistory[projectPath] = new Date().toISOString();
-                await config.update(
-                    "projectHistory",
-                    projectHistory,
-                    vscode.ConfigurationTarget.Global
-                );
-
-                await vscode.commands.executeCommand("vscode.openFolder", uri);
-            } catch (error) {
-                await vscode.window.showErrorMessage(
-                    "This folder is no longer a valid Codex project. It may have been moved or deleted.",
-                    { modal: true }
-                );
-                return;
-            }
-        } catch (error) {
-            console.error("Error opening project:", error);
-            await vscode.window.showErrorMessage(
-                "Failed to open project. The folder may no longer exist.",
-                { modal: true }
-            );
         }
     }
 
@@ -716,7 +495,6 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
         const config = vscode.workspace.getConfiguration("codex-project-manager");
         const watchedFolders = config.get<string[]>("watchedFolders") || [];
         const updatedFolders = watchedFolders.filter((f) => f !== path);
-
         await config.update("watchedFolders", updatedFolders, vscode.ConfigurationTarget.Global);
 
         // Update state and rescan projects

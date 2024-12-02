@@ -9,6 +9,11 @@ import * as vscode from "vscode";
 import { PreflightCheck } from "./preflight";
 import { findAllCodexProjects } from "../../../src/projectManager/utils/projectUtils";
 import { FrontierAPI } from "webviews/codex-webviews/src/StartupFLow/types";
+import { CustomWebviewProvider } from "../../projectManager/projectManagerViewProvider";
+import {
+    createNewProject,
+    createNewWorkspaceAndProject,
+} from "../../utils/projectCreationUtils/projectCreationUtils";
 
 function getNonce(): string {
     let text = "";
@@ -462,6 +467,29 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         // Send initial state immediately after webview is ready
         webviewPanel.webview.onDidReceiveMessage(async (message) => {
             switch (message.command) {
+                case "project.createEmpty": {
+                    debugLog("Creating empty project");
+                    await createNewWorkspaceAndProject();
+                    // // open a local folder
+                    // const result = await vscode.window.showOpenDialog({
+                    //     canSelectFolders: true,
+                    //     canSelectFiles: false,
+                    //     canSelectMany: false,
+                    //     title: "Select Project Folder",
+                    // });
+                    // if (result && result[0]) {
+
+                    //     // create project locally
+                    //     // create metadata.json
+                    //     // publish to gitlab
+                    // }
+                    break;
+                }
+                case "project.initialize": {
+                    debugLog("Initializing project");
+                    await createNewProject();
+                    break;
+                }
                 case "webview.ready": {
                     const preflightState = await preflightCheck.preflight(this.context);
                     debugLog("Sending initial preflight state:", preflightState);
@@ -473,6 +501,14 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         command: "workspace.statusResponse",
                         isOpen: preflightState.workspaceState.isOpen,
                     } as MessagesFromStartupFlowProvider);
+                    if (
+                        preflightState.workspaceState.isOpen &&
+                        preflightState.workspaceState.hasMetadata
+                    ) {
+                        webviewPanel.webview.postMessage({
+                            command: "setupComplete",
+                        } as MessagesFromStartupFlowProvider);
+                    }
                     break;
                 }
                 case "auth.status":

@@ -201,4 +201,10 @@ export interface FrontierAPI {
         }>
     >;
     cloneRepository: (repositoryUrl: string) => Promise<boolean>;
+    publishWorkspace: (options?: {
+        name: string;
+        description?: string;
+        visibility?: "private" | "internal" | "public";
+        organizationId?: string;
+    }) => Promise<void>;
 }

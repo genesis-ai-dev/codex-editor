@@ -301,7 +301,9 @@ export type MessagesToStartupFlowProvider =
     | { command: "workspace.continue" }
     | { command: "getProjectsListFromGitLab" }
     | { command: "getProjectsSyncStatus" }
-    | { command: "project.open"; projectPath: string };
+    | { command: "project.open"; projectPath: string }
+    | { command: "project.createEmpty" }
+    | { command: "project.initialize" };
 
 export type GitLabProject = {
     id: number;

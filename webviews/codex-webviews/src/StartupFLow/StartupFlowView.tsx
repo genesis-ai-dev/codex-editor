@@ -79,7 +79,7 @@ export const StartupFlowView: React.FC = () => {
                     vscode.postMessage({ command: "metadata.check" });
                     break;
                 case "setupComplete": {
-                    send({ type: StartupFlowEvents.PROJECT_CLONE_OR_OPEN }); // fixme: this should be a generic. ex "projectSet", "workspaceOpen"
+                    send({ type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN }); // fixme: this should be a generic. ex "projectSet", "workspaceOpen"
                 }
             }
         };
@@ -116,17 +116,17 @@ export const StartupFlowView: React.FC = () => {
         send({ type: StartupFlowEvents.SKIP_AUTH });
     };
 
-    const handleOpenWorkspace = () => {
-        vscode.postMessage({ command: "workspace.open" });
-    };
+    // const handleOpenWorkspace = () => {
+    //     vscode.postMessage({ command: "workspace.open" });
+    // };
 
-    const handleCreateNew = () => {
-        vscode.postMessage({ command: "workspace.create" });
-    };
+    // const handleCreateNew = () => {
+    //     vscode.postMessage({ command: "workspace.create" });
+    // };
 
     const handleCreateEmpty = () => {
         send({ type: StartupFlowEvents.PROJECT_CREATE_EMPTY });
-        vscode.postMessage({ command: "project.createEmpty" });
+        vscode.postMessage({ command: "project.createEmpty" } as MessagesToStartupFlowProvider);
     };
 
     const handleCloneRepo = (repoUrl: string) => {
@@ -150,7 +150,6 @@ export const StartupFlowView: React.FC = () => {
 
     return (
         <div className="startup-flow-container">
-
             {state.matches(StartupFlowStates.LOGIN_REGISTER) && (
                 <LoginRegisterStep
                     authState={state.context.authState}
@@ -170,6 +169,20 @@ export const StartupFlowView: React.FC = () => {
                     state={state}
                     send={send}
                 />
+            )}
+            {state.matches(StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT) && (
+                <div className="prompt-user-to-initialize-project-container">
+                    <VSCodeButton
+                        onClick={() => {
+                            send({ type: StartupFlowEvents.INITIALIZE_PROJECT });
+                            vscode.postMessage({
+                                command: "project.initialize",
+                            } as MessagesToStartupFlowProvider);
+                        }}
+                    >
+                        Initialize Project
+                    </VSCodeButton>
+                </div>
             )}
             {state.matches(StartupFlowStates.ALREADY_WORKING) && (
                 <div className="already-working-container">
