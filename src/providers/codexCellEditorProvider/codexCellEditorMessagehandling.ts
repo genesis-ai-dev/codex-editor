@@ -391,15 +391,7 @@ export class CodexCellEditorMessageHandling {
                 }
                 return;
             }
-            case "togglePinPrompt": {
-                console.log("togglePinPrompt message received", { event });
-                await vscode.commands.executeCommand(
-                    "codex-smart-edits.togglePinPrompt",
-                    event.content.cellId,
-                    event.content.promptText
-                );
-                return;
-            }
+
             case "generateBacktranslation": {
                 try {
                     const backtranslation =

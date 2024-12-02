@@ -106,6 +106,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Update cell content and metadata in memory
         cellToUpdate.value = newContent;
+
         if (!cellToUpdate.metadata.edits) {
             cellToUpdate.metadata.edits = [];
         }
@@ -167,11 +168,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
     public async saveAs(
         targetResource: vscode.Uri,
         cancellation: vscode.CancellationToken,
-        backup: boolean = false,
+        backup: boolean = false
     ): Promise<void> {
         const text = JSON.stringify(this._documentData, null, 2);
         await vscode.workspace.fs.writeFile(targetResource, new TextEncoder().encode(text));
-        if(!backup) this._isDirty = false; // Reset dirty flag
+        if (!backup) this._isDirty = false; // Reset dirty flag
     }
 
     public async revert(cancellation?: vscode.CancellationToken): Promise<void> {

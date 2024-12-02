@@ -55,6 +55,7 @@ function ParallelView() {
     const [loadedMessages, setLoadedMessages] = useState<ChatMessage[]>([]);
     const [isStreaming, setIsStreaming] = useState(false);
     const [isSessionMenuOpen, setIsSessionMenuOpen] = useState(true);
+    const [isLoadedSession, setIsLoadedSession] = useState(false);
 
     // Helper function to process pending chunks in order
     const processNextChunk = () => {
@@ -179,6 +180,7 @@ function ParallelView() {
                     // Replace the entire chat history with the loaded messages
                     setChatHistory(message.data.messages);
                     setSessionInfo(message.data.sessionInfo);
+                    setIsLoadedSession(true);
                     break;
             }
         };
@@ -312,13 +314,9 @@ function ParallelView() {
 
     const handleStartNewSession = () => {
         vscode.postMessage({ command: "startNewChatSession" });
-        // Clear chat history and add an initial system message
-        // setChatHistory([
-        //     {
-        //         role: "system",
-        //         content: "New session started. How can I assist you today?",
-        //     },
-        // ]);
+        setIsLoadedSession(false);
+        // Clear chat history and add an initial system message if needed
+        setChatHistory([]);
     };
 
     const handleLoadSession = (sessionId: string) => {
@@ -326,6 +324,7 @@ function ParallelView() {
             command: "loadChatSession",
             sessionId: sessionId,
         });
+        setIsLoadedSession(true);
         // Clear chat history immediately in the frontend
         setChatHistory([]);
     };
@@ -391,6 +390,7 @@ function ParallelView() {
                     isSessionMenuOpen={isSessionMenuOpen}
                     setIsSessionMenuOpen={setIsSessionMenuOpen}
                     onRequestTranslation={handleRequestTranslation}
+                    isLoadedSession={isLoadedSession}
                 />
             </VSCodePanelView>
         </VSCodePanels>
