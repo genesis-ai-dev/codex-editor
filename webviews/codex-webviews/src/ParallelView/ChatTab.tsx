@@ -426,7 +426,11 @@ function ChatTab({
                                                 <>
                                                     <VSCodeButton
                                                         appearance="icon"
-                                                        onClick={() => onEditMessage(index + 1)}
+                                                        onClick={() =>
+                                                            onEditMessage(
+                                                                isLoadedSession ? index + 1 : index
+                                                            )
+                                                        }
                                                         title="Edit message"
                                                     >
                                                         <span className="codicon codicon-edit" />
