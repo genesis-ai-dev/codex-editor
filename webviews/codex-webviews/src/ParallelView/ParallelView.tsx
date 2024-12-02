@@ -348,24 +348,8 @@ function ParallelView() {
 
     return (
         <VSCodePanels>
-            <VSCodePanelTab id="tab-search">Search</VSCodePanelTab>
             <VSCodePanelTab id="tab-chat">Chat</VSCodePanelTab>
-
-            {/* Search Tab */}
-            <VSCodePanelView id="view-search">
-                <SearchTab
-                    verses={verses}
-                    pinnedVerses={pinnedVerses}
-                    lastQuery={lastQuery}
-                    onQueryChange={setLastQuery}
-                    completeOnly={completeOnly}
-                    onCompleteOnlyChange={setCompleteOnly}
-                    onSearch={searchBoth}
-                    onPinToggle={handlePinToggle}
-                    onUriClick={handleUriClick}
-                    onPinAll={handlePinAll}
-                />
-            </VSCodePanelView>
+            <VSCodePanelTab id="tab-search">Search</VSCodePanelTab>
 
             {/* Chat Tab */}
             <VSCodePanelView id="view-chat">
@@ -391,6 +375,22 @@ function ParallelView() {
                     setIsSessionMenuOpen={setIsSessionMenuOpen}
                     onRequestTranslation={handleRequestTranslation}
                     isLoadedSession={isLoadedSession}
+                />
+            </VSCodePanelView>
+
+            {/* Search Tab */}
+            <VSCodePanelView id="view-search">
+                <SearchTab
+                    verses={verses}
+                    pinnedVerses={pinnedVerses}
+                    lastQuery={lastQuery}
+                    onQueryChange={setLastQuery}
+                    completeOnly={completeOnly}
+                    onCompleteOnlyChange={setCompleteOnly}
+                    onSearch={searchBoth}
+                    onPinToggle={handlePinToggle}
+                    onUriClick={handleUriClick}
+                    onPinAll={handlePinAll}
                 />
             </VSCodePanelView>
         </VSCodePanels>
