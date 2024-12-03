@@ -37,8 +37,6 @@ export interface EditorProps {
     onChange?: (changes: EditorContentChanged) => void;
     spellCheckResponse?: SpellCheckResponse | null;
     textDirection: "ltr" | "rtl";
-    sourceText: string | null;
-    onAutocomplete: () => void;
 }
 
 // Fix the imports with correct typing
@@ -87,7 +85,12 @@ export default function Editor(props: EditorProps) {
                             headerStyleRight: () => handleHeaderChange("next"),
                             headerStyleLabel: () => {}, // No-op handler for the label
                             autocomplete: () => {
-                                props.onAutocomplete();
+                                window.vscodeApi.postMessage({
+                                    command: "llmCompletion",
+                                    content: {
+                                        currentLineId: props.currentLineId,
+                                    },
+                                });
                             },
                             openLibrary: () => {
                                 const content = quill.getText();
@@ -183,7 +186,7 @@ export default function Editor(props: EditorProps) {
                 }
             };
         }
-    }, [props.sourceText, props.currentLineId, props.onAutocomplete]); // Add props.currentLineId to the dependency array
+    }, []); // Empty dependency array
 
     // Function to update the header label based on current formatting
     const updateHeaderLabel = () => {
@@ -297,14 +300,6 @@ export default function Editor(props: EditorProps) {
             labelElement.textContent = headerLabel;
         }
     }, [headerLabel]);
-
-    // Add a new useEffect to handle sourceText updates
-    useEffect(() => {
-        if (props.sourceText !== null) {
-            console.log("Source text updated:", props.sourceText);
-            // You can perform any necessary actions with the updated sourceText here
-        }
-    }, [props.sourceText]);
 
     return (
         <>

@@ -175,10 +175,6 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
 
     constructor(private readonly _context: vscode.ExtensionContext) {}
 
-    public get webviewView(): vscode.WebviewView | undefined {
-        return this._view;
-    }
-
     public async pinCellById(cellId: string, retryCount = 0) {
         const maxRetries = 3;
         const retryDelay = 300; // milliseconds
@@ -265,7 +261,6 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                         message.translation
                     );
                     break;
-
                 case "addedFeedback":
                     console.log("addedFeedback", message.feedback, message.cellId);
                     await vscode.commands.executeCommand(
@@ -381,19 +376,6 @@ export function registerParallelViewWebviewProvider(context: vscode.ExtensionCon
         vscode.window.registerWebviewViewProvider("parallel-passages-sidebar", provider),
         vscode.commands.registerCommand("parallelPassages.pinCellById", async (cellId: string) => {
             await provider.pinCellById(cellId);
-        }),
-        vscode.commands.registerCommand(
-            "parallelPassages.requestTranslation",
-            async (cellId: string, sourceText: string) => {
-                if (provider.webviewView) {
-                    provider.webviewView.webview.postMessage({
-                        command: "requestTranslation",
-                        data: { cellId, sourceText },
-                    });
-                } else {
-                    console.error("Webview is not available");
-                }
-            }
-        )
+        })
     );
 }

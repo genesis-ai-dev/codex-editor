@@ -126,11 +126,6 @@ function ParallelView() {
                     }
                     break;
                 }
-
-                case "requestTranslation":
-                    handleRequestTranslation(message.data.cellId, message.data.sourceText);
-                    break;
-
                 case "chatResponseStream":
                     try {
                         const chunk = JSON.parse(message.data);
@@ -221,10 +216,6 @@ function ParallelView() {
             translation: translation,
             cellId: cellId,
         });
-    };
-    const handleRequestTranslation = (cellId: string, sourceText: string) => {
-        // send new user message
-        sendMessage(`<UserRequestsTranslation cellId="${cellId}" sourceText="${sourceText}" />`);
     };
 
     const handleEditMessage = (index: number) => {
@@ -390,7 +381,6 @@ function ParallelView() {
                     onSendFeedback={handleSendFeedback}
                     isSessionMenuOpen={isSessionMenuOpen}
                     setIsSessionMenuOpen={setIsSessionMenuOpen}
-                    onRequestTranslation={handleRequestTranslation}
                 />
             </VSCodePanelView>
         </VSCodePanels>

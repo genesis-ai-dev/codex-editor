@@ -456,15 +456,7 @@ export class CodexCellEditorMessageHandling {
                 }
                 return;
             }
-            case "requestTranslation": {
-                console.log("requestTranslation message received", { event });
-                await vscode.commands.executeCommand(
-                    "parallelPassages.requestTranslation",
-                    event.content.cellId,
-                    event.content.sourceText
-                );
-                return;
-            }
+
             case "setBacktranslation": {
                 try {
                     const backtranslation =

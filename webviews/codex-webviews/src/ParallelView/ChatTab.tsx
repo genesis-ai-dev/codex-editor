@@ -19,11 +19,7 @@ import {
     YoutubeVideoComponent,
 } from "./ChatComponents";
 import { format } from "date-fns";
-import {
-    UserFeedbackComponent,
-    RegEx as UserChatRegEx,
-    UserRequestsTranslation,
-} from "./UserChatComponents";
+import { UserFeedbackComponent, RegEx as UserChatRegEx } from "./UserChatComponents";
 
 interface SessionInfo {
     id: string;
@@ -54,7 +50,6 @@ interface ChatTabProps {
     onSendFeedback: (originalText: string, feedbackText: string, cellId: string) => void;
     isSessionMenuOpen: boolean;
     setIsSessionMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
-    onRequestTranslation: (cellId: string, sourceText: string) => void;
 }
 
 function ChatTab({
@@ -285,14 +280,6 @@ function ChatTab({
                                     cellId={part.props.cellId}
                                     originalText={decodeURIComponent(part.props.originalText)}
                                     feedbackText={decodeURIComponent(part.props.feedbackText)}
-                                />
-                            );
-                        } else if (part.type === "UserRequestsTranslation" && part.props) {
-                            return (
-                                <UserRequestsTranslation
-                                    key={`ut-${index}`}
-                                    cellId={part.props.cellId}
-                                    sourceText={decodeURIComponent(part.props.sourceText)}
                                 />
                             );
                         } else if (part.type === "IndividuallyTranslatedVerse" && part.props) {
