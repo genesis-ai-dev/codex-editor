@@ -8,7 +8,6 @@ import { QuillCellContent, EditorPostMessages, EditorReceiveMessages } from "../
 import { CodexCellDocument } from "./codexDocument";
 import { CodexCellEditorMessageHandling } from "./codexCellEditorMessagehandling";
 import { registerCellEditorCommands } from "./registerCellEditorCommands";
-import { useEffect } from "react";
 function getNonce(): string {
     let text = "";
     const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -34,7 +33,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 },
             }
         );
-
         return providerRegistration;
     }
 
@@ -42,6 +40,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     constructor(private readonly context: vscode.ExtensionContext) {
         this.messageHandler = new CodexCellEditorMessageHandling(this);
+
+        registerCellEditorCommands(context, (cellId: string, text: string) => {
+            if (this.currentDocument) {
+                this.currentDocument.updateCellContent(cellId, text, EditType.LLM_GENERATION);
+            } else {
+                console.error("No active document to update");
+            }
+        });
     }
 
     private readonly _onDidChangeCustomDocument = new vscode.EventEmitter<
@@ -168,25 +174,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 this.updateTextDirection(webviewPanel, document);
             }
         });
-
-        // Register commands with webviewPanel passed as a parameter
-        registerCellEditorCommands(
-            this.context,
-            (cellId: string, text: string, webviewPanel: vscode.WebviewPanel) => {
-                if (this.currentDocument) {
-                    this.currentDocument.updateCellContent(cellId, text, EditType.LLM_GENERATION);
-                    this.postMessageToWebview(webviewPanel, {
-                        type: "providerSendsLLMCompletionResponse",
-                        content: {
-                            completion: text,
-                        },
-                    });
-                } else {
-                    console.error("No active document to update");
-                }
-            },
-            webviewPanel
-        );
     }
 
     public async saveCustomDocument(

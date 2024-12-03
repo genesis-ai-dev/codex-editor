@@ -55,7 +55,6 @@ interface ChatTabProps {
     isSessionMenuOpen: boolean;
     setIsSessionMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
     onRequestTranslation: (cellId: string, sourceText: string) => void;
-    isLoadedSession: boolean;
 }
 
 function ChatTab({
@@ -77,7 +76,6 @@ function ChatTab({
     onSendFeedback,
     isSessionMenuOpen,
     setIsSessionMenuOpen,
-    isLoadedSession,
 }: ChatTabProps) {
     const chatHistoryRef = useRef<HTMLDivElement>(null);
     const [pendingSubmit, setPendingSubmit] = useState(false);
@@ -264,11 +262,14 @@ function ChatTab({
 
     const renderMessage = useCallback(
         (content: string, role: "user" | "assistant") => {
+            console.log("Rendering message:", content);
             const parsedContent = parseMessage(content);
+            console.log("Parsed content:", parsedContent);
 
             return (
                 <>
                     {parsedContent.map((part, index) => {
+                        console.log("Rendering part:", part);
                         if (part.type === "text") {
                             return (
                                 <p
@@ -277,6 +278,7 @@ function ChatTab({
                                 />
                             );
                         } else if (part.type === "UserFeedback" && part.props) {
+                            console.log("Rendering UserFeedback component");
                             return (
                                 <UserFeedbackComponent
                                     key={`uf-${index}`}
@@ -414,57 +416,55 @@ function ChatTab({
             )}
 
             <div ref={chatHistoryRef} className="message-history">
-                {chatHistory.length > 0 ? (
+                {chatHistory.length > 1 ? (
                     <div className="chat-messages">
-                        {(isLoadedSession ? chatHistory.slice(1) : chatHistory).map(
-                            (message, index) =>
-                                message.content ? (
-                                    <div key={index} className={`chat-message ${message.role}`}>
-                                        {renderMessage(message.content, message.role)}
-                                        <div className="chat-message-actions">
-                                            {message.role === "user" && (
-                                                <>
-                                                    <VSCodeButton
-                                                        appearance="icon"
-                                                        onClick={() => onEditMessage(index + 1)}
-                                                        title="Edit message"
-                                                    >
-                                                        <span className="codicon codicon-edit" />
-                                                    </VSCodeButton>
-                                                    <VSCodeButton
-                                                        appearance="icon"
-                                                        onClick={() =>
-                                                            handleRedoMessage(
-                                                                index + 1,
-                                                                message.content
-                                                            )
-                                                        }
-                                                        title="Redo message"
-                                                    >
-                                                        <span className="codicon codicon-refresh" />
-                                                    </VSCodeButton>
-                                                    <VSCodeButton
-                                                        appearance="icon"
-                                                        onClick={() => onCopy(message.content)}
-                                                        title="Copy message"
-                                                    >
-                                                        <span className="codicon codicon-copy" />
-                                                    </VSCodeButton>
-                                                </>
-                                            )}
-                                            {message.role === "assistant" &&
-                                                !message.isStreaming && (
-                                                    <VSCodeButton
-                                                        appearance="icon"
-                                                        onClick={() => onCopy(message.content)}
-                                                        title="Copy response"
-                                                    >
-                                                        <span className="codicon codicon-copy" />
-                                                    </VSCodeButton>
-                                                )}
-                                        </div>
+                        {chatHistory.slice(1).map((message, index) =>
+                            message.content ? (
+                                <div key={index} className={`chat-message ${message.role}`}>
+                                    {renderMessage(message.content, message.role)}
+                                    <div className="chat-message-actions">
+                                        {message.role === "user" && (
+                                            <>
+                                                <VSCodeButton
+                                                    appearance="icon"
+                                                    onClick={() => onEditMessage(index + 1)}
+                                                    title="Edit message"
+                                                >
+                                                    <span className="codicon codicon-edit" />
+                                                </VSCodeButton>
+                                                <VSCodeButton
+                                                    appearance="icon"
+                                                    onClick={() =>
+                                                        handleRedoMessage(
+                                                            index + 1,
+                                                            message.content
+                                                        )
+                                                    }
+                                                    title="Redo message"
+                                                >
+                                                    <span className="codicon codicon-refresh" />
+                                                </VSCodeButton>
+                                                <VSCodeButton
+                                                    appearance="icon"
+                                                    onClick={() => onCopy(message.content)}
+                                                    title="Copy message"
+                                                >
+                                                    <span className="codicon codicon-copy" />
+                                                </VSCodeButton>
+                                            </>
+                                        )}
+                                        {message.role === "assistant" && !message.isStreaming && (
+                                            <VSCodeButton
+                                                appearance="icon"
+                                                onClick={() => onCopy(message.content)}
+                                                title="Copy response"
+                                            >
+                                                <span className="codicon codicon-copy" />
+                                            </VSCodeButton>
+                                        )}
                                     </div>
-                                ) : null
+                                </div>
+                            ) : null
                         )}
                         {pendingAssistantMessage && (
                             <div className="chat-message assistant">

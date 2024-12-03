@@ -391,18 +391,7 @@ export function registerParallelViewWebviewProvider(context: vscode.ExtensionCon
                         data: { cellId, sourceText },
                     });
                 } else {
-                    vscode.commands.executeCommand("parallel-passages-sidebar.focus");
-                    // Wait for the webview to be ready
-                    setTimeout(() => {
-                        if (provider.webviewView) {
-                            provider.webviewView.webview.postMessage({
-                                command: "requestTranslation",
-                                data: { cellId, sourceText },
-                            });
-                        } else {
-                            console.error("Webview is not available after retry");
-                        }
-                    }, 100);
+                    console.error("Webview is not available");
                 }
             }
         )
