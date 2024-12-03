@@ -5,7 +5,7 @@ import {
     promptForTargetLanguage,
     promptForSourceLanguage,
     updateMetadataFile,
-    initializeProjectMetadata,
+    initializeProjectMetadataAndGit,
     accessMetadataFile,
     reopenWalkthrough,
 } from "./utils/projectUtils";
@@ -13,7 +13,7 @@ import { setTargetFont } from "./projectInitializers";
 import { migration_changeDraftFolderToFilesFolder } from "./utils/migrationUtils";
 import { importLocalUsfmSourceBible } from "../utils/codexNotebookUtils";
 import {
-    checkIfMetadataIsInitialized,
+    checkIfMetadataAndGitIsInitialized,
     createProjectFiles,
     getProjectOverview,
     updateProjectSettings,
@@ -72,10 +72,10 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
     const editAbbreviationCommand = vscode.commands.registerCommand(
         "codex-project-manager.editAbbreviation",
         executeWithRedirecting(async () => {
-            const isMetadataInitialized = await checkIfMetadataIsInitialized();
+            const isMetadataInitialized = await checkIfMetadataAndGitIsInitialized();
 
             if (!isMetadataInitialized) {
-                await initializeProjectMetadata({});
+                await initializeProjectMetadataAndGit({});
             }
 
             const config = vscode.workspace.getConfiguration("codex-project-manager");
@@ -246,10 +246,10 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
     const renameProjectCommand = vscode.commands.registerCommand(
         "codex-project-manager.renameProject",
         executeWithRedirecting(async () => {
-            const isMetadataInitialized = await checkIfMetadataIsInitialized();
+            const isMetadataInitialized = await checkIfMetadataAndGitIsInitialized();
 
             if (!isMetadataInitialized) {
-                await initializeProjectMetadata({});
+                await initializeProjectMetadataAndGit({});
             }
 
             const config = vscode.workspace.getConfiguration("codex-project-manager");
@@ -279,9 +279,9 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
                 vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
                 return;
             }
-            const isMetadataInitialized = await checkIfMetadataIsInitialized();
+            const isMetadataInitialized = await checkIfMetadataAndGitIsInitialized();
             if (!isMetadataInitialized) {
-                await initializeProjectMetadata({});
+                await initializeProjectMetadataAndGit({});
             }
 
             const config = vscode.workspace.getConfiguration("codex-project-manager");

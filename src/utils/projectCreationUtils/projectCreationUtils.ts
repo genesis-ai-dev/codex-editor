@@ -1,7 +1,7 @@
-import * as vscode from 'vscode';
-import * as path from 'path';
-import * as semver from 'semver';
-import { initializeProjectMetadata } from '../../projectManager/utils/projectUtils';
+import * as vscode from "vscode";
+import * as path from "path";
+import * as semver from "semver";
+import { initializeProjectMetadataAndGit } from "../../projectManager/utils/projectUtils";
 
 /**
  * Checks if a folder or any of its parent folders is a Codex project
@@ -14,7 +14,7 @@ export async function checkForParentProjects(folderUri: vscode.Uri): Promise<boo
         try {
             const metadataPath = vscode.Uri.file(path.join(currentPath, "metadata.json"));
             await vscode.workspace.fs.stat(metadataPath);
-            
+
             const metadata = await vscode.workspace.fs.readFile(metadataPath);
             const metadataJson = JSON.parse(Buffer.from(metadata).toString("utf-8"));
             if (metadataJson.meta.generator.softwareName === "Codex Editor") {
@@ -143,10 +143,9 @@ async function createProjectInExistingFolder() {
         await createNewProject();
     } catch (error) {
         console.error("Error creating new project:", error);
-        await vscode.window.showErrorMessage(
-            "Failed to create new project. Please try again.",
-            { modal: true }
-        );
+        await vscode.window.showErrorMessage("Failed to create new project. Please try again.", {
+            modal: true,
+        });
     }
 }
 
@@ -155,7 +154,8 @@ async function createProjectInExistingFolder() {
  */
 export async function createNewProject() {
     try {
-        await initializeProjectMetadata({});
+        console.log("Creating new project");
+        await initializeProjectMetadataAndGit({});
         await vscode.commands.executeCommand("codex-project-manager.initializeNewProject");
     } catch (error) {
         console.error("Error creating new project:", error);
@@ -169,8 +169,9 @@ export async function createNewProject() {
 export async function openProject(projectPath: string) {
     try {
         const uri = vscode.Uri.file(projectPath);
-        const currentVersion = vscode.extensions.getExtension("project-accelerate.codex-editor-extension")
-            ?.packageJSON.version || "0.0.0";
+        const currentVersion =
+            vscode.extensions.getExtension("project-accelerate.codex-editor-extension")?.packageJSON
+                .version || "0.0.0";
 
         const metadataPath = vscode.Uri.joinPath(uri, "metadata.json");
         try {

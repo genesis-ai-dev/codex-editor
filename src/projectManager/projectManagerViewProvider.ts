@@ -7,9 +7,9 @@ import {
 } from "../../types";
 import {
     getProjectOverview,
-    initializeProjectMetadata,
+    initializeProjectMetadataAndGit,
     findAllCodexProjects,
-    checkIfMetadataIsInitialized,
+    checkIfMetadataAndGitIsInitialized,
 } from "./utils/projectUtils";
 
 import {
@@ -112,7 +112,7 @@ class ProjectManagerStore {
 
             // Load project overview if we're in a workspace
             if (vscode.workspace.workspaceFolders) {
-                const hasMetadata = await checkIfMetadataIsInitialized();
+                const hasMetadata = await checkIfMetadataAndGitIsInitialized();
                 if (hasMetadata) {
                     const overview = await getProjectOverview();
                     const primarySourceText = config.get("primarySourceText");
@@ -313,103 +313,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     // Update the message handler to use the registered commands
-    private async handleMessage(message: ProjectManagerMessageFromWebview) {
-        switch (message.command) {
-            case "openProject":
-                await openProject(message.data.path);
-                break;
-            case "refreshProjects":
-                await vscode.commands.executeCommand("codex-project-manager.refreshProjects");
-                break;
-            case "addWatchFolder":
-                await vscode.commands.executeCommand("codex-project-manager.addWatchFolder");
-                break;
-            case "removeWatchFolder":
-                await vscode.commands.executeCommand("codex-project-manager.removeWatchFolder", {
-                    path: message.data.path,
-                });
-                break;
-            case "requestProjectOverview":
-                await this.updateProjectOverview();
-                break;
-            case "createNewWorkspaceAndProject":
-                await createNewWorkspaceAndProject();
-                break;
-            case "openProjectSettings":
-            case "renameProject":
-            case "changeUserName":
-            case "editAbbreviation":
-            case "changeSourceLanguage":
-            case "changeTargetLanguage":
-            case "selectCategory":
-            case "downloadSourceText":
-            case "openAISettings":
-            case "openSourceUpload":
-                await this.handleProjectChange(message.command);
-                // FIXME: sometimes this refreshes before the command is finished. Need to return values on all of them
-                // Send a response back to the webview
-                this._view?.webview.postMessage({ command: "actionCompleted" });
-                break;
-            case "initializeProject":
-                await createNewProject();
-                break;
-            case "exportProjectAsPlaintext":
-                await vscode.commands.executeCommand("codex-editor-extension.exportCodexContent");
-                break;
-            case "openBible":
-                // vscode.window.showInformationMessage(
-                //     `Opening source text: ${JSON.stringify(message)}`
-                // );
-                simpleOpen(message.data.path, this._context);
-                break;
-            case "webviewReady":
-                break;
-            case "selectprimarySourceText":
-                await this.setprimarySourceText(message.data);
-                break;
-            case "refreshState":
-                await this.updateWebviewState();
-                break;
-            case "closeProject":
-                try {
-                    const answer = await vscode.window.showWarningMessage(
-                        "Are you sure you want to close this project?",
-                        { modal: true },
-                        "Yes",
-                        "No"
-                    );
-
-                    if (answer === "Yes") {
-                        await vscode.commands.executeCommand("workbench.action.closeWindow");
-                    }
-                } catch (error) {
-                    console.error("Error closing project:", error);
-                    vscode.window.showErrorMessage(
-                        `Failed to close project: ${(error as Error).message}`
-                    );
-                }
-                break;
-            case "checkPublishStatus":
-                try {
-                    await this.checkRepoHasRemote();
-                } catch (error) {
-                    console.error("Error checking publish status:", error);
-                    this.store.setState({ repoHasRemote: false });
-                }
-                break;
-            case "publishProject":
-                await this.frontierApi?.publishWorkspace({
-                    name: "test",
-                    // description: "test",
-                    // language: "en",
-                    // targetLanguage: "es",
-                    visibility: "private",
-                });
-                break;
-            default:
-                console.error(`Unknown command: ${message.command}`);
-        }
-    }
+    private async handleMessage(message: ProjectManagerMessageFromWebview) {}
 
     async resolveWebviewView(webviewView: vscode.WebviewView) {
         this._view = webviewView;
@@ -432,17 +336,126 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             }
         };
 
-        webviewView.webview.onDidReceiveMessage(async (message) => {
-            try {
-                await this.handleMessage(message);
-            } catch (error) {
-                console.error("Error handling message:", error);
-                webviewView.webview.postMessage({
-                    command: "error",
-                    message: `Failed to handle action: ${(error as Error).message}`,
-                });
+        webviewView.webview.onDidReceiveMessage(
+            async ({ message }: { message: ProjectManagerMessageFromWebview }) => {
+                console.log("message", { message }, JSON.stringify({ message }, null, 4));
+                try {
+                    switch (message.command) {
+                        case "openProject":
+                            await openProject(message.data.path);
+                            break;
+                        case "refreshProjects":
+                            await vscode.commands.executeCommand(
+                                "codex-project-manager.refreshProjects"
+                            );
+                            break;
+                        case "addWatchFolder":
+                            await vscode.commands.executeCommand(
+                                "codex-project-manager.addWatchFolder"
+                            );
+                            break;
+                        case "removeWatchFolder":
+                            await vscode.commands.executeCommand(
+                                "codex-project-manager.removeWatchFolder",
+                                {
+                                    path: message.data.path,
+                                }
+                            );
+                            break;
+                        case "requestProjectOverview":
+                            await this.updateProjectOverview();
+                            break;
+                        case "createNewWorkspaceAndProject":
+                            await createNewWorkspaceAndProject();
+                            break;
+                        case "openProjectSettings":
+                        case "renameProject":
+                        case "changeUserName":
+                        case "editAbbreviation":
+                        case "changeSourceLanguage":
+                        case "changeTargetLanguage":
+                        case "selectCategory":
+                        case "downloadSourceText":
+                        case "openAISettings":
+                        case "openSourceUpload":
+                            await this.handleProjectChange(message.command);
+                            // FIXME: sometimes this refreshes before the command is finished. Need to return values on all of them
+                            // Send a response back to the webview
+                            this._view?.webview.postMessage({ command: "actionCompleted" });
+                            break;
+                        case "initializeProject":
+                            console.log("initializeProject");
+                            await createNewProject();
+                            break;
+                        case "exportProjectAsPlaintext":
+                            await vscode.commands.executeCommand(
+                                "codex-editor-extension.exportCodexContent"
+                            );
+                            break;
+                        case "openBible":
+                            // vscode.window.showInformationMessage(
+                            //     `Opening source text: ${JSON.stringify(message)}`
+                            // );
+                            simpleOpen(message.data.path, this._context);
+                            break;
+                        case "webviewReady":
+                            break;
+                        case "selectprimarySourceText":
+                            await this.setprimarySourceText(message.data);
+                            break;
+                        case "refreshState":
+                            await this.updateWebviewState();
+                            break;
+                        case "closeProject":
+                            try {
+                                const answer = await vscode.window.showWarningMessage(
+                                    "Are you sure you want to close this project?",
+                                    { modal: true },
+                                    "Yes",
+                                    "No"
+                                );
+
+                                if (answer === "Yes") {
+                                    await vscode.commands.executeCommand(
+                                        "workbench.action.closeWindow"
+                                    );
+                                }
+                            } catch (error) {
+                                console.error("Error closing project:", error);
+                                vscode.window.showErrorMessage(
+                                    `Failed to close project: ${(error as Error).message}`
+                                );
+                            }
+                            break;
+                        case "checkPublishStatus":
+                            try {
+                                await this.checkRepoHasRemote();
+                            } catch (error) {
+                                console.error("Error checking publish status:", error);
+                                this.store.setState({ repoHasRemote: false });
+                            }
+                            break;
+                        case "publishProject":
+                            await this.frontierApi?.publishWorkspace({
+                                name: "test",
+                                // description: "test",
+                                // language: "en",
+                                // targetLanguage: "es",
+                                visibility: "private",
+                            });
+                            break;
+                        default:
+                            console.error(`Unknown command: ${message.command}`, { message });
+                    }
+                } catch (error) {
+                    console.error("Error handling message:", error);
+                    webviewView.webview.postMessage({
+                        command: "error",
+                        message: `Failed to handle action: ${(error as Error).message}`,
+                    });
+                }
             }
-        });
+        );
 
         webviewView.webview.onDidReceiveMessage(messageHandler);
 
@@ -571,7 +584,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
         try {
             const workspaceFolders = vscode.workspace.workspaceFolders;
             const hasWorkspace = workspaceFolders && workspaceFolders.length > 0;
-            const hasMetadata = hasWorkspace ? await checkIfMetadataIsInitialized() : false;
+            const hasMetadata = hasWorkspace ? await checkIfMetadataAndGitIsInitialized() : false;
 
             // Can initialize if we have a workspace but no metadata
             const canInitializeProject = hasWorkspace && !hasMetadata;

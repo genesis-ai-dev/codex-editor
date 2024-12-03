@@ -22,7 +22,7 @@ export function getDefinitions(db: Database, headWord: string): string[] {
     return results;
 }
 
-const dictionaryDbPath = ["data", "dictionary.sqlite"];
+const dictionaryDbPath = [".project", "dictionary.sqlite"];
 
 export async function lookupWord(db: Database) {
     try {
@@ -464,9 +464,7 @@ export const exportUserEntries = (db: Database) => {
     const exportPath = vscode.Uri.joinPath(workspaceFolder.uri, "files", "project.dictionary");
     if (exportPath) {
         vscode.workspace.fs.writeFile(exportPath, Buffer.from(jsonlContent, "utf-8"));
-        vscode.window.showInformationMessage(
-            `User dictionary entries exported successfully`
-        );
+        vscode.window.showInformationMessage(`User dictionary entries exported successfully`);
     } else {
         vscode.window.showErrorMessage("No workspace folder found");
     }
@@ -485,7 +483,10 @@ export const ingestJsonlDictionaryEntries = (db: Database) => {
     const jsonlContent = fs.existsSync(exportPath.fsPath)
         ? fs.readFileSync(exportPath.fsPath, "utf-8")
         : "";
-    const entries = jsonlContent.split("\n").filter((line) => line).map((line) => JSON.parse(line));
+    const entries = jsonlContent
+        .split("\n")
+        .filter((line) => line)
+        .map((line) => JSON.parse(line));
     console.log({ entries });
 
     bulkAddWords(db, entries);
