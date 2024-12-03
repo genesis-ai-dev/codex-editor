@@ -385,31 +385,25 @@ export function registerParallelViewWebviewProvider(context: vscode.ExtensionCon
         vscode.commands.registerCommand(
             "parallelPassages.requestTranslation",
             async (cellId: string, sourceText: string) => {
-                const maxRetries = 3;
-                let retries = 0;
-
-                const tryPostMessage = async () => {
-                    if (provider.webviewView) {
-                        provider.webviewView.webview.postMessage({
-                            command: "requestTranslation",
-                            data: { cellId, sourceText },
-                        });
-                        return true;
-                    }
-                    return false;
-                };
-
-                while (retries < maxRetries) {
-                    if (await tryPostMessage()) {
-                        return;
-                    }
-
-                    await vscode.commands.executeCommand("parallel-passages-sidebar.focus");
-                    await new Promise((resolve) => setTimeout(resolve, 100));
-                    retries++;
+                if (provider.webviewView) {
+                    provider.webviewView.webview.postMessage({
+                        command: "requestTranslation",
+                        data: { cellId, sourceText },
+                    });
+                } else {
+                    vscode.commands.executeCommand("parallel-passages-sidebar.focus");
+                    // Wait for the webview to be ready
+                    setTimeout(() => {
+                        if (provider.webviewView) {
+                            provider.webviewView.webview.postMessage({
+                                command: "requestTranslation",
+                                data: { cellId, sourceText },
+                            });
+                        } else {
+                            console.error("Webview is not available after retry");
+                        }
+                    }, 100);
                 }
-
-                console.error("Webview is not available after maximum retries");
             }
         )
     );
