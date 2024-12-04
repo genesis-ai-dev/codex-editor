@@ -9,6 +9,7 @@ import {
     SourceUploadPostMessages,
     SourceUploadResponseMessages,
     ValidationResult,
+    FileTypeMap,
 } from "../../../types/index";
 import path from "path";
 import { SourceFileValidator } from "../../validation/sourceFileValidator";
@@ -19,6 +20,18 @@ import { TranslationImportTransaction } from "../../transactions/TranslationImpo
 import { DownloadBibleTransaction } from "../../transactions/DownloadBibleTransaction";
 import { ProgressManager } from "../../utils/progressManager";
 import { ExtendedMetadata } from "../../utils/ebible/ebibleCorpusUtils";
+import { UsfmSourceImportTransaction } from "../../transactions/UsfmSourceImportTransaction";
+import { UsfmTranslationImportTransaction } from "../../transactions/UsfmTranslationImportTransaction";
+
+export const fileTypeMap: FileTypeMap = {
+    vtt: "subtitles",
+    txt: "plaintext",
+    usfm: "usfm",
+    usx: "usx",
+    sfm: "usfm",
+    SFM: "usfm",
+    USFM: "usfm",
+};
 
 // Add new types for workflow status tracking
 interface ProcessingStatus {
@@ -1089,11 +1102,8 @@ export class SourceUploadProvider
         files: Array<{ content: string; name: string }>,
         token: vscode.CancellationToken
     ): Promise<void> {
-        // FIXME: we're not pausing to let the user review and confirm/cancel multiple previews.
-        // The download bible transaction *does* currently pause, but the source and translation
-        // imports do not.
         const BATCH_SIZE = 5;
-        const transactions: SourceImportTransaction[] = [];
+        const transactions: (SourceImportTransaction | UsfmSourceImportTransaction)[] = [];
 
         try {
             // Create all transactions first
@@ -1101,9 +1111,18 @@ export class SourceUploadProvider
                 files.map((file) => this.saveUploadedFile(file.content, file.name))
             );
 
-            // Initialize transactions
+            // Initialize transactions based on file type
             transactions.push(
-                ...fileUris.map((uri) => new SourceImportTransaction(uri, this.context))
+                ...fileUris.map((uri) => {
+                    const fileExtension = uri.fsPath.split(".").pop()?.toLowerCase();
+                    const fileType = fileTypeMap[fileExtension as keyof typeof fileTypeMap];
+                    
+                    if (fileType === "usfm") {
+                        return new UsfmSourceImportTransaction(uri, this.context);
+                    } else {
+                        return new SourceImportTransaction(uri, this.context);
+                    }
+                })
             );
 
             // Process in batches
@@ -1197,17 +1216,19 @@ export class SourceUploadProvider
         token: vscode.CancellationToken
     ): Promise<void> {
         const BATCH_SIZE = 5;
-        const transactions: TranslationImportTransaction[] = [];
+        const transactions: (TranslationImportTransaction | UsfmTranslationImportTransaction)[] = [];
 
         try {
             // Create transactions for each file
             for (const file of files) {
                 const tempUri = await this.saveUploadedFile(file.content, file.name);
-                const transaction = new TranslationImportTransaction(
-                    tempUri,
-                    file.sourceId,
-                    this.context
-                );
+                const fileExtension = tempUri.fsPath.split(".").pop()?.toLowerCase();
+                const fileType = fileTypeMap[fileExtension as keyof typeof fileTypeMap];
+
+                const transaction = fileType === "usfm"
+                    ? new UsfmTranslationImportTransaction(tempUri, file.sourceId, this.context)
+                    : new TranslationImportTransaction(tempUri, file.sourceId, this.context);
+                    
                 transactions.push(transaction);
             }
 
