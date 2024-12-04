@@ -291,11 +291,25 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
                     defaultBranch: "main",
                 });
 
-                // Create initial commit with metadata.json
+                // Create .gitignore file
+                const gitignorePath = vscode.Uri.joinPath(WORKSPACE_FOLDER.uri, ".gitignore");
+                const gitignoreContent = Buffer.from(
+                    ".project/dictionary.sqlite\n.DS_Store\n",
+                    "utf8"
+                );
+                await vscode.workspace.fs.writeFile(gitignorePath, gitignoreContent);
+
+                // Add files to git
                 await git.add({
                     fs,
                     dir: workspaceFolder,
                     filepath: "metadata.json",
+                });
+
+                await git.add({
+                    fs,
+                    dir: workspaceFolder,
+                    filepath: ".gitignore",
                 });
 
                 await git.commit({
@@ -720,4 +734,51 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
     }
 
     return projects;
+}
+
+
+export async function stageAndCommitAll(
+    workspaceFolder: string,
+    commitMessage: string,
+    author?: { name: string; email: string }
+): Promise<void> {
+    try {
+        // Get status of all files
+        const statusMatrix = await git.statusMatrix({
+            fs,
+            dir: workspaceFolder,
+        });
+
+        // Stage all changed files
+        for (const [filepath, , worktreeStatus] of statusMatrix) {
+            if (worktreeStatus !== 1) { // 1 means unchanged
+                await git.add({
+                    fs,
+                    dir: workspaceFolder,
+                    filepath,
+                });
+            }
+        }
+
+        // Create commit with staged changes
+        await git.commit({
+            fs,
+            dir: workspaceFolder,
+            message: commitMessage,
+            author: author || {
+                name: vscode.workspace
+                    .getConfiguration("codex-project-manager")
+                    .get<string>("userName") || "Unknown",
+                email: "user@example.com", // FIXME: Consider getting this from configuration
+            },
+        });
+
+        vscode.window.showInformationMessage("Changes committed successfully");
+    } catch (error) {
+        console.error("Failed to commit changes:", error);
+        vscode.window.showErrorMessage(
+            `Failed to commit changes: ${error instanceof Error ? error.message : String(error)}`
+        );
+        throw error;
+    }
 }

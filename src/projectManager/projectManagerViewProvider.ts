@@ -337,7 +337,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
         };
 
         webviewView.webview.onDidReceiveMessage(
-            async ({ message }: { message: ProjectManagerMessageFromWebview }) => {
+            async (message: ProjectManagerMessageFromWebview) => {
                 console.log("message", { message }, JSON.stringify({ message }, null, 4));
                 try {
                     switch (message.command) {

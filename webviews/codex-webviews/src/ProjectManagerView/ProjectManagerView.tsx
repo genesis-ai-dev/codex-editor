@@ -91,7 +91,7 @@ function ProjectManagerView() {
     const [retryCount, setRetryCount] = useState(0);
 
     const handleAction = (message: ProjectManagerMessageFromWebview) => {
-        vscode.postMessage({ message });
+        vscode.postMessage(message as ProjectManagerMessageFromWebview);
 
         // List of commands that modify the project state
         const stateChangingCommands = [
