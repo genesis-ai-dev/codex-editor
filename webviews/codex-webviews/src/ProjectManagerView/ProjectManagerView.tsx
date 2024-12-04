@@ -109,7 +109,7 @@ function ProjectManagerView() {
 
     const handleAction = (command: string, data?: any) => {
         vscode.postMessage({ command, data });
-        
+
         // List of commands that modify the project state
         const stateChangingCommands = [
             "initializeProject",
@@ -121,7 +121,7 @@ function ProjectManagerView() {
             "selectCategory",
             "openSourceUpload",
             "openAISettings",
-            "exportProjectAsPlaintext"
+            "exportProjectAsPlaintext",
         ];
 
         // If the command modifies state, request a refresh
@@ -242,7 +242,7 @@ function ProjectManagerView() {
         >
             <VSCodePanels activeid={activePanel}>
                 <VSCodePanelTab id="current-project">Current Project</VSCodePanelTab>
-                <VSCodePanelTab id="all-projects">All Projects</VSCodePanelTab>
+                {/* <VSCodePanelTab id="all-projects">All Projects</VSCodePanelTab> */}
 
                 <VSCodePanelView id="current-project-view">
                     {state.canInitializeProject ? (
@@ -372,7 +372,7 @@ function ProjectManagerView() {
                     )}
                 </VSCodePanelView>
 
-                <VSCodePanelView id="all-projects-view">
+                {/* <VSCodePanelView id="all-projects-view">
                     <ProjectList
                         projects={state.projects}
                         watchedFolders={state.watchedFolders || []}
@@ -383,7 +383,7 @@ function ProjectManagerView() {
                         onRefreshProjects={() => handleAction("refreshProjects")}
                         showBackButton={false}
                     />
-                </VSCodePanelView>
+                </VSCodePanelView> */}
             </VSCodePanels>
         </div>
     );
