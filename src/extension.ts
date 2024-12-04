@@ -37,7 +37,7 @@ import {
 import MiniSearch from "minisearch";
 import { registerStartupFlowCommands } from "./providers/StartupFlow/registerCommands";
 import { registerPreflightCommand } from "./providers/StartupFlow/preflight";
-import { NotebookMetadataManager } from "./projectManager/NotebookMetadataManager";
+import { NotebookMetadataManager } from "./utils/notebookMetadataManager";
 
 declare global {
     // eslint-disable-next-line
