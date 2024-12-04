@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { CodexCellEditorProvider } from "./codexCellEditorProvider/codexCellEditorProvider";
 import { registerSourceControl } from "./sourceControl/sourceControlProvider";
 import { CodexNotebookTreeViewProvider } from "../providers/treeViews/navigationTreeViewProvider";
+import { getNotebookMetadataManager } from "../extension";
 
 export function registerProviders(context: vscode.ExtensionContext) {
     const disposables: vscode.Disposable[] = [];

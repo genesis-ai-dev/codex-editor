@@ -32,14 +32,26 @@ async function getGitAPI(): Promise<GitAPI | undefined> {
     }
 }
 
+interface MetadataValidationResult {
+    isValid: boolean;
+    errors: string[];
+}
+
 export class NotebookMetadataManager {
+    private static instance: NotebookMetadataManager;
     private metadataMap: Map<string, CustomNotebookMetadata> = new Map();
     private storageUri: vscode.Uri;
     private _onDidChangeMetadata = new vscode.EventEmitter<void>();
     public readonly onDidChangeMetadata = this._onDidChangeMetadata.event;
     private isLoading = false;
+    private storage: vscode.Memento;
+    private metadataCache: Map<string, CustomNotebookMetadata> = new Map();
+    private lastLoadTime = 0;
+    private readonly CACHE_TTL = 5000; // 5 seconds
 
-    constructor(storageUri?: vscode.Uri) {
+    private constructor(context: vscode.ExtensionContext, storageUri?: vscode.Uri) {
+        this.storage = context.workspaceState;
+        
         if (storageUri) {
             this.storageUri = storageUri;
         } else {
@@ -56,30 +68,66 @@ export class NotebookMetadataManager {
         }
     }
 
-    async initialize(): Promise<void> {
-        try {
-            const content = await vscode.workspace.fs.readFile(this.storageUri);
-            const metadataArray: CustomNotebookMetadata[] = JSON.parse(content.toString());
-            this.metadataMap = new Map(metadataArray.map((metadata) => [metadata.id, metadata]));
-        } catch (error) {
-            console.warn("Failed to load metadata:", error);
+    public static getInstance(context: vscode.ExtensionContext, storageUri?: vscode.Uri): NotebookMetadataManager {
+        if (!NotebookMetadataManager.instance) {
+            NotebookMetadataManager.instance = new NotebookMetadataManager(context, storageUri);
         }
+        return NotebookMetadataManager.instance;
+    }
+
+    async initialize(): Promise<void> {
+        const metadataArray = this.storage.get<CustomNotebookMetadata[]>('notebookMetadata', []);
+        this.metadataMap = new Map(metadataArray.map(m => [m.id, m]));
+    }
+
+    private validateMetadata(metadata: CustomNotebookMetadata): MetadataValidationResult {
+        const errors: string[] = [];
+        
+        if (!metadata.id) {
+            errors.push("Metadata must have an ID");
+        }
+        
+        if (metadata.sourceFsPath && !metadata.sourceFsPath.endsWith('.source')) {
+            errors.push("Source path must end with .source extension");
+        }
+        
+        if (metadata.codexFsPath && !metadata.codexFsPath.endsWith('.codex')) {
+            errors.push("Codex path must end with .codex extension");
+        }
+        
+        return {
+            isValid: errors.length === 0,
+            errors
+        };
     }
 
     async addOrUpdateMetadata(metadata: CustomNotebookMetadata): Promise<void> {
+        const validation = this.validateMetadata(metadata);
+        if (!validation.isValid) {
+            throw new Error(`Invalid metadata: ${validation.errors.join(', ')}`);
+        }
+        
         this.metadataMap.set(metadata.id, metadata);
         await this.persistMetadata();
         this._onDidChangeMetadata.fire();
     }
 
-    async getMetadata(id: string): Promise<CustomNotebookMetadata | undefined> {
+    private async ensureMetadataLoaded(): Promise<void> {
+        const now = Date.now();
+        if (now - this.lastLoadTime > this.CACHE_TTL) {
+            await this.loadMetadata();
+            this.lastLoadTime = now;
+        }
+    }
+
+    public async getMetadata(id: string): Promise<CustomNotebookMetadata | undefined> {
+        await this.ensureMetadataLoaded();
         return this.metadataMap.get(id);
     }
 
     private async persistMetadata(): Promise<void> {
         const metadataArray = Array.from(this.metadataMap.values());
-        const content = Buffer.from(JSON.stringify(metadataArray, null, 2));
-        await vscode.workspace.fs.writeFile(this.storageUri, content);
+        await this.storage.update('notebookMetadata', metadataArray);
     }
 
     public getAllMetadata(): CustomNotebookMetadata[] {
@@ -373,5 +421,22 @@ export class NotebookMetadataManager {
 
         await this.persistMetadata();
         this._onDidChangeMetadata.fire();
+    }
+
+    // Add these methods to handle path conversions
+    private toWorkspaceRelativePath(absolutePath: string): string {
+        const workspaceUri = getWorkSpaceUri();
+        if (!workspaceUri) {
+            throw new Error("No workspace folder found");
+        }
+        return vscode.workspace.asRelativePath(absolutePath);
+    }
+
+    private toAbsolutePath(relativePath: string): string {
+        const workspaceUri = getWorkSpaceUri();
+        if (!workspaceUri) {
+            throw new Error("No workspace folder found");
+        }
+        return vscode.Uri.joinPath(workspaceUri, relativePath).fsPath;
     }
 }

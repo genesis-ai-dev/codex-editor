@@ -29,8 +29,8 @@ export class CodexModel {
     private lastMetadataLoad = 0;
     private readonly METADATA_REFRESH_INTERVAL = 1000; // 1 second
 
-    constructor(private workspaceRoot: string | undefined) {
-        this.notebookMetadataManager = new NotebookMetadataManager();
+    constructor(private workspaceRoot: string | undefined, private context: vscode.ExtensionContext) {
+        this.notebookMetadataManager = NotebookMetadataManager.getInstance(context);
         debug("Initializing with workspace root:", workspaceRoot);
         this.notebookMetadataManager.initialize();
     }
@@ -309,7 +309,7 @@ export class CodexNotebookTreeViewProvider
         context: vscode.ExtensionContext
     ) {
         console.log("TreeView: Initializing provider");
-        this.model = new CodexModel(workspaceRoot);
+        this.model = new CodexModel(workspaceRoot, context);
 
         // Debounce the refresh to prevent rapid updates
         const debouncedRefresh = debounce(() => this.refresh(), 500);

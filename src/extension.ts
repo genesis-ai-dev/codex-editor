@@ -37,6 +37,7 @@ import {
 import MiniSearch from "minisearch";
 import { registerStartupFlowCommands } from "./providers/StartupFlow/registerCommands";
 import { registerPreflightCommand } from "./providers/StartupFlow/preflight";
+import { NotebookMetadataManager } from "./projectManager/NotebookMetadataManager";
 
 declare global {
     // eslint-disable-next-line
@@ -47,8 +48,13 @@ let client: LanguageClient | undefined;
 let clientCommandsDisposable: vscode.Disposable;
 let autoCompleteStatusBarItem: StatusBarItem;
 let tableIndexMap: Map<string, MiniSearch<TableRecord>>;
+let notebookMetadataManager: NotebookMetadataManager;
 
 export async function activate(context: vscode.ExtensionContext) {
+    // Initialize the metadata manager first
+    notebookMetadataManager = NotebookMetadataManager.getInstance(context);
+    await notebookMetadataManager.initialize();
+
     // Register startup flow commands early, as they handle the initial setup flow
     await registerStartupFlowCommands(context);
     registerPreflightCommand(context);
@@ -306,4 +312,8 @@ export function deactivate() {
 
 export function getAutoCompleteStatusBarItem(): StatusBarItem {
     return autoCompleteStatusBarItem;
+}
+
+export function getNotebookMetadataManager(): NotebookMetadataManager {
+    return notebookMetadataManager;
 }
