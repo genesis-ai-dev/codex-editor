@@ -60,36 +60,83 @@ export class UsfmSourceImportTransaction extends ImportTransaction {
             this.state.tempFiles.push(tempSourceFile);
 
             // Parse USFM content
-            const fileContent = await vscode.workspace.fs.readFile(tempSourceFile);
-            const fileContentString = new TextDecoder("utf-8").decode(fileContent);
+            let fileContent: Uint8Array;
+            try {
+                fileContent = await vscode.workspace.fs.readFile(tempSourceFile);
+            } catch (error) {
+                throw new Error(`Failed to read USFM file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            }
+
+            let fileContentString: string;
+            try {
+                fileContentString = new TextDecoder("utf-8").decode(fileContent);
+            } catch (error) {
+                throw new Error(`Failed to decode USFM file as UTF-8: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            }
 
             // Use usfm-grammar in relaxed mode for parsing
-            const relaxedUsfmParser = new grammar.USFMParser(fileContentString, grammar.LEVEL.RELAXED);
-            const jsonOutput = relaxedUsfmParser.toJSON() as any as ParsedUSFM;
+            let jsonOutput: ParsedUSFM;
+            try {
+                const relaxedUsfmParser = new grammar.USFMParser(fileContentString, grammar.LEVEL.RELAXED);
+                jsonOutput = relaxedUsfmParser.toJSON() as any as ParsedUSFM;
+            } catch (error) {
+                throw new Error(`Failed to parse USFM content: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            }
 
-            const bookCode = jsonOutput.book.bookCode;
-            jsonOutput.chapters.forEach((chapter: any) => {
-                const chapterNumber = chapter.chapterNumber;
-                chapter.contents.forEach((content: any) => {
-                    if (content.verseNumber !== undefined && content.verseText !== undefined) {
-                        const verseId = `${bookCode} ${chapterNumber}:${content.verseNumber}`;
-                        this.parsedContent.push({
-                            id: verseId,
-                            content: content.verseText.trim(),
-                            type: "verse"
-                        });
-                    } else if (content.text && !content.marker) {
-                        this.parsedContent.push({
-                            id: `paratext-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                            content: content.text.trim(),
-                            type: "paratext"
-                        });
+            // Get book ID from USFM
+            const bookCode = jsonOutput.book?.bookCode;
+            if (!bookCode) {
+                throw new Error("No book code found in USFM file. Please ensure the file has a valid \\id tag.");
+            }
+
+            // Validate book code format
+            if (!/^[A-Z0-9]{3}$/.test(bookCode)) {
+                throw new Error(`Invalid book code format: ${bookCode}. Expected a 3-character code like 'GEN' or 'MAT'.`);
+            }
+
+            // Use book code for file naming, ensuring it's lowercase for consistency
+            const baseName = bookCode.toLowerCase();
+
+            // Parse chapters and verses
+            try {
+                if (!jsonOutput.chapters || jsonOutput.chapters.length === 0) {
+                    throw new Error("No chapters found in USFM file");
+                }
+
+                jsonOutput.chapters.forEach((chapter: any) => {
+                    if (!chapter.chapterNumber) {
+                        throw new Error(`Invalid chapter format: missing chapter number`);
                     }
-                });
-            });
 
-            // Create preview
-            const baseName = path.parse(this.state.sourceFile.fsPath).name;
+                    const chapterNumber = chapter.chapterNumber;
+                    chapter.contents.forEach((content: any) => {
+                        if (content.verseNumber !== undefined && content.verseText !== undefined) {
+                            const verseId = `${bookCode} ${chapterNumber}:${content.verseNumber}`;
+                            this.parsedContent.push({
+                                id: verseId,
+                                content: content.verseText.trim(),
+                                type: "verse"
+                            });
+                        } else if (content.text && !content.marker) {
+                            // Generate a stable ID for paratext based on content hash
+                            const paratextId = `paratext-${Buffer.from(content.text).toString('base64').substring(0, 8)}`;
+                            this.parsedContent.push({
+                                id: paratextId,
+                                content: content.text.trim(),
+                                type: "paratext"
+                            });
+                        }
+                    });
+                });
+
+                if (this.parsedContent.length === 0) {
+                    throw new Error("No verses or paratext found in USFM file");
+                }
+            } catch (error) {
+                throw new Error(`Failed to process USFM content: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            }
+
+            // Create preview with validation results
             const validationResult: ValidationResult = {
                 isValid: true,
                 errors: []
@@ -157,6 +204,10 @@ export class UsfmSourceImportTransaction extends ImportTransaction {
             return this.preview;
         } catch (error) {
             await this.rollback();
+            // Rethrow with clear error message
+            if (error instanceof Error) {
+                throw new Error(`USFM Import Error: ${error.message}`);
+            }
             throw error;
         }
     }
