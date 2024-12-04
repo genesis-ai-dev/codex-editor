@@ -1073,6 +1073,9 @@ export class SourceUploadProvider
             webviewPanel.webview.postMessage({
                 command: "bibleDownloadComplete",
             } as SourceUploadResponseMessages);
+
+            // Trigger reindex after successful download
+            await vscode.commands.executeCommand("translators-copilot.forceReindex");
         } catch (error) {
             await this.currentDownloadBibleTransaction?.rollback();
             throw error;
@@ -1178,6 +1181,9 @@ export class SourceUploadProvider
             webviewPanel.webview.postMessage({
                 command: "importComplete",
             } as SourceUploadResponseMessages);
+
+            // Trigger reindex after successful import
+            await vscode.commands.executeCommand("translators-copilot.forceReindex");
         } catch (error) {
             // Rollback all transactions on error
             await Promise.all(transactions.map((t) => t.rollback()));
@@ -1249,6 +1255,9 @@ export class SourceUploadProvider
             webviewPanel.webview.postMessage({
                 command: "importComplete",
             } as SourceUploadResponseMessages);
+
+            // Trigger reindex after successful import
+            await vscode.commands.executeCommand("translators-copilot.forceReindex");
         } catch (error) {
             // Rollback all transactions on error
             await Promise.all(transactions.map((t) => t.rollback()));
