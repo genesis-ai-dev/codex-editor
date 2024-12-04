@@ -1104,6 +1104,7 @@ export class SourceUploadProvider
     ): Promise<void> {
         const BATCH_SIZE = 5;
         const transactions: (SourceImportTransaction | UsfmSourceImportTransaction)[] = [];
+        const errors: { fileName: string; error: string }[] = [];
 
         try {
             // Create all transactions first
@@ -1112,101 +1113,166 @@ export class SourceUploadProvider
             );
 
             // Initialize transactions based on file type
-            transactions.push(
-                ...fileUris.map((uri) => {
-                    const fileExtension = uri.fsPath.split(".").pop()?.toLowerCase();
-                    const fileType = fileTypeMap[fileExtension as keyof typeof fileTypeMap];
-                    
-                    if (fileType === "usfm") {
-                        return new UsfmSourceImportTransaction(uri, this.context);
-                    } else {
-                        return new SourceImportTransaction(uri, this.context);
-                    }
-                })
-            );
+            for (const uri of fileUris) {
+                const fileExtension = uri.fsPath.split(".").pop()?.toLowerCase();
+                const fileType = fileTypeMap[fileExtension as keyof typeof fileTypeMap];
+                
+                try {
+                    const transaction = fileType === "usfm"
+                        ? new UsfmSourceImportTransaction(uri, this.context)
+                        : new SourceImportTransaction(uri, this.context);
+                    transactions.push(transaction);
+                } catch (error) {
+                    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+                    errors.push({ 
+                        fileName: path.basename(uri.fsPath),
+                        error: `Failed to create transaction: ${errorMessage}`
+                    });
+                }
+            }
 
             // Process in batches
             for (let i = 0; i < transactions.length; i += BATCH_SIZE) {
                 const batch = transactions.slice(i, i + BATCH_SIZE);
+                const batchPreviews: Array<{
+                    id: string;
+                    fileName: string;
+                    fileSize: number;
+                    preview: any;
+                    error?: string;
+                }> = [];
 
-                // Prepare previews in parallel
-                const previews = await Promise.all(
+                // Prepare previews in parallel, but handle errors individually
+                await Promise.all(
                     batch.map(async (transaction) => {
-                        const rawPreview = await transaction.prepare();
-                        return {
-                            id: transaction.getId(),
-                            fileName: path.basename(transaction.getState().sourceFile.fsPath),
-                            fileSize: (
-                                await vscode.workspace.fs.stat(transaction.getState().sourceFile)
-                            ).size,
-                            preview: {
-                                type: "source",
-                                original: {
-                                    preview: rawPreview.originalContent.preview,
-                                    validationResults: rawPreview.originalContent.validationResults,
+                        try {
+                            const rawPreview = await transaction.prepare();
+                            batchPreviews.push({
+                                id: transaction.getId(),
+                                fileName: path.basename(transaction.getState().sourceFile.fsPath),
+                                fileSize: (
+                                    await vscode.workspace.fs.stat(transaction.getState().sourceFile)
+                                ).size,
+                                preview: {
+                                    type: "source",
+                                    original: {
+                                        preview: rawPreview.originalContent.preview,
+                                        validationResults: rawPreview.originalContent.validationResults,
+                                    },
+                                    transformed: {
+                                        sourceNotebooks: rawPreview.transformedContent.sourceNotebooks,
+                                        codexNotebooks: rawPreview.transformedContent.codexNotebooks,
+                                        validationResults:
+                                            rawPreview.transformedContent.validationResults,
+                                    },
                                 },
-                                transformed: {
-                                    sourceNotebooks: rawPreview.transformedContent.sourceNotebooks,
-                                    codexNotebooks: rawPreview.transformedContent.codexNotebooks,
-                                    validationResults:
-                                        rawPreview.transformedContent.validationResults,
-                                },
-                            },
-                        };
+                            });
+                        } catch (error) {
+                            const errorMessage = error instanceof Error ? error.message : "Unknown error";
+                            const fileName = path.basename(transaction.getState().sourceFile.fsPath);
+                            
+                            // For USFM files, provide more specific error messaging
+                            const isUsfm = fileName.toLowerCase().endsWith('.usfm');
+                            const formattedError = isUsfm 
+                                ? `USFM Syntax Error: ${errorMessage}`
+                                : `Error preparing preview: ${errorMessage}`;
+                            
+                            errors.push({ fileName, error: formattedError });
+                            await transaction.rollback();
+                        }
                     })
                 );
 
                 // Send previews to webview
-                webviewPanel.webview.postMessage({
-                    command: "sourcePreview",
-                    previews: previews,
-                } as SourceUploadResponseMessages);
+                if (batchPreviews.length > 0) {
+                    webviewPanel.webview.postMessage({
+                        command: "sourcePreview",
+                        previews: batchPreviews,
+                        totalFiles: files.length,
+                        currentBatch: Math.floor(i / BATCH_SIZE) + 1,
+                        totalBatches: Math.ceil(transactions.length / BATCH_SIZE),
+                    } as SourceUploadResponseMessages);
+                }
 
-                // Execute transactions in parallel with progress
-                await vscode.window.withProgress(
-                    {
-                        location: vscode.ProgressLocation.Notification,
-                        title: `Importing files ${i + 1}-${Math.min(
-                            i + BATCH_SIZE,
-                            transactions.length
-                        )} of ${transactions.length}`,
-                        cancellable: true,
-                    },
-                    async (progress, token) => {
-                        const progressCallback = (update: {
-                            message?: string;
-                            increment?: number;
-                        }) => {
-                            progress.report(update);
-                            webviewPanel.webview.postMessage({
-                                command: "updateProcessingStatus",
-                                status: {
-                                    [update.message || "processing"]: "active",
-                                },
-                                progress: update,
-                            } as SourceUploadResponseMessages);
-                        };
-
-                        await Promise.all(
-                            batch.map((transaction) =>
-                                transaction.execute({ report: progressCallback }, token)
-                            )
-                        );
-                    }
+                // Execute successful transactions in parallel with progress
+                const successfulTransactions = batch.filter(transaction => 
+                    batchPreviews.some(preview => preview.id === transaction.getId())
                 );
+
+                if (successfulTransactions.length > 0) {
+                    await vscode.window.withProgress(
+                        {
+                            location: vscode.ProgressLocation.Notification,
+                            title: `Importing files ${i + 1}-${Math.min(
+                                i + BATCH_SIZE,
+                                transactions.length
+                            )} of ${files.length}`,
+                            cancellable: true,
+                        },
+                        async (progress, token) => {
+                            const progressCallback = (update: {
+                                message?: string;
+                                increment?: number;
+                            }) => {
+                                progress.report(update);
+                                webviewPanel.webview.postMessage({
+                                    command: "updateProcessingStatus",
+                                    status: {
+                                        [update.message || "processing"]: "active",
+                                    },
+                                    progress: update,
+                                } as SourceUploadResponseMessages);
+                            };
+
+                            await Promise.all(
+                                successfulTransactions.map(async (transaction) => {
+                                    try {
+                                        await transaction.execute({ report: progressCallback }, token);
+                                    } catch (error) {
+                                        const errorMessage = error instanceof Error ? error.message : "Unknown error";
+                                        const fileName = path.basename(transaction.getState().sourceFile.fsPath);
+                                        errors.push({ fileName, error: `Error during import: ${errorMessage}` });
+                                        await transaction.rollback();
+                                    }
+                                })
+                            );
+                        }
+                    );
+                }
             }
 
-            // Send completion message
+            // Send completion message with any errors
+            if (errors.length > 0) {
+                const errorSummary = errors.map(e => `${e.fileName}: ${e.error}`).join('\n');
+                webviewPanel.webview.postMessage({
+                    command: "error",
+                    message: `Completed with errors:\n${errorSummary}`,
+                } as SourceUploadResponseMessages);
+            }
+
             webviewPanel.webview.postMessage({
                 command: "importComplete",
+                summary: {
+                    totalFiles: files.length,
+                    successfulImports: transactions.length - errors.length,
+                    failedImports: errors.length,
+                }
             } as SourceUploadResponseMessages);
 
             // Trigger reindex after successful import
-            await vscode.commands.executeCommand("translators-copilot.forceReindex");
+            if (transactions.length > errors.length) {
+                await vscode.commands.executeCommand("translators-copilot.forceReindex");
+            }
         } catch (error) {
-            // Rollback all transactions on error
-            await Promise.all(transactions.map((t) => t.rollback()));
-            throw error;
+            // Handle any unexpected errors at the top level
+            const errorMessage = error instanceof Error ? error.message : "Unknown error";
+            webviewPanel.webview.postMessage({
+                command: "error",
+                message: `Unexpected error during import: ${errorMessage}`,
+            } as SourceUploadResponseMessages);
+
+            // Attempt to rollback all transactions
+            await Promise.all(transactions.map(t => t.rollback().catch(console.error)));
         }
     }
 
