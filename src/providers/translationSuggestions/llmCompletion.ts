@@ -5,6 +5,7 @@ import { ChatMessage, MinimalCellResult, TranslationPair } from "../../../types"
 import { CodexNotebookReader } from "../../serializer";
 import { CodexCellTypes } from "../../../types/enums";
 import { getAutoCompleteStatusBarItem } from "../../extension";
+import { tokenizeText } from "../../utils/nlpUtils";
 
 export async function llmCompletion(
     currentNotebookReader: CodexNotebookReader,
@@ -49,6 +50,31 @@ export async function llmCompletion(
         if (!similarSourceCells || similarSourceCells.length === 0) {
             showNoResultsWarning();
             return "";
+        }
+
+        // Let's correct the retrieval by filtering any results that have no overlapping
+        // source text content with the current cell's source
+        const filteredSimilarSourceCells = similarSourceCells.filter((pair) => {
+            const currentCellSourceContent = sourceContent;
+            const pairSourceContent = pair.sourceCell.content;
+            if (!pairSourceContent) return false;
+
+            const currentTokens = tokenizeText({
+                method: "whitespace_and_punctuation",
+                text: currentCellSourceContent,
+            });
+            const pairTokens = tokenizeText({
+                method: "whitespace_and_punctuation",
+                text: pairSourceContent,
+            });
+
+            return currentTokens.some((token) => pairTokens.includes(token));
+        });
+
+        const numberOfDroppedExamples =
+            similarSourceCells.length - filteredSimilarSourceCells.length;
+        if (numberOfDroppedExamples > 0) {
+            console.log(`Dropped ${numberOfDroppedExamples} examples due to no overlap.`);
         }
 
         // Get preceding cells and their IDs, limited by context size
@@ -112,7 +138,7 @@ export async function llmCompletion(
             const currentCellSourceContent = sourceContent;
 
             // Generate few-shot examples
-            const fewShotExamples = similarSourceCells
+            const fewShotExamples = filteredSimilarSourceCells
                 .slice(0, numberOfFewShotExamples)
                 .map(
                     (pair) =>
