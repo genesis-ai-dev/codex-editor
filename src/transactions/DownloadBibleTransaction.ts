@@ -10,7 +10,7 @@ import {
 import { CodexCellTypes } from "../../types/enums";
 import { allORGBibleVerseRefs } from "../utils/verseRefUtils/verseData";
 import { getTestamentForBook } from "../utils/verseRefUtils/verseData";
-import { NotebookMetadataManager } from "../utils/notebookMetadataManager";
+import { NotebookMetadataManager, getNotebookMetadataManager } from "../utils/notebookMetadataManager";
 import { getWorkSpaceUri } from "../utils";
 
 export interface DownloadBibleTransactionState extends TransactionState {
@@ -236,7 +236,7 @@ export class DownloadBibleTransaction extends BaseTransaction {
     }
 
     private async setupMetadata(): Promise<void> {
-        const metadataManager = new NotebookMetadataManager();
+        const metadataManager = getNotebookMetadataManager();
         for (const notebookPair of this.state.notebooks) {
             await metadataManager.addOrUpdateMetadata(notebookPair.sourceNotebook.metadata);
             await metadataManager.addOrUpdateMetadata(notebookPair.codexNotebook.metadata);

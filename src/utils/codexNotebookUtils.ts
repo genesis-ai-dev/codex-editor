@@ -15,7 +15,7 @@ import {
     CustomNotebookMetadata,
 } from "../../types";
 import { CodexCellTypes } from "../../types/enums";
-import { NotebookMetadataManager } from "./notebookMetadataManager";
+import { NotebookMetadataManager, getNotebookMetadataManager } from "./notebookMetadataManager";
 import { getWorkSpaceUri } from "./index";
 import { basename } from "path";
 
@@ -385,7 +385,7 @@ async function processUsfmFile(fileUri: vscode.Uri, notebookId?: string): Promis
         );
 
         const bookCode = jsonOutput.book.bookCode;
-        const metadataManager = new NotebookMetadataManager();
+        const metadataManager = getNotebookMetadataManager();
         await metadataManager.initialize();
         const baseName = basename(fileUri.fsPath).split(".")[0] || `new_source`;
         const generatedNotebookId = notebookId || metadataManager.generateNewId(baseName);
@@ -836,7 +836,7 @@ export async function createCodexNotebookFromWebVTT(
             "target",
             `${notebookName}.codex`
         );
-        const metadataManager = new NotebookMetadataManager();
+        const metadataManager = getNotebookMetadataManager();
         await metadataManager.initialize();
         const metadata = metadataManager.getMetadataById(notebookName);
 

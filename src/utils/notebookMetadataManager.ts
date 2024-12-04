@@ -37,8 +37,12 @@ interface MetadataValidationResult {
     errors: string[];
 }
 
+export function getNotebookMetadataManager(): NotebookMetadataManager {
+    return NotebookMetadataManager.getManager();
+}
+
 export class NotebookMetadataManager {
-    private static instance: NotebookMetadataManager;
+    protected static instance: NotebookMetadataManager | undefined;
     private metadataMap: Map<string, CustomNotebookMetadata> = new Map();
     private storageUri: vscode.Uri;
     private _onDidChangeMetadata = new vscode.EventEmitter<void>();
@@ -70,6 +74,9 @@ export class NotebookMetadataManager {
 
     public static getInstance(context: vscode.ExtensionContext, storageUri?: vscode.Uri): NotebookMetadataManager {
         if (!NotebookMetadataManager.instance) {
+            if (!context) {
+                throw new Error('NotebookMetadataManager must be initialized with a VS Code extension context');
+            }
             NotebookMetadataManager.instance = new NotebookMetadataManager(context, storageUri);
         }
         return NotebookMetadataManager.instance;
@@ -438,5 +445,17 @@ export class NotebookMetadataManager {
             throw new Error("No workspace folder found");
         }
         return vscode.Uri.joinPath(workspaceUri, relativePath).fsPath;
+    }
+
+    // Add this method for testing purposes
+    public static resetInstance(): void {
+        NotebookMetadataManager.instance = undefined;
+    }
+
+    public static getManager(): NotebookMetadataManager {
+        if (!NotebookMetadataManager.instance) {
+            throw new Error('NotebookMetadataManager must be initialized before use');
+        }
+        return NotebookMetadataManager.instance;
     }
 }

@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { getWorkSpaceUri } from "../../../../utils";
-import { NotebookMetadataManager } from "../../../../utils/notebookMetadataManager";
+import { NotebookMetadataManager, getNotebookMetadataManager } from "../../../../utils/notebookMetadataManager";
 import { CodexContentSerializer } from "../../../../serializer";
 
 export interface FileData {
@@ -45,7 +45,7 @@ export async function readSourceAndTargetFiles(): Promise<{
         targetUris.map((uri) => uri.fsPath)
     );
 
-    const metadataManager = new NotebookMetadataManager();
+    const metadataManager = getNotebookMetadataManager();
     await metadataManager.initialize();
     await metadataManager.loadMetadata();
 

@@ -8,6 +8,7 @@ import { QuillCellContent, EditorPostMessages, EditorReceiveMessages } from "../
 import { CodexCellDocument } from "./codexDocument";
 import { CodexCellEditorMessageHandling } from "./codexCellEditorMessagehandling";
 import { registerCellEditorCommands } from "./registerCellEditorCommands";
+import { NotebookMetadataManager, getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 function getNonce(): string {
     let text = "";
     const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";

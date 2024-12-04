@@ -31,7 +31,7 @@ import { updateCompleteDrafts } from "../indexingUtils";
 import { readSourceAndTargetFiles } from "./fileReaders";
 import { debounce } from "lodash";
 import { MinimalCellResult, TranslationPair } from "../../../../../types";
-import { NotebookMetadataManager } from "../../../../utils/notebookMetadataManager";
+import { getNotebookMetadataManager } from "../../../../utils/notebookMetadataManager";
 
 type WordFrequencyMap = Map<string, number>;
 
@@ -41,6 +41,7 @@ async function isDocumentAlreadyOpen(uri: vscode.Uri): Promise<boolean> {
 }
 
 export async function createIndexWithContext(context: vscode.ExtensionContext) {
+    const metadataManager = getNotebookMetadataManager();
     const workspaceUri = getWorkSpaceUri();
     if (!workspaceUri) {
         console.error("No workspace folder found. Aborting index creation.");
@@ -121,7 +122,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         }
     }, 3000);
 
-    const metadataManager = new NotebookMetadataManager();
     await metadataManager.initialize();
     await metadataManager.loadMetadata();
 

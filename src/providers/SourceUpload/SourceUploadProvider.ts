@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { importTranslations } from "../../projectManager/translationImporter";
-import { NotebookMetadataManager } from "../../utils/notebookMetadataManager";
+import { NotebookMetadataManager, getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { importSourceText } from "../../projectManager/sourceTextImporter";
 import { registerScmCommands } from "../scm/scmActionHandler";
 import {
@@ -10,6 +10,7 @@ import {
     SourceUploadResponseMessages,
     ValidationResult,
     FileTypeMap,
+    CustomNotebookMetadata,
 } from "../../../types/index";
 import path from "path";
 import { SourceFileValidator } from "../../validation/sourceFileValidator";
@@ -105,6 +106,13 @@ type PreviewState =
               };
           };
       };
+
+// Add at the top with other interfaces
+interface CodexFile {
+    id: string;
+    name: string;
+    path: string;
+}
 
 function getNonce(): string {
     let text = "";
@@ -570,18 +578,17 @@ export class SourceUploadProvider
                         break;
                     }
                     case "getAvailableCodexFiles": {
-                        const metadataManager = new NotebookMetadataManager();
+                        const metadataManager = getNotebookMetadataManager();
                         await metadataManager.initialize();
                         const codexFiles = metadataManager
                             .getAllMetadata()
-                            .filter((meta) => meta.codexFsPath)
-                            // .sort((a, b) => a.codexLastModified - b.codexLastModified) // FIXME:
-                            .map((meta) => ({
+                            .filter((meta: CustomNotebookMetadata) => meta.codexFsPath)
+                            .map((meta: CustomNotebookMetadata) => ({
                                 id: meta.id,
                                 name: meta.originalName || path.basename(meta.codexFsPath!),
                                 path: meta.codexFsPath!,
                             }));
-                        this.availableCodexFiles = codexFiles.map((f) => vscode.Uri.file(f.path));
+                        this.availableCodexFiles = codexFiles.map((f: CodexFile) => vscode.Uri.file(f.path));
 
                         webviewPanel.webview.postMessage({
                             command: "availableCodexFiles",
@@ -704,12 +711,12 @@ export class SourceUploadProvider
     }
 
     private async updateMetadata(webviewPanel: vscode.WebviewPanel) {
-        const metadataManager = new NotebookMetadataManager();
+        const metadataManager = getNotebookMetadataManager();
         await metadataManager.initialize();
         await metadataManager.loadMetadata();
         const allMetadata = metadataManager.getAllMetadata();
 
-        const aggregatedMetadata = allMetadata.map((metadata) => ({
+        const aggregatedMetadata = allMetadata.map((metadata: CustomNotebookMetadata) => ({
             id: metadata.id,
             originalName: metadata.originalName,
             sourceFsPath: metadata.sourceFsPath,

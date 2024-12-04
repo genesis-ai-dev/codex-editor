@@ -3,7 +3,7 @@ import * as grammar from "usfm-grammar";
 import { ParsedUSFM } from "usfm-grammar";
 import { ImportTransaction, ImportTransactionState } from "./ImportTransaction";
 import { CustomNotebookMetadata, NotebookPreview, RawSourcePreview, ValidationResult } from "../../types";
-import { NotebookMetadataManager } from "../utils/notebookMetadataManager";
+import { NotebookMetadataManager, getNotebookMetadataManager } from "../utils/notebookMetadataManager";
 import { ProgressManager, ProgressStep } from "../utils/progressManager";
 import { CodexCellTypes } from "../../types/enums";
 import path from "path";
@@ -19,7 +19,6 @@ export class UsfmSourceImportTransaction extends ImportTransaction {
     public id: string;
     private preview: RawSourcePreview | null = null;
     private parsedContent: UsfmContent[] = [];
-    private metadataManager: NotebookMetadataManager;
     private readonly context: vscode.ExtensionContext;
 
     private readonly importSteps: ProgressStep[] = [
@@ -35,7 +34,6 @@ export class UsfmSourceImportTransaction extends ImportTransaction {
         super(sourceFile);
         this.id = randomUUID();
         this.context = context;
-        this.metadataManager = new NotebookMetadataManager();
     }
 
     public getId(): string {

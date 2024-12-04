@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { ImportTransaction } from "./ImportTransaction";
-import { NotebookMetadataManager } from "../utils/notebookMetadataManager";
+import { NotebookMetadataManager, getNotebookMetadataManager } from "../utils/notebookMetadataManager";
 import { ProgressManager, ProgressStep } from "../utils/progressManager";
 import { CodexContentSerializer } from "../serializer";
 import {
@@ -23,7 +23,6 @@ interface AlignedCell {
 }
 
 export class UsfmTranslationImportTransaction extends ImportTransaction {
-    private metadataManager: NotebookMetadataManager;
     private readonly context: vscode.ExtensionContext;
     private readonly sourceNotebookId: string;
     private importedContent: ImportedContent[] = [];
@@ -45,7 +44,6 @@ export class UsfmTranslationImportTransaction extends ImportTransaction {
         super(translationFile);
         this.sourceNotebookId = sourceNotebookId;
         this.context = context;
-        this.metadataManager = new NotebookMetadataManager();
     }
 
     async prepare(): Promise<{

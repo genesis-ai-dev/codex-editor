@@ -4,7 +4,7 @@ import { getWorkSpaceUri } from "../../utils/index";
 import { vrefData } from "../../utils/verseRefUtils/verseData";
 import { basename, dirname } from "path";
 import { CustomNotebookMetadata } from "../../../types";
-import { NotebookMetadataManager } from "../../utils/notebookMetadataManager";
+import { NotebookMetadataManager, getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import * as path from "path";
 
 export interface CodexNode {
@@ -30,7 +30,7 @@ export class CodexModel {
     private readonly METADATA_REFRESH_INTERVAL = 1000; // 1 second
 
     constructor(private workspaceRoot: string | undefined, private context: vscode.ExtensionContext) {
-        this.notebookMetadataManager = NotebookMetadataManager.getInstance(context);
+        this.notebookMetadataManager = getNotebookMetadataManager();
         debug("Initializing with workspace root:", workspaceRoot);
         this.notebookMetadataManager.initialize();
     }

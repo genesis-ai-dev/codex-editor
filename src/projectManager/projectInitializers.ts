@@ -94,7 +94,8 @@ export async function initializeProject(shouldImportUSFM: boolean) {
         );
     }
 
-    try { // FIXME: do we need to do this here?? we refresh at the end of this function anyway
+    try {
+        // FIXME: do we need to do this here?? we refresh at the end of this function anyway
         await vscode.commands.executeCommand("codexNotebookTreeView.refresh");
     } catch (error) {
         console.log("Error calling commands of outside extension", error);

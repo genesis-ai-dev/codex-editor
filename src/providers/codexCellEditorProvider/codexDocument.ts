@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { NotebookMetadataManager } from "../../utils/notebookMetadataManager";
+import { NotebookMetadataManager, getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { initializeStateStore } from "../../stateStore";
 import {
     QuillCellContent,
@@ -36,7 +36,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         this.uri = uri;
         this._documentData = initialContent.trim().length === 0 ? {} : JSON.parse(initialContent);
         if (!this._documentData.metadata) {
-            const metadata = new NotebookMetadataManager();
+            const metadata = getNotebookMetadataManager();
             metadata.initialize();
             metadata.loadMetadata().then(() => {
                 const matchingMetadata = metadata

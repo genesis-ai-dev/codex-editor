@@ -3,7 +3,7 @@ import { ImportTransaction, ImportTransactionState } from "./ImportTransaction";
 import { CustomNotebookMetadata, NotebookPreview, RawSourcePreview } from "../../types";
 import { SourceAnalyzer } from "../validation/sourceAnalyzer";
 import { SourceFileValidator } from "../validation/sourceFileValidator";
-import { NotebookMetadataManager } from "../utils/notebookMetadataManager";
+import { NotebookMetadataManager, getNotebookMetadataManager } from "../utils/notebookMetadataManager";
 import path from "path";
 import { ProgressManager, ProgressStep } from "../utils/progressManager";
 import { CodexCellTypes } from "../../types/enums";
@@ -14,7 +14,7 @@ export class SourceImportTransaction extends ImportTransaction {
     public id: string;
     private preview: RawSourcePreview | null = null;
     private analyzer: SourceAnalyzer;
-    private metadataManager: NotebookMetadataManager;
+    protected metadataManager: NotebookMetadataManager;
     private readonly context: vscode.ExtensionContext;
 
     private readonly importSteps: ProgressStep[] = [
@@ -31,7 +31,7 @@ export class SourceImportTransaction extends ImportTransaction {
         this.id = randomUUID();
         this.context = context;
         this.analyzer = new SourceAnalyzer(new SourceFileValidator());
-        this.metadataManager = new NotebookMetadataManager();
+        this.metadataManager = getNotebookMetadataManager();
     }
 
     public getId(): string {

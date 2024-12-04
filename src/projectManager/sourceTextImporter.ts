@@ -7,7 +7,7 @@ import {
     createCodexNotebookFromWebVTT,
     splitSourceFileByBook,
 } from "../utils/codexNotebookUtils";
-import { NotebookMetadataManager } from "../utils/notebookMetadataManager";
+import { NotebookMetadataManager, getNotebookMetadataManager } from "../utils/notebookMetadataManager";
 import { CodexContentSerializer } from "../serializer";
 import * as path from "path";
 
@@ -77,7 +77,7 @@ async function importSourceFile(
             throw new Error(`Source file not found or invalid: ${fileUri.fsPath}`);
         }
 
-        const metadataManager = new NotebookMetadataManager();
+        const metadataManager = getNotebookMetadataManager();
         await metadataManager.initialize();
         await metadataManager.loadMetadata();
 
