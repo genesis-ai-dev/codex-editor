@@ -1,6 +1,7 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import * as path from "path";
+import * as os from "os";
 import { CodexCellEditorProvider } from "../../providers/codexCellEditorProvider/codexCellEditorProvider";
 import { codexSubtitleContent } from "./mocks/codexSubtitleContent";
 import { CodexCellTypes, EditType } from "../../../types/enums";
@@ -14,8 +15,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
 
     suiteSetup(async () => {
         // Create a temporary file in the system's temp directory
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const os = require("os");
+
         const tempDir = os.tmpdir();
         const tempFilePath = path.join(tempDir, "test.codex");
         tempUri = vscode.Uri.file(tempFilePath);
@@ -600,5 +600,74 @@ suite("CodexCellEditorProvider Test Suite", () => {
             smartEditResult,
             "Cell content should be updated after smart edit"
         );
+    });
+    test("git commit is triggered on document save operations", async () => {
+        const provider = new CodexCellEditorProvider(context);
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+
+        // Mock vscode.commands.executeCommand
+        let commitCommandCalled = false;
+        let commitMessage = "";
+        const originalExecuteCommand = vscode.commands.executeCommand;
+        vscode.commands.executeCommand = async (command: string, message?: string) => {
+            if (command === "extension.manualCommit") {
+                commitCommandCalled = true;
+                commitMessage = message || "";
+            }
+            return originalExecuteCommand(command, message);
+        };
+
+        try {
+            // Test save operation
+            await provider.saveCustomDocument(document, new vscode.CancellationTokenSource().token);
+
+            assert.ok(commitCommandCalled, "Git commit command should be called on save");
+            assert.strictEqual(
+                commitMessage,
+                `changes to ${document.uri.path.split("/").pop()}`,
+                "Commit message should contain the filename"
+            );
+
+            // Reset flags and test saveAs operation
+            commitCommandCalled = false;
+            commitMessage = "";
+
+            const newUri = vscode.Uri.file(path.join(os.tmpdir(), "test-save-as.codex"));
+            await provider.saveCustomDocumentAs(
+                document,
+                newUri,
+                new vscode.CancellationTokenSource().token
+            );
+
+            assert.ok(commitCommandCalled, "Git commit command should be called on saveAs");
+            assert.strictEqual(
+                commitMessage,
+                `changes to ${document.uri.path.split("/").pop()}`,
+                "Commit message should contain the filename"
+            );
+
+            // Reset flags and test revert operation
+            commitCommandCalled = false;
+            commitMessage = "";
+
+            await provider.revertCustomDocument(
+                document,
+                new vscode.CancellationTokenSource().token
+            );
+
+            assert.ok(commitCommandCalled, "Git commit command should be called on revert");
+            assert.strictEqual(
+                commitMessage,
+                `changes to ${document.uri.path.split("/").pop()}`,
+                "Commit message should contain the filename"
+            );
+        } finally {
+            // Restore original executeCommand
+            vscode.commands.executeCommand = originalExecuteCommand;
+        }
     });
 });

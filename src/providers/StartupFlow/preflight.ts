@@ -1,6 +1,8 @@
 import * as vscode from "vscode";
 import { waitForExtensionActivation } from "../../utils/vscode";
 import { FrontierAPI } from "../../../webviews/codex-webviews/src/StartupFLow/types";
+import git from "isomorphic-git";
+import * as fs from "fs";
 
 interface AuthState {
     isAuthenticated: boolean;
@@ -21,6 +23,11 @@ interface PreflightState {
         type?: string;
         path?: string;
         repoUrl?: string;
+        error?: string;
+    };
+    gitState: {
+        isGitRepo: boolean;
+        hasRemote: boolean;
         error?: string;
     };
 }
@@ -97,6 +104,11 @@ export class PreflightCheck {
                 repoUrl: undefined,
                 error: undefined,
             },
+            gitState: {
+                isGitRepo: false,
+                hasRemote: false,
+                error: undefined,
+            },
         };
 
         try {
@@ -125,6 +137,28 @@ export class PreflightCheck {
                 const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
                 await vscode.workspace.fs.stat(metadataUri);
                 state.workspaceState.hasMetadata = true;
+
+                // Check git repository status
+                const workspacePath = workspaceFolders[0].uri.fsPath;
+                try {
+                    // Check if it's a git repository
+                    await git.resolveRef({
+                        fs,
+                        dir: workspacePath,
+                        ref: "HEAD",
+                    });
+                    state.gitState.isGitRepo = true;
+
+                    // Check for remotes
+                    const remotes = await git.listRemotes({
+                        fs,
+                        dir: workspacePath,
+                    });
+                    state.gitState.hasRemote = remotes.length > 0;
+                } catch (error) {
+                    console.error("Git check error:", error);
+                    state.gitState.error = "Failed to check git repository status";
+                }
             } catch {
                 state.workspaceState.hasMetadata = false;
             }
@@ -159,6 +193,11 @@ export const registerPreflightCommand = (context: vscode.ExtensionContext) => {
             }
 
             if (!state.workspaceState.hasMetadata) {
+                vscode.commands.executeCommand("codex-project-manager.openStartupFlow");
+                return;
+            }
+
+            if (!state.gitState.isGitRepo) {
                 vscode.commands.executeCommand("codex-project-manager.openStartupFlow");
                 return;
             }

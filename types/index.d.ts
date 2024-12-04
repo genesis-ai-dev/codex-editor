@@ -317,17 +317,6 @@ export type GitLabProject = {
     owner: string;
 };
 
-export type LocalProject = {
-    name: string;
-    path: string;
-    lastOpened?: Date;
-    lastModified: Date;
-    version: string;
-    hasVersionMismatch?: boolean;
-    gitOriginUrl?: string;
-    description: string;
-};
-
 export type ProjectSyncStatus =
     | "downloadedAndSynced"
     | "cloudOnlyNotSynced"
@@ -933,20 +922,71 @@ interface ImportedContent {
 }
 
 // Add or verify these message types
-type ProjectManagerPostMessages =
+type ProjectManagerMessageFromWebview =
     | { command: "sendProjectsList"; data: Project[] }
-    | { command: "noWorkspaceOpen"; data: Project[] }
     | { command: "requestProjectOverview" }
-    | { command: "error"; message: string };
+    | { command: "error"; message: string }
+    | { command: "webviewReady" }
+    | { command: "refreshState" }
+    | { command: "initializeProject" }
+    | { command: "renameProject" }
+    | { command: "changeUserName" }
+    | { command: "changeSourceLanguage" }
+    | { command: "changeTargetLanguage" }
+    | { command: "editAbbreviation" }
+    | { command: "selectCategory" }
+    | { command: "openSourceUpload" }
+    | { command: "openAISettings" }
+    | { command: "exportProjectAsPlaintext" }
+    | { command: "closeProject" }
+    | { command: "createNewWorkspaceAndProject" }
+    | { command: "openProject"; data: { path: string } }
+    | { command: "addWatchFolder" }
+    | { command: "removeWatchFolder"; data: { path: string } }
+    | { command: "refreshProjects" }
+    | { command: "openProjectSettings" }
+    | { command: "downloadSourceText" }
+    | { command: "selectprimarySourceText"; data: string }
+    | { command: "openBible"; data: { path: string } }
+    | { command: "checkPublishStatus" }
+    | { command: "publishProject" };
+
+interface ProjectManagerState {
+    projectOverview: ProjectOverview | null;
+    webviewReady: boolean;
+    watchedFolders: string[];
+    projects: Array<LocalProject> | null;
+    isScanning: boolean;
+    canInitializeProject: boolean;
+    workspaceIsOpen: boolean;
+    repoHasRemote: boolean;
+}
+type ProjectManagerMessageToWebview =
+    | {
+          command: "stateUpdate";
+          data: ProjectManagerState;
+      }
+    | {
+          command: "publishStatus";
+          data: {
+              hasRemote: boolean;
+          };
+      }
+    | {
+          command: "stateUpdate";
+          data: ProjectManagerState;
+      };
 
 // Ensure the Project type is correctly defined
-interface Project {
+interface LocalProject {
     name: string;
     path: string;
     lastOpened?: Date;
     lastModified: Date;
     version: string;
     hasVersionMismatch?: boolean;
+    gitOriginUrl?: string;
+    description: string;
     isOutdated?: boolean;
 }
 

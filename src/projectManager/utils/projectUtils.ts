@@ -164,7 +164,7 @@ export function generateProjectScope(
     return projectScope;
 }
 
-export async function initializeProjectMetadata(details: ProjectDetails) {
+export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
     // Initialize a new project with the given details and return the project object
     const newProject: Project = {
         format: "scripture burrito",
@@ -265,10 +265,71 @@ export async function initializeProjectMetadata(details: ProjectDetails) {
     } catch (error) {
         // File doesn't exist, we can proceed with creation
     }
-
     try {
         await vscode.workspace.fs.writeFile(projectFilePath, projectFileData);
         vscode.window.showInformationMessage(`Project created at ${projectFilePath.fsPath}`);
+
+        // Check if git is already initialized
+        let isGitInitialized = false;
+        try {
+            await git.resolveRef({
+                fs,
+                dir: workspaceFolder,
+                ref: "HEAD",
+            });
+            isGitInitialized = true;
+        } catch (error) {
+            // Git is not initialized
+        }
+
+        if (!isGitInitialized) {
+            // Initialize git repository
+            try {
+                await git.init({
+                    fs,
+                    dir: workspaceFolder,
+                    defaultBranch: "main",
+                });
+
+                // Create .gitignore file
+                const gitignorePath = vscode.Uri.joinPath(WORKSPACE_FOLDER.uri, ".gitignore");
+                const gitignoreContent = Buffer.from(
+                    ".project/dictionary.sqlite\n.DS_Store\n",
+                    "utf8"
+                );
+                await vscode.workspace.fs.writeFile(gitignorePath, gitignoreContent);
+
+                // Add files to git
+                await git.add({
+                    fs,
+                    dir: workspaceFolder,
+                    filepath: "metadata.json",
+                });
+
+                await git.add({
+                    fs,
+                    dir: workspaceFolder,
+                    filepath: ".gitignore",
+                });
+
+                await git.commit({
+                    fs,
+                    dir: workspaceFolder,
+                    message: "Initial commit: Add project metadata",
+                    author: {
+                        name: details.userName || "Unknown",
+                        email: "user@example.com", // FIXME: Consider getting this from configuration
+                    },
+                });
+
+                vscode.window.showInformationMessage("Git repository initialized successfully");
+            } catch (error) {
+                console.error("Failed to initialize git repository:", error);
+                vscode.window.showErrorMessage(
+                    `Failed to initialize git repository: ${error instanceof Error ? error.message : String(error)}`
+                );
+            }
+        }
     } catch (error: any) {
         vscode.window.showErrorMessage(
             `Failed to create project: ${error.message || JSON.stringify(error)}`
@@ -432,7 +493,7 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
     }
 }
 
-export const checkIfMetadataIsInitialized = async (): Promise<boolean> => {
+export const checkIfMetadataAndGitIsInitialized = async (): Promise<boolean> => {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
         console.error("No workspace folder found");
@@ -440,12 +501,26 @@ export const checkIfMetadataIsInitialized = async (): Promise<boolean> => {
     }
 
     const metadataUri = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
-    console.log("Checking metadata at:", metadataUri.fsPath);
+    console.log("Checking metadata and git at:", metadataUri.fsPath);
 
     try {
+        // Check metadata file
         await vscode.workspace.fs.stat(metadataUri);
         console.log("Metadata file exists");
-        return true;
+
+        // Check git repository
+        try {
+            await git.resolveRef({
+                fs,
+                dir: workspaceFolder.uri.fsPath,
+                ref: "HEAD",
+            });
+            console.log("Git repository exists");
+            return true;
+        } catch (error) {
+            console.error("Git repository not initialized:", error);
+            return false;
+        }
     } catch (error) {
         console.error("Metadata file does not exist or cannot be accessed:", error);
         return false;
@@ -659,4 +734,52 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
     }
 
     return projects;
+}
+
+export async function stageAndCommitAll(
+    workspaceFolder: string,
+    commitMessage: string,
+    author?: { name: string; email: string }
+): Promise<void> {
+    try {
+        // Get status of all files
+        const statusMatrix = await git.statusMatrix({
+            fs,
+            dir: workspaceFolder,
+        });
+
+        // Stage all changed files
+        for (const [filepath, , worktreeStatus] of statusMatrix) {
+            if (worktreeStatus !== 1) {
+                // 1 means unchanged
+                await git.add({
+                    fs,
+                    dir: workspaceFolder,
+                    filepath,
+                });
+            }
+        }
+
+        // Create commit with staged changes
+        await git.commit({
+            fs,
+            dir: workspaceFolder,
+            message: commitMessage,
+            author: author || {
+                name:
+                    vscode.workspace
+                        .getConfiguration("codex-project-manager")
+                        .get<string>("userName") || "Unknown",
+                email: "user@example.com", // FIXME: Consider getting this from configuration
+            },
+        });
+
+        vscode.window.showInformationMessage("Changes committed successfully");
+    } catch (error) {
+        console.error("Failed to commit changes:", error);
+        vscode.window.showErrorMessage(
+            `Failed to commit changes: ${error instanceof Error ? error.message : String(error)}`
+        );
+        throw error;
+    }
 }

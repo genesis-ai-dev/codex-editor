@@ -1,39 +1,20 @@
 import { useEffect, useState } from "react";
 import {
     VSCodeButton,
-    VSCodeDataGrid,
-    VSCodeDataGridCell,
-    VSCodeDataGridRow,
     VSCodePanelTab,
     VSCodePanelView,
     VSCodePanels,
 } from "@vscode/webview-ui-toolkit/react";
-import { ProjectOverview } from "../../../../types";
-import { ProjectList } from "./ProjectList";
+import {
+    ProjectManagerMessageFromWebview,
+    ProjectManagerMessageToWebview,
+    ProjectManagerState,
+} from "../../../../types";
 import "./App.css";
 
 declare const vscode: {
     postMessage: (message: any) => void;
 };
-
-interface ProjectState {
-    projects:
-        | Array<{
-              name: string;
-              path: string;
-              lastOpened?: Date;
-              lastModified: Date;
-              version: string;
-              hasVersionMismatch?: boolean;
-              isOutdated?: boolean;
-          }>
-        | [];
-    watchedFolders: [];
-    projectOverview: ProjectOverview | null;
-    isScanning: boolean;
-    canInitializeProject: boolean;
-    workspaceIsOpen: boolean;
-}
 
 const getLanguageDisplay = (languageObj: any): string => {
     if (!languageObj) return "Missing";
@@ -95,20 +76,22 @@ const ProjectField = ({ label, value, icon, onAction, hasWarning }: ProjectField
 );
 
 function ProjectManagerView() {
-    const [state, setState] = useState<ProjectState>({
+    const [state, setState] = useState<ProjectManagerState>({
         projects: [],
         projectOverview: null,
         isScanning: true,
         watchedFolders: [],
         canInitializeProject: false,
         workspaceIsOpen: true,
+        webviewReady: false,
+        repoHasRemote: false,
     });
 
     const [initialized, setInitialized] = useState(false);
     const [retryCount, setRetryCount] = useState(0);
 
-    const handleAction = (command: string, data?: any) => {
-        vscode.postMessage({ command, data });
+    const handleAction = (message: ProjectManagerMessageFromWebview) => {
+        vscode.postMessage(message as ProjectManagerMessageFromWebview);
 
         // List of commands that modify the project state
         const stateChangingCommands = [
@@ -125,18 +108,22 @@ function ProjectManagerView() {
         ];
 
         // If the command modifies state, request a refresh
-        if (stateChangingCommands.includes(command)) {
+        if (stateChangingCommands.includes(message.command)) {
             // Add a small delay to allow the command to complete
             setTimeout(() => {
-                vscode.postMessage({ command: "refreshState" });
+                vscode.postMessage({ command: "refreshState" } as ProjectManagerMessageFromWebview);
             }, 100);
         }
     };
 
     useEffect(() => {
-        const handler = (message: MessageEvent) => {
-            if (message.data.type === "stateUpdate") {
-                setState(message.data.state);
+        vscode.postMessage({ command: "checkPublishStatus" } as ProjectManagerMessageFromWebview);
+    }, []);
+
+    useEffect(() => {
+        const handler = (message: MessageEvent<ProjectManagerMessageToWebview>) => {
+            if (message.data.command === "stateUpdate") {
+                setState(message.data.data);
                 setInitialized(true);
             }
         };
@@ -145,7 +132,7 @@ function ProjectManagerView() {
 
         // Initial state request with retry logic
         const requestInitialState = () => {
-            vscode.postMessage({ command: "webviewReady" });
+            vscode.postMessage({ command: "webviewReady" } as ProjectManagerMessageFromWebview);
         };
 
         const retryWithBackoff = () => {
@@ -229,8 +216,6 @@ function ProjectManagerView() {
         );
     }
 
-    const activePanel = state.projectOverview ? "current-project" : "all-projects";
-
     return (
         <div
             style={{
@@ -240,13 +225,12 @@ function ProjectManagerView() {
                 flexDirection: "column",
             }}
         >
-            <VSCodePanels activeid={activePanel}>
+            <VSCodePanels>
                 <VSCodePanelTab id="current-project">Current Project</VSCodePanelTab>
-                {/* <VSCodePanelTab id="all-projects">All Projects</VSCodePanelTab> */}
 
                 <VSCodePanelView id="current-project-view">
                     {state.canInitializeProject ? (
-                        // Show initialize button when we can initialize
+                        // Initialize project button section
                         <div
                             style={{
                                 display: "flex",
@@ -255,13 +239,15 @@ function ProjectManagerView() {
                                 height: "100%",
                             }}
                         >
-                            <VSCodeButton onClick={() => handleAction("initializeProject")}>
+                            <VSCodeButton
+                                onClick={() => handleAction({ command: "initializeProject" })}
+                            >
                                 <i className="codicon codicon-plus"></i>
                                 <div style={{ marginInline: "0.25rem" }}>Initialize Project</div>
                             </VSCodeButton>
                         </div>
                     ) : state.projectOverview ? (
-                        // Show project details when we have metadata
+                        // Project details section
                         <div
                             style={{
                                 display: "flex",
@@ -275,7 +261,7 @@ function ProjectManagerView() {
                                 label="Project Name"
                                 value={state.projectOverview.projectName ?? "Missing"}
                                 icon="pencil"
-                                onAction={() => handleAction("renameProject")}
+                                onAction={() => handleAction({ command: "renameProject" })}
                                 hasWarning={!state.projectOverview.projectName}
                             />
 
@@ -283,7 +269,7 @@ function ProjectManagerView() {
                                 label="User Name"
                                 value={state.projectOverview.userName ?? "Missing"}
                                 icon="account"
-                                onAction={() => handleAction("changeUserName")}
+                                onAction={() => handleAction({ command: "changeUserName" })}
                                 hasWarning={!state.projectOverview.userName}
                             />
 
@@ -291,7 +277,7 @@ function ProjectManagerView() {
                                 label="Source Language"
                                 value={getLanguageDisplay(state.projectOverview.sourceLanguage)}
                                 icon="source-control"
-                                onAction={() => handleAction("changeSourceLanguage")}
+                                onAction={() => handleAction({ command: "changeSourceLanguage" })}
                                 hasWarning={!state.projectOverview.sourceLanguage}
                             />
 
@@ -299,7 +285,7 @@ function ProjectManagerView() {
                                 label="Target Language"
                                 value={getLanguageDisplay(state.projectOverview.targetLanguage)}
                                 icon="globe"
-                                onAction={() => handleAction("changeTargetLanguage")}
+                                onAction={() => handleAction({ command: "changeTargetLanguage" })}
                                 hasWarning={!state.projectOverview.targetLanguage}
                             />
 
@@ -307,7 +293,7 @@ function ProjectManagerView() {
                                 label="Abbreviation"
                                 value={state.projectOverview.abbreviation?.toString() ?? "Missing"}
                                 icon="pencil"
-                                onAction={() => handleAction("editAbbreviation")}
+                                onAction={() => handleAction({ command: "editAbbreviation" })}
                                 hasWarning={!state.projectOverview.abbreviation}
                             />
 
@@ -315,7 +301,7 @@ function ProjectManagerView() {
                                 label="Category"
                                 value={String(state.projectOverview.category) ?? "Missing"}
                                 icon="pencil"
-                                onAction={() => handleAction("selectCategory")}
+                                onAction={() => handleAction({ command: "selectCategory" })}
                                 hasWarning={!state.projectOverview.category}
                             />
 
@@ -328,7 +314,7 @@ function ProjectManagerView() {
                                         : "Missing"
                                 }
                                 icon="preview"
-                                onAction={() => handleAction("openSourceUpload")}
+                                onAction={() => handleAction({ command: "openSourceUpload" })}
                                 hasWarning={!state.projectOverview.sourceTexts?.length}
                             />
 
@@ -340,25 +326,36 @@ function ProjectManagerView() {
                                     marginTop: "1rem",
                                 }}
                             >
-                                <VSCodeButton onClick={() => handleAction("openAISettings")}>
+                                <VSCodeButton
+                                    onClick={() => handleAction({ command: "openAISettings" })}
+                                >
                                     <i className="codicon codicon-settings"></i> Copilot Settings
                                 </VSCodeButton>
 
                                 <VSCodeButton
-                                    onClick={() => handleAction("exportProjectAsPlaintext")}
+                                    onClick={() =>
+                                        handleAction({ command: "exportProjectAsPlaintext" })
+                                    }
                                 >
                                     <i className="codicon codicon-export"></i> Export Project
                                 </VSCodeButton>
-
+                                {!state.repoHasRemote && (
+                                    <VSCodeButton
+                                        onClick={() => handleAction({ command: "publishProject" })}
+                                    >
+                                        <i className="codicon codicon-cloud-upload"></i> Publish
+                                        Project
+                                    </VSCodeButton>
+                                )}
                                 <VSCodeButton
-                                    onClick={() => alert("Publish Project not implemented yet.")}
+                                    onClick={() => handleAction({ command: "closeProject" })}
                                 >
-                                    <i className="codicon codicon-cloud-upload"></i> Publish Project
+                                    <i className="codicon codicon-close"></i> Close Project
                                 </VSCodeButton>
                             </div>
                         </div>
                     ) : (
-                        // Show message when no project is available
+                        // No project message
                         <div
                             style={{
                                 display: "flex",
@@ -371,19 +368,6 @@ function ProjectManagerView() {
                         </div>
                     )}
                 </VSCodePanelView>
-
-                {/* <VSCodePanelView id="all-projects-view">
-                    <ProjectList
-                        projects={state.projects}
-                        watchedFolders={state.watchedFolders || []}
-                        onCreateNew={() => handleAction("createNewWorkspaceAndProject")}
-                        onOpenProject={(path) => handleAction("openProject", { path })}
-                        onAddWatchFolder={() => handleAction("addWatchFolder")}
-                        onRemoveWatchFolder={(path) => handleAction("removeWatchFolder", { path })}
-                        onRefreshProjects={() => handleAction("refreshProjects")}
-                        showBackButton={false}
-                    />
-                </VSCodePanelView> */}
             </VSCodePanels>
         </div>
     );

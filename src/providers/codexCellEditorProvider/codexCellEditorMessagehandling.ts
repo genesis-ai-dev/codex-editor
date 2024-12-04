@@ -67,6 +67,7 @@ export class CodexCellEditorMessageHandling {
                         "translators-copilot.spellCheckText",
                         event.content.cellContent
                     );
+                    console.log("response", { response });
                     this.provider.postMessageToWebview(webviewPanel, {
                         type: "providerSendsSpellCheckResponse",
                         content: response as SpellCheckResponse,
