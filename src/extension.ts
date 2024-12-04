@@ -37,6 +37,7 @@ import {
 import MiniSearch from "minisearch";
 import { registerStartupFlowCommands } from "./providers/StartupFlow/registerCommands";
 import { registerPreflightCommand } from "./providers/StartupFlow/preflight";
+import { stageAndCommitAll } from "./projectManager/utils/projectUtils";
 
 declare global {
     // eslint-disable-next-line
@@ -47,8 +48,47 @@ let client: LanguageClient | undefined;
 let clientCommandsDisposable: vscode.Disposable;
 let autoCompleteStatusBarItem: StatusBarItem;
 let tableIndexMap: Map<string, MiniSearch<TableRecord>>;
+let commitTimeout: NodeJS.Timeout | undefined;
+const COMMIT_DELAY = 5000; // Delay in milliseconds
 
 export async function activate(context: vscode.ExtensionContext) {
+    const handleSaveEvent = (commitMessage: string) => {
+        if (commitTimeout) {
+            clearTimeout(commitTimeout);
+        }
+
+        commitTimeout = setTimeout(async () => {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (workspaceFolder) {
+                try {
+                    await stageAndCommitAll(workspaceFolder, "Auto commit on save");
+                } catch (error) {
+                    console.error("Failed to auto-commit changes:", error);
+                }
+            }
+        }, COMMIT_DELAY);
+    };
+
+    // Listen for text document saves (includes JSON files)
+    context.subscriptions.push(
+        vscode.workspace.onDidSaveTextDocument((document) => {
+            handleSaveEvent(`changes to ${document.uri.path.split("/").pop()}`);
+        })
+    );
+
+    // Listen for notebook document saves
+    context.subscriptions.push(
+        vscode.workspace.onDidSaveNotebookDocument((notebookDocument) => {
+            handleSaveEvent(`changes to ${notebookDocument.uri.path.split("/").pop()}`);
+        })
+    );
+    
+    context.subscriptions.push(
+        vscode.commands.registerCommand('extension.manualCommit', (message: string) => {
+            handleSaveEvent(message);
+        })
+    );
+
     // Register startup flow commands early, as they handle the initial setup flow
     await registerStartupFlowCommands(context);
     registerPreflightCommand(context);

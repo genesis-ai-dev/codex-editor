@@ -8,6 +8,7 @@ import { QuillCellContent, EditorPostMessages, EditorReceiveMessages } from "../
 import { CodexCellDocument } from "./codexDocument";
 import { CodexCellEditorMessageHandling } from "./codexCellEditorMessagehandling";
 import { registerCellEditorCommands } from "./registerCellEditorCommands";
+import { stageAndCommitAll } from "../../projectManager/utils/projectUtils";
 function getNonce(): string {
     let text = "";
     const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -181,6 +182,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         cancellation: vscode.CancellationToken
     ): Promise<void> {
         await document.save(cancellation);
+        await this.executeGitCommit(document);
+    }
+
+    private async executeGitCommit(document: CodexCellDocument): Promise<void> {
+        await vscode.commands.executeCommand(
+            "extension.manualCommit",
+            `changes to ${document.uri.path.split("/").pop()}`
+        );
     }
 
     public async saveCustomDocumentAs(
@@ -189,6 +198,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         cancellation: vscode.CancellationToken
     ): Promise<void> {
         await document.saveAs(destination, cancellation);
+        await this.executeGitCommit(document);
     }
 
     public async revertCustomDocument(
@@ -196,6 +206,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         cancellation: vscode.CancellationToken
     ): Promise<void> {
         await document.revert(cancellation);
+        await this.executeGitCommit(document);
     }
 
     public async backupCustomDocument(

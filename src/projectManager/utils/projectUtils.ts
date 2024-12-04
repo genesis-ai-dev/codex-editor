@@ -736,7 +736,6 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
     return projects;
 }
 
-
 export async function stageAndCommitAll(
     workspaceFolder: string,
     commitMessage: string,
@@ -751,7 +750,8 @@ export async function stageAndCommitAll(
 
         // Stage all changed files
         for (const [filepath, , worktreeStatus] of statusMatrix) {
-            if (worktreeStatus !== 1) { // 1 means unchanged
+            if (worktreeStatus !== 1) {
+                // 1 means unchanged
                 await git.add({
                     fs,
                     dir: workspaceFolder,
@@ -766,9 +766,10 @@ export async function stageAndCommitAll(
             dir: workspaceFolder,
             message: commitMessage,
             author: author || {
-                name: vscode.workspace
-                    .getConfiguration("codex-project-manager")
-                    .get<string>("userName") || "Unknown",
+                name:
+                    vscode.workspace
+                        .getConfiguration("codex-project-manager")
+                        .get<string>("userName") || "Unknown",
                 email: "user@example.com", // FIXME: Consider getting this from configuration
             },
         });
