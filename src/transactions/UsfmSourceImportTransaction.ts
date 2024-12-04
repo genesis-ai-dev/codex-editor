@@ -83,19 +83,20 @@ export class UsfmSourceImportTransaction extends ImportTransaction {
                 throw new Error(`Failed to parse USFM content: ${error instanceof Error ? error.message : 'Unknown error'}`);
             }
 
-            // Get book ID from USFM
-            const bookCode = jsonOutput.book?.bookCode;
-            if (!bookCode) {
+            // Get book ID from USFM and ensure it's uppercase
+            const rawBookCode = jsonOutput.book?.bookCode;
+            if (!rawBookCode) {
                 throw new Error("No book code found in USFM file. Please ensure the file has a valid \\id tag.");
             }
 
-            // Validate book code format
+            // Convert to uppercase and validate
+            const bookCode = rawBookCode.toUpperCase();
             if (!/^[A-Z0-9]{3}$/.test(bookCode)) {
                 throw new Error(`Invalid book code format: ${bookCode}. Expected a 3-character code like 'GEN' or 'MAT'.`);
             }
 
-            // Use book code for file naming, ensuring it's lowercase for consistency
-            const baseName = bookCode.toLowerCase();
+            // Use uppercase book code for file naming
+            const baseName = bookCode;
 
             // Parse chapters and verses
             try {
