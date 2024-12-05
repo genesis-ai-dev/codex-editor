@@ -10,11 +10,13 @@ import { initializeProject } from "../projectInitializers";
 import { getProjectMetadata } from "../../utils";
 import git from "isomorphic-git";
 import fs from "fs";
+import http from "isomorphic-git/http/web";
 
 export interface ProjectDetails {
     projectName?: string;
     projectCategory?: string;
     userName?: string;
+    userEmail?: string;
     abbreviation?: string;
     sourceLanguage?: LanguageMetadata;
     targetLanguage?: LanguageMetadata;
@@ -191,6 +193,12 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
                         .getConfiguration("codex-project-manager")
                         .get<string>("userName") ||
                     "", // previously "Unknown"
+                userEmail:
+                    details.userEmail ||
+                    vscode.workspace
+                        .getConfiguration("codex-project-manager")
+                        .get<string>("userEmail") ||
+                    "",
             },
             defaultLocale: "en",
             dateCreated: new Date().toDateString(),
@@ -318,7 +326,10 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
                     message: "Initial commit: Add project metadata",
                     author: {
                         name: details.userName || "Unknown",
-                        email: "user@example.com", // FIXME: Consider getting this from configuration
+                        email:
+                            vscode.workspace
+                                .getConfiguration("codex-project-manager")
+                                .get<string>("userEmail") || "unknown",
                     },
                 });
 
@@ -367,6 +378,7 @@ export async function updateMetadataFile() {
     project.meta.category = projectSettings.get("projectCategory", "");
     project.meta.generator = project.meta.generator || {}; // Ensure generator object exists
     project.meta.generator.userName = projectSettings.get("userName", "");
+    project.meta.generator.userEmail = projectSettings.get("userEmail", "");
     project.languages[0] = projectSettings.get("sourceLanguage", "");
     project.languages[1] = projectSettings.get("targetLanguage", "");
     project.meta.abbreviation = projectSettings.get("abbreviation", "");
@@ -440,6 +452,7 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
             projectStatus: metadata.projectStatus || "Unknown Status",
             category: metadata.meta?.category || "Uncategorized",
             userName: metadata.meta?.generator?.userName || "Anonymous",
+            userEmail: metadata.meta?.generator?.userEmail || "",
             meta: {
                 version: metadata.meta?.version || "0.0.1",
                 // FIXME: the codex-types library is out of date. Thus we have mismatched and/or duplicate values being defined
@@ -448,6 +461,7 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
                     softwareName: metadata.meta?.generator?.softwareName || "Unknown Software",
                     softwareVersion: metadata.meta?.generator?.softwareVersion || "0.0.1",
                     userName: metadata.meta?.generator?.userName || "Anonymous",
+                    userEmail: metadata.meta?.generator?.userEmail || "",
                 },
                 defaultLocale: metadata.meta?.defaultLocale || "en",
                 dateCreated: metadata.meta?.dateCreated || new Date().toISOString(),
@@ -736,7 +750,7 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
     return projects;
 }
 
-export async function stageAndCommitAll(
+export async function stageAndCommitAllAndSync(
     workspaceFolder: string,
     commitMessage: string,
     author?: { name: string; email: string }
@@ -770,15 +784,46 @@ export async function stageAndCommitAll(
                     vscode.workspace
                         .getConfiguration("codex-project-manager")
                         .get<string>("userName") || "Unknown",
-                email: "user@example.com", // FIXME: Consider getting this from configuration
+                email:
+                    vscode.workspace
+                        .getConfiguration("codex-project-manager")
+                        .get<string>("userEmail") || "unknown",
             },
         });
 
-        vscode.window.showInformationMessage("Changes committed successfully");
+        // Check if remote exists
+        try {
+            const remotes = await git.listRemotes({ fs, dir: workspaceFolder });
+            const hasOrigin = remotes.some((remote) => remote.remote === "origin");
+
+            if (hasOrigin) {
+                // Pull latest changes from remote
+                await git.pull({
+                    fs,
+                    http,
+                    dir: workspaceFolder,
+                    ref: "main",
+                    singleBranch: true,
+                });
+
+                // Push changes to remote
+                await git.push({
+                    fs,
+                    http,
+                    dir: workspaceFolder,
+                    remote: "origin",
+                    ref: "main",
+                });
+            }
+        } catch (error) {
+            console.log("No remote configured, skipping pull/push");
+        }
+
+        vscode.window.showInformationMessage("Changes committed and synced successfully");
     } catch (error) {
-        console.error("Failed to commit changes:", error);
+        console.error("Failed to commit and sync changes:", error);
         vscode.window.showErrorMessage(
-            `Failed to commit changes: ${error instanceof Error ? error.message : String(error)}`
+            `Failed to commit and sync changes: ${error instanceof Error ? error.message : String(error)}`
         );
         throw error;
     }

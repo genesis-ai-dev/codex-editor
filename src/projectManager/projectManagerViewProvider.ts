@@ -371,6 +371,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                         case "openProjectSettings":
                         case "renameProject":
                         case "changeUserName":
+                        case "changeUserEmail":
                         case "editAbbreviation":
                         case "changeSourceLanguage":
                         case "changeTargetLanguage":

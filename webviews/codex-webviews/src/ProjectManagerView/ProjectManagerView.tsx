@@ -274,6 +274,14 @@ function ProjectManagerView() {
                             />
 
                             <ProjectField
+                                label="User Email"
+                                value={state.projectOverview.userEmail ?? "Missing"}
+                                icon="mail"
+                                onAction={() => handleAction({ command: "changeUserEmail" })}
+                                hasWarning={!state.projectOverview.userEmail}
+                            />
+
+                            <ProjectField
                                 label="Source Language"
                                 value={getLanguageDisplay(state.projectOverview.sourceLanguage)}
                                 icon="source-control"

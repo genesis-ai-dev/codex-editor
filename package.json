@@ -728,6 +728,11 @@
                         "default": "",
                         "description": "Name of the user"
                     },
+                    "codex-project-manager.userEmail": {
+                        "type": "string",
+                        "default": "",
+                        "description": "Email of the user e.g. user@example.com"
+                    },
                     "codex-project-manager.abbreviation": {
                         "type": "string",
                         "default": "",

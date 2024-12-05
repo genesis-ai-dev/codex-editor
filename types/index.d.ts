@@ -719,6 +719,7 @@ interface ProjectOverview extends Project {
     targetLanguage: LanguageMetadata;
     category: string;
     userName: string;
+    userEmail: string;
     sourceTexts?: vscode.Uri[] | never[];
     targetTexts?: vscode.Uri[] | never[];
     targetFont: string;
@@ -931,6 +932,7 @@ type ProjectManagerMessageFromWebview =
     | { command: "initializeProject" }
     | { command: "renameProject" }
     | { command: "changeUserName" }
+    | { command: "changeUserEmail" }
     | { command: "changeSourceLanguage" }
     | { command: "changeTargetLanguage" }
     | { command: "editAbbreviation" }

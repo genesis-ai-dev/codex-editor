@@ -38,7 +38,7 @@ import MiniSearch from "minisearch";
 import { registerStartupFlowCommands } from "./providers/StartupFlow/registerCommands";
 import { registerPreflightCommand } from "./providers/StartupFlow/preflight";
 import { NotebookMetadataManager } from "./utils/notebookMetadataManager";
-import { stageAndCommitAll } from "./projectManager/utils/projectUtils";
+import { stageAndCommitAllAndSync } from "./projectManager/utils/projectUtils";
 
 declare global {
     // eslint-disable-next-line
@@ -62,17 +62,17 @@ export async function activate(context: vscode.ExtensionContext) {
         if (commitTimeout) {
             clearTimeout(commitTimeout);
         }
-
+        // eslint-disable-next-line
         commitTimeout = setTimeout(async () => {
             const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             if (workspaceFolder) {
                 try {
-                    await stageAndCommitAll(workspaceFolder, "Auto commit on save");
+                    await stageAndCommitAllAndSync(workspaceFolder, commitMessage);
                 } catch (error) {
                     console.error("Failed to auto-commit changes:", error);
                 }
             }
-        }, COMMIT_DELAY);
+        }, COMMIT_DELAY) as NodeJS.Timeout;
     };
 
     // Listen for text document saves (includes JSON files)

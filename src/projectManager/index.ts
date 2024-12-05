@@ -299,6 +299,28 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         })
     );
 
+    const changeUserEmailCommand = vscode.commands.registerCommand(
+        "codex-project-manager.changeUserEmail",
+        executeWithRedirecting(async () => {
+            const config = vscode.workspace.getConfiguration("codex-project-manager");
+            const currentUserEmail = config.get("userEmail", "");
+
+            const newUserEmail = await vscode.window.showInputBox({
+                prompt: "Enter user email",
+                value: currentUserEmail,
+            });
+
+            if (newUserEmail !== undefined) {
+                await config.update(
+                    "userEmail",
+                    newUserEmail,
+                    vscode.ConfigurationTarget.Workspace
+                );
+                vscode.commands.executeCommand("codex-project-manager.updateMetadataFile");
+            }
+        })
+    );
+
     const openProjectSettingsCommand = vscode.commands.registerCommand(
         "codex-project-manager.openProjectSettings",
         executeWithRedirecting(async () => {
@@ -478,6 +500,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         showProjectOverviewCommand,
         openAISettingsCommand,
         importLocalUsfmSourceBibleCommand,
+        changeUserEmailCommand,
         onDidChangeConfigurationListener
     );
 
