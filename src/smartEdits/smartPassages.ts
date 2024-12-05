@@ -59,11 +59,35 @@ export class SmartPassages {
                 "smart_passages_memories.json"
             );
             this.chatHistoryFile = path.join(workspaceUri.fsPath, "files", "chat_history.jsonl");
+
+            // Ensure the files exist or create them
+            this.ensureFileExists(this.feedbackFile);
+            this.ensureFileExists(this.chatHistoryFile);
         } else {
             throw new Error("No workspace found");
         }
         this.currentSessionId = uuidv4();
         this.currentSessionName = null;
+    }
+
+    private async ensureFileExists(filePath: string) {
+        try {
+            await fs.access(filePath);
+        } catch (error) {
+            // File doesn't exist, create it
+            try {
+                await fs.writeFile(filePath, "");
+            } catch (createError) {
+                console.error(`Error creating file ${filePath}:`, createError);
+                // If creation fails, delete the file (if it exists) and try again
+                try {
+                    await fs.unlink(filePath);
+                    await fs.writeFile(filePath, "");
+                } catch (retryError) {
+                    console.error(`Error recreating file ${filePath}:`, retryError);
+                }
+            }
+        }
     }
 
     private generateSessionName(query: string): string {
@@ -302,6 +326,14 @@ export class SmartPassages {
         const tempFile = path.join(os.tmpdir(), `chat_history_temp_${Date.now()}.jsonl`);
 
         try {
+            // Ensure the directory exists
+            await fs.mkdir(path.dirname(this.chatHistoryFile), { recursive: true });
+
+            // Create the file if it doesn't exist
+            if (!(await this.fileExists(this.chatHistoryFile))) {
+                await fs.writeFile(this.chatHistoryFile, "");
+            }
+
             const writeStream = createWriteStream(tempFile);
             const readStream = createReadStream(this.chatHistoryFile);
             const rl = readline.createInterface({
@@ -350,6 +382,15 @@ export class SmartPassages {
             console.error("Error saving chat history:", error);
             // Clean up the temp file if there was an error
             await fs.unlink(tempFile).catch(console.error);
+        }
+    }
+
+    private async fileExists(filePath: string): Promise<boolean> {
+        try {
+            await fs.access(filePath);
+            return true;
+        } catch {
+            return false;
         }
     }
 
