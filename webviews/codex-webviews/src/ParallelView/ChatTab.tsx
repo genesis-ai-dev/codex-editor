@@ -17,6 +17,7 @@ import {
     AddedFeedbackComponent,
     GuessNextPromptsComponent,
     YoutubeVideoComponent,
+    RequestPinningComponent,
 } from "./ChatComponents";
 import { format } from "date-fns";
 import { UserFeedbackComponent, RegEx as UserChatRegEx } from "./UserChatComponents";
@@ -50,6 +51,7 @@ interface ChatTabProps {
     onSendFeedback: (originalText: string, feedbackText: string, cellId: string) => void;
     isSessionMenuOpen: boolean;
     setIsSessionMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
+    handleRequestPinning: (cellIds: string[]) => void;
 }
 
 function ChatTab({
@@ -71,6 +73,7 @@ function ChatTab({
     onSendFeedback,
     isSessionMenuOpen,
     setIsSessionMenuOpen,
+    handleRequestPinning,
 }: ChatTabProps) {
     const chatHistoryRef = useRef<HTMLDivElement>(null);
     const [pendingSubmit, setPendingSubmit] = useState(false);
@@ -315,6 +318,14 @@ function ChatTab({
                                     onClick={(prompt) => handlePromptClick(prompt)}
                                 />
                             );
+                        } else if (part.type === "RequestPinning" && part.props) {
+                            return (
+                                <RequestPinningComponent
+                                    key={`rp-${index}`}
+                                    cellIds={part.props.cellIds.split(", ")}
+                                    handleRequestPinning={handleRequestPinning}
+                                />
+                            );
                         } else if (part.type === "YoutubeVideo" && part.props) {
                             return (
                                 <YoutubeVideoComponent
@@ -328,7 +339,13 @@ function ChatTab({
                 </>
             );
         },
-        [onApplyTranslation, handleSendFeedback, handleAddedFeedback, handlePromptClick]
+        [
+            onApplyTranslation,
+            handleSendFeedback,
+            handleAddedFeedback,
+            handlePromptClick,
+            handleRequestPinning,
+        ]
     );
 
     return (

@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import React, { useEffect, useState } from "react";
+import { VSCodeButton, VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
 import "./SharedStyles.css";
 
 interface IndividuallyTranslatedVerseProps {
@@ -24,7 +24,10 @@ interface GuessNextPromptsProps {
     prompts: string[];
     onClick: (prompt: string) => void;
 }
-
+interface RequestPinningProps {
+    cellIds: string[];
+    handleRequestPinning: (cellIds: string[]) => void;
+}
 interface YoutubeVideoProps {
     videoId: string;
 }
@@ -34,6 +37,7 @@ export const RegEx = {
     AddedFeedback: /<AddedFeedback\s+([^>]+)\s*\/>/g,
     ShowUserPreference: /<ShowUserPreference\s+([^>]+)\s*\/>/g,
     GuessNextPrompts: /<GuessNextPrompts\s+([^>]+)\s*\/>/g,
+    RequestPinning: /<RequestPinning\s+([^>]+)\s*\/>/g,
     YoutubeVideo: /<YoutubeVideo\s+([^>]+)\s*\/>/g,
 } as const;
 
@@ -156,6 +160,47 @@ export const IndividuallyTranslatedVerseComponent: React.FC<IndividuallyTranslat
                     <span className="codicon codicon-send"></span>
                 </VSCodeButton>
             </div>
+        </div>
+    );
+};
+export const RequestPinningComponent: React.FC<RequestPinningProps> = ({
+    cellIds,
+    handleRequestPinning,
+}) => {
+    const [isPinning, setIsPinning] = useState(false);
+    const [pinnedCells, setPinnedCells] = useState<string[]>([]);
+
+    useEffect(() => {
+        const requestPinning = async () => {
+            setIsPinning(true);
+            await handleRequestPinning(cellIds);
+            setIsPinning(false);
+            setPinnedCells(cellIds);
+        };
+
+        requestPinning();
+    }, []);
+
+    return (
+        <div className="request-pinning">
+            {isPinning ? (
+                <div className="pinning-status">
+                    <VSCodeProgressRing />
+                    <span>Requesting Pinning...</span>
+                </div>
+            ) : (
+                <div className="pinning-complete">
+                    <div className="pinned-verses-section">
+                        <div className="pinned-verses-list">
+                            {pinnedCells.map((cellId) => (
+                                <span key={cellId} className="pinned-verse-id">
+                                    {cellId}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

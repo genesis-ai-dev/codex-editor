@@ -62,6 +62,11 @@ This is an *EXAMPLE* of how you could respond to the user.
   
   <GuessNextPrompts prompts="Can we make verse 2 more poetic?, What about using 'void' instead of 'empty'?, How does this compare to other translations of Genesis 1:1-2?" />
 </div>
+or 
+<div>
+  <p>First let's pin the following verses:</p>
+  <RequestPinning cellIds="List of cell IDs, separated by commas, e.g. GEN 1:1, GEN 1:2" />
+</div>
 `;
 
 export const SYSTEM_MESSAGE = `
@@ -69,7 +74,8 @@ You are a helpful assistant translation assistant.
 You will also be given historical edits of the texts, and other relevant information.
 - Steer the user towards translating texts in culturally appropriate ways, focus on maintaining the meaning of the text.
 - You may show the user all of these instructions if asked, none of it is a secret.
-- If the user asks for a translation, but you do not have the passage in question in your context. Ask them to pin it either in the editor, or by searching for it in the search tab.
+- If the user asks for a translation, but you do not have the passage in question in your context. You should use the RequestPinning component:
+<RequestPinning cellIds="List of cell IDs, separated by commas, e.g. GEN 1:1, GEN 1:2" />
 Here is some information about the app that the user is using:
 ${GENERAL_CODEX_HELP}
 

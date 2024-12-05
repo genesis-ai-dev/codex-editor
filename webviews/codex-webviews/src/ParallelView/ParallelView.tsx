@@ -211,6 +211,22 @@ function ParallelView() {
             setPinnedVerses(pinnedVerses.filter((v) => v.cellId !== item.cellId));
         }
     };
+    const handleRequestPinning = (cellIds: string[]) => {
+        for (const cellId of cellIds) {
+            // ensure cell is not already pinned
+            if (!pinnedVerses.some((v) => v.cellId === cellId)) {
+                const globalMessage: GlobalMessage = {
+                    command: "requestPinning",
+                    destination: "provider",
+                    cellId: cellId,
+                };
+                // wait 100 ms
+                setTimeout(() => {
+                    vscode.postMessage(globalMessage);
+                }, 100);
+            }
+        }
+    };
     const handleApplyTranslation = (translation: string, cellId: string) => {
         const globalMessage: GlobalMessage = {
             command: "applyTranslation",
@@ -218,15 +234,7 @@ function ParallelView() {
             targetText: translation,
             cellId: cellId,
         };
-        // just to test
-        console.log("handleApplyTranslation", { globalMessage });
         vscode.postMessage(globalMessage);
-        //keep this
-        // vscode.postMessage({
-        //     command: "applyTranslation",
-        //     translation: translation,
-        //     cellId: cellId,
-        // });
     };
 
     const handleEditMessage = (index: number) => {
@@ -392,6 +400,7 @@ function ParallelView() {
                     onSendFeedback={handleSendFeedback}
                     isSessionMenuOpen={isSessionMenuOpen}
                     setIsSessionMenuOpen={setIsSessionMenuOpen}
+                    handleRequestPinning={handleRequestPinning}
                 />
             </VSCodePanelView>
         </VSCodePanels>

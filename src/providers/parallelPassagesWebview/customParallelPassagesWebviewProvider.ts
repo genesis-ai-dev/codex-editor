@@ -228,8 +228,6 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 }
             }
 
-            console.log("translationPair", translationPair);
-
             this._view.webview.postMessage({
                 command: "pinCell",
                 data: translationPair,
@@ -270,6 +268,9 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             case "openFileAtLocation":
                 await openFileAtLocation(message.uri, message.word);
                 break;
+            case "requestPinning":
+                await this.pinCellById(message.cellId);
+                break;
             case "chatStream":
                 await handleChatStream(
                     this._view,
@@ -278,6 +279,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                     message.editIndex
                 );
                 break;
+
             case "addedFeedback":
                 console.log("addedFeedback", message.feedback, message.cellId);
                 await vscode.commands.executeCommand(
