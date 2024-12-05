@@ -20,10 +20,7 @@ import {
     RequestPinningComponent,
 } from "./ChatComponents";
 import { format } from "date-fns";
-import {
-    UserFeedbackComponent,
-    RegEx as UserChatRegEx,
-} from "./UserChatComponents";
+import { UserFeedbackComponent, RegEx as UserChatRegEx } from "./UserChatComponents";
 
 interface SessionInfo {
     id: string;
@@ -268,6 +265,15 @@ function ChatTab({
         (content: string, role: "user" | "assistant") => {
             const parsedContent = parseMessage(content);
 
+            if (
+                parsedContent.length === 0 ||
+                (parsedContent.length === 1 &&
+                    parsedContent[0].type === "text" &&
+                    !parsedContent[0].content?.trim())
+            ) {
+                return null;
+            }
+
             return (
                 <>
                     {parsedContent.map((part, index) => {
@@ -426,7 +432,11 @@ function ChatTab({
                     <div className="chat-messages">
                         {chatHistory
                             .slice(1)
-                            .filter((message) => !message.content.includes("don't-render"))
+                            .filter(
+                                (message) =>
+                                    !message.content.includes("don't-render") &&
+                                    message.content.trim() !== ""
+                            )
                             .map((message, index) => (
                                 <div key={index} className={`chat-message ${message.role}`}>
                                     {renderMessage(message.content, message.role)}
@@ -474,7 +484,8 @@ function ChatTab({
                                 </div>
                             ))}
                         {pendingAssistantMessage &&
-                            !pendingAssistantMessage.includes("don't-render") && (
+                            !pendingAssistantMessage.includes("don't-render") &&
+                            pendingAssistantMessage.trim() !== "" && (
                                 <div className="chat-message assistant">
                                     {renderMessage(pendingAssistantMessage, "assistant")}
                                 </div>
