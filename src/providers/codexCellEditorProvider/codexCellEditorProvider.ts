@@ -4,10 +4,16 @@ import { CodexNotebookReader } from "../../serializer";
 import { workspaceStoreListener } from "../../utils/workspaceEventListener";
 import { llmCompletion } from "../translationSuggestions/llmCompletion";
 import { CodexCellTypes, EditType } from "../../../types/enums";
-import { QuillCellContent, EditorPostMessages, EditorReceiveMessages } from "../../../types";
+import {
+    QuillCellContent,
+    EditorPostMessages,
+    EditorReceiveMessages,
+    GlobalMessage,
+} from "../../../types";
 import { CodexCellDocument } from "./codexDocument";
 import { CodexCellEditorMessageHandling } from "./codexCellEditorMessagehandling";
 import { registerCellEditorCommands } from "./registerCellEditorCommands";
+import { GlobalProvider } from "../../globalProvider";
 
 function getNonce(): string {
     let text = "";
@@ -21,6 +27,7 @@ function getNonce(): string {
 export class CodexCellEditorProvider implements vscode.CustomEditorProvider<CodexCellDocument> {
     private messageHandler: CodexCellEditorMessageHandling;
     private currentDocument: CodexCellDocument | undefined;
+    private webviewPanel: vscode.WebviewPanel | undefined;
 
     public static register(context: vscode.ExtensionContext): vscode.Disposable {
         const provider = new CodexCellEditorProvider(context);
@@ -34,6 +41,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 },
             }
         );
+        GlobalProvider.getInstance().registerProvider(CodexCellEditorProvider.viewType, provider);
         return providerRegistration;
     }
 
@@ -72,6 +80,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         webviewPanel: vscode.WebviewPanel,
         _token: vscode.CancellationToken
     ): Promise<void> {
+        this.webviewPanel = webviewPanel;
         this.currentDocument = document;
         webviewPanel.webview.options = {
             enableScripts: true,
@@ -159,12 +168,21 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             watcher.dispose();
         });
 
-        webviewPanel.webview.onDidReceiveMessage(async (e: EditorPostMessages) => {
-            try {
-                this.messageHandler.handleMessages(e, webviewPanel, document, updateWebview);
-            } catch (error) {
-                console.error("Unexpected error in message handler:", error);
-                vscode.window.showErrorMessage("An unexpected error occurred.");
+        webviewPanel.webview.onDidReceiveMessage(async (e: EditorPostMessages | GlobalMessage) => {
+            if ("globalMessage" in e) {
+                GlobalProvider.getInstance().handleMessage(e);
+            } else {
+                try {
+                    this.messageHandler.handleMessages(
+                        e as EditorPostMessages,
+                        webviewPanel,
+                        document,
+                        updateWebview
+                    );
+                } catch (error) {
+                    console.error("Unexpected error in message handler:", error);
+                    vscode.window.showErrorMessage("An unexpected error occurred.");
+                }
             }
         });
 
@@ -190,6 +208,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             "extension.manualCommit",
             `changes to ${document.uri.path.split("/").pop()}`
         );
+    }
+    public postMessage(message: GlobalMessage) {
+        console.log("postMessage", { message });
+        if (this.webviewPanel) {
+            this.webviewPanel.webview.postMessage(message);
+        } else {
+            console.error("WebviewPanel is not initialized");
+        }
     }
 
     public async saveCustomDocumentAs(

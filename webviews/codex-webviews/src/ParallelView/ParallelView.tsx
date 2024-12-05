@@ -10,6 +10,7 @@ import { OpenFileMessage, ChatMessage } from "./types";
 import SearchTab from "./SearchTab";
 import ChatTab from "./ChatTab";
 import { TranslationPair } from "../../../../types";
+import { GlobalMessage } from "../../../../types";
 
 const vscode = acquireVsCodeApi();
 
@@ -211,11 +212,21 @@ function ParallelView() {
         }
     };
     const handleApplyTranslation = (translation: string, cellId: string) => {
-        vscode.postMessage({
+        const globalMessage: GlobalMessage = {
             command: "applyTranslation",
-            translation: translation,
+            destination: "codexCellEditorProvider",
+            targetText: translation,
             cellId: cellId,
-        });
+        };
+        // just to test
+        console.log("handleApplyTranslation", { globalMessage });
+        vscode.postMessage(globalMessage);
+        //keep this
+        // vscode.postMessage({
+        //     command: "applyTranslation",
+        //     translation: translation,
+        //     cellId: cellId,
+        // });
     };
 
     const handleEditMessage = (index: number) => {

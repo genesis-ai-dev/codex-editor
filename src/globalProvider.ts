@@ -1,7 +1,7 @@
 import vscode from "vscode";
 import { CodexCellEditorProvider } from "./providers/codexCellEditorProvider/codexCellEditorProvider";
 import { CustomWebviewProvider } from "./providers/parallelPassagesWebview/customParallelPassagesWebviewProvider";
-import { globalMessage } from "../types";
+import { GlobalMessage } from "../types";
 
 export class GlobalProvider {
     private static instance: GlobalProvider;
@@ -22,28 +22,34 @@ export class GlobalProvider {
         key: string,
         provider: CodexCellEditorProvider | CustomWebviewProvider
     ): void {
+        console.log("registering provider: ", { key, provider });
         this.providers.set(key, provider);
     }
-
+    public handleMessage(message: any) {
+        if ("globalMessage" in message) {
+            console.log("handlingGlobalMessage", { message });
+        }
+    }
     public postMessageToAllWebviews({
         command,
-        targetContent,
-        sourceContent,
+        targetText,
+        sourceText,
         cellId,
         path,
     }: {
         command: string;
-        targetContent?: string;
-        sourceContent?: string;
+        targetText?: string;
+        sourceText?: string;
         cellId?: string;
         path?: string;
     }): void {
         // Implement logic to post message to all webviews
         // This is a placeholder implementation
-        const message: globalMessage = {
+        const message: GlobalMessage = {
             command,
-            targetContent,
-            sourceContent,
+            destination: "all",
+            targetText,
+            sourceText,
             cellId,
             path,
         };
@@ -71,27 +77,30 @@ export class GlobalProvider {
     public async openAndPostMessageToWebview({
         key,
         command,
-        targetContent,
-        sourceContent,
+        destination,
+        targetText,
+        sourceText,
         cellId,
         path,
     }: {
         key: string;
         command: string;
-        targetContent?: string;
-        sourceContent?: string;
+        destination: string;
+        targetText?: string;
+        sourceText?: string;
         cellId?: string;
         path?: string;
     }): Promise<void> {
-        const message: globalMessage = {
+        const message: GlobalMessage = {
             command,
-            targetContent,
-            sourceContent,
+            destination,
+            targetText,
+            sourceText,
             cellId,
             path,
         };
         await this.openWebview(key);
-       
+
         // Check for it to be open
         if (this.providers.has(key)) {
             this.providers.get(key)?.postMessage(message);

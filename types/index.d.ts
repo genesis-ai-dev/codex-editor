@@ -63,7 +63,14 @@ interface NotebookComment {
         name: string;
     };
 }
-
+interface GlobalMessage {
+    command: string;
+    destination: string;
+    sourceText?: string;
+    targetText?: string;
+    cellId?: string;
+    path?: string;
+}
 interface TranslationPair {
     cellId: string;
     sourceCell: MinimalCellResult;

@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
-import { SourceCellVersions, TranslationPair } from "../../../types";
+import { GlobalMessage, SourceCellVersions, TranslationPair } from "../../../types";
+import { GlobalProvider } from "../../globalProvider";
 
 // Local type definitions
 interface AssistantMessage {
@@ -173,7 +174,9 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
 export class CustomWebviewProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
 
-    constructor(private readonly _context: vscode.ExtensionContext) {}
+    constructor(private readonly _context: vscode.ExtensionContext) {
+        GlobalProvider.getInstance().registerProvider("parallel-passages-sidebar", this);
+    }
 
     public async pinCellById(cellId: string, retryCount = 0) {
         const maxRetries = 3;
@@ -235,12 +238,21 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             vscode.window.showErrorMessage("Failed to open parallel passages view");
         }
     }
-
+    public postMessage(message: GlobalMessage) {
+        console.log("postMessage", { message });
+        if (this._view) {
+            this._view.webview.postMessage(message);
+        } else {
+            console.error("WebviewView is not initialized");
+        }
+    }
     public resolveWebviewView(webviewView: vscode.WebviewView) {
         this._view = webviewView;
         loadWebviewHtml(webviewView, this._context.extensionUri);
 
         webviewView.webview.onDidReceiveMessage(async (message: any) => {
+            console.log("received message", { message });
+            GlobalProvider.getInstance().handleMessage(message);
             switch (message.command) {
                 case "openFileAtLocation":
                     await openFileAtLocation(message.uri, message.word);
