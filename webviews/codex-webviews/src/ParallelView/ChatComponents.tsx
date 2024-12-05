@@ -191,6 +191,7 @@ export const RequestPinningComponent: React.FC<RequestPinningProps> = ({
             ) : (
                 <div className="pinning-complete">
                     <div className="pinned-verses-section">
+                        <br />
                         <div className="pinned-verses-list">
                             {pinnedCells.map((cellId) => (
                                 <span key={cellId} className="pinned-verse-id">
