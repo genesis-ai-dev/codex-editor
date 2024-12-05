@@ -257,14 +257,11 @@ function ChatTab({
 
     const renderMessage = useCallback(
         (content: string, role: "user" | "assistant") => {
-            console.log("Rendering message:", content);
             const parsedContent = parseMessage(content);
-            console.log("Parsed content:", parsedContent);
 
             return (
                 <>
                     {parsedContent.map((part, index) => {
-                        console.log("Rendering part:", part);
                         if (part.type === "text") {
                             return (
                                 <p
@@ -273,7 +270,6 @@ function ChatTab({
                                 />
                             );
                         } else if (part.type === "UserFeedback" && part.props) {
-                            console.log("Rendering UserFeedback component");
                             return (
                                 <UserFeedbackComponent
                                     key={`uf-${index}`}

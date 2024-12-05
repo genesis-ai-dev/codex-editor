@@ -246,138 +246,142 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             console.error("WebviewView is not initialized");
         }
     }
+
     public resolveWebviewView(webviewView: vscode.WebviewView) {
         this._view = webviewView;
         loadWebviewHtml(webviewView, this._context.extensionUri);
 
         webviewView.webview.onDidReceiveMessage(async (message: any) => {
-            console.log("received message", { message });
-            GlobalProvider.getInstance().handleMessage(message);
-            switch (message.command) {
-                case "openFileAtLocation":
-                    await openFileAtLocation(message.uri, message.word);
-                    break;
-                case "chatStream":
-                    await handleChatStream(
-                        webviewView,
-                        message.context,
-                        message.query,
-                        message.editIndex
-                    );
-                    break;
-                case "applyTranslation":
-                    console.log("applyTranslation", message);
-                    await vscode.commands.executeCommand(
-                        "codex-cell-editor.updateCellContent",
-                        message.cellId,
-                        message.translation
-                    );
-                    break;
-                case "addedFeedback":
-                    console.log("addedFeedback", message.feedback, message.cellId);
-                    await vscode.commands.executeCommand(
-                        "codex-smart-edits.updateFeedback",
-                        message.cellId,
-                        message.feedback
-                    );
-                    break;
-                case "search":
-                    try {
-                        const command = message.completeOnly
-                            ? "translators-copilot.searchParallelCells"
-                            : "translators-copilot.searchAllCells";
+            if ("destination" in message) {
+                GlobalProvider.getInstance().handleMessage(message);
+                console.log("Using global provider and exiting");
+                return;
+            }
+            await this.receiveMessage(message);
+        });
+    }
+    public async receiveMessage(message: any) {
+        console.log("Parallel Provider rec: ", message);
+        if (!this._view) {
+            console.warn("WebviewView is not initialized");
+            return;
+        }
+        switch (message.command) {
+            case "openFileAtLocation":
+                await openFileAtLocation(message.uri, message.word);
+                break;
+            case "chatStream":
+                await handleChatStream(
+                    this._view,
+                    message.context,
+                    message.query,
+                    message.editIndex
+                );
+                break;
+            case "addedFeedback":
+                console.log("addedFeedback", message.feedback, message.cellId);
+                await vscode.commands.executeCommand(
+                    "codex-smart-edits.updateFeedback",
+                    message.cellId,
+                    message.feedback
+                );
+                break;
+            case "search":
+                try {
+                    const command = message.completeOnly
+                        ? "translators-copilot.searchParallelCells"
+                        : "translators-copilot.searchAllCells";
 
-                        const results = await vscode.commands.executeCommand<TranslationPair[]>(
-                            command,
-                            message.query,
-                            15 // k value
-                        );
-                        if (results) {
-                            webviewView.webview.postMessage({
-                                command: "searchResults",
-                                data: results,
-                            });
-                        }
-                    } catch (error) {
-                        console.error("Error searching cells:", error);
+                    const results = await vscode.commands.executeCommand<TranslationPair[]>(
+                        command,
+                        message.query,
+                        15 // k value
+                    );
+                    if (results) {
+                        this._view.webview.postMessage({
+                            command: "searchResults",
+                            data: results,
+                        });
                     }
-                    break;
-                case "deleteChatSession":
-                    await vscode.commands.executeCommand(
-                        "codex-smart-edits.deleteChatSession",
+                } catch (error) {
+                    console.error("Error searching cells:", error);
+                }
+                break;
+            case "deleteChatSession":
+                await vscode.commands.executeCommand(
+                    "codex-smart-edits.deleteChatSession",
+                    message.sessionId
+                );
+                break;
+            case "startNewChatSession":
+                try {
+                    const sessionInfo = await vscode.commands.executeCommand(
+                        "codex-smart-edits.startNewChatSession"
+                    );
+                    this._view.webview.postMessage({
+                        command: "updateSessionInfo",
+                        data: sessionInfo,
+                    });
+                } catch (error) {
+                    console.error("Error starting new chat session:", error);
+                }
+                break;
+
+            case "getCurrentChatSessionInfo":
+                try {
+                    const sessionInfo = await vscode.commands.executeCommand(
+                        "codex-smart-edits.getCurrentChatSessionInfo"
+                    );
+                    this._view.webview.postMessage({
+                        command: "updateSessionInfo",
+                        data: sessionInfo,
+                    });
+                } catch (error) {
+                    console.error("Error getting current chat session info:", error);
+                }
+                break;
+
+            case "getAllChatSessions":
+                try {
+                    const sessions = await vscode.commands.executeCommand(
+                        "codex-smart-edits.getAllChatSessions"
+                    );
+                    this._view.webview.postMessage({
+                        command: "updateAllSessions",
+                        data: sessions,
+                    });
+                } catch (error) {
+                    console.error("Error getting all chat sessions:", error);
+                }
+                break;
+
+            case "loadChatSession":
+                try {
+                    const result = await vscode.commands.executeCommand(
+                        "codex-smart-edits.loadChatSession",
                         message.sessionId
                     );
-                    break;
-                case "startNewChatSession":
-                    try {
-                        const sessionInfo = await vscode.commands.executeCommand(
-                            "codex-smart-edits.startNewChatSession"
-                        );
-                        webviewView.webview.postMessage({
-                            command: "updateSessionInfo",
-                            data: sessionInfo,
+                    if (
+                        result &&
+                        typeof result === "object" &&
+                        "sessionInfo" in result &&
+                        "messages" in result
+                    ) {
+                        const { sessionInfo, messages } = result;
+                        this._view.webview.postMessage({
+                            command: "loadedSessionData",
+                            data: { sessionInfo, messages },
                         });
-                    } catch (error) {
-                        console.error("Error starting new chat session:", error);
+                    } else {
+                        console.error("Unexpected result format from loadChatSession");
                     }
-                    break;
-
-                case "getCurrentChatSessionInfo":
-                    try {
-                        const sessionInfo = await vscode.commands.executeCommand(
-                            "codex-smart-edits.getCurrentChatSessionInfo"
-                        );
-                        webviewView.webview.postMessage({
-                            command: "updateSessionInfo",
-                            data: sessionInfo,
-                        });
-                    } catch (error) {
-                        console.error("Error getting current chat session info:", error);
-                    }
-                    break;
-
-                case "getAllChatSessions":
-                    try {
-                        const sessions = await vscode.commands.executeCommand(
-                            "codex-smart-edits.getAllChatSessions"
-                        );
-                        webviewView.webview.postMessage({
-                            command: "updateAllSessions",
-                            data: sessions,
-                        });
-                    } catch (error) {
-                        console.error("Error getting all chat sessions:", error);
-                    }
-                    break;
-
-                case "loadChatSession":
-                    try {
-                        const result = await vscode.commands.executeCommand(
-                            "codex-smart-edits.loadChatSession",
-                            message.sessionId
-                        );
-                        if (
-                            result &&
-                            typeof result === "object" &&
-                            "sessionInfo" in result &&
-                            "messages" in result
-                        ) {
-                            const { sessionInfo, messages } = result;
-                            webviewView.webview.postMessage({
-                                command: "loadedSessionData",
-                                data: { sessionInfo, messages },
-                            });
-                        } else {
-                            console.error("Unexpected result format from loadChatSession");
-                        }
-                    } catch (error) {
-                        console.error("Error loading chat session:", error);
-                    }
-                    break;
-                default:
-                    console.error(`Unknown command: ${message.command}`);
-            }
-        });
+                } catch (error) {
+                    console.error("Error loading chat session:", error);
+                }
+                break;
+            default:
+                console.log(`Unknown command: ${message.command}`);
+        }
     }
 }
 

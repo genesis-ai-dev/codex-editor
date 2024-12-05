@@ -6,6 +6,7 @@ import {
     EditorPostMessages,
     SpellCheckResponse,
     AlertCodesServerResponse,
+    GlobalMessage,
 } from "../../../types";
 import path from "path";
 import { getWorkSpaceUri } from "../../utils";
@@ -18,6 +19,21 @@ export class CodexCellEditorMessageHandling {
     constructor(provider: CodexCellEditorProvider) {
         this.provider = provider;
     }
+    handleGlobalMessage = async (event: GlobalMessage) => {
+        console.log("handleGlobalMessage", { event });
+        switch (event.command) {
+            case "applyTranslation": {
+                console.log("applyTranslation message received", { event });
+                if (this.provider.currentDocument && event.cellId && event.targetText) {
+                    this.provider.currentDocument.updateCellContent(
+                        event.cellId,
+                        event.targetText,
+                        EditType.LLM_GENERATION
+                    );
+                }
+            }
+        }
+    };
     handleMessages = async (
         event: EditorPostMessages,
         webviewPanel: vscode.WebviewPanel,
@@ -41,6 +57,7 @@ export class CodexCellEditorMessageHandling {
                 }
                 return;
             }
+
             case "searchSimilarCellIds": {
                 try {
                     const response = await vscode.commands.executeCommand<

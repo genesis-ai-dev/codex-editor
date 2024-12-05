@@ -26,9 +26,20 @@ export class GlobalProvider {
         this.providers.set(key, provider);
     }
     public handleMessage(message: any) {
-        if ("globalMessage" in message) {
-            console.log("handlingGlobalMessage", { message });
+        if ("destination" in message) {
+            console.log("routing message: ", { message });
+            const destination = message.destination;
+            if (destination === "webview") {
+                this.postMessageToAllWebviews(message);
+            } else if (destination === "provider") {
+                this.postMessageToAllProviders(message);
+            }
         }
+    }
+    public postMessageToAllProviders(message: any) {
+        this.providers.forEach((provider, key) => {
+            provider.receiveMessage(message);
+        });
     }
     public postMessageToAllWebviews({
         command,

@@ -12,7 +12,6 @@ import {
 } from "../../../types";
 import { CodexCellDocument } from "./codexDocument";
 import { CodexCellEditorMessageHandling } from "./codexCellEditorMessagehandling";
-import { registerCellEditorCommands } from "./registerCellEditorCommands";
 import { GlobalProvider } from "../../globalProvider";
 
 function getNonce(): string {
@@ -26,7 +25,7 @@ function getNonce(): string {
 
 export class CodexCellEditorProvider implements vscode.CustomEditorProvider<CodexCellDocument> {
     private messageHandler: CodexCellEditorMessageHandling;
-    private currentDocument: CodexCellDocument | undefined;
+    public currentDocument: CodexCellDocument | undefined;
     private webviewPanel: vscode.WebviewPanel | undefined;
 
     public static register(context: vscode.ExtensionContext): vscode.Disposable {
@@ -41,7 +40,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 },
             }
         );
-        GlobalProvider.getInstance().registerProvider(CodexCellEditorProvider.viewType, provider);
+        GlobalProvider.getInstance().registerProvider("codex-cell-editor", provider);
         return providerRegistration;
     }
 
@@ -49,14 +48,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     constructor(private readonly context: vscode.ExtensionContext) {
         this.messageHandler = new CodexCellEditorMessageHandling(this);
-
-        registerCellEditorCommands(context, (cellId: string, text: string) => {
-            if (this.currentDocument) {
-                this.currentDocument.updateCellContent(cellId, text, EditType.LLM_GENERATION);
-            } else {
-                console.error("No active document to update");
-            }
-        });
     }
 
     private readonly _onDidChangeCustomDocument = new vscode.EventEmitter<
@@ -74,7 +65,24 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         return document;
     }
-
+    public async receiveMessage(message: any, updateWebview?: () => void) {
+        console.log("Cell Provider rec: ", { message });
+        if (!this.webviewPanel || !this.currentDocument) {
+            console.warn("WebviewPanel or currentDocument is not initialized");
+            return;
+        }
+        if ('destination' in message) {
+            console.log("Global message detected");
+            this.messageHandler.handleGlobalMessage(message as GlobalMessage);
+            return;
+        }
+        this.messageHandler.handleMessages(
+            message as EditorPostMessages,
+            this.webviewPanel,
+            this.currentDocument,
+            updateWebview ?? (() => {})
+        );
+    }
     public async resolveCustomEditor(
         document: CodexCellDocument,
         webviewPanel: vscode.WebviewPanel,
@@ -124,7 +132,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 sourceCellMap: document._sourceCellMap,
             });
         };
-
         const navigateToSection = (cellId: string) => {
             webviewPanel.webview.postMessage({
                 type: "jumpToSection",
@@ -169,21 +176,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         });
 
         webviewPanel.webview.onDidReceiveMessage(async (e: EditorPostMessages | GlobalMessage) => {
-            if ("globalMessage" in e) {
+            if ("destination" in e) {
+                console.log("handling global message", { e });
                 GlobalProvider.getInstance().handleMessage(e);
-            } else {
-                try {
-                    this.messageHandler.handleMessages(
-                        e as EditorPostMessages,
-                        webviewPanel,
-                        document,
-                        updateWebview
-                    );
-                } catch (error) {
-                    console.error("Unexpected error in message handler:", error);
-                    vscode.window.showErrorMessage("An unexpected error occurred.");
-                }
+                this.messageHandler.handleGlobalMessage(e as GlobalMessage);
+                return;
             }
+            this.receiveMessage(e, updateWebview);
         });
 
         updateWebview();

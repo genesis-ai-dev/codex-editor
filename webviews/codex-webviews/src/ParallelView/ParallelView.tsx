@@ -214,7 +214,7 @@ function ParallelView() {
     const handleApplyTranslation = (translation: string, cellId: string) => {
         const globalMessage: GlobalMessage = {
             command: "applyTranslation",
-            destination: "codexCellEditorProvider",
+            destination: "provider",
             targetText: translation,
             cellId: cellId,
         };
