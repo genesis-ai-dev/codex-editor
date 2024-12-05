@@ -199,6 +199,7 @@ export const RequestPinningComponent: React.FC<RequestPinningProps> = ({
                                 </span>
                             ))}
                         </div>
+                        <br />
                     </div>
                 </div>
             )}

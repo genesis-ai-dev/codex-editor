@@ -20,7 +20,10 @@ import {
     RequestPinningComponent,
 } from "./ChatComponents";
 import { format } from "date-fns";
-import { UserFeedbackComponent, RegEx as UserChatRegEx } from "./UserChatComponents";
+import {
+    UserFeedbackComponent,
+    RegEx as UserChatRegEx,
+} from "./UserChatComponents";
 
 interface SessionInfo {
     id: string;
@@ -216,18 +219,21 @@ function ChatTab({
                     });
                 }
 
-                // Parse the component props
-                const propsString = earliestMatch.match[0];
-                const propsMatch = propsString.match(/(\w+)="([^"]*)"/g);
+                // Skip AutomatedSuccess components
+                if (earliestMatch.type !== "AutomatedSuccess") {
+                    // Parse the component props
+                    const propsString = earliestMatch.match[0];
+                    const propsMatch = propsString.match(/(\w+)="([^"]*)"/g);
 
-                if (propsMatch) {
-                    const props = Object.fromEntries(
-                        propsMatch.map((prop) => {
-                            const [key, value] = prop.split("=");
-                            return [key, value.replace(/(^")|("$)/g, "")];
-                        })
-                    );
-                    parts.push({ type: earliestMatch.type, props });
+                    if (propsMatch) {
+                        const props = Object.fromEntries(
+                            propsMatch.map((prop) => {
+                                const [key, value] = prop.split("=");
+                                return [key, value.replace(/(^")|("$)/g, "")];
+                            })
+                        );
+                        parts.push({ type: earliestMatch.type, props });
+                    }
                 }
 
                 lastIndex = earliestMatch.regex.lastIndex;
@@ -265,7 +271,7 @@ function ChatTab({
             return (
                 <>
                     {parsedContent.map((part, index) => {
-                        if (part.type === "text") {
+                        if (part.type === "text" && part.content?.trim() !== "") {
                             return (
                                 <p
                                     key={index}
@@ -418,8 +424,10 @@ function ChatTab({
             <div ref={chatHistoryRef} className="message-history">
                 {chatHistory.length > 1 ? (
                     <div className="chat-messages">
-                        {chatHistory.slice(1).map((message, index) =>
-                            message.content ? (
+                        {chatHistory
+                            .slice(1)
+                            .filter((message) => !message.content.includes("don't-render"))
+                            .map((message, index) => (
                                 <div key={index} className={`chat-message ${message.role}`}>
                                     {renderMessage(message.content, message.role)}
                                     <div className="chat-message-actions">
@@ -464,13 +472,13 @@ function ChatTab({
                                         )}
                                     </div>
                                 </div>
-                            ) : null
-                        )}
-                        {pendingAssistantMessage && (
-                            <div className="chat-message assistant">
-                                {renderMessage(pendingAssistantMessage, "assistant")}
-                            </div>
-                        )}
+                            ))}
+                        {pendingAssistantMessage &&
+                            !pendingAssistantMessage.includes("don't-render") && (
+                                <div className="chat-message assistant">
+                                    {renderMessage(pendingAssistantMessage, "assistant")}
+                                </div>
+                            )}
                     </div>
                 ) : (
                     <div className="chat-empty-message">No messages yet. Start a conversation!</div>

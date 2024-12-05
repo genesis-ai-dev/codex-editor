@@ -226,6 +226,9 @@ function ParallelView() {
                 }, 100);
             }
         }
+        sendMessage(
+            "Automated message: Pinning Complete, please continue talking with the user in their language. don't-render"
+        );
     };
     const handleApplyTranslation = (translation: string, cellId: string) => {
         const globalMessage: GlobalMessage = {
