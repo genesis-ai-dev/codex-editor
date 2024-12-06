@@ -16,6 +16,7 @@ export enum StartupFlowEvents {
     BACK_TO_LOGIN = "BACK_TO_LOGIN",
     UPDATE_AUTH_STATE = "UPDATE_AUTH_STATE",
     INITIALIZE_PROJECT = "INITIALIZE_PROJECT",
+    EMPTY_WORKSPACE_THAT_NEEDS_PROJECT = "EMPTY_WORKSPACE_THAT_NEEDS_PROJECT",
     VALIDATE_PROJECT_IS_OPEN = "VALIDATE_PROJECT_IS_OPEN",
 }
 
@@ -49,6 +50,9 @@ type StartupFlowEvent =
       }
     | {
           type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN;
+      }
+    | {
+          type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT;
       };
 
 export const startupFlowMachine = setup({
@@ -104,6 +108,8 @@ export const startupFlowMachine = setup({
                 [StartupFlowEvents.PROJECT_CREATE_EMPTY]: StartupFlowStates.ALREADY_WORKING,
                 [StartupFlowEvents.PROJECT_CLONE_OR_OPEN]: StartupFlowStates.ALREADY_WORKING,
                 [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]: StartupFlowStates.ALREADY_WORKING,
+                [StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT]:
+                    StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
             },
         },
         [StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT]: {

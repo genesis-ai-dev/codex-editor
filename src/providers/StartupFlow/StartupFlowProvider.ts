@@ -343,12 +343,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
                 await vscode.workspace.fs.stat(metadataUri);
                 webviewPanel.webview.postMessage({
-                    command: "metadata.check",
+                    command: "metadata.checkResponse",
                     exists: true,
                 } as MessagesFromStartupFlowProvider);
             } catch {
                 webviewPanel.webview.postMessage({
-                    command: "metadata.check",
+                    command: "metadata.checkResponse",
                     exists: false,
                 } as MessagesFromStartupFlowProvider);
             }

@@ -310,7 +310,8 @@ export type MessagesToStartupFlowProvider =
     | { command: "getProjectsSyncStatus" }
     | { command: "project.open"; projectPath: string }
     | { command: "project.createEmpty" }
-    | { command: "project.initialize" };
+    | { command: "project.initialize" }
+    | { command: "metadata.check" };
 
 export type GitLabProject = {
     id: number;
@@ -366,7 +367,7 @@ export type MessagesFromStartupFlowProvider =
           path?: string;
       }
     | {
-          command: "metadata.check";
+          command: "metadata.checkResponse";
           exists: boolean;
       }
     | { command: "setupComplete" };

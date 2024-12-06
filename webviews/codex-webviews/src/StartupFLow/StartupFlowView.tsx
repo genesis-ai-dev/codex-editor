@@ -72,11 +72,22 @@ export const StartupFlowView: React.FC = () => {
                 case "workspace.statusResponse":
                     if (message.isOpen) {
                         // send({ type: StartupFlowEvents.WORKSPACE_OPEN });
-                        vscode.postMessage({ command: "metadata.check" });
+                        vscode.postMessage({
+                            command: "metadata.check",
+                        } as MessagesToStartupFlowProvider);
                     }
                     break;
                 case "workspace.opened":
-                    vscode.postMessage({ command: "metadata.check" });
+                    vscode.postMessage({
+                        command: "metadata.check",
+                    } as MessagesToStartupFlowProvider);
+                    break;
+                case "metadata.checkResponse":
+                    if (message.exists) {
+                        send({ type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN });
+                    } else {
+                        send({ type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT });
+                    }
                     break;
                 case "setupComplete": {
                     console.log("setupComplete called");
@@ -126,7 +137,7 @@ export const StartupFlowView: React.FC = () => {
     // };
 
     const handleCreateEmpty = () => {
-        send({ type: StartupFlowEvents.PROJECT_CREATE_EMPTY });
+        send({ type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT });
         vscode.postMessage({ command: "project.createEmpty" } as MessagesToStartupFlowProvider);
     };
 
@@ -172,17 +183,42 @@ export const StartupFlowView: React.FC = () => {
                 />
             )}
             {state.matches(StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT) && (
-                <div className="prompt-user-to-initialize-project-container">
-                    <VSCodeButton
-                        onClick={() => {
-                            send({ type: StartupFlowEvents.INITIALIZE_PROJECT });
-                            vscode.postMessage({
-                                command: "project.initialize",
-                            } as MessagesToStartupFlowProvider);
+                <div
+                    style={{
+                        display: "flex",
+
+                        gap: "10px",
+                        width: "100%",
+                        height: "100vh",
+                        alignItems: "center",
+                        justifyContent: "center",
+                    }}
+                >
+                    <div
+                        style={{
+                            display: "flex",
+                            gap: "10px",
+                            marginBottom: "37vh",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexDirection: "column",
                         }}
                     >
-                        Initialize Project
-                    </VSCodeButton>
+                        <i
+                            className="codicon codicon-symbol-variable"
+                            style={{ fontSize: "72px" }}
+                        ></i>
+                        <VSCodeButton
+                            onClick={() => {
+                                send({ type: StartupFlowEvents.INITIALIZE_PROJECT });
+                                vscode.postMessage({
+                                    command: "project.initialize",
+                                } as MessagesToStartupFlowProvider);
+                            }}
+                        >
+                            Initialize Project <i className="codicon codicon-arrow-right"></i>
+                        </VSCodeButton>
+                    </div>
                 </div>
             )}
             {state.matches(StartupFlowStates.ALREADY_WORKING) && (
