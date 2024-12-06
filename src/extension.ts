@@ -41,6 +41,8 @@ import { NotebookMetadataManager } from "./utils/notebookMetadataManager";
 import { stageAndCommitAllAndSync } from "./projectManager/utils/projectUtils";
 import { FrontierAPI } from "../webviews/codex-webviews/src/StartupFLow/types";
 import { waitForExtensionActivation } from "./utils/vscode";
+import fs from "fs";
+import git from "isomorphic-git";
 
 declare global {
     // eslint-disable-next-line
@@ -79,7 +81,21 @@ export async function activate(context: vscode.ExtensionContext) {
             const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             if (workspaceFolder) {
                 try {
-                    await stageAndCommitAllAndSync(workspaceFolder, commitMessage);
+                    // Check if .git directory exists using isomorphic-git
+
+                    try {
+                        const remotes = await git.listRemotes({
+                            fs,
+                            dir: workspaceFolder,
+                        });
+
+                        if (remotes.length > 0) {
+                            await stageAndCommitAllAndSync(workspaceFolder, commitMessage);
+                        }
+                    } catch (gitError) {
+                        // No git repository found, skip commit
+                        console.debug("No git repository found in workspace, skipping commit");
+                    }
                 } catch (error) {
                     console.error("Failed to auto-commit changes:", error);
                 }

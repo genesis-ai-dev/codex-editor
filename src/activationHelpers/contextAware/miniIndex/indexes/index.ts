@@ -363,7 +363,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         async () => {
             const workspaceFolders = vscode.workspace.workspaceFolders;
             if (!workspaceFolders) {
-                vscode.window.showErrorMessage("No workspace folder found");
                 return;
             }
 

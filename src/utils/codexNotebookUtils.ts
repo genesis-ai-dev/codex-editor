@@ -103,7 +103,6 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
     const workspaceFolder = getWorkSpaceFolder();
 
     if (!workspaceFolder) {
-        vscode.window.showErrorMessage("No workspace folder found");
         return;
     }
     const workspaceRoot = workspaceFolder;
@@ -329,7 +328,6 @@ export async function importLocalUsfmSourceBible(
 
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
-        vscode.window.showErrorMessage("No workspace folder found");
         return importedNotebookIds;
     }
 
@@ -702,7 +700,6 @@ export async function splitSourceFileByBook(
 export async function migrateSourceFiles() {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
-        vscode.window.showErrorMessage("No workspace folder found");
         return;
     }
 
