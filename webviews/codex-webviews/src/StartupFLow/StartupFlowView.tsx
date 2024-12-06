@@ -157,8 +157,11 @@ export const StartupFlowView: React.FC = () => {
             } as MessagesToStartupFlowProvider);
         }
     };
-
-    console.log({ state });
+    useEffect(() => {
+        if (state.matches(StartupFlowStates.ALREADY_WORKING)) {
+            vscode.postMessage({ command: "workspace.continue" } as MessagesToStartupFlowProvider);
+        }
+    }, [state.value]);
 
     return (
         <div className="startup-flow-container">
@@ -219,20 +222,6 @@ export const StartupFlowView: React.FC = () => {
                             Initialize Project <i className="codicon codicon-arrow-right"></i>
                         </VSCodeButton>
                     </div>
-                </div>
-            )}
-            {state.matches(StartupFlowStates.ALREADY_WORKING) && (
-                <div className="already-working-container">
-                    <p>You are already working on a project.</p>
-                    <VSCodeButton
-                        onClick={() =>
-                            vscode.postMessage({
-                                command: "workspace.continue",
-                            } as MessagesToStartupFlowProvider)
-                        }
-                    >
-                        Continue Working
-                    </VSCodeButton>
                 </div>
             )}
         </div>
