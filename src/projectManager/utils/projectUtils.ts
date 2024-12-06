@@ -523,35 +523,39 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
 export const checkIfMetadataAndGitIsInitialized = async (): Promise<boolean> => {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
-        console.error("No workspace folder found");
+        console.log("No workspace folder found"); // Changed to log since this is expected when no folder is open
         return false;
     }
 
     const metadataUri = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
     console.log("Checking metadata and git at:", metadataUri.fsPath);
 
+    let metadataExists = false;
+    let gitExists = false;
+
     try {
         // Check metadata file
         await vscode.workspace.fs.stat(metadataUri);
         console.log("Metadata file exists");
-
-        // Check git repository
-        try {
-            await git.resolveRef({
-                fs,
-                dir: workspaceFolder.uri.fsPath,
-                ref: "HEAD",
-            });
-            console.log("Git repository exists");
-            return true;
-        } catch (error) {
-            console.error("Git repository not initialized:", error);
-            return false;
-        }
-    } catch (error) {
-        console.error("Metadata file does not exist or cannot be accessed:", error);
-        return false;
+        metadataExists = true;
+    } catch {
+        console.log("No metadata.json file found yet"); // Changed to log since this is expected for new projects
     }
+
+    try {
+        // Check git repository
+        await git.resolveRef({
+            fs,
+            dir: workspaceFolder.uri.fsPath,
+            ref: "HEAD",
+        });
+        console.log("Git repository exists");
+        gitExists = true;
+    } catch {
+        console.log("Git repository not initialized yet"); // Changed to log since this is expected for new projects
+    }
+
+    return metadataExists && gitExists;
 };
 
 export const createProjectFiles = async ({ shouldImportUSFM }: { shouldImportUSFM: boolean }) => {
