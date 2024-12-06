@@ -342,6 +342,15 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             try {
                 const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
                 await vscode.workspace.fs.stat(metadataUri);
+
+                // First check auth status
+                const authState = this.frontierApi?.getAuthStatus();
+                if (!authState?.isAuthenticated) {
+                    // If not authenticated, don't send metadata response yet
+                    return;
+                }
+
+                // Only send metadata exists if authenticated
                 webviewPanel.webview.postMessage({
                     command: "metadata.checkResponse",
                     exists: true,
@@ -408,6 +417,21 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             case "workspace.continue": {
                 debugLog("Continuing with current workspace");
                 // Close the startup flow panel
+                const workspaceFolders = vscode.workspace.workspaceFolders;
+                if (workspaceFolders && workspaceFolders.length > 0) {
+                    const relativePattern = new vscode.RelativePattern(
+                        workspaceFolders[0],
+                        "**/*.codex"
+                    );
+                    const codexNotebooksUris = await vscode.workspace.findFiles(relativePattern);
+                    if (codexNotebooksUris.length === 0) {
+                        vscode.commands.executeCommand("codex-project-manager.openSourceUpload");
+                    } else {
+                        vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
+                    }
+                } else {
+                    console.log("No workspace folder found");
+                }
                 webviewPanel.dispose();
                 break;
             }
