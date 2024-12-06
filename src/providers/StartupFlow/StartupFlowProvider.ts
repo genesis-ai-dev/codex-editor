@@ -14,6 +14,7 @@ import {
     createNewProject,
     createNewWorkspaceAndProject,
 } from "../../utils/projectCreationUtils/projectCreationUtils";
+import { getAuthApi } from "../../extension";
 
 function getNonce(): string {
     let text = "";
@@ -109,14 +110,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
     private async initializeFrontierApi() {
         try {
-            const extension = await waitForExtensionActivation(
-                "frontier-rnd.frontier-authentication"
-            );
-            debugLog("Extension status:", extension?.isActive);
-
-            if (extension?.isActive) {
-                this.frontierApi = extension.exports;
-
+            this.frontierApi = getAuthApi();
+            if (this.frontierApi) {
                 // Get initial auth status
                 const initialStatus = this.frontierApi?.getAuthStatus();
                 this.updateAuthState({
@@ -269,21 +264,25 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             case "auth.signup": {
                 debugLog("Attempting registration");
                 try {
-                    await this.frontierApi.register(
+                    const wasRegisteredSuccessful = await this.frontierApi.register(
                         message.username,
                         message.email,
                         message.password
                     );
-                    debugLog("Registration successful");
-                    webviewPanel.webview.postMessage({
-                        command: "updateAuthState",
-                        authState: {
-                            isAuthExtensionInstalled: true,
-                            isAuthenticated: true,
-                            isLoading: false,
-                        },
-                    } as MessagesFromStartupFlowProvider);
-                    await this.handleWorkspaceStatus(webviewPanel);
+                    debugLog("Registration successful?", wasRegisteredSuccessful);
+                    if (wasRegisteredSuccessful) {
+                        webviewPanel.webview.postMessage({
+                            command: "updateAuthState",
+                            authState: {
+                                isAuthExtensionInstalled: true,
+                                isAuthenticated: true,
+                                isLoading: false,
+                            },
+                        } as MessagesFromStartupFlowProvider);
+                        await this.handleWorkspaceStatus(webviewPanel);
+                    } else {
+                        throw new Error("Registration failed");
+                    }
                 } catch (error) {
                     debugLog("Registration failed", error);
                     webviewPanel.webview.postMessage({
@@ -505,9 +504,15 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         preflightState.workspaceState.isOpen &&
                         preflightState.workspaceState.hasMetadata
                     ) {
-                        webviewPanel.webview.postMessage({
-                            command: "setupComplete",
-                        } as MessagesFromStartupFlowProvider);
+                        if (!preflightState.authState.isAuthExtensionInstalled) {
+                            webviewPanel.webview.postMessage({
+                                command: "setupComplete",
+                            } as MessagesFromStartupFlowProvider);
+                        } else if (preflightState.authState.isAuthenticated) {
+                            webviewPanel.webview.postMessage({
+                                command: "setupComplete",
+                            } as MessagesFromStartupFlowProvider);
+                        }
                     }
                     break;
                 }

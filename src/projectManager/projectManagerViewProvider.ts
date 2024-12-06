@@ -21,6 +21,7 @@ import { FrontierAPI } from "webviews/codex-webviews/src/StartupFLow/types";
 import { waitForExtensionActivation } from "../utils/vscode";
 import git from "isomorphic-git";
 import * as fs from "fs";
+import { getAuthApi } from "../extension";
 
 const DEBUG_MODE = false; // Set to true to enable debug logging
 
@@ -226,14 +227,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
     private frontierApi?: FrontierAPI;
     private async initializeFrontierApi() {
         try {
-            const extension = await waitForExtensionActivation(
-                "frontier-rnd.frontier-authentication"
-            );
-            debugLog("Extension status:", extension?.isActive);
-
-            if (extension?.isActive) {
-                this.frontierApi = extension.exports;
-            }
+            this.frontierApi = getAuthApi();
         } catch (error) {
             console.error("Error initializing Frontier API:", error);
         }

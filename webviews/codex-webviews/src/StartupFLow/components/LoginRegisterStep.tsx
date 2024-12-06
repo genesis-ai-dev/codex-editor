@@ -12,14 +12,40 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
     const [isRegistering, setIsRegistering] = useState(false);
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
+    const [confirmPassword, setConfirmPassword] = useState("");
     const [email, setEmail] = useState("");
+    const [passwordError, setPasswordError] = useState("");
+
+    const validatePassword = (pass: string) => {
+        if (pass.length < 16) {
+            setPasswordError("Password must be at least 16 characters long");
+            return false;
+        }
+        return true;
+    };
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (isRegistering) {
+            if (!validatePassword(password)) {
+                return;
+            }
+            if (password !== confirmPassword) {
+                setPasswordError("Passwords do not match");
+                return;
+            }
+            setPasswordError("");
             onRegister(username, email, password);
         } else {
             onLogin(username, password);
+        }
+    };
+
+    const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const newPassword = e.target.value;
+        setPassword(newPassword);
+        if (isRegistering) {
+            validatePassword(newPassword);
         }
     };
 
@@ -80,10 +106,28 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                 <VSCodeTextField
                     type="password"
                     value={password}
-                    onChange={(e) => setPassword((e.target as HTMLInputElement).value)}
+                    onChange={(e: any) => handlePasswordChange(e)}
                     placeholder="Password"
                     required
                 />
+                {isRegistering && (
+                    <>
+                        <VSCodeTextField
+                            type="password"
+                            value={confirmPassword}
+                            onChange={(e) =>
+                                setConfirmPassword((e.target as HTMLInputElement).value)
+                            }
+                            placeholder="Confirm Password"
+                            required
+                        />
+                        {passwordError && (
+                            <span style={{ color: "var(--vscode-errorForeground)" }}>
+                                {passwordError}
+                            </span>
+                        )}
+                    </>
+                )}
                 <div className="button-group">
                     <VSCodeButton type="submit">
                         {isRegistering ? "Register" : "Login"}

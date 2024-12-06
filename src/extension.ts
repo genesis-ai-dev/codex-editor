@@ -39,6 +39,8 @@ import { registerStartupFlowCommands } from "./providers/StartupFlow/registerCom
 import { registerPreflightCommand } from "./providers/StartupFlow/preflight";
 import { NotebookMetadataManager } from "./utils/notebookMetadataManager";
 import { stageAndCommitAllAndSync } from "./projectManager/utils/projectUtils";
+import { FrontierAPI } from "../webviews/codex-webviews/src/StartupFLow/types";
+import { waitForExtensionActivation } from "./utils/vscode";
 
 declare global {
     // eslint-disable-next-line
@@ -52,8 +54,18 @@ let tableIndexMap: Map<string, MiniSearch<TableRecord>>;
 let commitTimeout: NodeJS.Timeout | undefined;
 const COMMIT_DELAY = 5000; // Delay in milliseconds
 let notebookMetadataManager: NotebookMetadataManager;
+let authApi: FrontierAPI | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
+    try {
+        const extension = await waitForExtensionActivation("frontier-rnd.frontier-authentication");
+        if (extension?.isActive) {
+            authApi = extension.exports;
+        }
+    } catch (error) {
+        console.error("Failed to initialize Frontier API:", error);
+    }
+
     // Initialize the metadata manager first
     notebookMetadataManager = NotebookMetadataManager.getInstance(context);
     await notebookMetadataManager.initialize();
@@ -356,4 +368,8 @@ export function getAutoCompleteStatusBarItem(): StatusBarItem {
 
 export function getNotebookMetadataManager(): NotebookMetadataManager {
     return notebookMetadataManager;
+}
+
+export function getAuthApi(): FrontierAPI | undefined {
+    return authApi;
 }

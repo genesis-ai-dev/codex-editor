@@ -731,6 +731,7 @@ interface ProjectOverview extends Project {
     targetTexts?: vscode.Uri[] | never[];
     targetFont: string;
     primarySourceText?: vscode.Uri;
+    isAuthenticated: boolean;
 }
 
 /* This is the project metadata that is saved in the metadata.json file */

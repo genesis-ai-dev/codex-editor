@@ -11,6 +11,7 @@ import { getProjectMetadata } from "../../utils";
 import git from "isomorphic-git";
 import fs from "fs";
 import http from "isomorphic-git/http/web";
+import { getAuthApi } from "../../extension";
 
 export interface ProjectDetails {
     projectName?: string;
@@ -21,6 +22,8 @@ export interface ProjectDetails {
     sourceLanguage?: LanguageMetadata;
     targetLanguage?: LanguageMetadata;
 }
+
+
 
 export async function promptForTargetLanguage(): Promise<ProjectDetails | undefined> {
     const languages = LanguageCodes;
@@ -423,7 +426,16 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
 
         const sourceTexts: vscode.Uri[] = [];
         const targetTexts: vscode.Uri[] = [];
+        let isAuthenticated = false;
+        const authApi = getAuthApi();
 
+        if (authApi) {
+            try {
+                isAuthenticated = await authApi?.getAuthStatus().isAuthenticated;
+            } catch (error) {
+                console.error("Error checking authentication:", error);
+            }
+        }
         try {
             const sourceEntries = await vscode.workspace.fs.readDirectory(sourceTextsPath);
             for (const [name] of sourceEntries) {
@@ -500,6 +512,7 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
             sourceTexts,
             targetTexts,
             targetFont: metadata.targetFont || "Default Font",
+            isAuthenticated,
         };
     } catch (error) {
         console.error("Failed to read project metadata:", error);

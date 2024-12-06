@@ -3,6 +3,7 @@ import { waitForExtensionActivation } from "../../utils/vscode";
 import { FrontierAPI } from "../../../webviews/codex-webviews/src/StartupFLow/types";
 import git from "isomorphic-git";
 import * as fs from "fs";
+import { getAuthApi } from "../../extension";
 
 interface AuthState {
     isAuthenticated: boolean;
@@ -42,12 +43,7 @@ export class PreflightCheck {
 
     private async initializeFrontierApi() {
         try {
-            const extension = await waitForExtensionActivation(
-                "frontier-rnd.frontier-authentication"
-            );
-            if (extension?.isActive) {
-                this.frontierApi = extension.exports;
-            }
+            this.frontierApi = getAuthApi();
         } catch (error) {
             console.error("Failed to initialize Frontier API:", error);
         }

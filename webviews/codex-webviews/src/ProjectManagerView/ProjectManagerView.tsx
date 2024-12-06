@@ -257,6 +257,16 @@ function ProjectManagerView() {
                                 width: "100%",
                             }}
                         >
+                            {state.projectOverview.isAuthenticated && (
+                                <div>
+                                    <i className="codicon codicon-verified"></i>
+                                    <span>Authenticated</span>
+                                    <span>{state.projectOverview.userName}</span>
+                                    <span>{state.projectOverview.userEmail}</span>
+
+                                    {/* <VSCodeButton onClick={() => handleAction({ command: "logout" })}></VSCodeButton> */}
+                                </div>
+                            )}
                             <ProjectField
                                 label="Project Name"
                                 value={state.projectOverview.projectName ?? "Missing"}

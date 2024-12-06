@@ -79,6 +79,7 @@ export const StartupFlowView: React.FC = () => {
                     vscode.postMessage({ command: "metadata.check" });
                     break;
                 case "setupComplete": {
+                    console.log("setupComplete called");
                     send({ type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN }); // fixme: this should be a generic. ex "projectSet", "workspaceOpen"
                 }
             }
