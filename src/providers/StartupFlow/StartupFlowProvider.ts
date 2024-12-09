@@ -41,6 +41,15 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
     constructor(private readonly context: vscode.ExtensionContext) {
         this.initializeFrontierApi();
+
+        // Add disposal of webview panel when extension is deactivated
+        this.context.subscriptions.push(
+            vscode.Disposable.from({
+                dispose: () => {
+                    this.webviewPanel?.dispose();
+                },
+            })
+        );
     }
 
     private async sendList(webviewPanel: vscode.WebviewPanel) {
@@ -172,7 +181,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
     dispose() {
         debugLog("Disposing StartupFlowProvider");
+        this.webviewPanel?.dispose();
+        this.webviewPanel = undefined;
         this.disposables.forEach((d) => d.dispose());
+        this.disposables = [];
     }
 
     private async handleAuthenticationMessage(
@@ -459,7 +471,18 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         webviewPanel: vscode.WebviewPanel,
         _token: vscode.CancellationToken
     ): Promise<void> {
+        // Dispose of previous webview panel if it exists
+        this.webviewPanel?.dispose();
         this.webviewPanel = webviewPanel;
+
+        // Add the webview panel to disposables
+        this.disposables.push(
+            webviewPanel.onDidDispose(() => {
+                debugLog("Webview panel disposed");
+                this.webviewPanel = undefined;
+            })
+        );
+
         const preflightCheck = new PreflightCheck();
 
         // Set up webview options first
@@ -640,13 +663,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
             }
         });
-
-        // Add disposables
-        this.disposables.push(
-            webviewPanel.onDidDispose(() => {
-                debugLog("Webview panel disposed");
-            })
-        );
     }
 
     private getHtmlForWebview(webview: vscode.Webview): string {
