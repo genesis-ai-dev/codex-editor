@@ -781,13 +781,20 @@ export async function stageAndCommitAllAndSync(
 
         // Stage all changed files
         for (const [filepath, , worktreeStatus] of statusMatrix) {
-            if (worktreeStatus !== 1) {
-                // 1 means unchanged
-                await git.add({
-                    fs,
-                    dir: workspaceFolder,
-                    filepath,
-                });
+            try {
+                if (worktreeStatus !== 1) {
+                    // 1 means unchanged
+                    // Check if file exists before trying to add it
+                    await fs.promises.access(path.join(workspaceFolder, filepath));
+                    await git.add({
+                        fs,
+                        dir: workspaceFolder,
+                        filepath,
+                    });
+                }
+            } catch (error) {
+                console.log(`Skipping non-existent file: ${filepath}`);
+                continue;
             }
         }
 
