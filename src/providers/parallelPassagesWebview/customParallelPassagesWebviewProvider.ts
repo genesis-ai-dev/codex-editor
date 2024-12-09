@@ -251,7 +251,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
 
         webviewView.webview.onDidReceiveMessage(async (message: any) => {
             if ("destination" in message) {
-                GlobalProvider.getInstance().handleMessage(message);
+                GlobalProvider.getInstance().handleMessage(message as GlobalMessage);
                 console.log("Using global provider and exiting");
                 return;
             }
@@ -269,7 +269,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 await openFileAtLocation(message.uri, message.word);
                 break;
             case "requestPinning":
-                await this.pinCellById(message.cellId);
+                await this.pinCellById(message.content.cellId);
                 break;
             case "chatStream":
                 await handleChatStream(

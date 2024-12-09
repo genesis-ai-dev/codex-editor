@@ -9,6 +9,7 @@ import {
     EditorPostMessages,
     EditorReceiveMessages,
     GlobalMessage,
+    GlobalContentType,
 } from "../../../types";
 import { CodexCellDocument } from "./codexDocument";
 import { CodexCellEditorMessageHandling } from "./codexCellEditorMessagehandling";
@@ -71,7 +72,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             console.warn("WebviewPanel or currentDocument is not initialized");
             return;
         }
-        if ('destination' in message) {
+        if ("destination" in message) {
             console.log("Global message detected");
             this.messageHandler.handleGlobalMessage(message as GlobalMessage);
             return;

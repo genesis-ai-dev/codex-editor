@@ -1,7 +1,7 @@
 import vscode from "vscode";
 import { CodexCellEditorProvider } from "./providers/codexCellEditorProvider/codexCellEditorProvider";
 import { CustomWebviewProvider } from "./providers/parallelPassagesWebview/customParallelPassagesWebviewProvider";
-import { GlobalMessage } from "../types";
+import { GlobalContentType, GlobalMessage } from "../types";
 
 export class GlobalProvider {
     private static instance: GlobalProvider;
@@ -43,26 +43,17 @@ export class GlobalProvider {
     }
     public postMessageToAllWebviews({
         command,
-        targetText,
-        sourceText,
-        cellId,
-        path,
+        content,
     }: {
         command: string;
-        targetText?: string;
-        sourceText?: string;
-        cellId?: string;
-        path?: string;
+        content: GlobalContentType;
     }): void {
         // Implement logic to post message to all webviews
         // This is a placeholder implementation
         const message: GlobalMessage = {
             command,
             destination: "all",
-            targetText,
-            sourceText,
-            cellId,
-            path,
+            content,
         };
         console.log("Posting message to all webviews:", message);
         this.providers.forEach((provider, key) => {
@@ -89,26 +80,17 @@ export class GlobalProvider {
         key,
         command,
         destination,
-        targetText,
-        sourceText,
-        cellId,
-        path,
+        content,
     }: {
         key: string;
         command: string;
-        destination: string;
-        targetText?: string;
-        sourceText?: string;
-        cellId?: string;
-        path?: string;
+        destination: "webview" | "provider" | "all";
+        content: GlobalContentType;
     }): Promise<void> {
         const message: GlobalMessage = {
             command,
             destination,
-            targetText,
-            sourceText,
-            cellId,
-            path,
+            content,
         };
         await this.openWebview(key);
 

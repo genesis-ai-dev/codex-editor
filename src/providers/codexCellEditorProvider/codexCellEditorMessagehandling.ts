@@ -7,6 +7,7 @@ import {
     SpellCheckResponse,
     AlertCodesServerResponse,
     GlobalMessage,
+    GlobalContentType,
 } from "../../../types";
 import path from "path";
 import { getWorkSpaceUri } from "../../utils";
@@ -24,14 +25,16 @@ export class CodexCellEditorMessageHandling {
         switch (event.command) {
             case "applyTranslation": {
                 console.log("applyTranslation message received", { event });
-                if (this.provider.currentDocument && event.cellId && event.targetText) {
+                if (this.provider.currentDocument && event.content.type === "cellAndText") {
                     this.provider.currentDocument.updateCellContent(
-                        event.cellId,
-                        event.targetText,
+                        event.content.cellId,
+                        event.content.text,
                         EditType.LLM_GENERATION
                     );
                 }
+                break;
             }
+            // Add more cases here for other global message commands
         }
     };
     handleMessages = async (

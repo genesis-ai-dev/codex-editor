@@ -218,7 +218,10 @@ function ParallelView() {
                 const globalMessage: GlobalMessage = {
                     command: "requestPinning",
                     destination: "provider",
-                    cellId: cellId,
+                    content: {
+                        type: "cellId",
+                        cellId: cellId,
+                    },
                 };
                 // wait 100 ms
                 setTimeout(() => {
@@ -234,8 +237,11 @@ function ParallelView() {
         const globalMessage: GlobalMessage = {
             command: "applyTranslation",
             destination: "provider",
-            targetText: translation,
-            cellId: cellId,
+            content: {
+                type: "cellAndText",
+                cellId: cellId,
+                text: translation,
+            },
         };
         vscode.postMessage(globalMessage);
     };

@@ -63,13 +63,36 @@ interface NotebookComment {
         name: string;
     };
 }
+
+type GlobalContentType =
+    | {
+          type: "targetText";
+          targetText: string;
+      }
+    | {
+          type: "sourceText";
+          sourceText: string;
+      }
+    | {
+          type: "cellId";
+          cellId: string;
+      }
+    | {
+          type: "cellAndText";
+          cellId: string;
+          text: string;
+      }
+    | {
+          type: "translationPair";
+          targetText: string;
+          sourceText: string;
+          cellId: string;
+      };
+
 interface GlobalMessage {
     command: string;
-    destination: string;
-    sourceText?: string;
-    targetText?: string;
-    cellId?: string;
-    path?: string;
+    destination: "webview" | "provider" | "all";
+    content: GlobalContentType;
 }
 interface TranslationPair {
     cellId: string;
