@@ -72,6 +72,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             console.warn("WebviewPanel or currentDocument is not initialized");
             return;
         }
+
+        // Don't process messages if this is a source file
+        if (this.currentDocument.uri.fsPath.endsWith('.source')) {
+            return;
+        }
+
         if ("destination" in message) {
             console.log("Global message detected");
             this.messageHandler.handleGlobalMessage(message as GlobalMessage);
