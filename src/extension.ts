@@ -218,7 +218,6 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
         console.log("metadata.json exists");
         vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
 
-
         registerCodeLensProviders(context);
         registerTextSelectionHandler(context, () => undefined);
         await initializeBibleData(context);
@@ -346,6 +345,7 @@ async function executeCommandsAfter() {
     vscode.commands.executeCommand("workbench.action.focusAuxiliaryBar");
     vscode.commands.executeCommand("workbench.action.focusActivityBar");
     vscode.commands.executeCommand("codexNotebookTreeView.refresh");
+    vscode.commands.executeCommand("codexNotebookTreeView.focus");
     vscode.commands.executeCommand("codex-editor-extension.setEditorFontToTargetLanguage");
 }
 

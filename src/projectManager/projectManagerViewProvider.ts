@@ -430,10 +430,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                             break;
                         case "publishProject":
                             await this.frontierApi?.publishWorkspace({
-                                name: "test",
-                                // description: "test",
-                                // language: "en",
-                                // targetLanguage: "es",
+                                name: this.store.getState().projectOverview?.projectName || "",
                                 visibility: "private",
                             });
                             break;
@@ -687,7 +684,4 @@ export function registerProjectManagerViewWebviewProvider(context: vscode.Extens
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider("project-manager-sidebar", provider)
     );
-
-    // Show the sidebar when loading - which includes the button to create a new project
-    vscode.commands.executeCommand("project-manager-sidebar.focus");
 }

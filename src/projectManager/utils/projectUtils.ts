@@ -23,8 +23,6 @@ export interface ProjectDetails {
     targetLanguage?: LanguageMetadata;
 }
 
-
-
 export async function promptForTargetLanguage(): Promise<ProjectDetails | undefined> {
     const languages = LanguageCodes;
 
@@ -458,13 +456,14 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
             console.error("Error reading target text Bibles:", error);
         }
 
+        const userInfo = await authApi?.getUserInfo();
         return {
             format: metadata.format || "Unknown Format",
             projectName: metadata.projectName || "Unnamed Project",
             projectStatus: metadata.projectStatus || "Unknown Status",
             category: metadata.meta?.category || "Uncategorized",
-            userName: metadata.meta?.generator?.userName || "Anonymous",
-            userEmail: metadata.meta?.generator?.userEmail || "",
+            userName: userInfo?.username || "Anonymous",
+            userEmail: userInfo?.email || "",
             meta: {
                 version: metadata.meta?.version || "0.0.1",
                 // FIXME: the codex-types library is out of date. Thus we have mismatched and/or duplicate values being defined
@@ -472,8 +471,8 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
                 generator: {
                     softwareName: metadata.meta?.generator?.softwareName || "Unknown Software",
                     softwareVersion: metadata.meta?.generator?.softwareVersion || "0.0.1",
-                    userName: metadata.meta?.generator?.userName || "Anonymous",
-                    userEmail: metadata.meta?.generator?.userEmail || "",
+                    userName: userInfo?.username || "Anonymous",
+                    userEmail: userInfo?.email || "",
                 },
                 defaultLocale: metadata.meta?.defaultLocale || "en",
                 dateCreated: metadata.meta?.dateCreated || new Date().toISOString(),
@@ -773,6 +772,14 @@ export async function stageAndCommitAllAndSync(
     author?: { name: string; email: string }
 ): Promise<void> {
     try {
+        // Check if git repository exists by attempting to list the remotes
+        try {
+            await git.listRemotes({ fs, dir: workspaceFolder });
+        } catch (error) {
+            vscode.window.showErrorMessage("No git repository found in this project");
+            return;
+        }
+
         // Get status of all files
         const statusMatrix = await git.statusMatrix({
             fs,

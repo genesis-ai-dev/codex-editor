@@ -207,4 +207,8 @@ export interface FrontierAPI {
         visibility?: "private" | "internal" | "public";
         organizationId?: string;
     }) => Promise<void>;
+    getUserInfo: () => Promise<{
+        email: string;
+        username: string;
+    }>;
 }

@@ -137,7 +137,7 @@ export const StartupFlowView: React.FC = () => {
     // };
 
     const handleCreateEmpty = () => {
-        send({ type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT });
+        // send({ type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT });
         vscode.postMessage({ command: "project.createEmpty" } as MessagesToStartupFlowProvider);
     };
 

@@ -295,7 +295,6 @@ function ProjectManagerView() {
                                 onAction={() => handleAction({ command: "renameProject" })}
                                 hasWarning={!state.projectOverview.projectName}
                             />
-
                             <ProjectField
                                 label="Source Language"
                                 value={getLanguageDisplay(state.projectOverview.sourceLanguage)}
@@ -303,7 +302,6 @@ function ProjectManagerView() {
                                 onAction={() => handleAction({ command: "changeSourceLanguage" })}
                                 hasWarning={!state.projectOverview.sourceLanguage}
                             />
-
                             <ProjectField
                                 label="Target Language"
                                 value={getLanguageDisplay(state.projectOverview.targetLanguage)}
@@ -311,7 +309,6 @@ function ProjectManagerView() {
                                 onAction={() => handleAction({ command: "changeTargetLanguage" })}
                                 hasWarning={!state.projectOverview.targetLanguage}
                             />
-
                             <ProjectField
                                 label="Abbreviation"
                                 value={state.projectOverview.abbreviation?.toString() ?? "Missing"}
@@ -319,7 +316,6 @@ function ProjectManagerView() {
                                 onAction={() => handleAction({ command: "editAbbreviation" })}
                                 hasWarning={!state.projectOverview.abbreviation}
                             />
-
                             <ProjectField
                                 label="Category"
                                 value={String(state.projectOverview.category) ?? "Missing"}
@@ -327,7 +323,6 @@ function ProjectManagerView() {
                                 onAction={() => handleAction({ command: "selectCategory" })}
                                 hasWarning={!state.projectOverview.category}
                             />
-
                             <ProjectField
                                 label="Source Texts"
                                 value={
@@ -340,7 +335,6 @@ function ProjectManagerView() {
                                 onAction={() => handleAction({ command: "openSourceUpload" })}
                                 hasWarning={!state.projectOverview.sourceTexts?.length}
                             />
-
                             <div
                                 style={{
                                     display: "flex",
