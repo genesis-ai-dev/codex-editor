@@ -337,19 +337,6 @@
                         "when": "workbenchState !== empty"
                     },
                     {
-                        "id": "userName",
-                        "title": "Set User Name",
-                        "description": "Now that we have a Project name, let's set the user name for your new Codex project.\n[Set User Name](command:codex-project-manager.userName)",
-                        "media": {
-                            "image": "./src/media/user-name.png",
-                            "altText": "Set User Name"
-                        },
-                        "completionEvents": [
-                            "onCommand:codex-project-manager.changeUserName"
-                        ],
-                        "when": "workbenchState !== empty"
-                    },
-                    {
                         "id": "selectSourceLanguage",
                         "title": "Select Source Language",
                         "description": "Now that we have a folder, let's initialize your new Codex project.\n[Select Source Language](command:codex-project-manager.changeSourceLanguage)\n",

@@ -97,7 +97,6 @@ function ProjectManagerView() {
         const stateChangingCommands = [
             "initializeProject",
             "renameProject",
-            "changeUserName",
             "changeSourceLanguage",
             "changeTargetLanguage",
             "editAbbreviation",
@@ -258,11 +257,33 @@ function ProjectManagerView() {
                             }}
                         >
                             {state.projectOverview.isAuthenticated && (
-                                <div>
-                                    <i className="codicon codicon-verified"></i>
-                                    <span>Authenticated</span>
-                                    <span>{state.projectOverview.userName}</span>
-                                    <span>{state.projectOverview.userEmail}</span>
+                                <div
+                                    style={{
+                                        display: "flex",
+                                        flexDirection: "column",
+                                        gap: "0.5rem",
+                                    }}
+                                >
+                                    <div
+                                        style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: "0.5rem",
+                                        }}
+                                    >
+                                        <i className="codicon codicon-account"></i>
+                                        <span>{state.projectOverview.userName}</span>
+                                    </div>
+                                    <div
+                                        style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: "0.5rem",
+                                        }}
+                                    >
+                                        <i className="codicon codicon-mail"></i>
+                                        <span>{state.projectOverview.userEmail}</span>
+                                    </div>
 
                                     {/* <VSCodeButton onClick={() => handleAction({ command: "logout" })}></VSCodeButton> */}
                                 </div>
@@ -273,22 +294,6 @@ function ProjectManagerView() {
                                 icon="pencil"
                                 onAction={() => handleAction({ command: "renameProject" })}
                                 hasWarning={!state.projectOverview.projectName}
-                            />
-
-                            <ProjectField
-                                label="User Name"
-                                value={state.projectOverview.userName ?? "Missing"}
-                                icon="account"
-                                onAction={() => handleAction({ command: "changeUserName" })}
-                                hasWarning={!state.projectOverview.userName}
-                            />
-
-                            <ProjectField
-                                label="User Email"
-                                value={state.projectOverview.userEmail ?? "Missing"}
-                                icon="mail"
-                                onAction={() => handleAction({ command: "changeUserEmail" })}
-                                hasWarning={!state.projectOverview.userEmail}
                             />
 
                             <ProjectField

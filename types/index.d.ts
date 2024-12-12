@@ -963,8 +963,6 @@ type ProjectManagerMessageFromWebview =
     | { command: "refreshState" }
     | { command: "initializeProject" }
     | { command: "renameProject" }
-    | { command: "changeUserName" }
-    | { command: "changeUserEmail" }
     | { command: "changeSourceLanguage" }
     | { command: "changeTargetLanguage" }
     | { command: "editAbbreviation" }
