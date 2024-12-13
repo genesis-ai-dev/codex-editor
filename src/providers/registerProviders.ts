@@ -11,8 +11,8 @@ export function registerProviders(context: vscode.ExtensionContext) {
     disposables.push(CodexCellEditorProvider.register(context));
 
     // Register SourceControlProvider
-    const sourceControlProvider = registerSourceControl(context);
-    disposables.push(sourceControlProvider);
+    // const sourceControlProvider = registerSourceControl(context);
+    // disposables.push(sourceControlProvider);
 
     // Register CodexNotebookTreeViewProvider
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
