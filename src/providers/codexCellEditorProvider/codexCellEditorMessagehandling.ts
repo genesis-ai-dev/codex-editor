@@ -497,6 +497,22 @@ export class CodexCellEditorMessageHandling {
                 }
                 return;
             }
+            case "webviewFocused": {
+                try {
+                    if (this.provider.currentDocument && event.content?.uri) {
+                        // Only update if we have both a document and a valid URI
+                        const newUri = vscode.Uri.parse(event.content.uri);
+                        if (newUri.scheme === "file") {
+                            // Ensure it's a valid file URI
+                            this.provider.currentDocument.updateUri(newUri);
+                        }
+                    }
+                } catch (error) {
+                    console.error("Error handling webview focus:", error, event);
+                    vscode.window.showErrorMessage("Failed to update document reference on focus");
+                }
+                return;
+            }
         }
     };
 }

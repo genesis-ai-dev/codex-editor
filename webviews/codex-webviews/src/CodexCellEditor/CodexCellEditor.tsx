@@ -144,6 +144,20 @@ const CodexCellEditor: React.FC = () => {
         setIsSourceText((window as any).initialData?.isSourceText || false);
         setVideoUrl((window as any).initialData?.videoUrl || "");
         setMetadata((window as any).initialData?.metadata || {});
+
+        // Add focus event listener
+        window.addEventListener("focus", () => {
+            // Ensure we have a valid URI before sending
+            const uri = (window as any).initialData?.uri;
+            if (uri) {
+                vscode.postMessage({
+                    command: "webviewFocused",
+                    content: {
+                        uri: uri,
+                    },
+                } as EditorPostMessages);
+            }
+        });
     }, []);
 
     useEffect(() => {

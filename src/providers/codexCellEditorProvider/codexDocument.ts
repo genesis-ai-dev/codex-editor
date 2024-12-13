@@ -1,5 +1,8 @@
 import * as vscode from "vscode";
-import { NotebookMetadataManager, getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
+import {
+    NotebookMetadataManager,
+    getNotebookMetadataManager,
+} from "../../utils/notebookMetadataManager";
 import { initializeStateStore } from "../../stateStore";
 import {
     QuillCellContent,
@@ -167,11 +170,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
     public async saveAs(
         targetResource: vscode.Uri,
         cancellation: vscode.CancellationToken,
-        backup: boolean = false,
+        backup: boolean = false
     ): Promise<void> {
         const text = JSON.stringify(this._documentData, null, 2);
         await vscode.workspace.fs.writeFile(targetResource, new TextEncoder().encode(text));
-        if(!backup) this._isDirty = false; // Reset dirty flag
+        if (!backup) this._isDirty = false; // Reset dirty flag
     }
 
     public async revert(cancellation?: vscode.CancellationToken): Promise<void> {
@@ -356,6 +359,14 @@ export class CodexCellDocument implements vscode.CustomDocument {
         this._isDirty = true;
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, newLabel }],
+        });
+    }
+
+    public updateUri(newUri: vscode.Uri): void {
+        Object.defineProperty(this, "uri", {
+            value: newUri,
+            writable: true,
+            configurable: true,
         });
     }
 }

@@ -538,6 +538,7 @@ interface EditHistoryEntry {
 }
 
 export type EditorPostMessages =
+    | { command: "webviewFocused"; content: { uri: string } }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string } }
     | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata }
     | { command: "pickVideoFile" }
