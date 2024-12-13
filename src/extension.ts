@@ -53,7 +53,7 @@ let client: LanguageClient | undefined;
 let clientCommandsDisposable: vscode.Disposable;
 let autoCompleteStatusBarItem: StatusBarItem;
 let tableIndexMap: Map<string, MiniSearch<TableRecord>>;
-let commitTimeout: NodeJS.Timeout | undefined;
+let commitTimeout: any;
 const COMMIT_DELAY = 5000; // Delay in milliseconds
 let notebookMetadataManager: NotebookMetadataManager;
 let authApi: FrontierAPI | undefined;
@@ -93,7 +93,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     console.error("Failed to auto-commit changes:", error);
                 }
             }
-        }, COMMIT_DELAY) as NodeJS.Timeout;
+        }, COMMIT_DELAY);
     };
 
     // Listen for text document saves (includes JSON files)

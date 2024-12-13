@@ -177,12 +177,12 @@ const testConfig = {
     resolve: {
         extensions: [".ts", ".js"],
         alias: {
-          //I don't know if this actually works, but it got rid of the error message.
-          "fs/promises": "memfs",  
+            //I don't know if this actually works, but it got rid of the error message.
+            "fs/promises": "memfs",
         },
         fallback: {
             assert: require.resolve("assert/"),
-            process: require.resolve("process/browser"),
+            // process: require.resolve("process/browser"),
             url: require.resolve("url/"),
             fs: require.resolve("memfs"),
             zlib: require.resolve("browserify-zlib"),
@@ -218,9 +218,6 @@ const testConfig = {
         ],
     },
     plugins: [
-        new webpack.ProvidePlugin({
-            process: "process/browser",
-        }),
         // ... other plugins if necessary
     ],
     devtool: "nosources-source-map",
