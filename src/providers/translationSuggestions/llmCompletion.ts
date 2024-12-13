@@ -124,10 +124,16 @@ export async function llmCompletion(
                     .map((cell) => cell!.content)
                     .join(" ");
 
+                const notTranslatedYetMessage =
+                    "[not translated yet; do not try to translate this cell but focus on the final cell below]";
+
                 const cellContent = await currentNotebookReader.getEffectiveCellContent(cellIndex);
                 const cellContentWithoutHTMLTags =
-                    cellContent.replace(/<[^>]*?>/g, "").trim() ||
-                    "[not translated yet; do not try to translate this cell but focus on the final cell below]";
+                    cellContent.replace(/<[^>]*?>/g, "").trim() || notTranslatedYetMessage;
+
+                // FIXME: if the last edit in the edit history is an LLM edit, 
+                // then we don't want to use the cell content
+                // as it has not yet been verified by the user
 
                 const result = `${cellIds.join(
                     ", "
