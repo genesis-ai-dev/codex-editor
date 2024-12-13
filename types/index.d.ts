@@ -982,7 +982,8 @@ type ProjectManagerMessageFromWebview =
     | { command: "selectprimarySourceText"; data: string }
     | { command: "openBible"; data: { path: string } }
     | { command: "checkPublishStatus" }
-    | { command: "publishProject" };
+    | { command: "publishProject" }
+    | { command: "syncProject" };
 
 interface ProjectManagerState {
     projectOverview: ProjectOverview | null;

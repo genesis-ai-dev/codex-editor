@@ -84,7 +84,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     // Check if .git directory exists using isomorphic-git
 
                     try {
-                        await stageAndCommitAllAndSync(workspaceFolder, commitMessage);
+                        await stageAndCommitAllAndSync(commitMessage);
                     } catch (gitError) {
                         // No git repository found, skip commit
                         console.debug("No git repository found in workspace, skipping commit");

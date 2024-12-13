@@ -10,6 +10,7 @@ import {
     initializeProjectMetadataAndGit,
     findAllCodexProjects,
     checkIfMetadataAndGitIsInitialized,
+    stageAndCommitAllAndSync,
 } from "./utils/projectUtils";
 
 import {
@@ -433,6 +434,10 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                                 name: this.store.getState().projectOverview?.projectName || "",
                                 visibility: "private",
                             });
+                            break;
+                        case "syncProject":
+                            console.log("Syncing project");
+                            await stageAndCommitAllAndSync("Syncing project");
                             break;
                         default:
                             console.error(`Unknown command: ${message.command}`, { message });

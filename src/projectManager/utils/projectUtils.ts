@@ -767,10 +767,15 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
 }
 
 export async function stageAndCommitAllAndSync(
-    workspaceFolder: string,
     commitMessage: string,
     author?: { name: string; email: string }
 ): Promise<void> {
+    console.log("Staging and committing all changes and syncing project");
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceFolder) {
+        vscode.window.showErrorMessage("No workspace folder found");
+        return;
+    }
     try {
         // Check if git repository exists by attempting to list the remotes
         try {
@@ -821,7 +826,7 @@ export async function stageAndCommitAllAndSync(
                         .get<string>("userEmail") || "unknown",
             },
         });
-
+        let remoteHasSynced = false;
         // Check if remote exists
         try {
             const remotes = await git.listRemotes({ fs, dir: workspaceFolder });
@@ -845,12 +850,17 @@ export async function stageAndCommitAllAndSync(
                     remote: "origin",
                     ref: "main",
                 });
+                remoteHasSynced = true;
             }
         } catch (error) {
             console.log("No remote configured, skipping pull/push");
         }
 
-        vscode.window.showInformationMessage("Changes committed and synced successfully");
+        if (remoteHasSynced) {
+            vscode.window.showInformationMessage("Changes committed and synced successfully");
+        } else {
+            vscode.window.showInformationMessage("Changes committed successfully");
+        }
     } catch (error) {
         console.error("Failed to commit and sync changes:", error);
         vscode.window.showErrorMessage(

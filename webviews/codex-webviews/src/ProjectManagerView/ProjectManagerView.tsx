@@ -364,6 +364,13 @@ function ProjectManagerView() {
                                         Project
                                     </VSCodeButton>
                                 )}
+                                {state.repoHasRemote && (
+                                    <VSCodeButton
+                                        onClick={() => handleAction({ command: "syncProject" })}
+                                    >
+                                        <i className="codicon codicon-sync"></i> Sync Project
+                                    </VSCodeButton>
+                                )}
                                 <VSCodeButton
                                     onClick={() => handleAction({ command: "closeProject" })}
                                 >
