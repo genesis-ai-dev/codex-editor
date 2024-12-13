@@ -368,8 +368,8 @@ function ParallelView() {
 
     return (
         <VSCodePanels>
-            <VSCodePanelTab id="tab-search">Search</VSCodePanelTab>
-            <VSCodePanelTab id="tab-chat">Chat</VSCodePanelTab>
+            {/* <VSCodePanelTab id="tab-search">Search</VSCodePanelTab>
+            <VSCodePanelTab id="tab-chat">Chat</VSCodePanelTab> */}
 
             {/* Search Tab */}
             <VSCodePanelView id="view-search">
@@ -388,7 +388,7 @@ function ParallelView() {
             </VSCodePanelView>
 
             {/* Chat Tab */}
-            <VSCodePanelView id="view-chat">
+            {/* <VSCodePanelView id="view-chat">
                 <ChatTab
                     chatHistory={chatHistory}
                     chatInput={chatInput}
@@ -411,7 +411,7 @@ function ParallelView() {
                     setIsSessionMenuOpen={setIsSessionMenuOpen}
                     handleRequestPinning={handleRequestPinning}
                 />
-            </VSCodePanelView>
+            </VSCodePanelView> */}
         </VSCodePanels>
     );
 }
