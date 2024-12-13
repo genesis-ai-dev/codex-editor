@@ -55,6 +55,13 @@ export async function llmCompletion(
         // Let's correct the retrieval by filtering any results that have no overlapping
         // source text content with the current cell's source
         const filteredSimilarSourceCells = similarSourceCells.filter((pair) => {
+            // don't use the current cell id if it was pulled in from a previous edit
+            // otherwise re-predicting will just result in generating the same content
+            // that already exists in the current cell
+            if (pair.cellId === currentCellId) {
+                return false;
+            }
+
             const currentCellSourceContent = sourceContent;
             const pairSourceContent = pair.sourceCell.content;
             if (!pairSourceContent) return false;
