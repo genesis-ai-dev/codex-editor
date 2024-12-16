@@ -52,9 +52,6 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
         setPassword(newPassword);
         const strength = Math.min((newPassword.length / 16) * 100, 100);
         setPasswordStrength(strength);
-        if (isRegistering) {
-            validatePassword(newPassword);
-        }
     };
 
     if (authState.isAuthenticated) {
@@ -184,10 +181,8 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                             width: `${passwordStrength}%`,
                                             height: "100%",
                                             background: `${
-                                                passwordStrength < 50
+                                                passwordStrength < 100
                                                     ? "var(--vscode-errorForeground)"
-                                                    : passwordStrength < 100
-                                                    ? "var(--vscode-warningForeground)"
                                                     : "var(--vscode-testing-iconPassed)"
                                             }`,
                                             transition: "width 0.3s ease-in-out",
