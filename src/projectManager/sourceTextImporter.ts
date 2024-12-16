@@ -7,7 +7,10 @@ import {
     createCodexNotebookFromWebVTT,
     splitSourceFileByBook,
 } from "../utils/codexNotebookUtils";
-import { NotebookMetadataManager, getNotebookMetadataManager } from "../utils/notebookMetadataManager";
+import {
+    NotebookMetadataManager,
+    getNotebookMetadataManager,
+} from "../utils/notebookMetadataManager";
 import { CodexContentSerializer } from "../serializer";
 import * as path from "path";
 
@@ -17,7 +20,7 @@ export async function validateSourceFile(fileUri: vscode.Uri): Promise<boolean> 
         const stat = await vscode.workspace.fs.stat(fileUri);
         return stat.type === vscode.FileType.File;
     } catch (error) {
-        console.error('Error validating source file:', error);
+        console.error("Error validating source file:", error);
         return false;
     }
 }
@@ -90,10 +93,13 @@ async function importSourceFile(
         switch (fileType) {
             case "subtitles": {
                 const fileContent = await vscode.workspace.fs.readFile(fileUri);
-                importedNotebookIds = [await createCodexNotebookFromWebVTT(
-                    new TextDecoder().decode(fileContent),
-                    notebookId
-                )];
+                importedNotebookIds = [
+                    await createCodexNotebookFromWebVTT(
+                        new TextDecoder().decode(fileContent),
+                        notebookId
+                    ),
+                ];
+
                 break;
             }
             case "plaintext":
@@ -133,10 +139,10 @@ async function importSourceFile(
                 "target",
                 `${importedNotebookId}.codex`
             );
-            
+
             try {
-                await vscode.workspace.fs.stat(codexUri);
-                console.log(`Target notebook already exists: ${codexUri.fsPath}`);
+                const codexExists = await vscode.workspace.fs.stat(codexUri);
+                console.log(`Target notebook already exists: ${codexUri.fsPath}`, codexExists);
             } catch {
                 // Create target notebook only if it doesn't exist
                 await createEmptyCodexNotebooks(importedNotebookId);
