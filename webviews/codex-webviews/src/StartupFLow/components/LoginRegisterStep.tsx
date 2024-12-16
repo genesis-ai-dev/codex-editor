@@ -200,7 +200,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                             </div>
                         )}
                     </div>
-                    {confirmPassword !== password && (
+                    {confirmPassword !== password && isRegistering && (
                         <span
                             style={{
                                 color: "var(--vscode-errorForeground)",
