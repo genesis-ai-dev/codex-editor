@@ -77,6 +77,8 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
         );
     }
 
+    const centerBumpValue = 2.5;
+
     return (
         <div className="login-register-step">
             <div style={{ display: "flex", justifyContent: "flex-end", width: "100%" }}>
@@ -102,7 +104,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                         alignItems: "start",
                         gap: "1rem",
                         flexDirection: "column",
-                        marginRight: "-2.5rem",
+                        marginRight: `-${centerBumpValue}rem`,
                     }}
                 >
                     <VSCodeTextField
@@ -203,12 +205,24 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                             </div>
                         )}
                     </div>
+                    {confirmPassword !== password && (
+                        <span
+                            style={{
+                                color: "var(--vscode-errorForeground)",
+                                fontSize: "1.5rem",
+                                alignSelf: "center",
+                                marginRight: `${centerBumpValue}rem`,
+                            }}
+                        >
+                            ≠
+                        </span>
+                    )}
                     {isRegistering && (
                         <>
                             <VSCodeTextField
                                 type={showPassword ? "text" : "password"}
                                 value={confirmPassword}
-                                onChange={(e) =>
+                                onInput={(e) =>
                                     setConfirmPassword((e.target as HTMLInputElement).value)
                                 }
                                 placeholder="Confirm Password"
