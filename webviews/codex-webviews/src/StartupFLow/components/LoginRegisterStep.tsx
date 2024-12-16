@@ -16,11 +16,16 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
     const [email, setEmail] = useState("");
     const [passwordError, setPasswordError] = useState("");
     const [showPassword, setShowPassword] = useState(false);
+    const [passwordStrength, setPasswordStrength] = useState(0);
+    const [isPasswordFocused, setIsPasswordFocused] = useState(false);
 
     const validatePassword = (pass: string) => {
         if (pass.length < 16) {
             setPasswordError("Password must be at least 16 characters long");
             return false;
+        } else if (pass.length > 16) {
+            setPasswordError("");
+            return true;
         }
         return true;
     };
@@ -45,6 +50,8 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
     const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const newPassword = e.target.value;
         setPassword(newPassword);
+        const strength = Math.min((newPassword.length / 16) * 100, 100);
+        setPasswordStrength(strength);
         if (isRegistering) {
             validatePassword(newPassword);
         }
@@ -113,24 +120,88 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                             required
                         />
                     )}
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                        <VSCodeTextField
-                            type={showPassword ? "text" : "password"}
-                            value={password}
-                            onChange={(e: any) => handlePasswordChange(e)}
-                            placeholder="Password"
-                            required
-                        />
-                        <VSCodeButton
-                            appearance="icon"
-                            onClick={() => setShowPassword(!showPassword)}
-                        >
-                            <i
-                                className={`codicon ${
-                                    showPassword ? "codicon-eye" : "codicon-eye-closed"
-                                }`}
-                            ></i>
-                        </VSCodeButton>
+                    <div
+                        style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            width: "100%",
+                            position: "relative",
+                        }}
+                    >
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                            <VSCodeTextField
+                                type={showPassword ? "text" : "password"}
+                                value={password}
+                                onInput={(e) =>
+                                    handlePasswordChange(e as React.ChangeEvent<HTMLInputElement>)
+                                }
+                                onFocus={() => setIsPasswordFocused(true)}
+                                onBlur={() => setIsPasswordFocused(false)}
+                                placeholder="Password"
+                                required
+                            />
+                            <VSCodeButton
+                                appearance="icon"
+                                onClick={() => setShowPassword(!showPassword)}
+                            >
+                                <i
+                                    className={`codicon ${
+                                        showPassword ? "codicon-eye" : "codicon-eye-closed"
+                                    }`}
+                                ></i>
+                            </VSCodeButton>
+                        </div>
+                        {isRegistering && isPasswordFocused && (
+                            <div
+                                data-name="password-strength-indicator"
+                                style={{
+                                    position: "absolute",
+                                    top: "100%",
+                                    left: "0",
+                                    right: "0",
+                                    background: "var(--vscode-menu-background)",
+                                    border: "1px solid var(--vscode-menu-border)",
+                                    borderRadius: "4px",
+                                    padding: "8px",
+                                    marginTop: "4px",
+                                    zIndex: 1000,
+                                    boxShadow: "0 2px 8px var(--vscode-widget-shadow)",
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        height: "4px",
+                                        background: "var(--vscode-textBlockQuote-background)",
+                                        borderRadius: "2px",
+                                        overflow: "hidden",
+                                        marginBottom: "8px",
+                                    }}
+                                >
+                                    <div
+                                        style={{
+                                            width: `${passwordStrength}%`,
+                                            height: "100%",
+                                            background: `${
+                                                passwordStrength < 50
+                                                    ? "var(--vscode-errorForeground)"
+                                                    : passwordStrength < 100
+                                                    ? "var(--vscode-warningForeground)"
+                                                    : "var(--vscode-testing-iconPassed)"
+                                            }`,
+                                            transition: "width 0.3s ease-in-out",
+                                        }}
+                                    />
+                                </div>
+                                <span
+                                    style={{
+                                        fontSize: "0.8em",
+                                        color: "var(--vscode-descriptionForeground)",
+                                    }}
+                                >
+                                    {password.length}/16 characters required
+                                </span>
+                            </div>
+                        )}
                     </div>
                     {isRegistering && (
                         <>
