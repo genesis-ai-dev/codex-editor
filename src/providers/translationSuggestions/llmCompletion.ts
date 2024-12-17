@@ -49,7 +49,6 @@ export async function llmCompletion(
 
         if (!similarSourceCells || similarSourceCells.length === 0) {
             showNoResultsWarning();
-            return "";
         }
 
         // Let's correct the retrieval by filtering any results that have no overlapping
@@ -131,7 +130,7 @@ export async function llmCompletion(
                 const cellContentWithoutHTMLTags =
                     cellContent.replace(/<[^>]*?>/g, "").trim() || notTranslatedYetMessage;
 
-                // FIXME: if the last edit in the edit history is an LLM edit, 
+                // FIXME: if the last edit in the edit history is an LLM edit,
                 // then we don't want to use the cell content
                 // as it has not yet been verified by the user
 
