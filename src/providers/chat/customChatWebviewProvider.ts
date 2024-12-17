@@ -266,7 +266,9 @@ export class CustomWebviewProvider {
     selectionChangeListener: any;
     constructor(extensionUri: vscode.Uri) {
         this._extensionUri = extensionUri;
-        checkThatChatThreadsFileExists();
+        if (vscode.workspace.workspaceFolders) {
+            checkThatChatThreadsFileExists();
+        }
     }
 
     async sendSelectMessage(
