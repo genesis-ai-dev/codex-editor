@@ -211,4 +211,5 @@ export interface FrontierAPI {
         email: string;
         username: string;
     }>;
+    getLlmEndpoint: () => Promise<string | undefined>;
 }

@@ -3,6 +3,7 @@ import { CompletionConfig } from "../providers/translationSuggestions/inlineComp
 import { ChatMessage } from "../../types";
 import * as vscode from "vscode";
 import { ChatCompletionMessageParam } from "openai/resources";
+import { getAuthApi } from "../extension";
 
 /**
  * Calls the Language Model (LLM) with the given messages and configuration.
@@ -14,9 +15,32 @@ import { ChatCompletionMessageParam } from "openai/resources";
  */
 export async function callLLM(messages: ChatMessage[], config: CompletionConfig): Promise<string> {
     try {
+        // Get the LLM endpoint from auth API if available
+        let llmEndpoint: string | undefined;
+        let authBearerToken: string | undefined;
+        try {
+            const frontierApi = getAuthApi();
+            if (frontierApi) {
+                llmEndpoint = await frontierApi.getLlmEndpoint();
+                // Get auth token from the auth provider
+                authBearerToken = await frontierApi.authProvider.getToken();
+            }
+        } catch (error) {
+            console.debug("Could not get LLM endpoint from auth API:", error);
+        }
+
+        if (llmEndpoint) {
+            config.endpoint = llmEndpoint;
+        }
+
         const openai = new OpenAI({
             apiKey: config.apiKey,
             baseURL: config.endpoint,
+            defaultHeaders: authBearerToken
+                ? {
+                      Authorization: `Bearer ${authBearerToken}`,
+                  }
+                : undefined,
         });
 
         let model = config.model;

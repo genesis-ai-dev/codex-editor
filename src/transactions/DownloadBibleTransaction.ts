@@ -295,6 +295,7 @@ export class DownloadBibleTransaction extends BaseTransaction {
         }
     }
 
+    // FIXME: add an endpoint for our blank slate bibles
     private async downloadVerseContent(): Promise<string[]> {
         const ebibleUrl = `https://raw.githubusercontent.com/BibleNLP/ebible/main/corpus/${this.getEbibleFileName()}`;
         let response;
@@ -305,6 +306,7 @@ export class DownloadBibleTransaction extends BaseTransaction {
                 `Failed to fetch Bible text from ${ebibleUrl}. This could be due to network issues or the server being unavailable. Error: ${
                     (error as any).message
                 }`
+                
             );
         }
         if (!response.ok) {
