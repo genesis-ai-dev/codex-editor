@@ -22,7 +22,6 @@
             "request": "launch",
             "args": [
                 "--extensionDevelopmentPath=${workspaceFolder}",
-                "--extensionDevelopmentKind=web",
                 "--extensionTestsPath=${workspaceFolder}/out/test/suite/index"
             ],
             "outFiles": ["${workspaceFolder}/out/**/*.js"],
