@@ -1,7 +1,11 @@
 import * as vscode from "vscode";
 import { getWorkSpaceUri } from "../../../../utils";
-import { NotebookMetadataManager, getNotebookMetadataManager } from "../../../../utils/notebookMetadataManager";
+import {
+    NotebookMetadataManager,
+    getNotebookMetadataManager,
+} from "../../../../utils/notebookMetadataManager";
 import { CodexContentSerializer } from "../../../../serializer";
+import { CodexNotebookAsJSONData } from "../../../../../types";
 
 export interface FileData {
     uri: vscode.Uri;
@@ -66,7 +70,7 @@ async function readFile(
     serializer: CodexContentSerializer
 ): Promise<FileData> {
     const content = await vscode.workspace.fs.readFile(uri);
-    let notebookData;
+    let notebookData: CodexNotebookAsJSONData;
 
     try {
         // Use the serializer to parse the notebook content

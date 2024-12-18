@@ -15,11 +15,17 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
     const [confirmPassword, setConfirmPassword] = useState("");
     const [email, setEmail] = useState("");
     const [passwordError, setPasswordError] = useState("");
+    const [showPassword, setShowPassword] = useState(false);
+    const [passwordStrength, setPasswordStrength] = useState(0);
+    const [isPasswordFocused, setIsPasswordFocused] = useState(false);
 
     const validatePassword = (pass: string) => {
         if (pass.length < 16) {
             setPasswordError("Password must be at least 16 characters long");
             return false;
+        } else if (pass.length > 16) {
+            setPasswordError("");
+            return true;
         }
         return true;
     };
@@ -44,9 +50,8 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
     const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const newPassword = e.target.value;
         setPassword(newPassword);
-        if (isRegistering) {
-            validatePassword(newPassword);
-        }
+        const strength = Math.min((newPassword.length / 16) * 100, 100);
+        setPasswordStrength(strength);
     };
 
     if (authState.isAuthenticated) {
@@ -69,6 +74,8 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
         );
     }
 
+    const centerBumpValue = 2.5;
+
     return (
         <div className="login-register-step">
             <div style={{ display: "flex", justifyContent: "flex-end", width: "100%" }}>
@@ -88,46 +95,142 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                     alignItems: "center",
                 }}
             >
-                <VSCodeTextField
-                    value={username}
-                    onChange={(e) => setUsername((e.target as HTMLInputElement).value)}
-                    placeholder="Username"
-                    required
-                />
-                {isRegistering && (
+                <div
+                    style={{
+                        display: "flex",
+                        alignItems: "start",
+                        gap: "1rem",
+                        flexDirection: "column",
+                        marginRight: `-${centerBumpValue}rem`,
+                    }}
+                >
                     <VSCodeTextField
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail((e.target as HTMLInputElement).value)}
-                        placeholder="Email"
+                        value={username}
+                        onChange={(e) => setUsername((e.target as HTMLInputElement).value)}
+                        placeholder="Username"
                         required
                     />
-                )}
-                <VSCodeTextField
-                    type="password"
-                    value={password}
-                    onChange={(e: any) => handlePasswordChange(e)}
-                    placeholder="Password"
-                    required
-                />
-                {isRegistering && (
-                    <>
+                    {isRegistering && (
                         <VSCodeTextField
-                            type="password"
-                            value={confirmPassword}
-                            onChange={(e) =>
-                                setConfirmPassword((e.target as HTMLInputElement).value)
-                            }
-                            placeholder="Confirm Password"
+                            type="email"
+                            value={email}
+                            onChange={(e) => setEmail((e.target as HTMLInputElement).value)}
+                            placeholder="Email"
                             required
                         />
-                        {passwordError && (
-                            <span style={{ color: "var(--vscode-errorForeground)" }}>
-                                {passwordError}
-                            </span>
+                    )}
+                    <div
+                        style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            width: "100%",
+                            position: "relative",
+                        }}
+                    >
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                            <VSCodeTextField
+                                type={showPassword ? "text" : "password"}
+                                value={password}
+                                onInput={(e) =>
+                                    handlePasswordChange(e as React.ChangeEvent<HTMLInputElement>)
+                                }
+                                onFocus={() => setIsPasswordFocused(true)}
+                                onBlur={() => setIsPasswordFocused(false)}
+                                placeholder="Password"
+                                required
+                            />
+                            <VSCodeButton
+                                appearance="icon"
+                                onClick={() => setShowPassword(!showPassword)}
+                            >
+                                <i
+                                    className={`codicon ${
+                                        showPassword ? "codicon-eye" : "codicon-eye-closed"
+                                    }`}
+                                ></i>
+                            </VSCodeButton>
+                        </div>
+                        {isRegistering && isPasswordFocused && (
+                            <div
+                                data-name="password-strength-indicator"
+                                style={{
+                                    position: "absolute",
+                                    top: "100%",
+                                    left: "0",
+                                    right: "0",
+                                    background: "var(--vscode-menu-background)",
+                                    border: "1px solid var(--vscode-menu-border)",
+                                    borderRadius: "4px",
+                                    padding: "8px",
+                                    marginTop: "4px",
+                                    zIndex: 1000,
+                                    boxShadow: "0 2px 8px var(--vscode-widget-shadow)",
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        height: "4px",
+                                        background: "var(--vscode-textBlockQuote-background)",
+                                        borderRadius: "2px",
+                                        overflow: "hidden",
+                                        marginBottom: "8px",
+                                    }}
+                                >
+                                    <div
+                                        style={{
+                                            width: `${passwordStrength}%`,
+                                            height: "100%",
+                                            background: `${
+                                                passwordStrength < 100
+                                                    ? "var(--vscode-errorForeground)"
+                                                    : "var(--vscode-testing-iconPassed)"
+                                            }`,
+                                            transition: "width 0.3s ease-in-out",
+                                        }}
+                                    />
+                                </div>
+                                <span
+                                    style={{
+                                        fontSize: "0.8em",
+                                        color: "var(--vscode-descriptionForeground)",
+                                    }}
+                                >
+                                    {password.length}/16 characters required
+                                </span>
+                            </div>
                         )}
-                    </>
-                )}
+                    </div>
+                    {confirmPassword !== password && isRegistering && (
+                        <span
+                            style={{
+                                color: "var(--vscode-errorForeground)",
+                                fontSize: "1.5rem",
+                                alignSelf: "center",
+                                marginRight: `${centerBumpValue}rem`,
+                            }}
+                        >
+                            ≠
+                        </span>
+                    )}
+                    {isRegistering && (
+                        <>
+                            <VSCodeTextField
+                                type={showPassword ? "text" : "password"}
+                                value={confirmPassword}
+                                onInput={(e) =>
+                                    setConfirmPassword((e.target as HTMLInputElement).value)
+                                }
+                                placeholder="Confirm Password"
+                                required
+                            />
+                            {passwordError && (
+                                <span style={{ color: "var(--vscode-errorForeground)" }}>
+                                    {passwordError}
+                                </span>
+                            )}
+                        </>
+                    )}
+                </div>
                 <div className="button-group">
                     <VSCodeButton type="submit">
                         {isRegistering ? "Register" : "Login"}

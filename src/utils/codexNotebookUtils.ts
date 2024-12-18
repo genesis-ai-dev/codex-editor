@@ -645,13 +645,13 @@ export async function splitSourceFileByBook(
     language: string
 ): Promise<vscode.Uri[]> {
     const content = await vscode.workspace.fs.readFile(sourceUri);
-    const textContent = Buffer.from(content).toString('utf-8');
-    const lines = textContent.split('\n').filter(line => line.trim());
+    const textContent = Buffer.from(content).toString("utf-8");
+    const lines = textContent.split("\n").filter((line) => line.trim());
 
     // Group verses by book
     const bookGroups = new Map<string, string[]>();
-    
-    lines.forEach(line => {
+
+    lines.forEach((line) => {
         const match = line.match(/^([\w\s]+)\s+\d+:\d+\s+.+$/);
         if (match) {
             const book = match[1].trim();
@@ -667,11 +667,11 @@ export async function splitSourceFileByBook(
     // Create source directory if it doesn't exist
     const sourceTextDir = vscode.Uri.joinPath(
         vscode.Uri.file(workspacePath),
-        'files',
-        'source',
+        "files",
+        "source",
         `${language}Texts`
     );
-    
+
     try {
         await vscode.workspace.fs.createDirectory(sourceTextDir);
     } catch (error) {
@@ -680,15 +680,12 @@ export async function splitSourceFileByBook(
 
     // Create a file for each book
     for (const [book, verses] of bookGroups) {
-        const safeBookName = book.replace(/[^a-zA-Z0-9]/g, '');
-        const sourceFilePath = vscode.Uri.joinPath(
-            sourceTextDir,
-            `${safeBookName}.source`
-        );
+        const safeBookName = book.replace(/[^a-zA-Z0-9]/g, "");
+        const sourceFilePath = vscode.Uri.joinPath(sourceTextDir, `${safeBookName}.source`);
 
         await vscode.workspace.fs.writeFile(
             sourceFilePath,
-            Buffer.from(verses.join('\n'), 'utf-8')
+            Buffer.from(verses.join("\n"), "utf-8")
         );
 
         createdFiles.push(sourceFilePath);
@@ -903,4 +900,3 @@ export async function splitSourceFile(uri: vscode.Uri): Promise<void> {
         throw error;
     }
 }
-
