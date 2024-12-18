@@ -12,8 +12,6 @@ import {
     searchVerseRefPositionIndex,
     indexVerseRefsInSourceText,
 } from "../../commands/indexVrefsCommand";
-import { DownloadedResource } from "../../providers/obs/resources/types";
-import { translationAcademy } from "../../providers/translationAcademy/provider";
 import { setTargetFont } from "../../projectManager/projectInitializers";
 
 import { CodexNotebookTreeViewProvider } from "../../providers/treeViews/navigationTreeViewProvider";
@@ -61,13 +59,6 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         indexVerseRefsInSourceText
     );
 
-    const openTnAcademyCommand = vscode.commands.registerCommand(
-        "codex-editor-extension.openTnAcademy",
-        async (resource: DownloadedResource) => {
-            await translationAcademy(context, resource);
-        }
-    );
-
     const searchIndexCommand = vscode.commands.registerCommand(
         "codex-editor-extension.searchIndex",
         async () => {
@@ -108,6 +99,34 @@ export async function registerCommands(context: vscode.ExtensionContext) {
                 await vscode.window.showTextDocument(document, vscode.ViewColumn.Beside);
             } catch (error) {
                 console.error(`Failed to open document: ${error}`);
+            }
+        }
+    );
+
+    const openDictionaryCommand = vscode.commands.registerCommand(
+        "codex-editor-extension.openDictionaryFile",
+        async () => {
+            const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+            if (!workspaceUri) {
+                vscode.window.showErrorMessage(
+                    "No workspace found. Please open a workspace first."
+                );
+                return;
+            }
+            const dictionaryUri = vscode.Uri.joinPath(workspaceUri, "files", "project.dictionary");
+            try {
+                // Ensure the files directory and dictionary file exist
+                const filesUri = vscode.Uri.joinPath(workspaceUri, "files");
+                await vscode.workspace.fs.createDirectory(filesUri);
+                try {
+                    await vscode.workspace.fs.stat(dictionaryUri);
+                } catch {
+                    // Create the file if it doesn't exist
+                    await vscode.workspace.fs.writeFile(dictionaryUri, new Uint8Array([]));
+                }
+                await vscode.commands.executeCommand("vscode.open", dictionaryUri);
+            } catch (error) {
+                vscode.window.showErrorMessage(`Failed to open dictionary: ${error}`);
             }
         }
     );
@@ -299,12 +318,12 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         navigationTreeViewProvider,
         navigationExplorerRefreshCommand,
         indexVrefsCommand,
-        openTnAcademyCommand,
         searchIndexCommand,
         notebookSerializer,
         codexKernel,
         openChapterCommand,
         openFileCommand,
+        openDictionaryCommand,
         createCodexNotebookCommand,
         setEditorFontCommand,
         getBibleDataRecordByIdCommand,

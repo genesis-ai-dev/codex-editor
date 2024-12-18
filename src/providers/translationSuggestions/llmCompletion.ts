@@ -5,6 +5,7 @@ import { ChatMessage, MinimalCellResult, TranslationPair } from "../../../types"
 import { CodexNotebookReader } from "../../serializer";
 import { CodexCellTypes } from "../../../types/enums";
 import { getAutoCompleteStatusBarItem } from "../../extension";
+import { tokenizeText } from "../../utils/nlpUtils";
 
 export async function llmCompletion(
     currentNotebookReader: CodexNotebookReader,
@@ -42,13 +43,44 @@ export async function llmCompletion(
         // Get similar source cells
         const similarSourceCells: TranslationPair[] = await vscode.commands.executeCommand(
             "translators-copilot.getTranslationPairsFromSourceCellQuery",
-            sourceContent,
+            sourceContent || "empty",
             numberOfFewShotExamples
         );
 
         if (!similarSourceCells || similarSourceCells.length === 0) {
             showNoResultsWarning();
-            return "";
+        }
+
+        // Let's correct the retrieval by filtering any results that have no overlapping
+        // source text content with the current cell's source
+        const filteredSimilarSourceCells = similarSourceCells.filter((pair) => {
+            // don't use the current cell id if it was pulled in from a previous edit
+            // otherwise re-predicting will just result in generating the same content
+            // that already exists in the current cell
+            if (pair.cellId === currentCellId) {
+                return false;
+            }
+
+            const currentCellSourceContent = sourceContent;
+            const pairSourceContent = pair.sourceCell.content;
+            if (!pairSourceContent) return false;
+
+            const currentTokens = tokenizeText({
+                method: "whitespace_and_punctuation",
+                text: currentCellSourceContent,
+            });
+            const pairTokens = tokenizeText({
+                method: "whitespace_and_punctuation",
+                text: pairSourceContent,
+            });
+
+            return currentTokens.some((token) => pairTokens.includes(token));
+        });
+
+        const numberOfDroppedExamples =
+            similarSourceCells.length - filteredSimilarSourceCells.length;
+        if (numberOfDroppedExamples > 0) {
+            console.log(`Dropped ${numberOfDroppedExamples} examples due to no overlap.`);
         }
 
         // Get preceding cells and their IDs, limited by context size
@@ -91,10 +123,16 @@ export async function llmCompletion(
                     .map((cell) => cell!.content)
                     .join(" ");
 
+                const notTranslatedYetMessage =
+                    "[not translated yet; do not try to translate this cell but focus on the final cell below]";
+
                 const cellContent = await currentNotebookReader.getEffectiveCellContent(cellIndex);
                 const cellContentWithoutHTMLTags =
-                    cellContent.replace(/<[^>]*?>/g, "").trim() ||
-                    "[not translated yet; do not try to translate this cell but focus on the final cell below]";
+                    cellContent.replace(/<[^>]*?>/g, "").trim() || notTranslatedYetMessage;
+
+                // FIXME: if the last edit in the edit history is an LLM edit,
+                // then we don't want to use the cell content
+                // as it has not yet been verified by the user
 
                 const result = `${cellIds.join(
                     ", "
@@ -112,7 +150,7 @@ export async function llmCompletion(
             const currentCellSourceContent = sourceContent;
 
             // Generate few-shot examples
-            const fewShotExamples = similarSourceCells
+            const fewShotExamples = filteredSimilarSourceCells
                 .slice(0, numberOfFewShotExamples)
                 .map(
                     (pair) =>

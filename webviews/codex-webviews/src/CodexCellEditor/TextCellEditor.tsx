@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useRef, useState } from "react";
+import React, { useContext, useEffect, useRef, useState, useCallback } from "react";
 import {
     EditorCellContent,
     EditorPostMessages,
@@ -8,16 +8,19 @@ import {
 import Editor from "./Editor";
 import CloseButtonWithConfirmation from "../components/CloseButtonWithConfirmation";
 import { getCleanedHtml } from "./react-quill-spellcheck";
-import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { VSCodeButton, VSCodeDivider } from "@vscode/webview-ui-toolkit/react";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import { CodexCellTypes } from "../../../../types/enums";
 import SourceCellContext from "./contextProviders/SourceCellContext";
 import ConfirmationButton from "./ConfirmationButton";
-import { debounce } from "lodash";
 import { generateChildCellId } from "../../../../src/providers/codexCellEditorProvider/utils/cellUtils";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import { VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react";
+import { AddParatextButton } from "./AddParatextButton";
+import ReactMarkdown from "react-markdown";
+
 import "./TextCellEditorStyles.css";
+
 interface SimilarCell {
     cellId: string;
     score: number;
@@ -37,6 +40,7 @@ interface CellEditorProps {
     cellLabel?: string;
     cellTimestamps: Timestamps | undefined;
     cellIsChild: boolean;
+    openCellById: (cellId: string, text: string) => void;
 }
 
 const CellEditor: React.FC<CellEditorProps> = ({
@@ -53,17 +57,24 @@ const CellEditor: React.FC<CellEditorProps> = ({
     cellLabel,
     cellTimestamps,
     cellIsChild,
+    openCellById,
 }) => {
-    const { unsavedChanges, setUnsavedChanges, showFlashingBorder } =
+    const { setUnsavedChanges, showFlashingBorder, unsavedChanges } =
         useContext(UnsavedChangesContext);
     const { contentToScrollTo } = useContext(ScrollToContentContext);
     const { sourceCellMap } = useContext(SourceCellContext);
     const cellEditorRef = useRef<HTMLDivElement>(null);
     const sourceCellContent = sourceCellMap?.[cellMarkers[0]];
     const [editorContent, setEditorContent] = useState(cellContent);
+    const [sourceText, setSourceText] = useState<string | null>(null);
+    const [backtranslation, setBacktranslation] = useState<string | null>(null);
+    const [isEditingBacktranslation, setIsEditingBacktranslation] = useState(false);
+    const [editedBacktranslation, setEditedBacktranslation] = useState<string | null>(null);
+    const [activeTab, setActiveTab] = useState<"source" | "backtranslation">("source");
 
     const unsavedChangesState = !!(
         contentBeingUpdated.cellContent &&
+        getCleanedHtml(contentBeingUpdated.cellContent) &&
         getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !==
             cellContent.replace(/\s/g, "")
     );
@@ -83,24 +94,19 @@ const CellEditor: React.FC<CellEditorProps> = ({
             contentToScrollTo &&
             contentToScrollTo === cellMarkers[0] &&
             cellEditorRef.current &&
-            !unsavedChanges
+            !setUnsavedChanges
         ) {
             cellEditorRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
         }
     }, [contentToScrollTo]);
 
     const [editableLabel, setEditableLabel] = useState(cellLabel || "");
-    const [prompt, setPrompt] = useState("");
     const [similarCells, setSimilarCells] = useState<SimilarCell[]>([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [cursorPosition, setCursorPosition] = useState(0);
     const [activeSearchPosition, setActiveSearchPosition] = useState<number | null>(null);
-    const [topPrompts, setTopPrompts] = useState<string[]>([]);
-    const [selectedPrompts, setSelectedPrompts] = useState<Set<string>>(new Set());
-    const [visiblePrompts, setVisiblePrompts] = useState<string[]>([]);
-    const MAX_VISIBLE_PROMPTS = 5;
-    const [editingPromptIndex, setEditingPromptIndex] = useState<number | null>(null);
-    const [editingPromptText, setEditingPromptText] = useState("");
+    const [isEditorControlsExpanded, setIsEditorControlsExpanded] = useState(false);
+    const [isPinned, setIsPinned] = useState(false);
 
     useEffect(() => {
         setEditableLabel(cellLabel || "");
@@ -130,85 +136,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     const handleLabelSave = () => {
         handleLabelBlur();
-    };
-
-    const handlePromptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-        const newValue = e.target.value;
-        setPrompt(newValue);
-        setCursorPosition(e.target.selectionStart);
-
-        // Only search if we're in an active @ search
-        if (activeSearchPosition !== null) {
-            const textAfterAt = newValue.slice(activeSearchPosition + 1, e.target.selectionStart);
-            if (textAfterAt.length > 0) {
-                const messageContent: EditorPostMessages = {
-                    command: "searchSimilarCellIds",
-                    content: {
-                        cellId: textAfterAt,
-                    },
-                };
-                window.vscodeApi.postMessage(messageContent);
-                setShowSuggestions(true);
-            }
-        } else {
-            // Check for new @ symbol
-            const lastAtSymbolIndex = newValue.lastIndexOf("@", e.target.selectionStart);
-            if (lastAtSymbolIndex !== -1 && lastAtSymbolIndex === e.target.selectionStart - 1) {
-                setActiveSearchPosition(lastAtSymbolIndex);
-                setShowSuggestions(true);
-            }
-        }
-    };
-
-    const insertCellId = (cellId: string) => {
-        if (activeSearchPosition !== null) {
-            // Get the text before and after the current search
-            const textBefore = prompt.slice(0, activeSearchPosition);
-            const textAfter = prompt.slice(cursorPosition).trimLeft();
-
-            // Create new prompt with exactly one space after the cell ID if there's more text
-            const newPrompt = `${textBefore}@${cellId}${textAfter ? " " + textAfter : ""}`;
-
-            // Calculate new cursor position (right after the cell ID, before the space)
-            const newCursorPosition = activeSearchPosition + cellId.length + 1; // +1 for @ only
-
-            setPrompt(newPrompt);
-
-            // Need to wait for the state update before setting cursor position
-            setTimeout(() => {
-                const textarea = document.querySelector(".prompt-input") as HTMLTextAreaElement;
-                if (textarea) {
-                    textarea.focus();
-                    textarea.setSelectionRange(newCursorPosition, newCursorPosition);
-                }
-            }, 0);
-
-            setActiveSearchPosition(null);
-            setShowSuggestions(false);
-            setCursorPosition(newCursorPosition);
-        }
-    };
-
-    const handlePromptSend = async () => {
-        if (!prompt.trim()) return;
-
-        try {
-            const messageContent: EditorPostMessages = {
-                command: "applyPromptedEdit",
-                content: {
-                    text: contentBeingUpdated.cellContent,
-                    prompt: prompt,
-                    cellId: cellMarkers[0],
-                },
-            };
-
-            window.vscodeApi.postMessage(messageContent);
-
-            // Clear the prompt input
-            setPrompt("");
-        } catch (error) {
-            console.error("Error sending prompt:", error);
-        }
     };
 
     useEffect(() => {
@@ -252,7 +179,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
             command: "makeChildOfCell",
             content: {
                 newCellId: newChildId,
-                cellIdOfCellBeforeNewCell: parentCellId,
+                referenceCellId: parentCellId,
+                direction: "below",
                 cellType: cellType,
                 data: {
                     startTime: childStartTime,
@@ -263,7 +191,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
         window.vscodeApi.postMessage(messageContent);
     };
 
-    const addParatextCell = () => {
+    const addParatextCell = (addDirection: "above" | "below") => {
         const parentCellId = cellMarkers[0];
 
         const newChildId = `${parentCellId}:paratext-${Date.now()}-${Math.random()
@@ -294,7 +222,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
             command: "makeChildOfCell",
             content: {
                 newCellId: newChildId,
-                cellIdOfCellBeforeNewCell: parentCellId,
+                referenceCellId: parentCellId,
+                direction: addDirection,
                 cellType: CodexCellTypes.PARATEXT,
                 data: {
                     startTime: childStartTime,
@@ -318,150 +247,212 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const cellHasContent =
         getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !== "";
 
+    const handleContentUpdate = (newContent: string) => {
+        setContentBeingUpdated((prev) => ({
+            ...prev,
+            cellContent: newContent,
+        }));
+        setEditorContent(newContent);
+    };
+
+    // Add effect to fetch source text
     useEffect(() => {
-        const handlePromptedEditResponse = (event: MessageEvent) => {
+        const messageContent: EditorPostMessages = {
+            command: "getSourceText",
+            content: {
+                cellId: cellMarkers[0],
+            },
+        };
+        window.vscodeApi.postMessage(messageContent);
+    }, [cellMarkers]);
+
+    // Add effect to handle source text response
+    useEffect(() => {
+        const handleSourceTextResponse = (event: MessageEvent) => {
             const message = event.data;
-            if (message.type === "providerSendsPromptedEditResponse") {
-                setContentBeingUpdated((prev) => ({
-                    ...prev,
-                    cellContent: message.content,
-                }));
-                // Update the editor content as well
-                setEditorContent(message.content);
+            if (message.type === "providerSendsSourceText") {
+                setSourceText(message.content);
             }
         };
 
-        window.addEventListener("message", handlePromptedEditResponse);
-        return () => window.removeEventListener("message", handlePromptedEditResponse);
+        window.addEventListener("message", handleSourceTextResponse);
+        return () => window.removeEventListener("message", handleSourceTextResponse);
     }, []);
 
-    const formatPromptWithHighlights = (text: string) => {
-        // Updated regex to include spaces and more characters in cell IDs
-        const parts = text.split(/(@[\w\s:.]+?)(?=\s|$)/g);
-        return parts.map((part, index) => {
-            if (part.startsWith("@")) {
-                return (
-                    <span key={index} className="cell-reference">
-                        {part}
-                    </span>
-                );
-            }
-            return part;
-        });
-    };
-
-    // Add keydown handler to detect Escape key
-    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-        if (e.key === "Escape") {
-            setActiveSearchPosition(null);
-            setShowSuggestions(false);
-        }
-    };
-
     useEffect(() => {
-        if (contentBeingUpdated.cellContent) {
-            const messageContent: EditorPostMessages = {
-                command: "getTopPrompts",
-                content: {
-                    cellId: cellMarkers[0],
-                    text: contentBeingUpdated.cellContent,
-                },
-            };
-            window.vscodeApi.postMessage(messageContent);
-        }
-    }, [contentBeingUpdated.cellContent]);
-
-    useEffect(() => {
-        const handleTopPromptsResponse = (event: MessageEvent) => {
+        const handleBacktranslationResponse = (event: MessageEvent) => {
             const message = event.data;
-            if (message.type === "providerSendsTopPrompts") {
-                setTopPrompts(message.content);
+            if (
+                message.type === "providerSendsBacktranslation" ||
+                message.type === "providerSendsExistingBacktranslation" ||
+                message.type === "providerSendsUpdatedBacktranslation" ||
+                message.type === "providerConfirmsBacktranslationSet"
+            ) {
+                setBacktranslation(message.content?.backtranslation || null);
+                setEditedBacktranslation(message.content?.backtranslation || null);
             }
         };
 
-        window.addEventListener("message", handleTopPromptsResponse);
-        return () => window.removeEventListener("message", handleTopPromptsResponse);
+        window.addEventListener("message", handleBacktranslationResponse);
+        return () => window.removeEventListener("message", handleBacktranslationResponse);
     }, []);
 
     useEffect(() => {
-        if (topPrompts.length > 0) {
-            // Remove duplicates using Set
-            const uniquePrompts = Array.from(new Set(topPrompts));
-            const initialVisible = uniquePrompts.slice(0, MAX_VISIBLE_PROMPTS);
-            setVisiblePrompts(initialVisible);
-            setSelectedPrompts(new Set(initialVisible));
-        }
-    }, [topPrompts]);
+        // Fetch existing backtranslation when component mounts
+        const messageContent: EditorPostMessages = {
+            command: "getBacktranslation",
+            content: {
+                cellId: cellMarkers[0],
+            },
+        };
+        window.vscodeApi.postMessage(messageContent);
+    }, [cellMarkers]);
 
-    const handlePromptSelect = (prompt: string) => {
-        setSelectedPrompts((prev) => {
-            const newSet = new Set(prev);
-            if (newSet.has(prompt)) {
-                newSet.delete(prompt);
-            } else {
-                newSet.add(prompt);
-            }
-            return newSet;
+    const handleGenerateBacktranslation = () => {
+        const messageContent: EditorPostMessages = {
+            command: "generateBacktranslation",
+            content: {
+                text: contentBeingUpdated.cellContent,
+                cellId: cellMarkers[0],
+            },
+        };
+        window.vscodeApi.postMessage(messageContent);
+    };
+
+    const handleSaveBacktranslation = () => {
+        const messageContent: EditorPostMessages = {
+            command: "setBacktranslation",
+            content: {
+                cellId: cellMarkers[0],
+                originalText: contentBeingUpdated.cellContent,
+                userBacktranslation: editedBacktranslation || "", // Ensure non-null string
+            },
+        };
+        window.vscodeApi.postMessage(messageContent);
+        setIsEditingBacktranslation(false);
+    };
+
+    const handlePinCell = () => {
+        setIsPinned(!isPinned);
+        window.vscodeApi.postMessage({
+            command: "executeCommand",
+            content: {
+                command: "parallelPassages.pinCellById",
+                args: [cellMarkers[0]],
+            },
         });
     };
 
-    const handleApplySelectedPrompts = async () => {
-        for (const prompt of selectedPrompts) {
-            // Reuse existing prompt sending logic
-            const messageContent: EditorPostMessages = {
-                command: "applyPromptedEdit",
-                content: {
-                    text: contentBeingUpdated.cellContent,
-                    prompt: prompt,
-                    cellId: cellMarkers[0],
-                },
-            };
-            window.vscodeApi.postMessage(messageContent);
-        }
-        setSelectedPrompts(new Set()); // Clear selections after applying
-    };
+    const handleOpenCellById = useCallback(
+        (cellId: string, text: string) => {
+            // First, save the current cell if there are unsaved changes
+            if (unsavedChanges) {
+                handleSaveHtml();
+            }
+            // Then, open the new cell and set its content
+            openCellById(cellId, text);
 
-    const handlePromptEdit = (index: number, event: React.MouseEvent) => {
-        // Stop the event from reaching the checkbox
-        event.preventDefault();
-        event.stopPropagation();
+            // Update the local state with the new content
+            setContentBeingUpdated((prev) => ({
+                ...prev,
+                cellContent: text,
+                cellChanged: true,
+            }));
 
-        setEditingPromptIndex(index);
-        setEditingPromptText(visiblePrompts[index]);
-    };
+            // Update the editor content
+            setEditorContent(text);
+        },
+        [unsavedChanges, handleSaveHtml, openCellById, setContentBeingUpdated, setEditorContent]
+    );
 
-    const handlePromptEditSave = () => {
-        if (editingPromptIndex !== null) {
-            const newPrompts = [...visiblePrompts];
-            newPrompts[editingPromptIndex] = editingPromptText;
+    useEffect(() => {
+        const handleMessage = (event: MessageEvent) => {
+            const message = event.data;
+            if (message.type === "openCellById") {
+                handleOpenCellById(message.cellId, message.text);
+            }
+        };
 
-            // Update visible prompts
-            setVisiblePrompts(newPrompts);
+        window.addEventListener("message", handleMessage);
 
-            // Update selected prompts
-            setSelectedPrompts((prev) => {
-                const newSet = new Set(prev);
-                newSet.delete(visiblePrompts[editingPromptIndex]);
-                newSet.add(editingPromptText);
-                return newSet;
-            });
-
-            setEditingPromptIndex(null);
-            setEditingPromptText("");
-        }
-    };
-
-    const handlePromptEditCancel = () => {
-        setEditingPromptIndex(null);
-        setEditingPromptText("");
-    };
+        // We're not returning a cleanup function here
+    }, []); // Empty dependency array means this effect runs once on mount
 
     return (
         <div ref={cellEditorRef} className="cell-editor" style={{ direction: textDirection }}>
-            <div className="cell-header">
-                <div className="header-controls">
+            <div className="editor-controls-header">
+                <div
+                    className="header-content"
+                    onClick={() => setIsEditorControlsExpanded(!isEditorControlsExpanded)}
+                    style={{ cursor: "pointer" }}
+                >
+                    <i className="codicon codicon-menu"></i>
+                </div>
+                <div className="action-buttons">
+                    <AddParatextButton cellId={cellMarkers[0]} cellTimestamps={cellTimestamps} />
+                    {cellType !== CodexCellTypes.PARATEXT && !cellIsChild && (
+                        <VSCodeButton onClick={makeChild} appearance="icon" title="Add Child Cell">
+                            <i className="codicon codicon-type-hierarchy-sub"></i>
+                        </VSCodeButton>
+                    )}
+                    {!sourceCellContent && (
+                        <ConfirmationButton
+                            icon="trash"
+                            onClick={deleteCell}
+                            disabled={cellHasContent}
+                        />
+                    )}
+                    <VSCodeButton
+                        onClick={handlePinCell}
+                        appearance="icon"
+                        title={isPinned ? "Unpin from Parallel View" : "Pin in Parallel View"}
+                        style={{
+                            backgroundColor: isPinned
+                                ? "var(--vscode-button-background)"
+                                : "transparent",
+                            color: isPinned
+                                ? "var(--vscode-button-foreground)"
+                                : "var(--vscode-editor-foreground)",
+                            marginLeft: "auto", // This pushes it to the right
+                        }}
+                    >
+                        <i className={`codicon ${isPinned ? "codicon-pinned" : "codicon-pin"}`}></i>
+                    </VSCodeButton>
+                    {unsavedChanges ? (
+                        <>
+                            <VSCodeButton
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleSaveHtml();
+                                }}
+                                appearance="primary"
+                                className="save-button"
+                            >
+                                <i className="codicon codicon-save"></i>
+                            </VSCodeButton>
+                            <CloseButtonWithConfirmation
+                                handleDeleteButtonClick={handleCloseEditor}
+                            />
+                        </>
+                    ) : (
+                        <VSCodeButton
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handleCloseEditor();
+                            }}
+                            appearance="icon"
+                            className="close-button"
+                        >
+                            <i className="codicon codicon-close"></i>
+                        </VSCodeButton>
+                    )}
+                </div>
+            </div>
+
+            {isEditorControlsExpanded && (
+                <div className="expanded-controls">
                     <div className="input-group">
-                        <div className="label-container">
+                        <div className="input-row">
                             <input
                                 type="text"
                                 value={editableLabel}
@@ -478,170 +469,108 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 <i className="codicon codicon-save"></i>
                             </VSCodeButton>
                         </div>
-                        <div className="prompt-container">
-                            <textarea
-                                value={prompt}
-                                onChange={handlePromptChange}
-                                onKeyDown={handleKeyDown}
-                                placeholder="Prompt"
-                                rows={1}
-                                className="prompt-input"
-                            />
-                            <div className="prompt-preview">
-                                {formatPromptWithHighlights(prompt)}
-                            </div>
-                            {showSuggestions && similarCells.length > 0 && (
-                                <div className="suggestions-dropdown">
-                                    {similarCells.map((cell) => (
-                                        <div
-                                            key={cell.cellId}
-                                            className="suggestion-item"
-                                            onClick={() => insertCellId(cell.cellId)}
-                                        >
-                                            {cell.cellId}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                            <VSCodeButton
-                                onClick={handlePromptSend}
-                                appearance="icon"
-                                title="Send Prompt"
-                            >
-                                <i className="codicon codicon-send"></i>
-                            </VSCodeButton>
-                        </div>
-                    </div>
-                    <div className="action-buttons">
-                        {unsavedChanges ? (
-                            <>
-                                <VSCodeButton
-                                    onClick={handleSaveHtml}
-                                    appearance="primary"
-                                    className={`save-button ${
-                                        showFlashingBorder ? "flashing-border" : ""
-                                    }`}
-                                >
-                                    <i className="codicon codicon-save"></i>
-                                </VSCodeButton>
-                                <CloseButtonWithConfirmation
-                                    handleDeleteButtonClick={handleCloseEditor}
-                                />
-                            </>
-                        ) : (
-                            <VSCodeButton
-                                onClick={handleCloseEditor}
-                                appearance="icon"
-                                className="close-button"
-                            >
-                                <i className="codicon codicon-close"></i>
-                            </VSCodeButton>
-                        )}
-                    </div>
-                </div>
-            </div>
-            {visiblePrompts.length > 0 && (
-                <div className="suggested-prompts">
-                    <div className="prompts-header">
-                        <h3>Suggested Prompts</h3>
-                        {selectedPrompts.size > 0 && (
-                            <VSCodeButton onClick={handleApplySelectedPrompts}>
-                                Apply Selected ({selectedPrompts.size})
-                            </VSCodeButton>
-                        )}
-                    </div>
-                    <div className="prompts-list">
-                        {visiblePrompts.map((prompt, index) => (
-                            <div key={index} className="prompt-item">
-                                {editingPromptIndex === index ? (
-                                    <div className="prompt-edit-container">
-                                        <textarea
-                                            value={editingPromptText}
-                                            onChange={(e) => setEditingPromptText(e.target.value)}
-                                            className="prompt-edit-input"
-                                            autoFocus
-                                        />
-                                        <div className="prompt-edit-buttons">
-                                            <VSCodeButton
-                                                appearance="icon"
-                                                onClick={handlePromptEditSave}
-                                                title="Save"
-                                            >
-                                                <i className="codicon codicon-check"></i>
-                                            </VSCodeButton>
-                                            <VSCodeButton
-                                                appearance="icon"
-                                                onClick={handlePromptEditCancel}
-                                                title="Cancel"
-                                            >
-                                                <i className="codicon codicon-close"></i>
-                                            </VSCodeButton>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <div className="prompt-display">
-                                        <VSCodeCheckbox
-                                            checked={selectedPrompts.has(prompt)}
-                                            onChange={(e) => {
-                                                e.stopPropagation(); // Stop event from reaching the span
-                                                handlePromptSelect(prompt);
-                                            }}
-                                        >
-                                            <span
-                                                className="prompt-text"
-                                                onClick={(e) => handlePromptEdit(index, e)}
-                                                title="Click to edit"
-                                            >
-                                                {prompt}
-                                            </span>
-                                        </VSCodeCheckbox>
-                                    </div>
-                                )}
-                            </div>
-                        ))}
                     </div>
                 </div>
             )}
+
             <div className={`text-editor ${showFlashingBorder ? "flashing-border" : ""}`}>
                 <Editor
                     currentLineId={cellMarkers[0]}
                     key={`${cellIndex}-quill`}
                     initialValue={editorContent}
                     spellCheckResponse={spellCheckResponse}
-                    onChange={debounce(({ html }) => {
+                    onChange={({ html }) => {
                         setEditorContent(html);
+
+                        // Calculate unsaved changes state here
+                        const hasUnsavedChanges = !!(
+                            html &&
+                            getCleanedHtml(html).replace(/\s/g, "") !==
+                                cellContent.replace(/\s/g, "")
+                        );
+
                         setContentBeingUpdated({
                             cellMarkers,
                             cellContent: html,
                             cellChanged: true,
                             cellLabel: editableLabel,
                         });
-                    }, 300)}
+                    }}
                     textDirection={textDirection}
                 />
             </div>
-            <div className="cell-footer">
-                <div className="footer-buttons">
-                    <VSCodeButton
-                        onClick={addParatextCell}
-                        appearance="icon"
-                        title="Add Paratext Cell"
+
+            <div className="tabs">
+                <div className="tab-buttons">
+                    <button
+                        className={`tab-button ${activeTab === "source" ? "active" : ""}`}
+                        onClick={() => setActiveTab("source")}
                     >
-                        <i className="codicon codicon-diff-added"></i>
-                    </VSCodeButton>
-                    {cellType !== CodexCellTypes.PARATEXT && !cellIsChild && (
-                        <VSCodeButton onClick={makeChild} appearance="icon" title="Add Child Cell">
-                            <i className="codicon codicon-type-hierarchy-sub"></i>
-                        </VSCodeButton>
-                    )}
-                    {!sourceCellContent && (
-                        <ConfirmationButton
-                            icon="trash"
-                            onClick={deleteCell}
-                            disabled={cellHasContent}
-                        />
-                    )}
+                        Source Text
+                    </button>
+                    <button
+                        className={`tab-button ${activeTab === "backtranslation" ? "active" : ""}`}
+                        onClick={() => setActiveTab("backtranslation")}
+                    >
+                        Backtranslation
+                    </button>
                 </div>
+            </div>
+
+            <div className="tab-content">
+                {activeTab === "source" && (
+                    <div className="source-text-content">
+                        {sourceText || "No source text available."}
+                    </div>
+                )}
+                {activeTab === "backtranslation" && (
+                    <div className="backtranslation-section">
+                        {backtranslation ? (
+                            <>
+                                {isEditingBacktranslation ? (
+                                    <>
+                                        <textarea
+                                            value={editedBacktranslation || ""}
+                                            onChange={(e) =>
+                                                setEditedBacktranslation(e.target.value)
+                                            }
+                                            className="backtranslation-editor"
+                                        />
+                                        <VSCodeButton
+                                            onClick={handleSaveBacktranslation}
+                                            appearance="icon"
+                                            title="Save Backtranslation"
+                                        >
+                                            <i className="codicon codicon-save"></i>
+                                        </VSCodeButton>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="backtranslation-content">
+                                            <ReactMarkdown>{backtranslation}</ReactMarkdown>
+                                        </div>
+                                        <VSCodeButton
+                                            onClick={() => setIsEditingBacktranslation(true)}
+                                            appearance="icon"
+                                            title="Edit Backtranslation"
+                                        >
+                                            <i className="codicon codicon-edit"></i>
+                                        </VSCodeButton>
+                                    </>
+                                )}
+                            </>
+                        ) : (
+                            <p>No backtranslation available.</p>
+                        )}
+                        <VSCodeButton
+                            onClick={handleGenerateBacktranslation}
+                            appearance="icon"
+                            title="Generate Backtranslation"
+                        >
+                            <i className="codicon codicon-refresh"></i>
+                        </VSCodeButton>
+                    </div>
+                )}
             </div>
         </div>
     );

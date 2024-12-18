@@ -5,16 +5,19 @@ import { getAllBookRefs } from "../../utils";
 import * as vscode from "vscode";
 import * as path from "path";
 import semver from "semver";
-import ProjectTemplate from "../../providers/obs/data/TextTemplate.json";
-import { ProjectMetadata, ProjectOverview } from "../../../types";
+import { LocalProject, ProjectMetadata, ProjectOverview } from "../../../types";
 import { initializeProject } from "../projectInitializers";
 import { getProjectMetadata } from "../../utils";
-import { CodexContentSerializer } from "../../serializer";
+import git from "isomorphic-git";
+import fs from "fs";
+import http from "isomorphic-git/http/web";
+import { getAuthApi } from "../../extension";
 
 export interface ProjectDetails {
     projectName?: string;
     projectCategory?: string;
     userName?: string;
+    userEmail?: string;
     abbreviation?: string;
     sourceLanguage?: LanguageMetadata;
     targetLanguage?: LanguageMetadata;
@@ -164,7 +167,7 @@ export function generateProjectScope(
     return projectScope;
 }
 
-export async function initializeProjectMetadata(details: ProjectDetails) {
+export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
     // Initialize a new project with the given details and return the project object
     const newProject: Project = {
         format: "scripture burrito",
@@ -191,6 +194,12 @@ export async function initializeProjectMetadata(details: ProjectDetails) {
                         .getConfiguration("codex-project-manager")
                         .get<string>("userName") ||
                     "", // previously "Unknown"
+                userEmail:
+                    details.userEmail ||
+                    vscode.workspace
+                        .getConfiguration("codex-project-manager")
+                        .get<string>("userEmail") ||
+                    "",
             },
             defaultLocale: "en",
             dateCreated: new Date().toDateString(),
@@ -265,10 +274,74 @@ export async function initializeProjectMetadata(details: ProjectDetails) {
     } catch (error) {
         // File doesn't exist, we can proceed with creation
     }
-
     try {
         await vscode.workspace.fs.writeFile(projectFilePath, projectFileData);
         vscode.window.showInformationMessage(`Project created at ${projectFilePath.fsPath}`);
+
+        // Check if git is already initialized
+        let isGitInitialized = false;
+        try {
+            await git.resolveRef({
+                fs,
+                dir: workspaceFolder,
+                ref: "HEAD",
+            });
+            isGitInitialized = true;
+        } catch (error) {
+            // Git is not initialized
+        }
+
+        if (!isGitInitialized) {
+            // Initialize git repository
+            try {
+                await git.init({
+                    fs,
+                    dir: workspaceFolder,
+                    defaultBranch: "main",
+                });
+
+                // Create .gitignore file
+                const gitignorePath = vscode.Uri.joinPath(WORKSPACE_FOLDER.uri, ".gitignore");
+                const gitignoreContent = Buffer.from(
+                    ".project/dictionary.sqlite\n.DS_Store\n",
+                    "utf8"
+                );
+                await vscode.workspace.fs.writeFile(gitignorePath, gitignoreContent);
+
+                // Add files to git
+                await git.add({
+                    fs,
+                    dir: workspaceFolder,
+                    filepath: "metadata.json",
+                });
+
+                await git.add({
+                    fs,
+                    dir: workspaceFolder,
+                    filepath: ".gitignore",
+                });
+
+                await git.commit({
+                    fs,
+                    dir: workspaceFolder,
+                    message: "Initial commit: Add project metadata",
+                    author: {
+                        name: details.userName || "Unknown",
+                        email:
+                            vscode.workspace
+                                .getConfiguration("codex-project-manager")
+                                .get<string>("userEmail") || "unknown",
+                    },
+                });
+
+                vscode.window.showInformationMessage("Git repository initialized successfully");
+            } catch (error) {
+                console.error("Failed to initialize git repository:", error);
+                vscode.window.showErrorMessage(
+                    `Failed to initialize git repository: ${error instanceof Error ? error.message : String(error)}`
+                );
+            }
+        }
     } catch (error: any) {
         vscode.window.showErrorMessage(
             `Failed to create project: ${error.message || JSON.stringify(error)}`
@@ -306,6 +379,7 @@ export async function updateMetadataFile() {
     project.meta.category = projectSettings.get("projectCategory", "");
     project.meta.generator = project.meta.generator || {}; // Ensure generator object exists
     project.meta.generator.userName = projectSettings.get("userName", "");
+    project.meta.generator.userEmail = projectSettings.get("userEmail", "");
     project.languages[0] = projectSettings.get("sourceLanguage", "");
     project.languages[1] = projectSettings.get("targetLanguage", "");
     project.meta.abbreviation = projectSettings.get("abbreviation", "");
@@ -350,7 +424,16 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
 
         const sourceTexts: vscode.Uri[] = [];
         const targetTexts: vscode.Uri[] = [];
+        let isAuthenticated = false;
+        const authApi = getAuthApi();
 
+        if (authApi) {
+            try {
+                isAuthenticated = await authApi?.getAuthStatus().isAuthenticated;
+            } catch (error) {
+                console.error("Error checking authentication:", error);
+            }
+        }
         try {
             const sourceEntries = await vscode.workspace.fs.readDirectory(sourceTextsPath);
             for (const [name] of sourceEntries) {
@@ -373,12 +456,14 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
             console.error("Error reading target text Bibles:", error);
         }
 
+        const userInfo = await authApi?.getUserInfo();
         return {
             format: metadata.format || "Unknown Format",
             projectName: metadata.projectName || "Unnamed Project",
             projectStatus: metadata.projectStatus || "Unknown Status",
             category: metadata.meta?.category || "Uncategorized",
-            userName: metadata.meta?.generator?.userName || "Anonymous",
+            userName: userInfo?.username || "Anonymous",
+            userEmail: userInfo?.email || "",
             meta: {
                 version: metadata.meta?.version || "0.0.1",
                 // FIXME: the codex-types library is out of date. Thus we have mismatched and/or duplicate values being defined
@@ -386,7 +471,8 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
                 generator: {
                     softwareName: metadata.meta?.generator?.softwareName || "Unknown Software",
                     softwareVersion: metadata.meta?.generator?.softwareVersion || "0.0.1",
-                    userName: metadata.meta?.generator?.userName || "Anonymous",
+                    userName: userInfo?.username || "Anonymous",
+                    userEmail: userInfo?.email || "",
                 },
                 defaultLocale: metadata.meta?.defaultLocale || "en",
                 dateCreated: metadata.meta?.dateCreated || new Date().toISOString(),
@@ -425,6 +511,7 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
             sourceTexts,
             targetTexts,
             targetFont: metadata.targetFont || "Default Font",
+            isAuthenticated,
         };
     } catch (error) {
         console.error("Failed to read project metadata:", error);
@@ -432,24 +519,42 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
     }
 }
 
-export const checkIfMetadataIsInitialized = async (): Promise<boolean> => {
+export const checkIfMetadataAndGitIsInitialized = async (): Promise<boolean> => {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
-        console.error("No workspace folder found");
+        console.log("No workspace folder found"); // Changed to log since this is expected when no folder is open
         return false;
     }
 
     const metadataUri = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
-    console.log("Checking metadata at:", metadataUri.fsPath);
+    console.log("Checking metadata and git at:", metadataUri.fsPath);
+
+    let metadataExists = false;
+    let gitExists = false;
 
     try {
+        // Check metadata file
         await vscode.workspace.fs.stat(metadataUri);
         console.log("Metadata file exists");
-        return true;
-    } catch (error) {
-        console.error("Metadata file does not exist or cannot be accessed:", error);
-        return false;
+        metadataExists = true;
+    } catch {
+        console.log("No metadata.json file found yet"); // Changed to log since this is expected for new projects
     }
+
+    try {
+        // Check git repository
+        await git.resolveRef({
+            fs,
+            dir: workspaceFolder.uri.fsPath,
+            ref: "HEAD",
+        });
+        console.log("Git repository exists");
+        gitExists = true;
+    } catch {
+        console.log("Git repository not initialized yet"); // Changed to log since this is expected for new projects
+    }
+
+    return metadataExists && gitExists;
 };
 
 export const createProjectFiles = async ({ shouldImportUSFM }: { shouldImportUSFM: boolean }) => {
@@ -564,9 +669,10 @@ export async function isValidCodexProject(folderPath: string): Promise<{
         const metadataPath = vscode.Uri.file(path.join(folderPath, "metadata.json"));
         const metadata = await vscode.workspace.fs.readFile(metadataPath);
         const metadataJson = JSON.parse(Buffer.from(metadata).toString("utf-8")) as CodexMetadata;
-        
-        const currentVersion = vscode.extensions.getExtension("project-accelerate.codex-editor-extension")
-            ?.packageJSON.version || "0.0.0";
+
+        const currentVersion =
+            vscode.extensions.getExtension("project-accelerate.codex-editor-extension")?.packageJSON
+                .version || "0.0.0";
 
         if (metadataJson.meta?.generator?.softwareName !== "Codex Editor") {
             return { isValid: false };
@@ -578,33 +684,36 @@ export async function isValidCodexProject(folderPath: string): Promise<{
         return {
             isValid: true,
             version: projectVersion,
-            hasVersionMismatch
+            hasVersionMismatch,
         };
     } catch {
         return { isValid: false };
     }
 }
 
-export async function findAllCodexProjects(): Promise<Array<{
-    name: string;
-    path: string;
-    lastOpened?: Date;
-    lastModified: Date;
-    version: string;
-    hasVersionMismatch?: boolean;
-}>> {
+export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
     const config = vscode.workspace.getConfiguration("codex-project-manager");
-    const watchedFolders = config.get<string[]>("watchedFolders") || [];
+    let watchedFolders = config.get<string[]>("watchedFolders") || [];
     const projectHistory = config.get<Record<string, string>>("projectHistory") || {};
 
-    const projects: Array<{
-        name: string;
-        path: string;
-        lastOpened?: Date;
-        lastModified: Date;
-        version: string;
-        hasVersionMismatch?: boolean;
-    }> = [];
+    // Filter out non-existent folders and update the configuration
+    const validFolders = [];
+    for (const folder of watchedFolders) {
+        try {
+            await vscode.workspace.fs.stat(vscode.Uri.file(folder));
+            validFolders.push(folder);
+        } catch (error) {
+            console.log(`Removing non-existent folder from watched folders: ${folder}`);
+        }
+    }
+
+    // Update watchedFolders if any invalid folders were found
+    if (validFolders.length !== watchedFolders.length) {
+        await config.update("watchedFolders", validFolders, vscode.ConfigurationTarget.Global);
+        watchedFolders = validFolders;
+    }
+
+    const projects = [];
 
     for (const folder of watchedFolders) {
         try {
@@ -613,16 +722,38 @@ export async function findAllCodexProjects(): Promise<Array<{
                 if (type === vscode.FileType.Directory) {
                     const projectPath = path.join(folder, name);
                     const projectStatus = await isValidCodexProject(projectPath);
-                    
+
                     if (projectStatus.isValid) {
                         const stats = await vscode.workspace.fs.stat(vscode.Uri.file(projectPath));
+
+                        // Get git origin URL using isomorphic-git
+                        let gitOriginUrl: string | undefined;
+                        try {
+                            const config = await git.listRemotes({
+                                fs,
+                                dir: projectPath,
+                            });
+                            const origin = config.find((remote: any) => remote.remote === "origin");
+                            if (origin?.url) {
+                                const urlObj = new URL(origin.url);
+                                gitOriginUrl = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}`;
+                            }
+                        } catch (error) {
+                            // Repository might not exist or have no remotes
+                            console.debug(`No git origin found for ${projectPath}:`, error);
+                        }
+
                         projects.push({
                             name,
                             path: projectPath,
-                            lastOpened: projectHistory[projectPath] ? new Date(projectHistory[projectPath]) : undefined,
+                            lastOpened: projectHistory[projectPath]
+                                ? new Date(projectHistory[projectPath])
+                                : undefined,
                             lastModified: new Date(stats.mtime),
-                            version: projectStatus.version || "unknown",
-                            hasVersionMismatch: projectStatus.hasVersionMismatch
+                            version: projectStatus.version || "🚫",
+                            hasVersionMismatch: projectStatus.hasVersionMismatch,
+                            gitOriginUrl,
+                            description: "...",
                         });
                     }
                 }
@@ -633,4 +764,108 @@ export async function findAllCodexProjects(): Promise<Array<{
     }
 
     return projects;
+}
+
+export async function stageAndCommitAllAndSync(
+    commitMessage: string,
+    author?: { name: string; email: string }
+): Promise<void> {
+    console.log("Staging and committing all changes and syncing project");
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceFolder) {
+        vscode.window.showErrorMessage("No workspace folder found");
+        return;
+    }
+    try {
+        // Check if git repository exists by attempting to list the remotes
+        try {
+            await git.listRemotes({ fs, dir: workspaceFolder });
+        } catch (error) {
+            vscode.window.showErrorMessage("No git repository found in this project");
+            return;
+        }
+
+        // Get status of all files
+        const statusMatrix = await git.statusMatrix({
+            fs,
+            dir: workspaceFolder,
+        });
+
+        // Stage all changed files
+        for (const [filepath, , worktreeStatus] of statusMatrix) {
+            try {
+                if (worktreeStatus !== 1) {
+                    // 1 means unchanged
+                    // Check if file exists before trying to add it
+                    await fs.promises.access(path.join(workspaceFolder, filepath));
+                    await git.add({
+                        fs,
+                        dir: workspaceFolder,
+                        filepath,
+                    });
+                }
+            } catch (error) {
+                console.log(`Skipping non-existent file: ${filepath}`);
+                continue;
+            }
+        }
+
+        // Create commit with staged changes
+        await git.commit({
+            fs,
+            dir: workspaceFolder,
+            message: commitMessage,
+            author: author || {
+                name:
+                    vscode.workspace
+                        .getConfiguration("codex-project-manager")
+                        .get<string>("userName") || "Unknown",
+                email:
+                    vscode.workspace
+                        .getConfiguration("codex-project-manager")
+                        .get<string>("userEmail") || "unknown",
+            },
+        });
+        let remoteHasSynced = false;
+        // Check if remote exists
+        try {
+            const remotes = await git.listRemotes({ fs, dir: workspaceFolder });
+            const hasOrigin = remotes.some((remote) => remote.remote === "origin");
+
+            if (hasOrigin) {
+                // Pull latest changes from remote
+                await git.pull({
+                    fs,
+                    http,
+                    dir: workspaceFolder,
+                    ref: "main",
+                    singleBranch: true,
+                });
+
+                // Push changes to remote
+                await git.push({
+                    fs,
+                    http,
+                    dir: workspaceFolder,
+                    remote: "origin",
+                    ref: "main",
+                });
+                remoteHasSynced = true;
+            }
+        } catch (error) {
+            console.log("No remote configured, skipping pull/push");
+        }
+
+        if (remoteHasSynced) {
+            vscode.window.showInformationMessage("Changes committed and synced successfully");
+        } else {
+            vscode.window.showInformationMessage("Changes committed successfully");
+        }
+    } catch (error) {
+        console.error("Failed to commit and sync changes:", error);
+        vscode.window.showErrorMessage(
+            `Failed to commit and sync changes: ${error instanceof Error ? error.message : String(error)}`
+        );
+        throw error;
+    }
 }

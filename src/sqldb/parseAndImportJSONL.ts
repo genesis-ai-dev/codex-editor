@@ -2,6 +2,8 @@ import * as fs from "fs";
 import { Database } from "sql.js";
 import * as vscode from "vscode";
 import { bulkAddWords } from ".";
+import { DictionaryEntry } from "types";
+import crypto from "crypto";
 
 interface WiktionaryEntry {
     word: string;
@@ -10,6 +12,10 @@ interface WiktionaryEntry {
     }>;
 }
 
+const generateId = () => {
+    return crypto.randomUUID();
+};
+
 export async function parseAndImportJSONL(
     jsonlFilePath: string,
     progress: vscode.Progress<{ message?: string; increment?: number }>,
@@ -17,7 +23,7 @@ export async function parseAndImportJSONL(
     // limit?: number
 ) {
     return new Promise<void>((resolve, reject) => {
-        const wordsBuffer: { word: string; definition: string }[] = [];
+        const wordsBuffer: DictionaryEntry[] = [];
         const BATCH_SIZE = 1000;
         let entryCount = 0;
 
@@ -56,10 +62,13 @@ export async function parseAndImportJSONL(
                         .filter((gloss) => gloss && !gloss.startsWith("Alternative form of"));
 
                     if (definitions.length > 0) {
-                        definitions.forEach((definition) => {
+                        definitions.forEach((definition = "") => {
                             wordsBuffer.push({
-                                word: entry.word,
+                                id: generateId(),
+                                headWord: entry.word,
                                 definition,
+                                authorId: undefined,
+                                isUserEntry: false,
                             });
                             entryCount++;
                         });
@@ -87,7 +96,13 @@ export async function parseAndImportJSONL(
 
                     if (definitions.length > 0) {
                         definitions.forEach((definition) => {
-                            wordsBuffer.push({ word: entry.word, definition });
+                            wordsBuffer.push({
+                                id: generateId(),
+                                headWord: entry.word,
+                                definition,
+                                authorId: undefined,
+                                isUserEntry: false,
+                            });
                         });
                     }
                 } catch (error) {

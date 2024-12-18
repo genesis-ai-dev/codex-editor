@@ -15,12 +15,14 @@ import { useVSCodeMessageHandler } from "./hooks/useVSCodeMessageHandler";
 import { VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
 import VideoPlayer from "./VideoPlayer";
 import registerQuillSpellChecker from "./react-quill-spellcheck";
+import { getCleanedHtml } from "./react-quill-spellcheck/SuggestionBoxes";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import SourceCellContext from "./contextProviders/SourceCellContext";
 import DuplicateCellResolver from "./DuplicateCellResolver";
 import TimelineEditor from "./TimelineEditor";
 import VideoTimelineEditor from "./VideoTimelineEditor";
-
+import { generateVttData } from "./utils/vttUtils";
+import { useQuillTextExtractor } from "./hooks/useQuillTextExtractor";
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
 
@@ -74,11 +76,10 @@ const CodexCellEditor: React.FC = () => {
     const playerRef = useRef<ReactPlayer>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     const { setSourceCellMap } = useContext(SourceCellContext);
+    const extractTextFromHtml = useQuillTextExtractor();
+
     const removeHtmlTags = (text: string) => {
-        return text
-            .replace(/<[^>]*>?/g, "")
-            .replace(/\n/g, " ")
-            .replace(/&nbsp;/g, " ");
+        return extractTextFromHtml(text);
     };
     // A "temp" video URL that is used to update the video URL in the metadata modal.
     // We need to use the client-side file picker, so we need to then pass the picked
@@ -143,11 +144,25 @@ const CodexCellEditor: React.FC = () => {
         setIsSourceText((window as any).initialData?.isSourceText || false);
         setVideoUrl((window as any).initialData?.videoUrl || "");
         setMetadata((window as any).initialData?.metadata || {});
+
+        // Add focus event listener
+        window.addEventListener("focus", () => {
+            // Ensure we have a valid URI before sending
+            const uri = (window as any).initialData?.uri;
+            if (uri) {
+                vscode.postMessage({
+                    command: "webviewFocused",
+                    content: {
+                        uri: uri,
+                    },
+                } as EditorPostMessages);
+            }
+        });
     }, []);
 
     useEffect(() => {
         // Initialize Quill and register SpellChecker and SmartEdits only once
-        registerQuillSpellChecker(Quill as any, vscode, );
+        registerQuillSpellChecker(Quill as any, vscode);
     }, []);
 
     const calculateTotalChapters = (units: QuillCellContent[]): number => {
@@ -178,9 +193,11 @@ const CodexCellEditor: React.FC = () => {
     };
 
     const handleSaveHtml = () => {
+        const content = contentBeingUpdated;
+
         vscode.postMessage({
             command: "saveHtml",
-            content: contentBeingUpdated,
+            content: content,
         } as EditorPostMessages);
         checkAlertCodes();
         handleCloseEditor();
@@ -281,6 +298,14 @@ const CodexCellEditor: React.FC = () => {
         setVideoUrl(url);
     };
 
+    const handleExportVtt = () => {
+        const subtitleData = generateVttData(translationUnitsWithCurrentEditorContent);
+        vscode.postMessage({
+            command: "exportVttFile",
+            content: { subtitleData },
+        } as EditorPostMessages);
+    };
+
     const [headerHeight, setHeaderHeight] = useState(0);
     const [windowHeight, setWindowHeight] = useState(window.innerHeight);
     const headerRef = useRef<HTMLDivElement>(null);
@@ -355,6 +380,7 @@ const CodexCellEditor: React.FC = () => {
                         onSaveMetadata={handleSaveMetadata}
                         onPickFile={handlePickFile}
                         onUpdateVideoUrl={handleUpdateVideoUrl}
+                        handleExportVtt={handleExportVtt}
                     />
                 </div>
                 {shouldShowVideoPlayer && videoUrl && (
@@ -378,7 +404,9 @@ const CodexCellEditor: React.FC = () => {
                 className="scrollable-content"
                 style={{ height: `calc(100vh - ${headerHeight}px)` }}
             >
-                <h1>{translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0]}</h1>
+                <h1 style={{ marginBottom: "1rem" }}>
+                    {translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0]}
+                </h1>
                 <div className="editor-container">
                     {autocompletionProgress !== null && (
                         <div className="autocompletion-progress">

@@ -1,5 +1,16 @@
 import * as vscode from "vscode";
-import { TranslationPair } from "../../../types";
+import { GlobalMessage, SourceCellVersions, TranslationPair } from "../../../types";
+import { GlobalProvider } from "../../globalProvider";
+
+// Local type definitions
+interface AssistantMessage {
+    role: "assistant";
+    content: string;
+    thinking: string;
+    translation: string;
+    memoriesUsed: { memory: string }[];
+    addMemory: { memory: string };
+}
 
 async function simpleOpen(uri: string) {
     try {
@@ -18,7 +29,9 @@ async function simpleOpen(uri: string) {
 async function openFileAtLocation(uri: string, cellId: string) {
     try {
         const parsedUri = vscode.Uri.parse(uri);
-        if (parsedUri.toString().includes(".codex")) {
+        const stringUri = parsedUri.toString();
+        // This is a quick fix to open the correct uri.
+        if (stringUri.includes(".codex") || stringUri.includes(".source")) {
             await vscode.commands.executeCommand("vscode.openWith", parsedUri, "codex.cellEditor");
             // After opening the file, we need to navigate to the specific cell
             // This might require an additional step or command
@@ -28,6 +41,68 @@ async function openFileAtLocation(uri: string, cellId: string) {
     } catch (error) {
         console.error(`Failed to open file: ${uri}`, error);
         vscode.window.showErrorMessage(`Failed to open file: ${uri}`);
+    }
+}
+
+async function handleChatStream(
+    webviewView: vscode.WebviewView,
+    cellIds: string[],
+    query: string,
+    editIndex?: number
+) {
+    try {
+        const result = await vscode.commands.executeCommand(
+            "codex-smart-edits.chatStream",
+            cellIds,
+            query,
+            (chunk: string | object) => {
+                let parsedChunk;
+                if (typeof chunk === "string") {
+                    try {
+                        parsedChunk = JSON.parse(chunk);
+                    } catch (error) {
+                        console.error("Error parsing chunk:", error);
+                        parsedChunk = { index: -1, content: chunk, isLast: false };
+                    }
+                } else if (typeof chunk === "object" && chunk !== null) {
+                    parsedChunk = chunk;
+                } else {
+                    console.error("Unexpected chunk format:", chunk);
+                    return;
+                }
+
+                // Check if the chunk contains session info
+                if (parsedChunk.sessionInfo) {
+                    webviewView.webview.postMessage({
+                        command: "updateSessionInfo",
+                        data: parsedChunk.sessionInfo,
+                    });
+                } else {
+                    webviewView.webview.postMessage({
+                        command: "chatResponseStream",
+                        data: JSON.stringify(parsedChunk),
+                    });
+                }
+
+                // No need to handle isLast here as the frontend will process it accordingly
+            },
+            editIndex
+        );
+
+        // Handle the result if needed
+        console.log("Chat stream completed:", result);
+    } catch (error) {
+        console.error("Error in chat stream:", error);
+        webviewView.webview.postMessage({
+            command: "chatResponseStream",
+            data: JSON.stringify({
+                index: -1,
+                content: `Error: Failed to process chat request. ${
+                    error instanceof Error ? error.message : "Unknown error"
+                }`,
+                isLast: true,
+            }),
+        });
     }
 }
 
@@ -57,16 +132,6 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
             "index.js"
         )
     );
-    // const styleUri = webviewView.webview.asWebviewUri(
-    //     vscode.Uri.joinPath(
-    //         extensionUri,
-    //         "webviews",
-    //         "codex-webviews",
-    //         "dist",
-    //         "ParallelView",
-    //         "index.css",
-    //     ),
-    // );
     function getNonce() {
         let text = "";
         const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -104,53 +169,221 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
   </html>`;
 
     webviewView.webview.html = html;
-    webviewView.webview.onDidReceiveMessage(async (message: any) => {
-        // Changed the type to any to handle multiple message types
-        switch (message.command) {
-            case "openFileAtLocation":
-                await openFileAtLocation(message.uri, message.word);
-                break;
-            case "search":
-                if (message.database === "both") {
-                    try {
-                        const results = await vscode.commands.executeCommand<TranslationPair[]>(
-                            "translators-copilot.searchParallelCells",
-                            message.query
-                        );
-                        if (results) {
-                            webviewView.webview.postMessage({
-                                command: "searchResults",
-                                data: results,
-                            });
-                        }
-                    } catch (error) {
-                        console.error("Error searching parallel cells:", error);
-                    }
-                }
-                break;
-            default:
-                console.error(`Unknown command: ${message.command}`);
-        }
-    });
 };
 
 export class CustomWebviewProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
 
-    constructor(private readonly _context: vscode.ExtensionContext) {}
+    constructor(private readonly _context: vscode.ExtensionContext) {
+        GlobalProvider.getInstance().registerProvider("parallel-passages-sidebar", this);
+    }
+
+    public async pinCellById(cellId: string, retryCount = 0) {
+        const maxRetries = 3;
+        const retryDelay = 300; // milliseconds
+
+        // First, ensure the webview is visible
+        console.log("pinCellByIdProvider", cellId);
+        await vscode.commands.executeCommand("parallel-passages-sidebar.focus");
+
+        // Wait for the webview to be ready
+        if (!this._view && retryCount < maxRetries) {
+            console.log(`Webview not ready, retrying (${retryCount + 1}/${maxRetries})...`);
+            return new Promise((resolve) => {
+                setTimeout(() => {
+                    resolve(this.pinCellById(cellId, retryCount + 1));
+                }, retryDelay);
+            });
+        }
+
+        if (this._view) {
+            // Get the translation pair for this cell
+            let translationPair = await vscode.commands.executeCommand<TranslationPair>(
+                "translators-copilot.getTranslationPairFromProject",
+                cellId
+            );
+
+            if (!translationPair) {
+                // If no translation pair is found, get only the source text
+                const sourceCell = await vscode.commands.executeCommand(
+                    "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
+                    cellId
+                );
+
+                if (sourceCell) {
+                    // Create a new translation pair with empty target text
+                    translationPair = {
+                        cellId: cellId,
+                        sourceCell: sourceCell,
+                        targetCell: {
+                            cellId: cellId,
+                            content: "",
+                            // Add any other required properties for targetCell with default values
+                        },
+                        // Add any other required properties for translationPair with default values
+                    };
+                } else {
+                    console.error(`No source cell found for cell: ${cellId}`);
+                    return;
+                }
+            }
+
+            this._view.webview.postMessage({
+                command: "pinCell",
+                data: translationPair,
+            });
+        } else {
+            vscode.window.showErrorMessage("Failed to open parallel passages view");
+        }
+    }
+    public postMessage(message: GlobalMessage) {
+        console.log("postMessage", { message });
+        if (this._view) {
+            this._view.webview.postMessage(message);
+        } else {
+            console.error("WebviewView is not initialized");
+        }
+    }
 
     public resolveWebviewView(webviewView: vscode.WebviewView) {
         this._view = webviewView;
         loadWebviewHtml(webviewView, this._context.extensionUri);
 
         webviewView.webview.onDidReceiveMessage(async (message: any) => {
-            switch (message.command) {
-                case "openFileAtLocation":
-                    await openFileAtLocation(message.uri, message.word);
-                    break;
-                // ... other cases ...
+            if ("destination" in message) {
+                GlobalProvider.getInstance().handleMessage(message as GlobalMessage);
+                console.log("Using global provider and exiting");
+                return;
             }
+            await this.receiveMessage(message);
         });
+    }
+    public async receiveMessage(message: any) {
+        console.log("Parallel Provider rec: ", message);
+        if (!this._view) {
+            console.warn("WebviewView is not initialized");
+            return;
+        }
+        switch (message.command) {
+            case "openFileAtLocation":
+                await openFileAtLocation(message.uri, message.word);
+                break;
+            case "requestPinning":
+                await this.pinCellById(message.content.cellId);
+                break;
+            case "chatStream":
+                await handleChatStream(
+                    this._view,
+                    message.context,
+                    message.query,
+                    message.editIndex
+                );
+                break;
+
+            case "addedFeedback":
+                console.log("addedFeedback", message.feedback, message.cellId);
+                await vscode.commands.executeCommand(
+                    "codex-smart-edits.updateFeedback",
+                    message.cellId,
+                    message.feedback
+                );
+                break;
+            case "search":
+                try {
+                    const command = message.completeOnly
+                        ? "translators-copilot.searchParallelCells"
+                        : "translators-copilot.searchAllCells";
+
+                    const results = await vscode.commands.executeCommand<TranslationPair[]>(
+                        command,
+                        message.query,
+                        15 // k value
+                    );
+                    if (results) {
+                        this._view.webview.postMessage({
+                            command: "searchResults",
+                            data: results,
+                        });
+                    }
+                } catch (error) {
+                    console.error("Error searching cells:", error);
+                }
+                break;
+            case "deleteChatSession":
+                await vscode.commands.executeCommand(
+                    "codex-smart-edits.deleteChatSession",
+                    message.sessionId
+                );
+                break;
+            case "startNewChatSession":
+                try {
+                    const sessionInfo = await vscode.commands.executeCommand(
+                        "codex-smart-edits.startNewChatSession"
+                    );
+                    this._view.webview.postMessage({
+                        command: "updateSessionInfo",
+                        data: sessionInfo,
+                    });
+                } catch (error) {
+                    console.error("Error starting new chat session:", error);
+                }
+                break;
+
+            case "getCurrentChatSessionInfo":
+                try {
+                    const sessionInfo = await vscode.commands.executeCommand(
+                        "codex-smart-edits.getCurrentChatSessionInfo"
+                    );
+                    this._view.webview.postMessage({
+                        command: "updateSessionInfo",
+                        data: sessionInfo,
+                    });
+                } catch (error) {
+                    console.error("Error getting current chat session info:", error);
+                }
+                break;
+
+            case "getAllChatSessions":
+                try {
+                    const sessions = await vscode.commands.executeCommand(
+                        "codex-smart-edits.getAllChatSessions"
+                    );
+                    this._view.webview.postMessage({
+                        command: "updateAllSessions",
+                        data: sessions,
+                    });
+                } catch (error) {
+                    console.error("Error getting all chat sessions:", error);
+                }
+                break;
+
+            case "loadChatSession":
+                try {
+                    const result = await vscode.commands.executeCommand(
+                        "codex-smart-edits.loadChatSession",
+                        message.sessionId
+                    );
+                    if (
+                        result &&
+                        typeof result === "object" &&
+                        "sessionInfo" in result &&
+                        "messages" in result
+                    ) {
+                        const { sessionInfo, messages } = result;
+                        this._view.webview.postMessage({
+                            command: "loadedSessionData",
+                            data: { sessionInfo, messages },
+                        });
+                    } else {
+                        console.error("Unexpected result format from loadChatSession");
+                    }
+                } catch (error) {
+                    console.error("Error loading chat session:", error);
+                }
+                break;
+            default:
+                console.log(`Unknown command: ${message.command}`);
+        }
     }
 }
 
@@ -158,6 +391,9 @@ export function registerParallelViewWebviewProvider(context: vscode.ExtensionCon
     const provider = new CustomWebviewProvider(context);
 
     context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider("parallel-passages-sidebar", provider)
+        vscode.window.registerWebviewViewProvider("parallel-passages-sidebar", provider),
+        vscode.commands.registerCommand("parallelPassages.pinCellById", async (cellId: string) => {
+            await provider.pinCellById(cellId);
+        })
     );
 }

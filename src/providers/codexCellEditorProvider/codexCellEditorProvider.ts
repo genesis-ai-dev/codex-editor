@@ -1,5 +1,4 @@
 import * as vscode from "vscode";
-import { initializeStateStore } from "../../stateStore";
 import { fetchCompletionConfig } from "../translationSuggestions/inlineCompletionsProvider";
 import { CodexNotebookReader } from "../../serializer";
 import { workspaceStoreListener } from "../../utils/workspaceEventListener";
@@ -7,19 +6,14 @@ import { llmCompletion } from "../translationSuggestions/llmCompletion";
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import {
     QuillCellContent,
-    CodexNotebookAsJSONData,
     EditorPostMessages,
     EditorReceiveMessages,
-    SpellCheckResponse,
-    CustomNotebookCellData,
-    Timestamps,
-    CustomNotebookMetadata,
-    AlertCodesServerResponse,
-    GetAlertCodes,
+    GlobalMessage,
+    GlobalContentType,
 } from "../../../types";
-import { NotebookMetadataManager } from "../../utils/notebookMetadataManager";
-import path from "path";
-import { getWorkSpaceUri } from "../../utils";
+import { CodexCellDocument } from "./codexDocument";
+import { CodexCellEditorMessageHandling } from "./codexCellEditorMessagehandling";
+import { GlobalProvider } from "../../globalProvider";
 
 function getNonce(): string {
     let text = "";
@@ -30,347 +24,11 @@ function getNonce(): string {
     return text;
 }
 
-class CodexCellDocument implements vscode.CustomDocument {
-    uri: vscode.Uri;
-    private _documentData: CodexNotebookAsJSONData;
-    public _sourceCellMap: { [k: string]: { content: string; versions: string[] } } = {};
-    private _edits: Array<any>;
-    private _isDirty: boolean = false;
-
-    private _onDidDispose = new vscode.EventEmitter<void>();
-    public readonly onDidDispose = this._onDidDispose.event;
-
-    private readonly _onDidChangeDocument = new vscode.EventEmitter<{
-        readonly content?: string;
-        readonly edits: any[];
-    }>();
-    public readonly onDidChangeContent = this._onDidChangeDocument.event;
-
-    constructor(uri: vscode.Uri, initialContent: string) {
-        this.uri = uri;
-        this._documentData = initialContent.trim().length === 0 ? {} : JSON.parse(initialContent);
-        if (!this._documentData.metadata) {
-            const metadata = new NotebookMetadataManager();
-            metadata.initialize();
-            metadata.loadMetadata().then(() => {
-                const matchingMetadata = metadata
-                    .getAllMetadata()
-                    ?.find(
-                        (m: CustomNotebookMetadata) =>
-                            m.codexFsPath === this.uri.fsPath || m.sourceFsPath === this.uri.fsPath
-                    );
-                if (matchingMetadata) {
-                    this._documentData.metadata = matchingMetadata;
-                }
-            });
-        }
-        this._edits = [];
-        initializeStateStore().then(async ({ getStoreState }) => {
-            const sourceCellMap = await getStoreState("sourceCellMap");
-            console.log("sourceCellMap", sourceCellMap);
-            if (sourceCellMap) {
-                this._sourceCellMap = sourceCellMap;
-            }
-        });
-    }
-
-    dispose(): void {
-        this._onDidDispose.fire();
-        this._onDidDispose.dispose();
-        this._onDidChangeDocument.dispose();
-    }
-
-    static async create(
-        uri: vscode.Uri,
-        backupId: string | undefined,
-        token: vscode.CancellationToken
-    ): Promise<CodexCellDocument> {
-        const dataFile = backupId ? vscode.Uri.parse(backupId) : uri;
-        const fileData = await vscode.workspace.fs.readFile(dataFile);
-
-        // Properly decode the Uint8Array to a string
-        const decoder = new TextDecoder("utf-8");
-        const initialContent = decoder.decode(fileData);
-
-        return new CodexCellDocument(uri, initialContent);
-    }
-
-    private static async readFile(uri: vscode.Uri): Promise<string> {
-        const fileData = await vscode.workspace.fs.readFile(uri);
-        const decoder = new TextDecoder("utf-8");
-        return decoder.decode(fileData);
-    }
-
-    public get isDirty(): boolean {
-        return this._isDirty;
-    }
-
-    // Methods to manipulate the document data
-    public updateCellContent(cellId: string, newContent: string, editType: EditType) {
-        const indexOfCellToUpdate = this._documentData.cells.findIndex(
-            (cell) => cell.metadata?.id === cellId
-        );
-
-        if (indexOfCellToUpdate === -1) {
-            throw new Error("Could not find cell to update");
-        }
-
-        const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
-
-        // Update cell content and metadata in memory
-        cellToUpdate.value = newContent;
-        if (!cellToUpdate.metadata.edits) {
-            cellToUpdate.metadata.edits = [];
-        }
-        cellToUpdate.metadata.edits.push({
-            cellValue: newContent,
-            timestamp: Date.now(),
-            type: editType,
-        });
-
-        // Record the edit
-        this._edits.push({
-            type: "updateCellContent",
-            cellId,
-            newContent,
-            editType,
-        });
-
-        // Set dirty flag and notify listeners about the change
-        this._isDirty = true;
-        this._onDidChangeDocument.fire({
-            edits: [{ cellId, newContent, editType }],
-        });
-    }
-    public replaceDuplicateCells(content: QuillCellContent) {
-        let indexOfCellToDelete = this._documentData.cells.findIndex((cell) => {
-            return cell.metadata?.id === content.cellMarkers[0];
-        });
-        const cellMarkerOfCellBeforeNewCell =
-            indexOfCellToDelete === 0
-                ? null
-                : this._documentData.cells[indexOfCellToDelete - 1].metadata?.id;
-        while (indexOfCellToDelete !== -1) {
-            this._documentData.cells.splice(indexOfCellToDelete, 1);
-            indexOfCellToDelete = this._documentData.cells.findIndex((cell) => {
-                return cell.metadata?.id === content.cellMarkers[0];
-            });
-        }
-
-        this.addCell(
-            content.cellMarkers[0],
-            cellMarkerOfCellBeforeNewCell,
-            content.cellType,
-            {
-                endTime: content.timestamps?.endTime,
-                startTime: content.timestamps?.startTime,
-            },
-            content
-        );
-    }
-
-    public async save(cancellation: vscode.CancellationToken): Promise<void> {
-        const text = JSON.stringify(this._documentData, null, 2);
-        await vscode.workspace.fs.writeFile(this.uri, new TextEncoder().encode(text));
-        this._edits = []; // Clear edits after saving
-        this._isDirty = false; // Reset dirty flag
-    }
-
-    public async saveAs(
-        targetResource: vscode.Uri,
-        cancellation: vscode.CancellationToken
-    ): Promise<void> {
-        const text = JSON.stringify(this._documentData, null, 2);
-        await vscode.workspace.fs.writeFile(targetResource, new TextEncoder().encode(text));
-        this._isDirty = false; // Reset dirty flag
-    }
-
-    public async revert(cancellation: vscode.CancellationToken): Promise<void> {
-        const diskContent = await vscode.workspace.fs.readFile(this.uri);
-        this._documentData = JSON.parse(diskContent.toString());
-        this._edits = [];
-        this._isDirty = false; // Reset dirty flag
-        this._onDidChangeDocument.fire({
-            content: this.getText(),
-            edits: [],
-        });
-    }
-
-    public async backup(
-        destination: vscode.Uri,
-        cancellation: vscode.CancellationToken
-    ): Promise<vscode.CustomDocumentBackup> {
-        await this.saveAs(destination, cancellation);
-        return {
-            id: destination.toString(),
-            delete: () => vscode.workspace.fs.delete(destination),
-        };
-    }
-
-    public getText(): string {
-        return JSON.stringify(this._documentData, null, 2);
-    }
-
-    // Additional methods for other edit operations...
-
-    // For example, updating cell timestamps
-    public updateCellTimestamps(cellId: string, timestamps: Timestamps) {
-        const indexOfCellToUpdate = this._documentData.cells.findIndex(
-            (cell) => cell.metadata?.id === cellId
-        );
-
-        if (indexOfCellToUpdate === -1) {
-            throw new Error("Could not find cell to update");
-        }
-
-        const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
-        cellToUpdate.metadata.data = timestamps;
-
-        // Record the edit
-        this._edits.push({
-            type: "updateCellTimestamps",
-            cellId,
-            timestamps,
-        });
-
-        // Set dirty flag and notify listeners about the change
-        this._isDirty = true;
-        this._onDidChangeDocument.fire({
-            edits: [{ cellId, timestamps }],
-        });
-    }
-
-    public deleteCell(cellId: string) {
-        const indexOfCellToDelete = this._documentData.cells.findIndex(
-            (cell) => cell.metadata?.id === cellId
-        );
-
-        if (indexOfCellToDelete === -1) {
-            throw new Error("Could not find cell to delete");
-        }
-        this._documentData.cells.splice(indexOfCellToDelete, 1);
-
-        // Record the edit
-        this._edits.push({
-            type: "deleteCell",
-            cellId,
-        });
-
-        this._isDirty = true;
-        this._onDidChangeDocument.fire({
-            edits: [{ cellId }],
-        });
-    }
-    // Method to add a new cell
-    public addCell(
-        newCellId: string,
-        cellIdOfCellBeforeNewCell: string | null,
-        cellType: CodexCellTypes,
-        data: CustomNotebookCellData["metadata"]["data"],
-        content?: QuillCellContent
-    ) {
-        let insertIndex: number;
-
-        if (cellIdOfCellBeforeNewCell === null) {
-            // If cellIdOfCellBeforeNewCell is null, insert at the beginning
-            insertIndex = 0;
-        } else {
-            const indexOfParentCell = this._documentData.cells.findIndex(
-                (cell) => cell.metadata?.id === cellIdOfCellBeforeNewCell
-            );
-
-            if (indexOfParentCell === -1) {
-                throw new Error("Could not find cell to insert after");
-            }
-
-            insertIndex = indexOfParentCell + 1;
-        }
-
-        // Add new cell at the determined position
-        this._documentData.cells.splice(insertIndex, 0, {
-            value: content?.cellContent || "",
-            languageId: "html",
-            kind: vscode.NotebookCellKind.Code,
-            metadata: {
-                id: newCellId,
-                type: cellType,
-                cellLabel: content?.cellLabel,
-                edits: content?.editHistory || [],
-                data: data,
-            },
-        });
-
-        // Record the edit
-        this._edits.push({
-            type: "addCell",
-            newCellId,
-            cellIdOfCellBeforeNewCell,
-            cellType,
-            data,
-        });
-
-        // Set dirty flag and notify listeners about the change
-        this._isDirty = true;
-        this._onDidChangeDocument.fire({
-            edits: [{ newCellId, cellIdOfCellBeforeNewCell, cellType, data }],
-        });
-    }
-
-    // Method to update notebook metadata
-    public updateNotebookMetadata(newMetadata: Partial<CustomNotebookMetadata>) {
-        if (!this._documentData.metadata) {
-            // Initialize metadata if it doesn't exist
-            this._documentData.metadata = {} as CustomNotebookMetadata;
-        }
-        this._documentData.metadata = { ...this._documentData.metadata, ...newMetadata };
-
-        // Record the edit
-        this._edits.push({
-            type: "updateNotebookMetadata",
-            newMetadata,
-        });
-
-        // Set dirty flag and notify listeners about the change
-        this._isDirty = true;
-        this._onDidChangeDocument.fire({
-            edits: [{ metadata: newMetadata }],
-        });
-    }
-
-    public getNotebookMetadata(): CustomNotebookMetadata {
-        return this._documentData.metadata;
-    }
-
-    public updateCellLabel(cellId: string, newLabel: string) {
-        const indexOfCellToUpdate = this._documentData.cells.findIndex(
-            (cell) => cell.metadata?.id === cellId
-        );
-
-        if (indexOfCellToUpdate === -1) {
-            throw new Error("Could not find cell to update");
-        }
-
-        const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
-
-        // Update cell label in memory
-        cellToUpdate.metadata.cellLabel = newLabel;
-
-        // Record the edit
-        this._edits.push({
-            type: "updateCellLabel",
-            cellId,
-            newLabel,
-        });
-
-        // Set dirty flag and notify listeners about the change
-        this._isDirty = true;
-        this._onDidChangeDocument.fire({
-            edits: [{ cellId, newLabel }],
-        });
-    }
-}
-
 export class CodexCellEditorProvider implements vscode.CustomEditorProvider<CodexCellDocument> {
+    private messageHandler: CodexCellEditorMessageHandling;
+    public currentDocument: CodexCellDocument | undefined;
+    private webviewPanel: vscode.WebviewPanel | undefined;
+
     public static register(context: vscode.ExtensionContext): vscode.Disposable {
         const provider = new CodexCellEditorProvider(context);
         const providerRegistration = vscode.window.registerCustomEditorProvider(
@@ -383,12 +41,15 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 },
             }
         );
+        GlobalProvider.getInstance().registerProvider("codex-cell-editor", provider);
         return providerRegistration;
     }
 
     private static readonly viewType = "codex.cellEditor";
 
-    constructor(private readonly context: vscode.ExtensionContext) {}
+    constructor(private readonly context: vscode.ExtensionContext) {
+        this.messageHandler = new CodexCellEditorMessageHandling(this);
+    }
 
     private readonly _onDidChangeCustomDocument = new vscode.EventEmitter<
         vscode.CustomDocumentContentChangeEvent<CodexCellDocument>
@@ -401,9 +62,29 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         openContext: { backupId?: string },
         _token: vscode.CancellationToken
     ): Promise<CodexCellDocument> {
+        console.log("openCustomDocument called for:", uri.toString());
         const document = await CodexCellDocument.create(uri, openContext.backupId, _token);
-
         return document;
+    }
+
+    public async receiveMessage(message: any, updateWebview?: () => void) {
+        console.log("Cell Provider rec: ", { message });
+        if (!this.webviewPanel || !this.currentDocument) {
+            console.warn("WebviewPanel or currentDocument is not initialized");
+            return;
+        }
+
+        if ("destination" in message) {
+            console.log("Global message detected");
+            this.messageHandler.handleGlobalMessage(message as GlobalMessage);
+            return;
+        }
+        this.messageHandler.handleMessages(
+            message as EditorPostMessages,
+            this.webviewPanel,
+            this.currentDocument,
+            updateWebview ?? (() => {})
+        );
     }
 
     public async resolveCustomEditor(
@@ -411,12 +92,31 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         webviewPanel: vscode.WebviewPanel,
         _token: vscode.CancellationToken
     ): Promise<void> {
+        console.log("resolveCustomEditor called for:", document.uri.toString());
+
+        // Listen for when this editor becomes active
+        webviewPanel.onDidChangeViewState((e) => {
+            if (e.webviewPanel.active) {
+                // Only update references without refreshing
+                this.webviewPanel = webviewPanel;
+                this.currentDocument = document;
+            }
+        });
+
+        // Initial setup
+        this.webviewPanel = webviewPanel;
+        this.currentDocument = document;
+
+        // Enable scripts in the webview
         webviewPanel.webview.options = {
             enableScripts: true,
         };
+
+        // Get text direction and check if it's a source file
         const textDirection = this.getTextDirection(document);
         const isSourceText = document.uri.fsPath.endsWith(".source");
 
+        // Set up the HTML content for the webview
         webviewPanel.webview.html = this.getHtmlForWebview(
             webviewPanel.webview,
             document,
@@ -424,9 +124,26 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             isSourceText
         );
 
+        // Set up file system watcher
+        const watcher = vscode.workspace.createFileSystemWatcher(
+            new vscode.RelativePattern(
+                vscode.workspace.getWorkspaceFolder(document.uri)!,
+                vscode.workspace.asRelativePath(document.uri)
+            )
+        );
+
+        // Watch for file changes
+        watcher.onDidChange((uri) => {
+            if (uri.toString() === document.uri.toString()) {
+                if (!document.isDirty) {
+                    document.revert(); // Reload the document if it isn't dirty
+                }
+            }
+        });
+
+        // Create update function
         const updateWebview = () => {
             const notebookData: vscode.NotebookData = this.getDocumentAsJson(document);
-
             const processedData = this.processNotebookData(notebookData);
 
             this.postMessageToWebview(webviewPanel, {
@@ -437,398 +154,63 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             });
         };
 
+        // Set up navigation functions
         const navigateToSection = (cellId: string) => {
             webviewPanel.webview.postMessage({
                 type: "jumpToSection",
                 content: cellId,
             });
         };
-
+        const openCellByIdImpl = (cellId: string, text: string) => {
+            console.log("openCellById (implemented)", cellId, text);
+            webviewPanel.webview.postMessage({
+                type: "openCellById",
+                cellId: cellId,
+                text: text,
+            });
+        };
         const jumpToCellListenerDispose = workspaceStoreListener("cellToJumpTo", (value) => {
             navigateToSection(value);
         });
 
+        // Set up document change listeners
         const listeners: vscode.Disposable[] = [];
 
         listeners.push(
-            document.onDidChangeContent((e) => {
-                // Update the webview when the document changes
+            document.onDidChangeForVsCodeAndWebview((e) => {
                 updateWebview();
-
-                // Fire the event to let VS Code know the document has changed
                 this._onDidChangeCustomDocument.fire({ document });
             })
         );
 
+        listeners.push(
+            document.onDidChangeForWebview((e) => {
+                updateWebview();
+            })
+        );
+
+        // Clean up on panel close
         webviewPanel.onDidDispose(() => {
             jumpToCellListenerDispose();
             listeners.forEach((l) => l.dispose());
+            watcher.dispose();
         });
 
-        webviewPanel.webview.onDidReceiveMessage(async (e: EditorPostMessages) => {
-            try {
-                switch (e.command) {
-                    case "addWord": {
-                        try {
-                            const result = await vscode.commands.executeCommand(
-                                "spellcheck.addWord",
-                                e.words
-                            );
-                            webviewPanel.webview.postMessage({
-                                type: "wordAdded",
-                                content: e.words,
-                            });
-                        } catch (error) {
-                            console.error("Error adding word:", error);
-                            vscode.window.showErrorMessage(`Failed to add word to dictionary:`);
-                        }
-                        return;
-                    }
-                    case "searchSimilarCellIds": {
-                        try {
-                            const response = await vscode.commands.executeCommand<
-                                Array<{ cellId: string; score: number }>
-                            >(
-                                "translators-copilot.searchSimilarCellIds",
-                                e.content.cellId,
-                                5, // Default k value from searchSimilarCellIds
-                                0.2 // Default fuzziness from searchSimilarCellIds
-                            );
-                            this.postMessageToWebview(webviewPanel, {
-                                type: "providerSendsSimilarCellIdsResponse",
-                                content: response || [], // Ensure we always return an array
-                            });
-                        } catch (error) {
-                            console.error("Error searching for similar cell IDs:", error);
-                            vscode.window.showErrorMessage(
-                                "Failed to search for similar cell IDs."
-                            );
-                        }
-                        return;
-                    }
-                    case "from-quill-spellcheck-getSpellCheckResponse": {
-                        try {
-                            const response = await vscode.commands.executeCommand(
-                                "translators-copilot.spellCheckText",
-                                e.content.cellContent,
-                                e.content.cellChanged
-                            );
-                            this.postMessageToWebview(webviewPanel, {
-                                type: "providerSendsSpellCheckResponse",
-                                content: response as SpellCheckResponse,
-                            });
-                        } catch (error) {
-                            console.error("Error during spell check:", error);
-                            vscode.window.showErrorMessage("Spell check failed.");
-                        }
-                        return;
-                    }
-
-                    case "getAlertCodes": {
-                        try {
-                            const result: AlertCodesServerResponse =
-                                await vscode.commands.executeCommand(
-                                    "translators-copilot.alertCodes",
-                                    e.content
-                                );
-
-                            const content: { [cellId: string]: number } = {};
-
-                            result.forEach((item) => {
-                                content[item.cellId] = item.code;
-                            });
-
-                            this.postMessageToWebview(webviewPanel, {
-                                type: "providerSendsgetAlertCodeResponse",
-                                content,
-                            });
-                        } catch (error) {
-                            console.error("Error during getAlertCode:", error);
-                            // vscode.window.showErrorMessage(
-                            //     "Failed to check if text is problematic."
-                            // );
-                        }
-                        return;
-                    }
-                    case "saveHtml":
-                        try {
-                            document.updateCellContent(
-                                e.content.cellMarkers[0],
-                                e.content.cellContent,
-                                EditType.USER_EDIT
-                            );
-                        } catch (error) {
-                            console.error("Error saving HTML:", error);
-                            vscode.window.showErrorMessage("Failed to save HTML content.");
-                        }
-                        return;
-                    case "getContent":
-                        updateWebview();
-                        return;
-                    case "setCurrentIdToGlobalState":
-                        try {
-                            await initializeStateStore().then(({ updateStoreState }) => {
-                                updateStoreState({
-                                    key: "cellId",
-                                    value: {
-                                        cellId: e.content.currentLineId,
-                                        uri: document.uri.toString(),
-                                    },
-                                });
-                            });
-                        } catch (error) {
-                            console.error("Error setting current ID to global state:", error);
-                            vscode.window.showErrorMessage(
-                                "Failed to set current ID in global state."
-                            );
-                        }
-                        return;
-                    case "llmCompletion": {
-                        try {
-                            const completionResult = await this.performLLMCompletion(
-                                document,
-                                e.content.currentLineId
-                            );
-                            this.postMessageToWebview(webviewPanel, {
-                                type: "providerSendsLLMCompletionResponse",
-                                content: {
-                                    completion: completionResult,
-                                },
-                            });
-                        } catch (error) {
-                            console.error("Error during LLM completion:", error);
-                            vscode.window.showErrorMessage("LLM completion failed.");
-                        }
-                        return;
-                    }
-                    case "requestAutocompleteChapter": {
-                        console.log("requestAutocompleteChapter message received", { e });
-                        try {
-                            await this.performAutocompleteChapter(
-                                document,
-                                webviewPanel,
-                                e.content as QuillCellContent[]
-                            );
-                        } catch (error) {
-                            console.error("Error during autocomplete chapter:", error);
-                            vscode.window.showErrorMessage("Autocomplete chapter failed.");
-                        }
-                        return;
-                    }
-                    case "updateTextDirection": {
-                        try {
-                            const updatedMetadata = {
-                                textDirection: e.direction,
-                            };
-                            await document.updateNotebookMetadata(updatedMetadata);
-                            await document.save(new vscode.CancellationTokenSource().token);
-                            console.log("Text direction updated successfully.");
-                            this.postMessageToWebview(webviewPanel, {
-                                type: "providerUpdatesNotebookMetadataForWebview",
-                                content: await document.getNotebookMetadata(),
-                            });
-                        } catch (error) {
-                            console.error("Error updating notebook text direction:", error);
-                            vscode.window.showErrorMessage("Failed to update text direction.");
-                        }
-                        return;
-                    }
-                    case "openSourceText": {
-                        try {
-                            const workspaceFolderUri = getWorkSpaceUri();
-                            if (!workspaceFolderUri) {
-                                throw new Error("No workspace folder found");
-                            }
-                            const currentFileName = document.uri.fsPath;
-                            const baseFileName = path.basename(currentFileName);
-                            const sourceFileName = baseFileName.replace(".codex", ".source");
-                            const sourceUri = vscode.Uri.joinPath(
-                                workspaceFolderUri,
-                                ".project",
-                                "sourceTexts",
-                                sourceFileName
-                            );
-
-                            await vscode.commands.executeCommand(
-                                "codexNotebookTreeView.openSourceFile",
-                                { sourceFileUri: sourceUri }
-                            );
-                            this.postMessageToWebview(webviewPanel, {
-                                type: "jumpToSection",
-                                content: e.content.chapterNumber.toString(),
-                            });
-                        } catch (error) {
-                            console.error("Error opening source text:", error);
-                            vscode.window.showErrorMessage("Failed to open source text.");
-                        }
-                        return;
-                    }
-                    case "makeChildOfCell": {
-                        try {
-                            document.addCell(
-                                e.content.newCellId,
-                                e.content.cellIdOfCellBeforeNewCell,
-                                e.content.cellType,
-                                e.content.data
-                            );
-                        } catch (error) {
-                            console.error("Error making child:", error);
-                            vscode.window.showErrorMessage("Failed to make child.");
-                        }
-                        return;
-                    }
-                    case "deleteCell": {
-                        console.log("deleteCell message received", { e });
-                        try {
-                            document.deleteCell(e.content.cellId);
-                        } catch (error) {
-                            console.error("Error deleting cell:", error);
-                            vscode.window.showErrorMessage("Failed to delete cell.");
-                        }
-                        return;
-                    }
-                    case "updateCellTimestamps": {
-                        console.log("updateCellTimestamps message received", { e });
-                        try {
-                            document.updateCellTimestamps(e.content.cellId, e.content.timestamps);
-                        } catch (error) {
-                            console.error("Error updating cell timestamps:", error);
-                            vscode.window.showErrorMessage("Failed to update cell timestamps.");
-                        }
-                        return;
-                    }
-                    case "updateCellLabel": {
-                        console.log("updateCellLabel message received", { e });
-                        try {
-                            document.updateCellLabel(e.content.cellId, e.content.cellLabel);
-                        } catch (error) {
-                            console.error("Error updating cell label:", error);
-                            vscode.window.showErrorMessage("Failed to update cell label.");
-                        }
-                        return;
-                    }
-                    case "updateNotebookMetadata": {
-                        console.log("updateNotebookMetadata message received", { e });
-                        try {
-                            const newMetadata = e.content;
-                            await document.updateNotebookMetadata(newMetadata);
-                            await document.save(new vscode.CancellationTokenSource().token);
-                            vscode.window.showInformationMessage(
-                                "Notebook metadata updated successfully."
-                            );
-
-                            // Refresh the entire webview to ensure all data is up-to-date
-                            this.refreshWebview(webviewPanel, document);
-                        } catch (error) {
-                            console.error("Error updating notebook metadata:", error);
-                            vscode.window.showErrorMessage("Failed to update notebook metadata.");
-                        }
-                        return;
-                    }
-                    case "pickVideoFile": {
-                        console.log("pickVideoFile message received", { e });
-                        try {
-                            const result = await vscode.window.showOpenDialog({
-                                canSelectMany: false,
-                                openLabel: "Select Video File",
-                                filters: {
-                                    Videos: ["mp4", "mkv", "avi", "mov"],
-                                },
-                            });
-                            const fileUri = result?.[0];
-                            if (fileUri) {
-                                const videoUrl = fileUri.toString();
-                                await document.updateNotebookMetadata({ videoUrl });
-                                await document.save(new vscode.CancellationTokenSource().token);
-                                this.refreshWebview(webviewPanel, document);
-                            }
-                        } catch (error) {
-                            console.error("Error picking video file:", error);
-                            vscode.window.showErrorMessage("Failed to pick video file.");
-                        }
-                        return;
-                    }
-                    case "replaceDuplicateCells": {
-                        console.log("replaceDuplicateCells message received", { e });
-                        try {
-                            document.replaceDuplicateCells(e.content);
-                        } catch (error) {
-                            console.error("Error replacing duplicate cells:", error);
-                            vscode.window.showErrorMessage("Failed to replace duplicate cells.");
-                        }
-                        return;
-                    }
-                    case "saveTimeBlocks": {
-                        console.log("saveTimeBlocks message received", { e });
-                        try {
-                            e.content.forEach((cell) => {
-                                document.updateCellTimestamps(cell.id, {
-                                    startTime: cell.begin,
-                                    endTime: cell.end,
-                                });
-                            });
-                        } catch (error) {
-                            console.error("Error updating cell timestamps:", error);
-                            vscode.window.showErrorMessage("Failed to update cell timestamps.");
-                        }
-                        return;
-                    }
-                    case "applyPromptedEdit": {
-                        try {
-                            const result = await vscode.commands.executeCommand(
-                                "codex-smart-edits.applyPromptedEdit",
-                                e.content.text,
-                                e.content.prompt,
-                                e.content.cellId
-                            );
-                            console.log("providerSendsPromptedEditResponse", { result });
-                            this.postMessageToWebview(webviewPanel, {
-                                type: "providerSendsPromptedEditResponse",
-                                content: result as string,
-                            });
-                        } catch (error) {
-                            console.error("Error applying prompted edit:", error);
-                            vscode.window.showErrorMessage("Failed to apply prompted edit.");
-                        }
-                        return;
-                    }
-                    case "getTopPrompts": {
-                        console.log("getTopPrompts message received", { e });
-                        try {
-                            const result = await vscode.commands.executeCommand(
-                                "codex-smart-edits.getTopPrompts",
-                                e.content.cellId,
-                                e.content.text
-                            );
-                            console.log("providerSendsTopPrompts", { result });
-                            this.postMessageToWebview(webviewPanel, {
-                                type: "providerSendsTopPrompts",
-                                content: result as string[],
-                            });
-                        } catch (error) {
-                            console.error("Error getting and applying prompted edit:", error);
-                            vscode.window.showErrorMessage("Failed to get top prompts.");
-                        }
-                        return;
-                    }
-                    case "supplyRecentEditHistory": {
-                        console.log("supplyRecentEditHistory message received", { e });
-                        const result = await vscode.commands.executeCommand(
-                            "codex-smart-edits.supplyRecentEditHistory",
-                            e.content.cellId,
-                            e.content.editHistory
-                        );
-                        return;
-                    }
-                }
-            } catch (error) {
-                console.error("Unexpected error in message handler:", error);
-                vscode.window.showErrorMessage("An unexpected error occurred.");
+        // Handle messages from webview
+        webviewPanel.webview.onDidReceiveMessage(async (e: EditorPostMessages | GlobalMessage) => {
+            if ("destination" in e) {
+                console.log("handling global message", { e });
+                GlobalProvider.getInstance().handleMessage(e);
+                this.messageHandler.handleGlobalMessage(e as GlobalMessage);
+                return;
             }
+            this.receiveMessage(e, updateWebview);
         });
 
+        // Initial update
         updateWebview();
 
+        // Watch for configuration changes
         vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration("translators-copilot.textDirection")) {
                 this.updateTextDirection(webviewPanel, document);
@@ -841,6 +223,22 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         cancellation: vscode.CancellationToken
     ): Promise<void> {
         await document.save(cancellation);
+        await this.executeGitCommit(document);
+    }
+
+    private async executeGitCommit(document: CodexCellDocument): Promise<void> {
+        await vscode.commands.executeCommand(
+            "extension.manualCommit",
+            `changes to ${document.uri.path.split("/").pop()}`
+        );
+    }
+    public postMessage(message: GlobalMessage) {
+        console.log("postMessage", { message });
+        if (this.webviewPanel) {
+            this.webviewPanel.webview.postMessage(message);
+        } else {
+            console.error("WebviewPanel is not initialized");
+        }
     }
 
     public async saveCustomDocumentAs(
@@ -849,6 +247,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         cancellation: vscode.CancellationToken
     ): Promise<void> {
         await document.saveAs(destination, cancellation);
+        await this.executeGitCommit(document);
     }
 
     public async revertCustomDocument(
@@ -856,6 +255,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         cancellation: vscode.CancellationToken
     ): Promise<void> {
         await document.revert(cancellation);
+        await this.executeGitCommit(document);
     }
 
     public async backupCustomDocument(
@@ -989,11 +389,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         });
     }
 
-    private async performLLMCompletion(document: CodexCellDocument, currentCellId: string) {
+    public async performLLMCompletion(document: CodexCellDocument, currentCellId: string) {
         try {
             // Fetch completion configuration
             const completionConfig = await fetchCompletionConfig();
             const notebookReader = new CodexNotebookReader(document.uri);
+            console.log("Document URI: ", notebookReader);
             // Perform LLM completion
             const result = await llmCompletion(
                 notebookReader,
@@ -1014,7 +415,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
     }
 
-    private async performAutocompleteChapter(
+    public async performAutocompleteChapter(
         document: CodexCellDocument,
         webviewPanel: vscode.WebviewPanel,
         currentChapterTranslationUnits: QuillCellContent[]
@@ -1033,7 +434,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
             try {
                 // Perform LLM completion for the current cell
-                await this.performLLMCompletion(document, cellId);
+                if (this.currentDocument) {
+                    await this.performLLMCompletion(this.currentDocument, cellId);
+                }
 
                 // Send an update to the webview
                 this.postMessageToWebview(webviewPanel, {
@@ -1108,14 +511,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         return translationUnitsWithMergedRanges;
     }
 
-    private postMessageToWebview(
-        webviewPanel: vscode.WebviewPanel,
-        message: EditorReceiveMessages
-    ) {
+    public postMessageToWebview(webviewPanel: vscode.WebviewPanel, message: EditorReceiveMessages) {
         webviewPanel.webview.postMessage(message);
     }
 
-    private refreshWebview(webviewPanel: vscode.WebviewPanel, document: CodexCellDocument) {
+    public refreshWebview(webviewPanel: vscode.WebviewPanel, document: CodexCellDocument) {
         const notebookData = this.getDocumentAsJson(document);
         const processedData = this.processNotebookData(notebookData);
         const isSourceText = document.uri.fsPath.endsWith(".source");

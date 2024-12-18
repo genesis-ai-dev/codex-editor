@@ -3,37 +3,188 @@ import {
     VSCodePanelTab,
     VSCodePanelView,
     VSCodePanels,
-    VSCodeDivider,
-    VSCodeTextArea,
     VSCodeButton,
 } from "@vscode/webview-ui-toolkit/react";
 import "./App.css";
-import { OpenFileMessage } from "./types";
+import { OpenFileMessage, ChatMessage } from "./types";
+import SearchTab from "./SearchTab";
+import ChatTab from "./ChatTab";
 import { TranslationPair } from "../../../../types";
-
-import SearchBar from "./SearchBar";
-import VerseItem from "./CellItem";
+import { GlobalMessage } from "../../../../types";
 
 const vscode = acquireVsCodeApi();
 
+// Add these CSS changes to your App.css file or create them inline in the component
+const messageStyles = {
+    user: {
+        backgroundColor: "var(--vscode-editor-background)",
+        borderRadius: "12px",
+        padding: "12px 16px",
+        marginBottom: "16px",
+        width: "100%",
+        border: "1px solid var(--vscode-widget-border)",
+    },
+    assistant: {
+        backgroundColor: "var(--vscode-button-background)",
+        borderRadius: "12px",
+        padding: "12px 16px",
+        marginBottom: "16px",
+        width: "100%",
+        color: "var(--vscode-button-foreground)",
+    },
+};
+
+// Add this new type
+interface SessionInfo {
+    id: string;
+    name: string;
+    timestamp: string;
+}
+
 function ParallelView() {
     const [verses, setVerses] = useState<TranslationPair[]>([]);
+    const [pinnedVerses, setPinnedVerses] = useState<TranslationPair[]>([]);
     const [lastQuery, setLastQuery] = useState<string>("");
     const [chatInput, setChatInput] = useState<string>("");
+    const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+    const [pendingChunks, setPendingChunks] = useState<{ index: number; content: string }[]>([]);
+    const [nextChunkIndex, setNextChunkIndex] = useState(0);
+    const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
+    const [completeOnly, setCompleteOnly] = useState<boolean>(false);
+    const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null);
+    const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
+    const [loadedMessages, setLoadedMessages] = useState<ChatMessage[]>([]);
+    const [isStreaming, setIsStreaming] = useState(false);
+    const [isSessionMenuOpen, setIsSessionMenuOpen] = useState(true);
+
+    // Helper function to process pending chunks in order
+    const processNextChunk = () => {
+        const nextChunk = pendingChunks.find((chunk) => chunk.index === nextChunkIndex);
+        if (nextChunk) {
+            setChatHistory((prev) => {
+                const newHistory = [...prev];
+                if (newHistory.length === 0 || !newHistory[newHistory.length - 1].isStreaming) {
+                    return [
+                        ...prev,
+                        {
+                            role: "assistant",
+                            content: nextChunk.content,
+                            isStreaming: true,
+                        },
+                    ];
+                }
+
+                const lastMessage = newHistory[newHistory.length - 1];
+                lastMessage.content = lastMessage.content + nextChunk.content;
+                return [...newHistory];
+            });
+
+            // Remove processed chunk and increment next expected index
+            setPendingChunks((prev) => prev.filter((chunk) => chunk.index !== nextChunkIndex));
+            setNextChunkIndex((prev) => prev + 1);
+        }
+    };
+
+    // Process pending chunks whenever they change
+    useEffect(() => {
+        processNextChunk();
+    }, [pendingChunks, nextChunkIndex]);
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             const message = event.data;
-            if (message.command === "searchResults") {
-                setVerses(message.data as TranslationPair[]);
+            switch (message.command) {
+                case "searchResults":
+                    setVerses([...pinnedVerses, ...(message.data as TranslationPair[])]);
+                    break;
+                case "pinCell": {
+                    // Check if the cell is already pinned
+                    const isAlreadyPinned = pinnedVerses.some(
+                        (verse) => verse.cellId === message.data.cellId
+                    );
+
+                    if (isAlreadyPinned) {
+                        // Remove the verse if it's already pinned
+                        setPinnedVerses((prev) =>
+                            prev.filter((verse) => verse.cellId !== message.data.cellId)
+                        );
+                        // Also update verses to remove the unpinned cell
+                        setVerses((prev) =>
+                            prev.filter((verse) => verse.cellId !== message.data.cellId)
+                        );
+                    } else {
+                        // Add the new verse if it's not already pinned
+                        setPinnedVerses((prev) => [...prev, message.data]);
+                        setVerses((prev) => {
+                            const exists = prev.some(
+                                (verse) => verse.cellId === message.data.cellId
+                            );
+                            if (!exists) {
+                                return [...prev, message.data];
+                            }
+                            return prev;
+                        });
+                    }
+                    break;
+                }
+                case "chatResponseStream":
+                    try {
+                        const chunk = JSON.parse(message.data);
+
+                        setChatHistory((prev) => {
+                            const newHistory = [...prev];
+                            if (newHistory.length === 0 || !isStreaming) {
+                                return [
+                                    ...prev,
+                                    {
+                                        role: "assistant",
+                                        content: chunk.content,
+                                        isStreaming: true,
+                                    },
+                                ];
+                            }
+
+                            const lastMessage = newHistory[newHistory.length - 1];
+                            lastMessage.content += chunk.content;
+                            return [...newHistory];
+                        });
+
+                        setIsStreaming(true);
+
+                        // If this is the last chunk, don't end streaming yet
+                        if (chunk.isLast) {
+                            // Reset indices for next stream
+                            setNextChunkIndex(0);
+                            setPendingChunks([]);
+                        }
+                    } catch (error) {
+                        console.error("Error parsing chunk:", error);
+                    }
+                    break;
+                case "chatResponseComplete":
+                    // This case is now handled in the chatResponseStream case when isLast is true
+                    break;
+                case "updateSessionInfo":
+                    setSessionInfo(message.data);
+                    // Don't clear chat history here, as it's handled in handleStartNewSession
+                    break;
+                case "updateAllSessions":
+                    setAllSessions(message.data);
+                    break;
+                case "loadedSessionData":
+                    // Replace the entire chat history with the loaded messages
+                    setChatHistory(message.data.messages);
+                    setSessionInfo(message.data.sessionInfo);
+                    break;
             }
         };
 
         window.addEventListener("message", handleMessage);
         return () => window.removeEventListener("message", handleMessage);
-    }, []);
+    }, [pinnedVerses, isStreaming]);
 
     const handleUriClick = (uri: string, word: string) => {
+        console.log("handleUriClick", uri, word);
         vscode.postMessage({
             command: "openFileAtLocation",
             uri,
@@ -48,69 +199,219 @@ function ParallelView() {
         setLastQuery(query);
         vscode.postMessage({
             command: "search",
-            database: "both",
             query: query,
+            completeOnly: completeOnly,
         });
     };
 
-    const handleSaveClick = (index: number, before: string, after: string, uri: string) => {
-        vscode.postMessage({
-            command: "applyEdit",
-            uri: uri,
-            before: before,
-            after: after,
-        });
-
-        setVerses((prevVerses) => {
-            const newVerses = [...prevVerses];
-            newVerses[index] = {
-                ...newVerses[index],
-                targetCell: { ...newVerses[index].targetCell, content: after },
-            };
-            return newVerses;
-        });
+    const handlePinToggle = (item: TranslationPair, isPinned: boolean) => {
+        if (isPinned) {
+            setPinnedVerses([...pinnedVerses, item]);
+        } else {
+            setPinnedVerses(pinnedVerses.filter((v) => v.cellId !== item.cellId));
+        }
+    };
+    const handleRequestPinning = (cellIds: string[]) => {
+        for (const cellId of cellIds) {
+            // ensure cell is not already pinned
+            if (!pinnedVerses.some((v) => v.cellId === cellId)) {
+                const globalMessage: GlobalMessage = {
+                    command: "requestPinning",
+                    destination: "provider",
+                    content: {
+                        type: "cellId",
+                        cellId: cellId,
+                    },
+                };
+                // wait 100 ms
+                setTimeout(() => {
+                    vscode.postMessage(globalMessage);
+                }, 100);
+            }
+        }
+        sendMessage(
+            "Automated message: Pinning Complete, please continue talking with the user in their language. don't-render"
+        );
+    };
+    const handleApplyTranslation = (translation: string, cellId: string) => {
+        const globalMessage: GlobalMessage = {
+            command: "applyTranslation",
+            destination: "provider",
+            content: {
+                type: "cellAndText",
+                cellId: cellId,
+                text: translation,
+            },
+        };
+        vscode.postMessage(globalMessage);
     };
 
-    const handleSendMessage = () => {
-        if (chatInput.trim()) {
-            // TODO: Implement send message functionality
-            console.log("Sending message:", chatInput);
-            setChatInput("");
+    const handleEditMessage = (index: number) => {
+        if (chatHistory[index].role === "user") {
+            // Delete all messages after the edited message
+            setChatHistory((prev) => prev.slice(0, index + 1));
+            setEditingMessageIndex(index);
+            setChatInput(chatHistory[index].content);
+
+            // Scroll to and focus the chat input
+            setTimeout(() => {
+                const textarea = document.querySelector("vscode-text-area") as HTMLElement;
+                if (textarea) {
+                    textarea.scrollIntoView({ behavior: "smooth" });
+                    textarea.focus();
+                }
+            }, 0);
         }
     };
 
+    const handleChatSubmit = () => {
+        if (!chatInput.trim()) return;
+
+        // End streaming when a new user message is sent
+        setIsStreaming(false);
+        setChatHistory((prev) => {
+            const newHistory = [...prev];
+            if (newHistory.length > 0) {
+                newHistory[newHistory.length - 1].isStreaming = false;
+            }
+            return newHistory;
+        });
+
+        sendMessage(chatInput);
+        setChatInput("");
+        setIsSessionMenuOpen(false);
+    };
+
+    const sendMessage = (messageContent: string) => {
+        const newHistory: ChatMessage[] = [
+            ...chatHistory,
+            {
+                role: "user",
+                content: messageContent,
+            },
+            {
+                role: "assistant",
+                content: "",
+                isStreaming: true,
+            },
+        ];
+
+        setChatHistory(newHistory);
+
+        vscode.postMessage({
+            command: "chatStream",
+            query: messageContent,
+            context: verses.map((verse) => verse.cellId),
+        });
+    };
+
+    const handleSendFeedback = (originalText: string, feedbackText: string, cellId: string) => {
+        const feedbackContent = `<UserFeedback cellId="${cellId}" originalText="${originalText}" feedbackText="${feedbackText}" />`;
+        sendMessage(feedbackContent);
+    };
+
+    const handleChatFocus = () => {
+        setVerses([...pinnedVerses]);
+    };
+
+    const handleAddedFeedback = (cellId: string, feedback: string) => {
+        console.log("handleAddedFeedback", cellId, feedback);
+        vscode.postMessage({
+            command: "addedFeedback",
+            cellId: cellId,
+            feedback: feedback,
+        });
+    };
+    const handlePinAll = () => {
+        const unpinnedVerses = verses.filter(
+            (verse) => !pinnedVerses.some((pinned) => pinned.cellId === verse.cellId)
+        );
+        setPinnedVerses([...pinnedVerses, ...unpinnedVerses]);
+    };
+
+    const handleStartNewSession = () => {
+        vscode.postMessage({ command: "startNewChatSession" });
+        // Clear chat history and add an initial system message
+        // setChatHistory([
+        //     {
+        //         role: "system",
+        //         content: "New session started. How can I assist you today?",
+        //     },
+        // ]);
+    };
+
+    const handleLoadSession = (sessionId: string) => {
+        vscode.postMessage({
+            command: "loadChatSession",
+            sessionId: sessionId,
+        });
+        // Clear chat history immediately in the frontend
+        setChatHistory([]);
+    };
+
+    const handleDeleteSession = (sessionId: string) => {
+        vscode.postMessage({
+            command: "deleteChatSession",
+            sessionId: sessionId,
+        });
+        // Remove the deleted session from the allSessions state
+        setAllSessions((prevSessions) =>
+            prevSessions.filter((session) => session.id !== sessionId)
+        );
+    };
+
+    useEffect(() => {
+        // Request current session info and all sessions on component mount
+        vscode.postMessage({ command: "getCurrentChatSessionInfo" });
+        vscode.postMessage({ command: "getAllChatSessions" });
+    }, []);
+
     return (
         <VSCodePanels>
-            <VSCodePanelTab id="tab1">Parallel Passages</VSCodePanelTab>
-            <VSCodePanelView id="view1">
-                <div className="container">
-                    <SearchBar
-                        query={lastQuery}
-                        onQueryChange={setLastQuery}
-                        onSearch={(event) => {
-                            searchBoth(lastQuery, event);
-                        }}
-                    />
-                    <VSCodeDivider />
-                    {verses.length > 0 ? (
-                        <div className="verses-container">
-                            {verses.map((item, index) => (
-                                <VerseItem
-                                    key={index}
-                                    item={item}
-                                    onUriClick={handleUriClick}
-                                    onSaveClick={handleSaveClick}
-                                />
-                            ))}
-                        </div>
-                    ) : (
-                        <p className="no-results">
-                            No results found. Try a different search query.
-                        </p>
-                    )}
-                    <VSCodeDivider />
-                </div>
+            {/* <VSCodePanelTab id="tab-search">Search</VSCodePanelTab>
+            <VSCodePanelTab id="tab-chat">Chat</VSCodePanelTab> */}
+
+            {/* Search Tab */}
+            <VSCodePanelView id="view-search">
+                <SearchTab
+                    verses={verses}
+                    pinnedVerses={pinnedVerses}
+                    lastQuery={lastQuery}
+                    onQueryChange={setLastQuery}
+                    completeOnly={completeOnly}
+                    onCompleteOnlyChange={setCompleteOnly}
+                    onSearch={searchBoth}
+                    onPinToggle={handlePinToggle}
+                    onUriClick={handleUriClick}
+                    onPinAll={handlePinAll}
+                />
             </VSCodePanelView>
+
+            {/* Chat Tab */}
+            {/* <VSCodePanelView id="view-chat">
+                <ChatTab
+                    chatHistory={chatHistory}
+                    chatInput={chatInput}
+                    onChatInputChange={setChatInput}
+                    onChatSubmit={handleChatSubmit}
+                    onChatFocus={handleChatFocus}
+                    onEditMessage={handleEditMessage}
+                    messageStyles={messageStyles}
+                    pinnedVerses={pinnedVerses}
+                    onApplyTranslation={handleApplyTranslation}
+                    handleAddedFeedback={handleAddedFeedback}
+                    sessionInfo={sessionInfo}
+                    allSessions={allSessions}
+                    onStartNewSession={handleStartNewSession}
+                    onLoadSession={handleLoadSession}
+                    onDeleteSession={handleDeleteSession}
+                    setChatHistory={setChatHistory}
+                    onSendFeedback={handleSendFeedback}
+                    isSessionMenuOpen={isSessionMenuOpen}
+                    setIsSessionMenuOpen={setIsSessionMenuOpen}
+                    handleRequestPinning={handleRequestPinning}
+                />
+            </VSCodePanelView> */}
         </VSCodePanels>
     );
 }

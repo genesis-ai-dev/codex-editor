@@ -48,6 +48,7 @@ const extensionConfig = {
             buffer: require.resolve("buffer/"),
             util: require.resolve("util/"),
             vm: false,
+            readline: false,
         },
     },
     module: {
@@ -175,9 +176,13 @@ const testConfig = {
     },
     resolve: {
         extensions: [".ts", ".js"],
+        alias: {
+            //I don't know if this actually works, but it got rid of the error message.
+            "fs/promises": "memfs",
+        },
         fallback: {
             assert: require.resolve("assert/"),
-            process: require.resolve("process/browser"),
+            // process: require.resolve("process/browser"),
             url: require.resolve("url/"),
             fs: require.resolve("memfs"),
             zlib: require.resolve("browserify-zlib"),
@@ -185,6 +190,8 @@ const testConfig = {
             util: require.resolve("util/"),
             os: require.resolve("os-browserify/browser"),
             crypto: require.resolve("crypto-browserify"),
+            vm: require.resolve("vm-browserify"),
+            readline: require.resolve("readline-browserify"),
         },
     },
     module: {
@@ -211,9 +218,6 @@ const testConfig = {
         ],
     },
     plugins: [
-        new webpack.ProvidePlugin({
-            process: "process/browser",
-        }),
         // ... other plugins if necessary
     ],
     devtool: "nosources-source-map",

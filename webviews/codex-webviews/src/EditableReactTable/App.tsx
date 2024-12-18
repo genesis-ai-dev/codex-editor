@@ -2,45 +2,30 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import { Table, Input, Button, Popconfirm, Tooltip, ConfigProvider, theme } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { vscode } from "./utilities/vscode";
-// import "./style.css";
-import { Dictionary, DictionaryEntry } from "codex-types";
-import { DictionaryPostMessages, DictionaryReceiveMessages } from "../../../../types";
-import debounce from "lodash.debounce";
-import { isEqual } from "lodash";
+import {
+    DictionaryPostMessages,
+    DictionaryReceiveMessages,
+    Dictionary,
+    DictionaryEntry,
+} from "../../../../types";
+import { useMeasure } from "@uidotdev/usehooks";
+import AddWordForm from "./AddWordForm";
+import EditWordForm from "./EditWordForm";
+import { ConfirmDeleteButton } from "./ConfirmDeleteButton";
 
 interface DataType {
     key: React.Key;
     [key: string]: any;
 }
 
-interface EditableCellProps {
-    value: string;
-    recordKey: React.Key;
-    dataIndex: string;
-    onChange: (key: React.Key, dataIndex: string, value: any) => void;
-}
-
-const EditableCell: React.FC<EditableCellProps> = ({ value, recordKey, dataIndex, onChange }) => {
-    const [editingValue, setEditingValue] = useState(value);
-
-    useEffect(() => {
-        setEditingValue(value);
-    }, [value]);
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setEditingValue(e.target.value);
-    };
-
-    const handleBlur = () => {
-        if (editingValue !== value) {
-            onChange(recordKey, dataIndex, editingValue);
-        }
-    };
-
-    return <Input value={editingValue} onChange={handleChange} onBlur={handleBlur} />;
-};
-
 const App: React.FC = () => {
+    const [outerContainer, { height: outerContainerHeight }] = useMeasure();
+    const [tableRef, { height: tableHeight }] = useMeasure();
+    const [inputRef, { height: inputHeight }] = useMeasure();
+    const [buttonRef, { height: buttonHeight }] = useMeasure();
+    const [addWordVisible, setAddWordVisible] = useState(false);
+    const [entryToEdit, setEntryToEdit] = useState<DictionaryEntry | null>(null);
+
     const [dataSource, setDataSource] = useState<DataType[]>([]);
     const [columnNames, setColumnNames] = useState<string[]>([]);
     const [dictionary, setDictionary] = useState<Dictionary>({
@@ -51,6 +36,11 @@ const App: React.FC = () => {
     });
     const [searchQuery, setSearchQuery] = useState("");
     const [vsCodeTheme, setVsCodeTheme] = useState({});
+    const [pagination, setPagination] = useState({
+        current: 1,
+        pageSize: 10,
+        total: 0,
+    });
 
     const dataSourceRef = useRef(dataSource);
     const dictionaryRef = useRef(dictionary);
@@ -104,56 +94,45 @@ const App: React.FC = () => {
         setVsCodeTheme(themeColors);
     }, []);
 
-    const debouncedUpdateDictionary = useRef(
-        debounce(() => {
-            const updatedDictionary: Dictionary = {
-                ...dictionaryRef.current,
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                entries: dataSourceRef.current.map(({ key, ...rest }) => rest as DictionaryEntry),
-            };
-
-            if (!isEqual(updatedDictionary, lastSentDataRef.current)) {
-                setDictionary(updatedDictionary);
+    const handleDelete = useCallback((key: React.Key) => {
+        setDataSource((prevDataSource) => {
+            const itemToDelete = prevDataSource.find((item) => item.key === key);
+            if (itemToDelete) {
                 vscode.postMessage({
                     command: "webviewTellsProviderToUpdateData",
-                    data: updatedDictionary,
+                    operation: "delete",
+                    entry: {
+                        id: itemToDelete.id,
+                    },
                 } as DictionaryPostMessages);
-                lastSentDataRef.current = updatedDictionary;
             }
-        }, 500)
-    ).current;
-
-    useEffect(() => {
-        debouncedUpdateDictionary();
-    }, [dataSource, debouncedUpdateDictionary]);
-
-    const handleCellChange = useCallback((key: React.Key, dataIndex: string, value: any) => {
-        setDataSource((prevDataSource) =>
-            prevDataSource.map((item) => {
-                if (item.key === key) {
-                    return { ...item, [dataIndex]: value };
-                }
-                return item;
-            })
-        );
-    }, []);
-
-    const handleDelete = useCallback((key: React.Key) => {
-        setDataSource((prevDataSource) => prevDataSource.filter((item) => item.key !== key));
-    }, []);
-
-    const handleAdd = useCallback(() => {
-        setDataSource((prevDataSource) => {
-            const newKey = prevDataSource.length
-                ? Math.max(...prevDataSource.map((item) => Number(item.key))) + 1
-                : 0;
-            const newEntry: DataType = { key: newKey };
-            columnNames.forEach((key) => {
-                newEntry[key] = "";
-            });
-            return [...prevDataSource, newEntry];
+            return prevDataSource.filter((item) => item.key !== key);
         });
-    }, [columnNames]);
+    }, []);
+
+    // const handleAdd = useCallback(() => {
+    //     setDataSource((prevDataSource) => {
+    //         const newKey = prevDataSource.length
+    //             ? Math.max(...prevDataSource.map((item) => Number(item.key))) + 1
+    //             : 0;
+    //         const newEntry: DataType = {
+    //             key: newKey,
+    //             headWord: "",
+    //             definition: "",
+    //         };
+
+    //         vscode.postMessage({
+    //             command: "webviewTellsProviderToUpdateData",
+    //             operation: "add",
+    //             entry: {
+    //                 headWord: newEntry.headWord,
+    //                 definition: newEntry.definition,
+    //             },
+    //         } as DictionaryPostMessages);
+
+    //         return [...prevDataSource, newEntry];
+    //     });
+    // }, []);
 
     const getColumnIcon = useCallback((columnName: string): JSX.Element => {
         const iconMap: { [key: string]: string } = {
@@ -178,7 +157,9 @@ const App: React.FC = () => {
         }
 
         const dataColumns = columnNames
-            .filter((key) => key !== "id") // Hide the 'id' column
+            .filter((key) => key !== "id")
+            .filter((key) => key !== "isUserEntry")
+            .filter((key) => key !== "authorId")
             .map((key) => ({
                 title: (
                     <Tooltip title={key}>
@@ -189,14 +170,7 @@ const App: React.FC = () => {
                 ),
                 dataIndex: key,
                 key: key,
-                render: (text: string, record: DataType) => (
-                    <EditableCell
-                        value={text}
-                        recordKey={record.key}
-                        dataIndex={key}
-                        onChange={handleCellChange}
-                    />
-                ),
+                render: (text: string) => <span>{text}</span>,
                 fixed: key === columnNames[0] ? ("left" as const) : undefined,
             }));
 
@@ -210,67 +184,93 @@ const App: React.FC = () => {
             fixed: "right" as const,
             width: 100,
             render: (_: any, record: DataType) => (
-                <Popconfirm
-                    title="Sure to delete?"
-                    onConfirm={() => handleDelete(record.key)}
-                    icon={<span className="codicon codicon-trash"></span>}
+                <div
+                    style={{
+                        display: "flex",
+                        flexDirection: "row",
+                        gap: "10px",
+                        flexWrap: "nowrap",
+                    }}
                 >
-                    <Button type="text" icon={<span className="codicon codicon-trash"></span>} />
-                </Popconfirm>
+                    <ConfirmDeleteButton onConfirm={() => handleDelete(record.key)} />
+                    <Button
+                        onClick={() => {
+                            setEntryToEdit(record as unknown as DictionaryEntry);
+                        }}
+                        icon={<span className="codicon codicon-edit"></span>}
+                    />
+                </div>
             ),
         };
 
         return [...dataColumns, actionColumn];
-    }, [columnNames, handleCellChange, handleDelete, getColumnIcon]);
+    }, [columnNames, handleDelete, getColumnIcon]);
 
+    // Function to fetch page data
+    const fetchPageData = useCallback((page: number, pageSize: number, search?: string) => {
+        vscode.postMessage({
+            command: "webviewTellsProviderToUpdateData",
+            operation: "fetchPage",
+            pagination: {
+                page,
+                pageSize,
+                searchQuery: search,
+            },
+        } as DictionaryPostMessages);
+    }, []);
+
+    // Handle table pagination change
+    const handleTableChange = (newPagination: any) => {
+        setPagination((prev) => ({
+            ...prev,
+            current: newPagination.current,
+            pageSize: newPagination.pageSize,
+        }));
+        fetchPageData(newPagination.current, newPagination.pageSize, searchQuery);
+    };
+
+    // Update the search handler to reset pagination
+    const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const newQuery = event.target.value;
+        setSearchQuery(newQuery);
+        setPagination((prev) => ({ ...prev, current: 1 }));
+        fetchPageData(1, pagination.pageSize, newQuery);
+    };
+
+    // Update the message handler
     useEffect(() => {
         const handleReceiveMessage = (event: MessageEvent<DictionaryReceiveMessages>) => {
             const message = event.data;
             if (message.command === "providerTellsWebviewToUpdateData") {
-                let newDictionary: Dictionary = message.data;
-
-                if (!newDictionary.entries) {
-                    newDictionary = {
-                        ...newDictionary,
-                        entries: [],
-                    };
-                }
-
-                setDictionary(newDictionary);
-
-                const newDataSource = newDictionary.entries.map((entry, index) => ({
-                    key: index,
+                const { entries, total, page, pageSize } = message.data;
+                const newDataSource = entries.map((entry, index) => ({
+                    key: (page - 1) * pageSize + index,
                     ...entry,
                 }));
-                setDataSource(newDataSource);
 
-                // Extract column names from the first entry
-                if (newDataSource.length > 0) {
-                    const newColumnNames = Object.keys(newDataSource[0]).filter(
-                        (key) => key !== "key"
-                    );
+                setDataSource(newDataSource);
+                setPagination((prev) => ({
+                    ...prev,
+                    total,
+                    current: page,
+                    pageSize,
+                }));
+
+                if (entries.length > 0) {
+                    const newColumnNames = Object.keys(entries[0]).filter((key) => key !== "key");
                     setColumnNames(newColumnNames);
                 }
             }
         };
 
         window.addEventListener("message", handleReceiveMessage);
+        // Initial data fetch
+        fetchPageData(pagination.current, pagination.pageSize);
 
         return () => {
             window.removeEventListener("message", handleReceiveMessage);
         };
     }, []);
-
-    const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        setSearchQuery(event.target.value);
-    };
-
-    const filteredData = dataSource.filter((row: DataType) => {
-        return Object.values(row).some(
-            (value) =>
-                typeof value === "string" && value.toLowerCase().includes(searchQuery.toLowerCase())
-        );
-    });
 
     return (
         <ConfigProvider
@@ -286,6 +286,7 @@ const App: React.FC = () => {
             }}
         >
             <div
+                ref={outerContainer}
                 style={{
                     width: "100vw",
                     height: "100vh",
@@ -295,43 +296,77 @@ const App: React.FC = () => {
                     overflow: "hidden",
                 }}
             >
+                <div ref={inputRef}>
+                    <Input
+                        placeholder="Search..."
+                        value={searchQuery}
+                        onChange={handleSearchChange}
+                        style={{ marginBottom: "16px" }}
+                        prefix={<span className="codicon codicon-search"></span>}
+                    />
+                </div>
+
                 <div
                     style={{
                         display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        marginBottom: "20px",
+                        flexDirection: "row",
+                        gap: "10px",
+                        justifyContent: "flex-end",
                     }}
                 >
-                    <h1>Dictionary</h1>
+                    <Button
+                        ref={buttonRef}
+                        onClick={() =>
+                            vscode.postMessage({
+                                command: "callCommand",
+                                vscodeCommandName: "extension.importWiktionaryJSONL",
+                                args: [],
+                            } as DictionaryPostMessages)
+                        }
+                        type="primary"
+                        style={{ marginBottom: "16px", alignSelf: "flex-start" }}
+                        icon={<span className="codicon codicon-replace-all"></span>}
+                    ></Button>
+                    <Button
+                        ref={buttonRef}
+                        onClick={() => setAddWordVisible(true)}
+                        type="primary"
+                        style={{ marginBottom: "16px", alignSelf: "flex-start" }}
+                        icon={<span className="codicon codicon-replace"></span>}
+                    ></Button>
                 </div>
 
-                <Input
-                    placeholder="Search..."
-                    value={searchQuery}
-                    onChange={handleSearchChange}
-                    style={{ marginBottom: "16px" }}
-                    prefix={<span className="codicon codicon-search"></span>}
-                />
-
-                <Button
-                    onClick={handleAdd}
-                    type="primary"
-                    style={{ marginBottom: "16px", alignSelf: "flex-start" }}
-                    icon={<span className="codicon codicon-add"></span>}
-                >
-                    Add a row
-                </Button>
-
-                <Table
-                    dataSource={filteredData}
-                    columns={columns}
-                    bordered
-                    pagination={false}
-                    rowKey="key"
-                    scroll={{ x: "max-content", y: "calc(100vh - 200px)" }}
-                    style={{ flexGrow: 1, overflow: "auto" }}
-                />
+                <AddWordForm visible={addWordVisible} onCancel={() => setAddWordVisible(false)} />
+                {entryToEdit && (
+                    <EditWordForm
+                        entry={entryToEdit}
+                        visible={entryToEdit !== null}
+                        onCancel={() => setEntryToEdit(null)}
+                    />
+                )}
+                <div ref={tableRef}>
+                    <Table
+                        dataSource={dataSource}
+                        columns={columns}
+                        bordered
+                        pagination={{
+                            ...pagination,
+                            showSizeChanger: true,
+                            showQuickJumper: true,
+                            showTotal: (total) => `Total ${total} items`,
+                        }}
+                        onChange={handleTableChange}
+                        scroll={{
+                            x: "max-content",
+                            y: `calc(${
+                                (outerContainerHeight || 0) -
+                                (inputHeight || 0) -
+                                (buttonHeight || 0)
+                            }px - 180px)`,
+                        }}
+                        style={{ flexGrow: 1, overflow: "auto" }}
+                    />
+                </div>
             </div>
         </ConfigProvider>
     );

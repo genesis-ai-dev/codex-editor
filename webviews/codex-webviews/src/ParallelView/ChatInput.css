@@ -1,0 +1,60 @@
+.chat-input-container {
+    margin-top: 16px;
+}
+
+.chat-input-suggestion {
+    margin-bottom: 8px;
+    color: var(--vscode-descriptionForeground);
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.chat-input-wrapper {
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+}
+
+.chat-input-textarea {
+    width: 100%;
+    min-height: 60px;
+    max-height: 200px;
+    resize: vertical;
+    padding: 12px 40px 12px 12px;
+    background-color: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 8px;
+    color: var(--vscode-input-foreground);
+    font-family: var(--vscode-font-family);
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.chat-input-textarea:focus {
+    outline: none;
+    border-color: var(--vscode-focusBorder);
+}
+
+.chat-input-send-button {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+    background: var(--vscode-button-background);
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    padding: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s ease;
+}
+
+.chat-input-send-button:hover {
+    background-color: var(--vscode-button-hoverBackground);
+}
+
+.chat-input-send-button .codicon {
+    color: var(--vscode-button-foreground);
+    font-size: 16px;
+}

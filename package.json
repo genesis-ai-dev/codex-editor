@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.0.68",
+    "version": "0.1.2",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -19,6 +19,7 @@
     ],
     "activationEvents": [
         "onCustomEditor:sourceUploadProvider-scheme",
+        "onCustomEditor:startupFlowProvider-scheme",
         "onNotebook:codex-type",
         "onStartupFinished"
     ],
@@ -35,10 +36,6 @@
             {
                 "view": "codexNotebookTreeView",
                 "contents": "Welcome to the Codex Translation Editor! When you bookmark cells in your Codex notebook, you will see navigation shortcuts here."
-            },
-            {
-                "view": "dictionary-summary-panel",
-                "contents": "\n[Open Dictionary Table](command:dictionaryTable.showDictionaryTable)"
             }
         ],
         "notebookEditorDecorations": [
@@ -72,31 +69,6 @@
                     "icon": "$(compass)"
                 }
             ],
-            "dictionary-summary": [
-                {
-                    "type": "webview",
-                    "id": "dictionary-summary-panel",
-                    "name": "Dictionary Summary",
-                    "icon": "$(notebook)",
-                    "contextualTitle": "Dictionary Summary"
-                },
-                {
-                    "type": "webview",
-                    "id": "semantic-sidebar",
-                    "name": "Thesaurus",
-                    "icon": "$(unfold)",
-                    "contextualTitle": "Semantic View"
-                }
-            ],
-            "genesis-translator-sidebar-view": [
-                {
-                    "type": "webview",
-                    "id": "genesis-translator-sidebar",
-                    "name": "Translator's Copilot",
-                    "icon": "$(comment-discussion)",
-                    "contextualTitle": "Translator's Copilot"
-                }
-            ],
             "comments-sidebar-view": [
                 {
                     "type": "webview",
@@ -121,6 +93,15 @@
                     "name": "Codex Project Manager",
                     "when": "workbenchState == empty"
                 }
+            ],
+            "genesis-translator-sidebar-view": [
+                {
+                    "type": "webview",
+                    "id": "genesis-translator-sidebar",
+                    "name": "Genesis Translator",
+                    "icon": "$(comment-discussion)",
+                    "contextualTitle": "Genesis Translator"
+                }
             ]
         },
         "viewsContainers": {
@@ -144,11 +125,6 @@
                     "id": "semantic-view",
                     "title": "Semantic View",
                     "icon": "$(unfold)"
-                },
-                {
-                    "id": "dictionary-summary",
-                    "title": "Dictionary Summary",
-                    "icon": "$(notebook)"
                 },
                 {
                     "id": "genesis-translator-sidebar-view",
@@ -366,19 +342,6 @@
                         },
                         "completionEvents": [
                             "onCommand:codex-project-manager.renameProject"
-                        ],
-                        "when": "workbenchState !== empty"
-                    },
-                    {
-                        "id": "userName",
-                        "title": "Set User Name",
-                        "description": "Now that we have a Project name, let's set the user name for your new Codex project.\n[Set User Name](command:codex-project-manager.userName)",
-                        "media": {
-                            "image": "./src/media/user-name.png",
-                            "altText": "Set User Name"
-                        },
-                        "completionEvents": [
-                            "onCommand:codex-project-manager.changeUserName"
                         ],
                         "when": "workbenchState !== empty"
                     },
@@ -673,8 +636,9 @@
                 "title": "Open Source Upload"
             },
             {
-                "command": "codex-video-player.openVideoPlayer",
-                "title": "Open Video Player"
+                "command": "codex-project-manager.openStartupFlow",
+                "title": "Open Startup Flow",
+                "category": "Codex Project Manager"
             },
             {
                 "command": "codexNotebookTreeView.openSourceFile",
@@ -759,6 +723,11 @@
                         "type": "string",
                         "default": "",
                         "description": "Name of the user"
+                    },
+                    "codex-project-manager.userEmail": {
+                        "type": "string",
+                        "default": "",
+                        "description": "Email of the user e.g. user@example.com"
                     },
                     "codex-project-manager.abbreviation": {
                         "type": "string",
@@ -878,7 +847,7 @@
                         "title": "API Key",
                         "type": "string",
                         "default": "",
-                        "description": "Your own OpenAI API key. Ignorable for local LLM."
+                        "description": "Your own OpenAI API key. Ignorable for local LLM. NOTE: Do not set this in workspace settings. This may compromise your key if .vscode/settings.json is saved to the cloud."
                     },
                     "translators-copilot.max_tokens": {
                         "title": "Max Tokens",
@@ -957,7 +926,8 @@
                         "title": "Rules for AI (System Message)",
                         "type": "string",
                         "default": "This is a chat between a helpful Bible translation assistant and a Bible translator. The assistant will provide helpful answers and suggestions to the translator, often relying on the translator's current project and reference resources. The translator will ask questions and provide context to the assistant. The translator's aim is to be consistent and faithful in a fairly literalistic rendering of the source text.",
-                        "description": "The system message controlling the behavior of the chat system and inline completion. You can customize this message to fit your needs, or ask the copilot to translate it for you into your preferred interface language."
+                        "description": "The system message controlling the behavior of the chat system and inline completion. You can customize this message to fit your needs, or ask the copilot to translate it for you into your preferred interface language.",
+                        "editPresentation": "multilineText"
                     },
                     "translators-copilot.sourceTextSelectionMode": {
                         "type": "string",
@@ -1040,6 +1010,18 @@
                         "default": false,
                         "description": "Enable or disable doctrine grading."
                     },
+                    "translators-copilot.enableChatReflection": {
+                        "title": "Enable Chat Reflection",
+                        "type": "boolean",
+                        "default": false,
+                        "description": "After giving an initial response in the chat, the Copilot will reflect on the response and replace it with a new one after a bit."
+                    },
+                    "translators-copilot.chatReflectionConcern": {
+                        "title": "Chat Reflection Concern",
+                        "type": "string",
+                        "default": "",
+                        "description": "This is an optional field to specify what the reflection should focus on in the chat response.  Use this to set a specific topic to focus on or perspective to keep in mind."
+                    },
                     "translators-copilot.textDirection": {
                         "type": "string",
                         "enum": [
@@ -1065,6 +1047,17 @@
                 "priority": "default"
             },
             {
+                "viewType": "startupFlowProvider",
+                "displayName": "Startup Flow Editor",
+                "selector": [
+                    {
+                        "filenamePattern": "*.startupFlowProvider",
+                        "scheme": "startupFlowProvider-scheme"
+                    }
+                ],
+                "priority": "default"
+            },
+            {
                 "viewType": "codex.cellEditor",
                 "displayName": "Codex Cell Editor",
                 "selector": [
@@ -1076,15 +1069,6 @@
                     }
                 ],
                 "priority": "default"
-            },
-            {
-                "viewType": "codex.obs.editor",
-                "displayName": "Obs Editor",
-                "selector": [
-                    {
-                        "filenamePattern": "**/ingredients/??.md"
-                    }
-                ]
             },
             {
                 "viewType": "codex.translationNotesEditor",
@@ -1117,7 +1101,7 @@
         "pretest": "npm run compile && npm run lint",
         "test": "node ./out/test/runTest.js",
         "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
-        "build:webviews": "cd webviews/codex-webviews && pnpm run build:all && cd ../usfm-viewer && pnpm run build && cd ../.."
+        "build:webviews": "cd webviews/codex-webviews && pnpm run build:all && cd ../.."
     },
     "devDependencies": {
         "@babel/plugin-proposal-private-property-in-object": "^7.16.7",
@@ -1136,6 +1120,7 @@
         "@types/sql.js": "^1.4.9",
         "@types/uuid": "^9.0.7",
         "@types/vscode": "^1.78.0",
+        "@types/webpack-env": "^1.18.5",
         "@types/webvtt-parser": "^2.2.0",
         "@typescript-eslint/eslint-plugin": "^6.7.0",
         "@typescript-eslint/parser": "^6.7.0",
@@ -1160,6 +1145,7 @@
         "os-browserify": "^0.3.0",
         "prettier": "^3.1.1",
         "process": "^0.11.10",
+        "readline-browserify": "^0.0.4",
         "stream-browserify": "^3.0.0",
         "ts-loader": "^9.5.1",
         "typescript": "^5.4.2",
@@ -1173,7 +1159,7 @@
     },
     "dependencies": {
         "@types/better-sqlite3": "^7.6.11",
-        "@types/webpack-env": "^1.18.5",
+        "@types/xml2js": "^0.4.14",
         "@vscode/codicons": "^0.0.36",
         "@vscode/python-extension": "^1.0.5",
         "@vscode/webview-ui-toolkit": "^1.4.0",
@@ -1182,10 +1168,12 @@
         "copy-webpack-plugin": "^12.0.2",
         "date-fns": "^2.30.0",
         "diff": "^7.0.0",
+        "events": "^3.3.0",
         "fitty": "^2.4.2",
         "hog-features": "^1.0.0",
         "i": "^0.3.7",
         "immutability-helper": "^3.1.1",
+        "isomorphic-git": "^1.27.2",
         "jimp": "^0.22.12",
         "jszip": "^3.10.1",
         "md5": "^2.3.0",
@@ -1208,14 +1196,14 @@
         "uuid": "^9.0.1",
         "vscode-languageclient": "^9.0.1",
         "vscode-uri": "^3.0.8",
-        "webvtt-parser": "^2.2.0"
+        "webvtt-parser": "^2.2.0",
+        "xml2js": "^0.6.2"
     },
     "overrides": {
         "minimatch": "5.1.2"
     },
     "extensionDependencies": [
         "project-accelerate.shared-state-store",
-        "sevenx-codex.codex-resources",
         "vscode.git"
     ]
 }

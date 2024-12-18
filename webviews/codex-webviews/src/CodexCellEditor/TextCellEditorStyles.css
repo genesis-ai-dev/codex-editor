@@ -1,180 +1,115 @@
 .cell-editor {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    width: 100%; /* Ensure it takes the full width of the parent */
+    min-width: 100%; /* Ensure it takes the full width of the parent */
+    max-width: 100%; /* Prevent it from growing beyond the parent */
+    gap: 8px;
+    padding: 8px;
+    margin: 0;
+    box-sizing: border-box;
+    flex-shrink: 0; /* Prevent it from shrinking */
 }
 
-.header-controls {
+.flex-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.flex-col {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.editor-controls-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 1rem;
+    min-height: 32px;
+}
+
+.header-content {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px;
+}
+
+.header-content:hover {
+    background-color: var(--vscode-toolbar-hoverBackground);
+}
+
+.header-content h3 {
+    margin: 0;
+    font-size: 13px;
+    color: var(--vscode-foreground);
+}
+
+.action-buttons {
+    display: flex;
+    gap: 4px;
+    align-items: center;
 }
 
 .input-group {
     display: flex;
-    gap: 1rem;
-    flex-grow: 1;
+    flex-direction: column;
+    gap: 8px;
 }
 
-.label-container,
-.prompt-container {
+.input-row {
     display: flex;
+    gap: 4px;
     align-items: center;
-    gap: 0.5rem;
-    background: var(--vscode-input-background);
-    border: 1px solid var(--vscode-input-border);
-    padding: 2px;
-}
-
-.label-input {
-    width: 200px;
-}
-
-.prompt-input {
-    width: 250px;
-    resize: none;
-}
-
-.label-input,
-.prompt-input {
-    background: transparent;
-    border: none;
-    color: var(--vscode-input-foreground);
-}
-
-.action-buttons,
-.footer-buttons {
-    display: flex;
-    gap: 0.5rem;
-}
-
-@keyframes flash {
-    50% {
-        border-color: var(--vscode-button-background);
-    }
-}
-
-.prompt-container {
     position: relative;
 }
 
-.prompt-input {
-    width: 250px;
-    resize: none;
-    position: absolute;
-    background: transparent;
-    color: transparent;
-    caret-color: var(--vscode-input-foreground);
-}
-
-.prompt-preview {
-    width: 250px;
-    white-space: pre-wrap;
-    pointer-events: none;
-}
-
-.cell-reference {
-    color: var(--vscode-textLink-foreground);
-}
-
-.suggestions-dropdown {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    background: var(--vscode-input-background);
-    border: 1px solid var(--vscode-input-border);
-    max-height: 200px;
-    overflow-y: auto;
-    z-index: 1000;
-}
-
-.suggestion-item {
-    padding: 4px 8px;
-    cursor: pointer;
-}
-
-.suggestion-item:hover {
-    background: var(--vscode-list-hoverBackground);
-}
-
-.suggested-prompts {
-    background: var(--vscode-input-background);
-    border: 1px solid var(--vscode-input-border);
-    border-radius: 4px;
-    padding: 8px;
-    margin-bottom: 8px;
-}
-
-.prompts-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
-}
-
-.prompts-header h3 {
-    margin: 0;
-    font-size: 14px;
-    color: var(--vscode-foreground);
-}
-
-.prompts-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    max-width: 100%;
-}
-
-.prompt-item {
-    display: flex;
-    align-items: flex-start;
-    margin-bottom: 4px;
-}
-
-.prompt-text {
-    display: inline-block;
-    word-break: break-word;
-    white-space: normal;
-    margin-left: 4px;
-    line-height: 1.4;
-}
-
-vscode-checkbox {
+.prompt-input,
+.label-input {
     width: 100%;
-}
-
-.prompt-item vscode-checkbox::part(control) {
-    flex-shrink: 0;
-}
-
-.prompt-item vscode-checkbox::part(label) {
-    flex: 1;
-    min-width: 0;
-}
-.prompt-edit-container {
-    display: flex;
-    gap: 8px;
-    width: 100%;
-    align-items: flex-start;
-}
-
-.prompt-edit-input {
-    flex: 1;
-    min-height: 60px;
-    padding: 4px 8px;
     background: var(--vscode-input-background);
     border: 1px solid var(--vscode-input-border);
     color: var(--vscode-input-foreground);
     border-radius: 2px;
-    resize: vertical;
+    padding: 4px 8px;
+    min-height: 28px;
 }
 
-.prompt-edit-buttons {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+.prompt-input {
+    resize: none;
+}
+
+.input-row vscode-button {
+    flex-shrink: 0;
+}
+
+.text-editor {
+    width: 100%;
+    flex: 1;
+    position: relative;
+}
+
+.ql-container,
+.ql-toolbar {
+    border: none !important;
+}
+
+.ql-toolbar {
+    padding: 2px 4px !important;
+    min-height: 32px;
+    position: relative;
+    z-index: 0;
+    background-color: var(--vscode-editor-background);
+}
+
+.ql-editor {
+    padding: 4px !important;
+}
+
+.cell-reference {
+    color: var(--vscode-textLink-foreground);
 }
 
 .prompt-text {
@@ -184,7 +119,177 @@ vscode-checkbox {
 .prompt-text:hover {
     text-decoration: underline;
 }
-
-.prompt-display {
+.quill {
     width: 100%;
+    margin: 0;
+}
+
+/* Header style controls */
+.ql-headerStyleLeft,
+.ql-headerStyleRight {
+    padding: 3px 5px;
+    cursor: pointer;
+    color: var(--vscode-editor-foreground);
+}
+
+.ql-headerStyleLabel {
+    min-width: 64px;
+    text-align: center;
+    padding: 3px 5px;
+    user-select: none;
+    color: var(--vscode-editor-foreground);
+}
+
+.header-style-label {
+    font-size: 13px;
+}
+
+/* Hover states */
+.ql-headerStyleLeft:hover,
+.ql-headerStyleRight:hover {
+    background-color: var(--vscode-toolbar-hoverBackground);
+    border-radius: 3px;
+}
+
+/* Optional: Add active state */
+.ql-headerStyleLeft:active,
+.ql-headerStyleRight:active {
+    background-color: var(--vscode-toolbar-activeBackground);
+}
+
+/* Ensure arrows and label are aligned */
+.ql-headerStyleLeft,
+.ql-headerStyleLabel,
+.ql-headerStyleRight {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.source-text-section {
+    background: var(--vscode-editor-inactiveSelectionBackground);
+    border-radius: 6px;
+    padding: 12px;
+    margin: 8px 0;
+}
+
+.source-text-header {
+    margin-bottom: 8px;
+}
+
+.source-text-header h4 {
+    margin: 0;
+    color: var(--vscode-editor-foreground);
+}
+
+.source-text-content {
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--vscode-editor-font-size);
+    line-height: 1.4;
+    white-space: pre-wrap;
+}
+
+.tabs {
+    margin-top: 10px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.tab-buttons {
+    display: flex;
+}
+
+.tab-button {
+    padding: 8px 16px;
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--vscode-foreground);
+    opacity: 0.7;
+    transition: opacity 0.2s, border-bottom 0.2s;
+}
+
+.tab-button:hover {
+    opacity: 1;
+}
+
+.tab-button.active {
+    opacity: 1;
+    border-bottom: 2px solid var(--vscode-textLink-activeForeground);
+}
+
+.tab-content {
+    padding: 16px 0;
+}
+
+.expanded-controls {
+    padding: 10px;
+    background-color: var(--vscode-editor-background);
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.input-group {
+    margin-bottom: 10px;
+}
+
+.input-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.label-input {
+    flex-grow: 1;
+    padding: 4px 8px;
+    background-color: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border);
+}
+
+.backtranslation-section {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 100%;
+}
+
+.backtranslation-content {
+    max-width: 100%;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+    word-break: normal;
+    hyphens: auto;
+}
+
+.backtranslation-content * {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.backtranslation-content p {
+    white-space: pre-wrap;
+}
+
+.backtranslation-content pre,
+.backtranslation-content code {
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.backtranslation-content img,
+.backtranslation-content table {
+    max-width: 100%;
+    height: auto;
+}
+
+.backtranslation-content table {
+    display: block;
+    overflow-x: auto;
+}
+
+.backtranslation-editor {
+    width: 100%;
+    min-height: 100px;
+    resize: vertical;
+    box-sizing: border-box;
 }

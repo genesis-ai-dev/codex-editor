@@ -1,6 +1,7 @@
 import MiniSearch from "minisearch";
 import * as vscode from "vscode";
 import { SourceCellVersions, TranslationPair } from "../../../../../types";
+import { searchTranslationPairs } from "./translationPairsIndex";
 
 export function searchTargetCellsByQuery(
     translationPairsIndex: MiniSearch,
@@ -47,31 +48,53 @@ export function getTargetCellByCellId(translationPairsIndex: MiniSearch, cellId:
 
 export function getTranslationPairFromProject(
     translationPairsIndex: MiniSearch,
+    sourceTextIndex: MiniSearch,
     cellId: string
 ): TranslationPair | null {
-    const result = translationPairsIndex.search(cellId, {
+    // First, try to find a complete pair in the translationPairsIndex
+    const translationPairResult = translationPairsIndex.search(cellId, {
         fields: ["cellId"],
         combineWith: "AND",
         filter: (result) => result.cellId === cellId,
     })[0];
 
-    if (result) {
+    if (translationPairResult) {
         return {
             cellId,
             sourceCell: {
-                cellId: result.cellId,
-                content: result.sourceContent,
-                uri: result.uri,
-                line: result.line,
+                cellId: translationPairResult.cellId,
+                content: translationPairResult.sourceContent,
+                uri: translationPairResult.uri,
+                line: translationPairResult.line,
             },
             targetCell: {
-                cellId: result.cellId,
-                content: result.targetContent,
-                uri: result.uri,
-                line: result.line,
+                cellId: translationPairResult.cellId,
+                content: translationPairResult.targetContent,
+                uri: translationPairResult.uri,
+                line: translationPairResult.line,
             },
         };
     }
+
+    // If no complete pair is found, look for an incomplete pair in the sourceTextIndex
+    const sourceOnlyResult = sourceTextIndex.getStoredFields(cellId) as SourceCellVersions | null;
+
+    if (sourceOnlyResult) {
+        return {
+            cellId,
+            sourceCell: {
+                cellId: sourceOnlyResult.cellId,
+                content: sourceOnlyResult.content,
+                notebookId: sourceOnlyResult.notebookId,
+            },
+            targetCell: {
+                cellId: sourceOnlyResult.cellId,
+                content: "",
+                notebookId: "",
+            },
+        };
+    }
+
     return null;
 }
 
@@ -135,64 +158,10 @@ export function searchParallelCells(
     translationPairsIndex: MiniSearch,
     sourceTextIndex: MiniSearch,
     query: string,
-    k: number = 5
+    k: number = 15
 ): TranslationPair[] {
-    // console.log("Searching for parallel cells with query:", query);
-
-    // Search target cells
-    const targetResults = translationPairsIndex.search(query, {
-        fields: ["targetContent"],
-        combineWith: "OR",
-        prefix: true,
-        fuzzy: 0.2,
-        boost: { targetContent: 2, cellId: 1 },
-    });
-
-    // console.log(
-    //     "Raw target search results:",
-    //     JSON.stringify(
-    //         targetResults.map((r) => ({ cellId: r.cellId })),
-    //         null,
-    //         2
-    //     )
-    // );
-
-    const translationPairs: TranslationPair[] = targetResults
-        .slice(0, k)
-        .map((result) => {
-            // console.log("Processing result:", JSON.stringify(result, null, 2));
-
-            // Get source content from sourceTextIndex
-            const sourceResult = sourceTextIndex.getStoredFields(result.cellId);
-            const sourceContent = sourceResult ? sourceResult.content : "";
-
-            // Retrieve the stored fields for the target cell
-            const storedFields = translationPairsIndex.getStoredFields(result.id);
-
-            if (!storedFields) {
-                console.warn(`No stored fields found for result with id: ${result.id}`);
-                return null;
-            }
-
-            return {
-                cellId: result.cellId,
-                sourceCell: {
-                    cellId: result.cellId,
-                    content: sourceContent as string,
-                    uri: storedFields.uri,
-                    line: storedFields.line,
-                },
-                targetCell: {
-                    cellId: result.cellId,
-                    content: storedFields.targetContent as string,
-                    uri: storedFields.uri,
-                    line: storedFields.line,
-                },
-            } as TranslationPair;
-        })
-        .filter((pair): pair is NonNullable<TranslationPair> => pair !== null);
-
-    return translationPairs;
+    // Search only for complete translation pairs
+    return searchTranslationPairs(translationPairsIndex, query, false, k);
 }
 
 export function searchSimilarCellIds(
@@ -233,3 +202,100 @@ export function searchSimilarCellIds(
             score: result.score,
         }));
 }
+
+export async function findNextUntranslatedSourceCell(
+    sourceTextIndex: MiniSearch,
+    translationPairsIndex: MiniSearch,
+    query: string,
+    currentCellId: string
+): Promise<{ cellId: string; content: string } | null> {
+    // Search for similar source cells
+    const searchResults = sourceTextIndex.search(query, {
+        boost: { content: 2 },
+        fuzzy: 0.2,
+    });
+
+    // Filter out the current cell and cells that already have translations
+    for (const result of searchResults) {
+        if (result.cellId !== currentCellId) {
+            const hasTranslation =
+                translationPairsIndex.search(result.cellId, {
+                    fields: ["cellId"],
+                    combineWith: "AND",
+                }).length > 0;
+
+            if (!hasTranslation) {
+                return {
+                    cellId: result.cellId,
+                    content: result.content,
+                };
+            }
+        }
+    }
+
+    return null; // No untranslated cell found
+}
+
+export function searchAllCells(
+    translationPairsIndex: MiniSearch,
+    sourceTextIndex: MiniSearch,
+    query: string,
+    k: number = 15,
+    includeIncomplete: boolean = true
+): TranslationPair[] {
+    // Search translation pairs with boosted weights for complete pairs and target content
+    const translationPairs = searchTranslationPairs(
+        translationPairsIndex,
+        query,
+        includeIncomplete,
+        k,
+        { completeBoost: 1.5, targetContentBoost: 1.2 }
+    );
+
+    let combinedResults: TranslationPair[] = translationPairs;
+
+    if (includeIncomplete) {
+        // If we're including incomplete pairs, also search source-only cells
+        const sourceOnlyCells = sourceTextIndex
+            .search(query, {
+                fields: ["content"],
+                combineWith: "OR",
+                prefix: true,
+                fuzzy: 0.2,
+                boost: { content: 2 },
+            })
+            .map((result) => ({
+                cellId: result.cellId,
+                sourceCell: {
+                    cellId: result.cellId,
+                    content: result.content,
+                    versions: result.versions,
+                    notebookId: result.notebookId,
+                },
+                targetCell: {
+                    cellId: result.cellId,
+                    content: "",
+                    versions: [],
+                    notebookId: "",
+                },
+                score: result.score,
+            }));
+
+        combinedResults = [...translationPairs, ...sourceOnlyCells];
+    }
+
+    // Remove duplicates based on cellId
+    const uniqueResults = combinedResults.filter(
+        (v, i, a) => a.findIndex((t) => t.cellId === v.cellId) === i
+    );
+
+    // Sort results by relevance (assuming higher score means more relevant)
+    uniqueResults.sort((a, b) => {
+        const scoreA = "score" in a ? (a.score as number) : 0;
+        const scoreB = "score" in b ? (b.score as number) : 0;
+        return scoreB - scoreA;
+    });
+
+    return uniqueResults.slice(0, k);
+}
+export { searchTranslationPairs };

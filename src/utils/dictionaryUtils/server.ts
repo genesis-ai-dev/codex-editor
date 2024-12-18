@@ -1,12 +1,14 @@
 import * as fs from "fs";
-import { Dictionary, DictionaryEntry } from "codex-types";
+
 import { cleanWord } from "../cleaningUtils";
 import {
     serializeDictionaryEntries,
     deserializeDictionaryEntries,
-    ensureCompleteEntry,
     createDictionaryEntry,
 } from "./common";
+import { Dictionary } from "../../../types";
+
+// todo: this is probably not needed anymore
 
 export async function readDictionaryServer(path: string): Promise<Dictionary> {
     try {
@@ -33,13 +35,7 @@ export async function addWordsToDictionary(path: string, words: string[]): Promi
     const dictionary = await readDictionaryServer(path);
     const newEntries = words
         .map(cleanWord)
-        .filter(
-            (word) =>
-                word &&
-                !dictionary.entries.some(
-                    (entry) => entry.headWord === word
-                )
-        )
+        .filter((word) => word && !dictionary.entries.some((entry) => entry.headWord === word))
         .map((word) => createDictionaryEntry(word));
 
     dictionary.entries.push(...newEntries);

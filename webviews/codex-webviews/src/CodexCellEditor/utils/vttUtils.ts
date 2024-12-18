@@ -11,10 +11,10 @@ export const useSubtitleData = (translationUnits: QuillCellContent[]) => {
     );
     const subtitleUrl = useMemo(() => URL.createObjectURL(subtitleBlob), [subtitleBlob]);
 
-    return { subtitleUrl };
+    return { subtitleUrl, subtitleData };
 };
 
-const generateVttData = (translationUnits: QuillCellContent[]): string => {
+export const generateVttData = (translationUnits: QuillCellContent[]): string => {
     if (!translationUnits.length) return "";
 
     const formatTime = (seconds: number): string => {
@@ -23,6 +23,7 @@ const generateVttData = (translationUnits: QuillCellContent[]): string => {
     };
 
     const cues = translationUnits
+        .filter((unit) => !!unit.timestamps)
         .map((unit, index) => {
             const startTime = unit.timestamps?.startTime ?? index;
             const endTime = unit.timestamps?.endTime ?? index + 1;

@@ -21,41 +21,129 @@ import {
 import { createIndexWithContext } from "./activationHelpers/contextAware/miniIndex/indexes";
 import { registerSourceUploadCommands } from "./providers/SourceUpload/registerCommands";
 import { migrateSourceFiles } from "./utils/codexNotebookUtils";
-import { VideoEditorProvider } from "./providers/VideoEditor/VideoEditorProvider";
-import { registerVideoPlayerCommands } from "./providers/VideoPlayer/registerCommands";
-import { SourceUploadProvider } from "./providers/SourceUpload/SourceUploadProvider";
 import { StatusBarItem } from "vscode";
 import { Database } from "sql.js";
-import { importWiktionaryJSONL, initializeSqlJs, registerLookupWordCommand } from "./sqldb";
+import {
+    importWiktionaryJSONL,
+    ingestJsonlDictionaryEntries,
+    initializeSqlJs,
+    registerLookupWordCommand,
+} from "./sqldb";
+import {
+    createTableIndexes,
+    parseTableFile,
+    TableRecord,
+} from "./activationHelpers/contextAware/miniIndex/indexes/dynamicTableIndex";
+import MiniSearch from "minisearch";
+import { registerStartupFlowCommands } from "./providers/StartupFlow/registerCommands";
+import { registerPreflightCommand } from "./providers/StartupFlow/preflight";
+import { NotebookMetadataManager } from "./utils/notebookMetadataManager";
+import { stageAndCommitAllAndSync } from "./projectManager/utils/projectUtils";
+import { FrontierAPI } from "../webviews/codex-webviews/src/StartupFLow/types";
+import { waitForExtensionActivation } from "./utils/vscode";
+
+declare global {
+    // eslint-disable-next-line
+    var db: Database | undefined;
+}
 
 let client: LanguageClient | undefined;
 let clientCommandsDisposable: vscode.Disposable;
 let autoCompleteStatusBarItem: StatusBarItem;
-let db: Database | undefined;
+let tableIndexMap: Map<string, MiniSearch<TableRecord>>;
+let commitTimeout: any;
+const COMMIT_DELAY = 5000; // Delay in milliseconds
+let notebookMetadataManager: NotebookMetadataManager;
+let authApi: FrontierAPI | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
-    db = await initializeSqlJs(context);
-    console.log("initializeSqlJs db", db);
-    if (db) {
+    try {
+        const extension = await waitForExtensionActivation("frontier-rnd.frontier-authentication");
+        if (extension?.isActive) {
+            authApi = extension.exports;
+        }
+    } catch (error) {
+        console.error("Failed to initialize Frontier API:", error);
+    }
+
+    // Initialize the metadata manager first
+    notebookMetadataManager = NotebookMetadataManager.getInstance(context);
+    await notebookMetadataManager.initialize();
+
+    const handleSaveEvent = (commitMessage: string) => {
+        if (commitTimeout) {
+            clearTimeout(commitTimeout);
+        }
+        // eslint-disable-next-line
+        commitTimeout = setTimeout(async () => {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (workspaceFolder) {
+                try {
+                    // Check if .git directory exists using isomorphic-git
+
+                    try {
+                        await stageAndCommitAllAndSync(commitMessage);
+                    } catch (gitError) {
+                        // No git repository found, skip commit
+                        console.debug("No git repository found in workspace, skipping commit");
+                    }
+                } catch (error) {
+                    console.error("Failed to auto-commit changes:", error);
+                }
+            }
+        }, COMMIT_DELAY);
+    };
+
+    // Listen for text document saves (includes JSON files)
+    context.subscriptions.push(
+        vscode.workspace.onDidSaveTextDocument((document) => {
+            handleSaveEvent(`changes to ${document.uri.path.split("/").pop()}`);
+        })
+    );
+
+    // Listen for notebook document saves
+    context.subscriptions.push(
+        vscode.workspace.onDidSaveNotebookDocument((notebookDocument) => {
+            handleSaveEvent(`changes to ${notebookDocument.uri.path.split("/").pop()}`);
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand("extension.manualCommit", (message: string) => {
+            handleSaveEvent(message);
+        })
+    );
+
+    // Register startup flow commands early, as they handle the initial setup flow
+    await registerStartupFlowCommands(context);
+    registerPreflightCommand(context);
+
+    try {
+        global.db = await initializeSqlJs(context);
+        console.log("initializeSqlJs db", global.db);
+    } catch (error) {
+        console.error("Error initializing SqlJs:", error);
+    }
+    if (global.db) {
         const importCommand = vscode.commands.registerCommand(
             "extension.importWiktionaryJSONL",
-            () => db && importWiktionaryJSONL(db)
+            () => global.db && importWiktionaryJSONL(global.db)
         );
         context.subscriptions.push(importCommand);
-        registerLookupWordCommand(db, context);
+        registerLookupWordCommand(global.db, context);
+        ingestJsonlDictionaryEntries(global.db);
     }
 
     vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
 
     // Register trust change listener
-    context.subscriptions.push(
-        vscode.workspace.onDidGrantWorkspaceTrust(async () => {
-            console.log("Workspace trust granted, reactivating extension");
-            await vscode.commands.executeCommand("workbench.action.reloadWindow");
-        })
-    );
+    // context.subscriptions.push(
+    //     vscode.workspace.onDidGrantWorkspaceTrust(async () => {
+    //         console.log("Workspace trust granted, reactivating extension");
+    //         await vscode.commands.executeCommand("workbench.action.reloadWindow");
+    //     })
+    // );
 
-    const fs = vscode.workspace.fs;
     const workspaceFolders = vscode.workspace.workspaceFolders;
 
     // Always register the project manager
@@ -81,7 +169,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
         let metadataExists = false;
         try {
-            await fs.stat(metadataUri);
+            await vscode.workspace.fs.stat(metadataUri);
             metadataExists = true;
         } catch {
             metadataExists = false;
@@ -93,13 +181,13 @@ export async function activate(context: vscode.ExtensionContext) {
         } else {
             await initializeExtension(context, metadataExists);
         }
+        watchTableFiles(context);
     } else {
         console.log("No workspace folder found");
         vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
     }
 
     // Register these commands regardless of metadata existence
-    registerVideoPlayerCommands(context);
     registerSmartEditCommands(context); // For the language server onRequest stuff
     await registerSourceUploadCommands(context);
     registerProviders(context);
@@ -128,36 +216,28 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
         console.log("metadata.json exists");
         vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
 
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (workspaceFolders && workspaceFolders.length > 0) {
-            const relativePattern = new vscode.RelativePattern(workspaceFolders[0], "**/*.codex");
-            const codexNotebooksUris = await vscode.workspace.findFiles(relativePattern);
-            if (codexNotebooksUris.length === 0) {
-                vscode.commands.executeCommand("codex-project-manager.openSourceUpload");
-            }
-        } else {
-            console.log("No workspace folder found");
-        }
-
         registerCodeLensProviders(context);
         registerTextSelectionHandler(context, () => undefined);
         await initializeBibleData(context);
 
         client = await registerLanguageServer(context);
-        if (client && db) {
+        if (client && global.db) {
+            clientCommandsDisposable = registerClientCommands(context, client);
+            context.subscriptions.push(clientCommandsDisposable);
             try {
-                await registerClientOnRequests(client, db);
+                await registerClientOnRequests(client, global.db);
                 // Start the client after registering handlers
                 await client.start();
             } catch (error) {
                 console.error("Error registering client requests:", error);
             }
-            clientCommandsDisposable = registerClientCommands(context, client);
-            context.subscriptions.push(clientCommandsDisposable);
         }
+        console.log("Creating table indexes");
 
         await indexVerseRefsInSourceText();
         await createIndexWithContext(context);
+        tableIndexMap = await createTableIndexes();
+        // console.log("tableIndexMap", Array.from(tableIndexMap.keys()), tableIndexMap.size);
     } else {
         console.log("metadata.json not found. Showing project overview.");
         vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
@@ -165,6 +245,64 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
 }
 
 let watcher: vscode.FileSystemWatcher | undefined;
+
+function watchTableFiles(context: vscode.ExtensionContext) {
+    const watcher = vscode.workspace.createFileSystemWatcher("**/*.{csv,tsv,tab}");
+
+    watcher.onDidChange(async (uri) => {
+        // Recreate the index for the changed file
+        const [records, fields] = await parseTableFile(uri);
+
+        if (fields.length === 0) {
+            tableIndexMap.delete(uri.fsPath);
+            console.warn(`Headers missing after change in ${uri.fsPath}. Index removed.`);
+            return;
+        }
+
+        const tableIndex = new MiniSearch<TableRecord>({
+            fields: fields,
+            storeFields: ["id", ...fields],
+            idField: "id",
+        });
+
+        tableIndex.addAll(records);
+
+        tableIndexMap.set(uri.fsPath, tableIndex);
+
+        console.log(`Updated index for file: ${uri.fsPath}`);
+    });
+
+    watcher.onDidCreate(async (uri) => {
+        // Create an index for the new file
+        const [records, fields] = await parseTableFile(uri);
+
+        if (fields.length === 0) {
+            console.warn(`No headers found in new table file: ${uri.fsPath}. Skipping file.`);
+            return;
+        }
+
+        const tableIndex = new MiniSearch<TableRecord>({
+            fields: fields,
+            storeFields: ["id", ...fields],
+            idField: "id",
+        });
+
+        tableIndex.addAll(records);
+
+        tableIndexMap.set(uri.fsPath, tableIndex);
+
+        console.log(`Created index for new file: ${uri.fsPath}`);
+    });
+
+    watcher.onDidDelete((uri) => {
+        // Remove the index for the deleted file
+        if (tableIndexMap.delete(uri.fsPath)) {
+            console.log(`Removed index for deleted file: ${uri.fsPath}`);
+        }
+    });
+
+    context.subscriptions.push(watcher);
+}
 
 async function watchForInitialization(context: vscode.ExtensionContext, metadataUri: vscode.Uri) {
     const fs = vscode.workspace.fs;
@@ -203,7 +341,9 @@ function registerCodeLensProviders(context: vscode.ExtensionContext) {
 
 async function executeCommandsAfter() {
     vscode.commands.executeCommand("workbench.action.focusAuxiliaryBar");
+    vscode.commands.executeCommand("workbench.action.focusActivityBar");
     vscode.commands.executeCommand("codexNotebookTreeView.refresh");
+    vscode.commands.executeCommand("codexNotebookTreeView.focus");
     vscode.commands.executeCommand("codex-editor-extension.setEditorFontToTargetLanguage");
 }
 
@@ -214,11 +354,19 @@ export function deactivate() {
     if (client) {
         return client.stop();
     }
-    if (db) {
-        db.close();
+    if (global.db) {
+        global.db.close();
     }
 }
 
 export function getAutoCompleteStatusBarItem(): StatusBarItem {
     return autoCompleteStatusBarItem;
+}
+
+export function getNotebookMetadataManager(): NotebookMetadataManager {
+    return notebookMetadataManager;
+}
+
+export function getAuthApi(): FrontierAPI | undefined {
+    return authApi;
 }

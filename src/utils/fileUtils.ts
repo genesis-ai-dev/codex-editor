@@ -26,7 +26,6 @@ export const generateFiles = async ({
     const workspaceUri = getWorkSpaceUri();
 
     if (!workspaceUri) {
-        vscode.window.showErrorMessage("No workspace folder found");
         return false;
     }
 

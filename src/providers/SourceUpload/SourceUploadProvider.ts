@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { importTranslations } from "../../projectManager/translationImporter";
-import { NotebookMetadataManager } from "../../utils/notebookMetadataManager";
+import { NotebookMetadataManager, getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { importSourceText } from "../../projectManager/sourceTextImporter";
 import { registerScmCommands } from "../scm/scmActionHandler";
 import {
@@ -9,6 +9,8 @@ import {
     SourceUploadPostMessages,
     SourceUploadResponseMessages,
     ValidationResult,
+    FileTypeMap,
+    CustomNotebookMetadata,
 } from "../../../types/index";
 import path from "path";
 import { SourceFileValidator } from "../../validation/sourceFileValidator";
@@ -19,6 +21,18 @@ import { TranslationImportTransaction } from "../../transactions/TranslationImpo
 import { DownloadBibleTransaction } from "../../transactions/DownloadBibleTransaction";
 import { ProgressManager } from "../../utils/progressManager";
 import { ExtendedMetadata } from "../../utils/ebible/ebibleCorpusUtils";
+import { UsfmSourceImportTransaction } from "../../transactions/UsfmSourceImportTransaction";
+import { UsfmTranslationImportTransaction } from "../../transactions/UsfmTranslationImportTransaction";
+
+export const fileTypeMap: FileTypeMap = {
+    vtt: "subtitles",
+    txt: "plaintext",
+    usfm: "usfm",
+    usx: "usx",
+    sfm: "usfm",
+    SFM: "usfm",
+    USFM: "usfm",
+};
 
 // Add new types for workflow status tracking
 interface ProcessingStatus {
@@ -93,6 +107,13 @@ type PreviewState =
           };
       };
 
+// Add at the top with other interfaces
+interface CodexFile {
+    id: string;
+    name: string;
+    path: string;
+}
+
 function getNonce(): string {
     let text = "";
     const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -100,6 +121,14 @@ function getNonce(): string {
         text += possible.charAt(Math.floor(Math.random() * possible.length));
     }
     return text;
+}
+
+const DEBUG_MODE = false; // Set to true to enable debug logging
+
+function debugLog(...args: any[]): void {
+    if (DEBUG_MODE) {
+        console.log("[SourceUploadProvider]", ...args);
+    }
 }
 
 export class SourceUploadProvider
@@ -549,18 +578,17 @@ export class SourceUploadProvider
                         break;
                     }
                     case "getAvailableCodexFiles": {
-                        const metadataManager = new NotebookMetadataManager();
+                        const metadataManager = getNotebookMetadataManager();
                         await metadataManager.initialize();
                         const codexFiles = metadataManager
                             .getAllMetadata()
-                            .filter((meta) => meta.codexFsPath)
-                            // .sort((a, b) => a.codexLastModified - b.codexLastModified) // FIXME:
-                            .map((meta) => ({
+                            .filter((meta: CustomNotebookMetadata) => meta.codexFsPath)
+                            .map((meta: CustomNotebookMetadata) => ({
                                 id: meta.id,
                                 name: meta.originalName || path.basename(meta.codexFsPath!),
                                 path: meta.codexFsPath!,
                             }));
-                        this.availableCodexFiles = codexFiles.map((f) => vscode.Uri.file(f.path));
+                        this.availableCodexFiles = codexFiles.map((f: CodexFile) => vscode.Uri.file(f.path));
 
                         webviewPanel.webview.postMessage({
                             command: "availableCodexFiles",
@@ -683,12 +711,12 @@ export class SourceUploadProvider
     }
 
     private async updateMetadata(webviewPanel: vscode.WebviewPanel) {
-        const metadataManager = new NotebookMetadataManager();
+        const metadataManager = getNotebookMetadataManager();
         await metadataManager.initialize();
         await metadataManager.loadMetadata();
         const allMetadata = metadataManager.getAllMetadata();
 
-        const aggregatedMetadata = allMetadata.map((metadata) => ({
+        const aggregatedMetadata = allMetadata.map((metadata: CustomNotebookMetadata) => ({
             id: metadata.id,
             originalName: metadata.originalName,
             sourceFsPath: metadata.sourceFsPath,
@@ -1065,6 +1093,9 @@ export class SourceUploadProvider
             webviewPanel.webview.postMessage({
                 command: "bibleDownloadComplete",
             } as SourceUploadResponseMessages);
+
+            // Trigger reindex after successful download
+            await vscode.commands.executeCommand("translators-copilot.forceReindex");
         } catch (error) {
             await this.currentDownloadBibleTransaction?.rollback();
             throw error;
@@ -1078,11 +1109,9 @@ export class SourceUploadProvider
         files: Array<{ content: string; name: string }>,
         token: vscode.CancellationToken
     ): Promise<void> {
-        // FIXME: we're not pausing to let the user review and confirm/cancel multiple previews.
-        // The download bible transaction *does* currently pause, but the source and translation
-        // imports do not.
         const BATCH_SIZE = 5;
-        const transactions: SourceImportTransaction[] = [];
+        const transactions: (SourceImportTransaction | UsfmSourceImportTransaction)[] = [];
+        const errors: { fileName: string; error: string }[] = [];
 
         try {
             // Create all transactions first
@@ -1090,90 +1119,167 @@ export class SourceUploadProvider
                 files.map((file) => this.saveUploadedFile(file.content, file.name))
             );
 
-            // Initialize transactions
-            transactions.push(
-                ...fileUris.map((uri) => new SourceImportTransaction(uri, this.context))
-            );
+            // Initialize transactions based on file type
+            for (const uri of fileUris) {
+                const fileExtension = uri.fsPath.split(".").pop()?.toLowerCase();
+                const fileType = fileTypeMap[fileExtension as keyof typeof fileTypeMap];
+                
+                try {
+                    const transaction = fileType === "usfm"
+                        ? new UsfmSourceImportTransaction(uri, this.context)
+                        : new SourceImportTransaction(uri, this.context);
+                    transactions.push(transaction);
+                } catch (error) {
+                    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+                    errors.push({ 
+                        fileName: path.basename(uri.fsPath),
+                        error: `Failed to create transaction: ${errorMessage}`
+                    });
+                }
+            }
 
             // Process in batches
             for (let i = 0; i < transactions.length; i += BATCH_SIZE) {
                 const batch = transactions.slice(i, i + BATCH_SIZE);
+                const batchPreviews: Array<{
+                    id: string;
+                    fileName: string;
+                    fileSize: number;
+                    preview: any;
+                    error?: string;
+                }> = [];
 
-                // Prepare previews in parallel
-                const previews = await Promise.all(
+                // Prepare previews in parallel, but handle errors individually
+                await Promise.all(
                     batch.map(async (transaction) => {
-                        const rawPreview = await transaction.prepare();
-                        return {
-                            id: transaction.getId(),
-                            fileName: path.basename(transaction.getState().sourceFile.fsPath),
-                            fileSize: (
-                                await vscode.workspace.fs.stat(transaction.getState().sourceFile)
-                            ).size,
-                            preview: {
-                                type: "source",
-                                original: {
-                                    preview: rawPreview.originalContent.preview,
-                                    validationResults: rawPreview.originalContent.validationResults,
+                        try {
+                            const rawPreview = await transaction.prepare();
+                            batchPreviews.push({
+                                id: transaction.getId(),
+                                fileName: path.basename(transaction.getState().sourceFile.fsPath),
+                                fileSize: (
+                                    await vscode.workspace.fs.stat(transaction.getState().sourceFile)
+                                ).size,
+                                preview: {
+                                    type: "source",
+                                    original: {
+                                        preview: rawPreview.originalContent.preview,
+                                        validationResults: rawPreview.originalContent.validationResults,
+                                    },
+                                    transformed: {
+                                        sourceNotebooks: rawPreview.transformedContent.sourceNotebooks,
+                                        codexNotebooks: rawPreview.transformedContent.codexNotebooks,
+                                        validationResults:
+                                            rawPreview.transformedContent.validationResults,
+                                    },
                                 },
-                                transformed: {
-                                    sourceNotebooks: rawPreview.transformedContent.sourceNotebooks,
-                                    codexNotebooks: rawPreview.transformedContent.codexNotebooks,
-                                    validationResults:
-                                        rawPreview.transformedContent.validationResults,
-                                },
-                            },
-                        };
+                            });
+                        } catch (error) {
+                            const errorMessage = error instanceof Error ? error.message : "Unknown error";
+                            const fileName = path.basename(transaction.getState().sourceFile.fsPath);
+                            
+                            // For USFM files, provide more specific error messaging
+                            const isUsfm = fileName.toLowerCase().endsWith('.usfm');
+                            const formattedError = isUsfm 
+                                ? `USFM Syntax Error: ${errorMessage}`
+                                : `Error preparing preview: ${errorMessage}`;
+                            
+                            errors.push({ fileName, error: formattedError });
+                            await transaction.rollback();
+                        }
                     })
                 );
 
                 // Send previews to webview
-                webviewPanel.webview.postMessage({
-                    command: "sourcePreview",
-                    previews: previews,
-                } as SourceUploadResponseMessages);
+                if (batchPreviews.length > 0) {
+                    webviewPanel.webview.postMessage({
+                        command: "sourcePreview",
+                        previews: batchPreviews,
+                        totalFiles: files.length,
+                        currentBatch: Math.floor(i / BATCH_SIZE) + 1,
+                        totalBatches: Math.ceil(transactions.length / BATCH_SIZE),
+                    } as SourceUploadResponseMessages);
+                }
 
-                // Execute transactions in parallel with progress
-                await vscode.window.withProgress(
-                    {
-                        location: vscode.ProgressLocation.Notification,
-                        title: `Importing files ${i + 1}-${Math.min(
-                            i + BATCH_SIZE,
-                            transactions.length
-                        )} of ${transactions.length}`,
-                        cancellable: true,
-                    },
-                    async (progress, token) => {
-                        const progressCallback = (update: {
-                            message?: string;
-                            increment?: number;
-                        }) => {
-                            progress.report(update);
-                            webviewPanel.webview.postMessage({
-                                command: "updateProcessingStatus",
-                                status: {
-                                    [update.message || "processing"]: "active",
-                                },
-                                progress: update,
-                            } as SourceUploadResponseMessages);
-                        };
-
-                        await Promise.all(
-                            batch.map((transaction) =>
-                                transaction.execute({ report: progressCallback }, token)
-                            )
-                        );
-                    }
+                // Execute successful transactions in parallel with progress
+                const successfulTransactions = batch.filter(transaction => 
+                    batchPreviews.some(preview => preview.id === transaction.getId())
                 );
+
+                if (successfulTransactions.length > 0) {
+                    await vscode.window.withProgress(
+                        {
+                            location: vscode.ProgressLocation.Notification,
+                            title: `Importing files ${i + 1}-${Math.min(
+                                i + BATCH_SIZE,
+                                transactions.length
+                            )} of ${files.length}`,
+                            cancellable: true,
+                        },
+                        async (progress, token) => {
+                            const progressCallback = (update: {
+                                message?: string;
+                                increment?: number;
+                            }) => {
+                                progress.report(update);
+                                webviewPanel.webview.postMessage({
+                                    command: "updateProcessingStatus",
+                                    status: {
+                                        [update.message || "processing"]: "active",
+                                    },
+                                    progress: update,
+                                } as SourceUploadResponseMessages);
+                            };
+
+                            await Promise.all(
+                                successfulTransactions.map(async (transaction) => {
+                                    try {
+                                        await transaction.execute({ report: progressCallback }, token);
+                                    } catch (error) {
+                                        const errorMessage = error instanceof Error ? error.message : "Unknown error";
+                                        const fileName = path.basename(transaction.getState().sourceFile.fsPath);
+                                        errors.push({ fileName, error: `Error during import: ${errorMessage}` });
+                                        await transaction.rollback();
+                                    }
+                                })
+                            );
+                        }
+                    );
+                }
             }
 
-            // Send completion message
+            // Send completion message with any errors
+            if (errors.length > 0) {
+                const errorSummary = errors.map(e => `${e.fileName}: ${e.error}`).join('\n');
+                webviewPanel.webview.postMessage({
+                    command: "error",
+                    message: `Completed with errors:\n${errorSummary}`,
+                } as SourceUploadResponseMessages);
+            }
+
             webviewPanel.webview.postMessage({
                 command: "importComplete",
+                summary: {
+                    totalFiles: files.length,
+                    successfulImports: transactions.length - errors.length,
+                    failedImports: errors.length,
+                }
             } as SourceUploadResponseMessages);
+
+            // Trigger reindex after successful import
+            if (transactions.length > errors.length) {
+                await vscode.commands.executeCommand("translators-copilot.forceReindex");
+            }
         } catch (error) {
-            // Rollback all transactions on error
-            await Promise.all(transactions.map((t) => t.rollback()));
-            throw error;
+            // Handle any unexpected errors at the top level
+            const errorMessage = error instanceof Error ? error.message : "Unknown error";
+            webviewPanel.webview.postMessage({
+                command: "error",
+                message: `Unexpected error during import: ${errorMessage}`,
+            } as SourceUploadResponseMessages);
+
+            // Attempt to rollback all transactions
+            await Promise.all(transactions.map(t => t.rollback().catch(console.error)));
         }
     }
 
@@ -1183,17 +1289,19 @@ export class SourceUploadProvider
         token: vscode.CancellationToken
     ): Promise<void> {
         const BATCH_SIZE = 5;
-        const transactions: TranslationImportTransaction[] = [];
+        const transactions: (TranslationImportTransaction | UsfmTranslationImportTransaction)[] = [];
 
         try {
             // Create transactions for each file
             for (const file of files) {
                 const tempUri = await this.saveUploadedFile(file.content, file.name);
-                const transaction = new TranslationImportTransaction(
-                    tempUri,
-                    file.sourceId,
-                    this.context
-                );
+                const fileExtension = tempUri.fsPath.split(".").pop()?.toLowerCase();
+                const fileType = fileTypeMap[fileExtension as keyof typeof fileTypeMap];
+
+                const transaction = fileType === "usfm"
+                    ? new UsfmTranslationImportTransaction(tempUri, file.sourceId, this.context)
+                    : new TranslationImportTransaction(tempUri, file.sourceId, this.context);
+                    
                 transactions.push(transaction);
             }
 
@@ -1241,6 +1349,9 @@ export class SourceUploadProvider
             webviewPanel.webview.postMessage({
                 command: "importComplete",
             } as SourceUploadResponseMessages);
+
+            // Trigger reindex after successful import
+            await vscode.commands.executeCommand("translators-copilot.forceReindex");
         } catch (error) {
             // Rollback all transactions on error
             await Promise.all(transactions.map((t) => t.rollback()));

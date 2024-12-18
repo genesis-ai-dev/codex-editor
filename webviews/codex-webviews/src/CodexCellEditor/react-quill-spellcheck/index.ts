@@ -7,7 +7,7 @@ import { SuggestionBoxes } from "./SuggestionBoxes";
 import { MatchesEntity, SpellCheckerApi } from "./types";
 
 const DEBUG_MODE = false;
-const debug = (...args: any[]) => DEBUG_MODE && console.log(...args);
+const debug = (...args: any[]) => DEBUG_MODE && console.log("spell-checker-debug", ...args);
 
 export type QuillSpellCheckerParams = {
     disableNativeSpellcheck: boolean;
@@ -23,7 +23,10 @@ export class QuillSpellChecker {
     public boxes = new SuggestionBoxes(this);
     public matches: MatchesEntity[] = [];
     protected onRequestComplete: () => void = () => null;
-    private cellChanged: boolean = false;
+    private typingTimer: number | undefined;
+    private typingDelay = 500; // Delay in milliseconds
+    private lastSpellCheckTime: number = 0;
+    private spellCheckCooldown: number = 1000; // Minimum time between spellchecks in ms
 
     constructor(
         public quill: Quill,
@@ -41,8 +44,10 @@ export class QuillSpellChecker {
         }
 
         this.setupEventListeners();
-        this.checkSpelling();
         this.disableNativeSpellcheckIfSet();
+        setTimeout(() => {
+            this.checkSpelling();
+        }, 100);
     }
 
     private setupEventListeners() {
@@ -76,7 +81,6 @@ export class QuillSpellChecker {
 
     private handleEditorChange = (eventName: string, ...args: any[]) => {
         debug("editor-change event", { eventName, args });
-        this.cellChanged = !this.cellChanged;
         this.popups.initialize();
     };
 
@@ -121,7 +125,6 @@ export class QuillSpellChecker {
 
             // Trigger a text-change event to update the editor state
             this.quill.updateContents([{ retain: this.quill.getLength() }], "api");
-
         }
     }
 
@@ -147,12 +150,16 @@ export class QuillSpellChecker {
 
     private onTextChange() {
         debug("onTextChange");
-        if (this.loopPreventionCooldown) return;
-        if (this.typingCooldown) clearTimeout(this.typingCooldown);
-        this.typingCooldown = window.setTimeout(
-            () => this.checkSpelling(),
-            this.params.cooldownTime
-        );
+
+        // Clear the previous timer
+        if (this.typingTimer) {
+            clearTimeout(this.typingTimer);
+        }
+
+        // Set a new timer
+        this.typingTimer = window.setTimeout(() => {
+            this.checkSpelling();
+        }, this.typingDelay);
     }
 
     public setOnRequestComplete(callback: () => void) {
@@ -162,6 +169,13 @@ export class QuillSpellChecker {
 
     public async checkSpelling() {
         debug("checkSpelling");
+        const now = Date.now();
+        if (now - this.lastSpellCheckTime < this.spellCheckCooldown) {
+            return;
+        }
+
+        this.lastSpellCheckTime = now;
+
         if (document.querySelector("spck-toolbar")) return;
 
         const text = this.quill.getText().trim();
@@ -206,7 +220,7 @@ export class QuillSpellChecker {
 
                 (window as any).vscodeApi.postMessage({
                     command: "from-quill-spellcheck-getSpellCheckResponse",
-                    content: { cellContent: text, cellChanged: this.cellChanged },
+                    content: { cellContent: text },
                 });
 
                 setTimeout(() => {

@@ -9,10 +9,7 @@
 # !servers/**
 
 !webviews/codex-webviews/dist/**
-!webviews/obs/build/**
-!webviews/dictionary-side-panel/dist/**
 !webviews/editable-react-table/dist/**
-!webviews/usfm-viewer/build/**
 
 !src/assets/reset.css
 !src/assets/vscode.css

@@ -1,17 +1,25 @@
-import { PreviewContent } from "./index.d";
-import { Dictionary, LanguageMetadata, Project } from "codex-types";
+import { LanguageMetadata, Project } from "codex-types";
 import * as vscode from "vscode";
 import { ScriptureTSV } from "./TsvTypes";
 import { CodexCell } from "src/utils/codexNotebookUtils";
+import { SavedBacktranslation } from "../smartEdits/smartBacktranslation";
 
 interface ChatMessage {
-    role: "system" | "user" | "assistant";
+    role: "system" | "user" | "assistant" | "context";
     content: string;
 }
+
+type Dictionary = {
+    id: string;
+    label: string;
+    entries: DictionaryEntry[];
+    metadata: DictionaryMetadata;
+};
 
 interface ChatMessageWithContext extends ChatMessage {
     context?: any; // FixMe: discuss what context could be. Cound it be a link to a note?
     createdAt: string;
+    preReflection?: string; //If reflection has happened for a chat message, preReflection will be set to the original message.
     grade?: number;
     gradeComment?: string;
 }
@@ -38,22 +46,54 @@ interface NotebookCommentThread {
     id: string;
     uri?: string;
     cellId: CellIdGlobalState;
-    comments: {
-        id: number;
-        body: string;
-        mode: number;
-        contextValue: "canDelete";
-        deleted: boolean;
-        author: {
-            name: string;
-        };
-    }[];
+    comments: NotebookComment[];
     collapsibleState: number;
     canReply: boolean;
     threadTitle?: string;
     deleted: boolean;
 }
 
+interface NotebookComment {
+    id: number;
+    body: string;
+    mode: number;
+    contextValue: "canDelete";
+    deleted: boolean;
+    author: {
+        name: string;
+    };
+}
+
+type GlobalContentType =
+    | {
+          type: "targetText";
+          targetText: string;
+      }
+    | {
+          type: "sourceText";
+          sourceText: string;
+      }
+    | {
+          type: "cellId";
+          cellId: string;
+      }
+    | {
+          type: "cellAndText";
+          cellId: string;
+          text: string;
+      }
+    | {
+          type: "translationPair";
+          targetText: string;
+          sourceText: string;
+          cellId: string;
+      };
+
+interface GlobalMessage {
+    command: string;
+    destination: "webview" | "provider" | "all";
+    content: GlobalContentType;
+}
 interface TranslationPair {
     cellId: string;
     sourceCell: MinimalCellResult;
@@ -72,6 +112,7 @@ interface SmartEditContext {
     cellId: string;
     currentCellValue: string;
     edits: EditHistoryItem[];
+    memory?: string; // Add this line
 }
 
 interface SmartSuggestion {
@@ -152,6 +193,13 @@ type ChatPostMessages =
       }
     | { command: "requestGradeResponse"; messages: string; lastMessageCreatedAt: string }
     | { command: "respondWithGrade"; content: string; lastMessageCreatedAt: string }
+    | {
+          command: "performReflection";
+          messageToReflect: string;
+          context: string;
+          lastMessageCreatedAt: string;
+      }
+    | { command: "reflectionResponse"; reflectedMessage: string; lastMessageCreatedAt: string }
     | { command: "deleteThread"; threadId: string }
     | { command: "fetchThread" }
     | { command: "abort-fetch" }
@@ -198,7 +246,8 @@ export type SourceUploadPostMessages =
     | { command: "importRemoteTranslation" }
     | { command: "importLocalTranslation" }
     | { command: "closePanel" }
-    | { command: "previewSourceText"; fileContent: string; fileName: string };
+    | { command: "previewSourceText"; fileContent: string; fileName: string }
+    | { command: "extension.check"; extensionId: string };
 
 export type SourceUploadResponseMessages =
     | {
@@ -220,7 +269,7 @@ export type SourceUploadResponseMessages =
               preview: SourcePreview;
           }>;
       }
-    | { command: "updateMetadata"; metadata: any[] }
+    | { command: "getMetadata"; metadata: any[] }
     | { command: "error"; message: string }
     | { command: "importComplete" }
     | { command: "setupComplete"; data: { path: string } }
@@ -247,11 +296,130 @@ export type SourceUploadResponseMessages =
           preview: BiblePreviewData;
           transaction: DownloadBibleTransaction;
       }
-    | { command: "bibleDownloadCancelled" };
+    | { command: "bibleDownloadCancelled" }
+    | { command: "auth.statusResponse"; isAuthenticated: boolean; error?: string }
+    | { command: "project.response"; success: boolean; projectPath?: string; error?: string }
+    | {
+          command: "updateAuthState";
+          success: boolean;
+          authState: {
+              isAuthExtensionInstalled: boolean;
+              isAuthenticated: boolean;
+              isLoading: boolean;
+              error?: string;
+              gitlabInfo?: {
+                  username: string;
+                  email?: string;
+                  id?: string;
+              };
+          };
+      };
 
+export type MessagesToStartupFlowProvider =
+    | { command: "error"; errorMessage: string }
+    | { command: "extension.check"; extensionId: string }
+    | { command: "auth.login"; username: string; password: string }
+    | { command: "auth.signup"; username: string; email: string; password: string }
+    | { command: "auth.logout" }
+    | { command: "auth.status" }
+    | { command: "auth.checkAuthStatus" }
+    | { command: "project.clone"; repoUrl: string }
+    | { command: "project.new" }
+    | { command: "workspace.status" }
+    | { command: "workspace.open" }
+    | { command: "workspace.create" }
+    | { command: "workspace.continue" }
+    | { command: "getProjectsListFromGitLab" }
+    | { command: "getProjectsSyncStatus" }
+    | { command: "project.open"; projectPath: string }
+    | { command: "project.createEmpty" }
+    | { command: "project.initialize" }
+    | { command: "metadata.check" };
+
+export type GitLabProject = {
+    id: number;
+    name: string;
+    description: string | null;
+    visibility: string;
+    url: string;
+    webUrl: string;
+    lastActivity: string;
+    namespace: string;
+    owner: string;
+};
+
+export type ProjectSyncStatus =
+    | "downloadedAndSynced"
+    | "cloudOnlyNotSynced"
+    | "localOnlyNotSynced"
+    | "error";
+
+export type ProjectWithSyncStatus = LocalProject & { syncStatus: ProjectSyncStatus };
+
+export type MessagesFromStartupFlowProvider =
+    | { command: "projectsSyncStatus"; status: Record<string, "synced" | "cloud" | "error"> }
+    | {
+          command: "projectsListFromGitLab";
+          projects: Array<ProjectWithSyncStatus>;
+      }
+    | {
+          command: "checkWorkspaceState";
+          isWorkspaceOpen: boolean;
+      }
+    | { command: "error"; message: string }
+    | { command: "extension.checkResponse"; isInstalled: boolean }
+    | { command: "auth.statusResponse"; isAuthenticated: boolean; error?: string }
+    | {
+          command: "updateAuthState";
+          success: boolean;
+          authState: {
+              isAuthExtensionInstalled: boolean;
+              isAuthenticated: boolean;
+              isLoading: boolean;
+              error?: string;
+              gitlabInfo?: {
+                  username: string;
+                  email?: string;
+                  id?: string;
+              };
+          };
+      }
+    | {
+          command: "workspace.statusResponse";
+          isOpen: boolean;
+          path?: string;
+      }
+    | {
+          command: "metadata.checkResponse";
+          exists: boolean;
+      }
+    | { command: "setupComplete" };
 type DictionaryPostMessages =
-    | { command: "sendData"; data: Dictionary }
-    | { command: "webviewTellsProviderToUpdateData"; data: Dictionary }
+    | {
+          command: "webviewTellsProviderToUpdateData";
+          operation: "update" | "add";
+          entry: {
+              id: string;
+              headWord: string;
+              definition: string;
+          };
+      }
+    | {
+          command: "webviewTellsProviderToUpdateData";
+          operation: "fetchPage";
+          pagination: {
+              page: number;
+              pageSize: number;
+              searchQuery?: string;
+          };
+      }
+    | {
+          command: "webviewTellsProviderToUpdateData";
+          operation: "delete";
+          entry: {
+              id: string;
+          };
+      }
     | { command: "webviewAsksProviderToConfirmRemove"; count: number; data: Dictionary }
     | { command: "updateEntryCount"; count: number }
     | { command: "updateFrequentWords"; words: string[] }
@@ -259,11 +427,20 @@ type DictionaryPostMessages =
           command: "updateWordFrequencies";
           wordFrequencies: { [key: string]: number };
       }
-    | { command: "updateDictionary"; content: Dictionary };
+    | { command: "updateDictionary"; content: Dictionary }
+    | { command: "callCommand"; vscodeCommandName: string; args: any[] };
 
 type DictionaryReceiveMessages =
     | { command: "providerTellsWebviewRemoveConfirmed" }
-    | { command: "providerTellsWebviewToUpdateData"; data: Dictionary };
+    | {
+          command: "providerTellsWebviewToUpdateData";
+          data: {
+              entries: DictionaryEntry[];
+              total: number;
+              page: number;
+              pageSize: number;
+          };
+      };
 
 type DictionarySummaryPostMessages =
     | { command: "providerSendsDataToWebview"; data: Dictionary }
@@ -286,15 +463,14 @@ type ScripturePostMessages =
     | { command: "sendScriptureData"; data: ScriptureContent }
     | { command: "fetchScriptureData" };
 
-type OBSRef = {
-    storyId: string;
-    paragraph: string;
-};
-
 type DictionaryEntry = {
     id: string;
     headWord: string;
-    hash: string;
+    definition?: string;
+    isUserEntry: boolean;
+    authorId?: string;
+    createdAt?: string;
+    updatedAt?: string;
 };
 
 type SpellCheckResult = {
@@ -362,20 +538,25 @@ interface EditHistoryEntry {
 }
 
 export type EditorPostMessages =
+    | { command: "webviewFocused"; content: { uri: string } }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string } }
     | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata }
     | { command: "pickVideoFile" }
+    | { command: "togglePinPrompt"; content: { cellId: string; promptText: string } }
     | { command: "from-quill-spellcheck-getSpellCheckResponse"; content: EditorCellContent }
+    | { command: "getSourceText"; content: { cellId: string } }
     | { command: "searchSimilarCellIds"; content: { cellId: string } }
     | { command: "updateCellTimestamps"; content: { cellId: string; timestamps: Timestamps } }
     | { command: "deleteCell"; content: { cellId: string } }
     | { command: "addWord"; words: string[] }
     | { command: "getAlertCodes"; content: GetAlertCodes }
+    | { command: "executeCommand"; content: { command: string; args: any[] } }
     | {
           command: "makeChildOfCell";
           content: {
               newCellId: string;
-              cellIdOfCellBeforeNewCell: string;
+              referenceCellId: string;
+              direction: "above" | "below";
               cellType: CodexCellTypes;
               data: CustomNotebookCellData["metadata"]["data"];
           };
@@ -402,8 +583,26 @@ export type EditorPostMessages =
               cellId: string;
               editHistory: EditHistoryEntry[];
           };
+      }
+    | { command: "exportVttFile"; content: { subtitleData: string } }
+    | { command: "generateBacktranslation"; content: { text: string; cellId: string } }
+    | {
+          command: "editBacktranslation";
+          content: {
+              cellId: string;
+              newText: string;
+              existingBacktranslation: string;
+          };
+      }
+    | { command: "getBacktranslation"; content: { cellId: string } }
+    | {
+          command: "setBacktranslation";
+          content: {
+              cellId: string;
+              originalText: string;
+              userBacktranslation: string;
+          };
       };
-
 type EditorReceiveMessages =
     | {
           type: "providerSendsInitialContent";
@@ -428,7 +627,24 @@ type EditorReceiveMessages =
     | { type: "updateVideoUrlInWebview"; content: string }
     | { type: "providerSendsPromptedEditResponse"; content: string }
     | { type: "providerSendsSimilarCellIdsResponse"; content: { cellId: string; score: number }[] }
-    | { type: "providerSendsTopPrompts"; content: string[] };
+    | { type: "providerSendsTopPrompts"; content: Array<{ prompt: string; isPinned: boolean }> }
+    | { type: "providerSendsSourceText"; content: string }
+    | {
+          type: "providerSendsBacktranslation";
+          content: SavedBacktranslation | null;
+      }
+    | {
+          type: "providerSendsUpdatedBacktranslation";
+          content: SavedBacktranslation | null;
+      }
+    | {
+          type: "providerSendsExistingBacktranslation";
+          content: SavedBacktranslation | null;
+      }
+    | {
+          type: "providerConfirmsBacktranslationSet";
+          content: SavedBacktranslation | null;
+      };
 
 type AlertCodesServerResponse = {
     code: number;
@@ -535,10 +751,12 @@ interface ProjectOverview extends Project {
     targetLanguage: LanguageMetadata;
     category: string;
     userName: string;
+    userEmail: string;
     sourceTexts?: vscode.Uri[] | never[];
     targetTexts?: vscode.Uri[] | never[];
     targetFont: string;
     primarySourceText?: vscode.Uri;
+    isAuthenticated: boolean;
 }
 
 /* This is the project metadata that is saved in the metadata.json file */
@@ -738,20 +956,71 @@ interface ImportedContent {
 }
 
 // Add or verify these message types
-type ProjectManagerPostMessages =
+type ProjectManagerMessageFromWebview =
     | { command: "sendProjectsList"; data: Project[] }
-    | { command: "noWorkspaceOpen"; data: Project[] }
     | { command: "requestProjectOverview" }
-    | { command: "error"; message: string };
+    | { command: "error"; message: string }
+    | { command: "webviewReady" }
+    | { command: "refreshState" }
+    | { command: "initializeProject" }
+    | { command: "renameProject" }
+    | { command: "changeSourceLanguage" }
+    | { command: "changeTargetLanguage" }
+    | { command: "editAbbreviation" }
+    | { command: "selectCategory" }
+    | { command: "openSourceUpload" }
+    | { command: "openAISettings" }
+    | { command: "exportProjectAsPlaintext" }
+    | { command: "closeProject" }
+    | { command: "createNewWorkspaceAndProject" }
+    | { command: "openProject"; data: { path: string } }
+    | { command: "addWatchFolder" }
+    | { command: "removeWatchFolder"; data: { path: string } }
+    | { command: "refreshProjects" }
+    | { command: "openProjectSettings" }
+    | { command: "downloadSourceText" }
+    | { command: "selectprimarySourceText"; data: string }
+    | { command: "openBible"; data: { path: string } }
+    | { command: "checkPublishStatus" }
+    | { command: "publishProject" }
+    | { command: "syncProject" };
+
+interface ProjectManagerState {
+    projectOverview: ProjectOverview | null;
+    webviewReady: boolean;
+    watchedFolders: string[];
+    projects: Array<LocalProject> | null;
+    isScanning: boolean;
+    canInitializeProject: boolean;
+    workspaceIsOpen: boolean;
+    repoHasRemote: boolean;
+}
+type ProjectManagerMessageToWebview =
+    | {
+          command: "stateUpdate";
+          data: ProjectManagerState;
+      }
+    | {
+          command: "publishStatus";
+          data: {
+              hasRemote: boolean;
+          };
+      }
+    | {
+          command: "stateUpdate";
+          data: ProjectManagerState;
+      };
 
 // Ensure the Project type is correctly defined
-interface Project {
+interface LocalProject {
     name: string;
     path: string;
     lastOpened?: Date;
     lastModified: Date;
     version: string;
     hasVersionMismatch?: boolean;
+    gitOriginUrl?: string;
+    description: string;
     isOutdated?: boolean;
 }
 

@@ -4,12 +4,15 @@ import { getWorkSpaceUri } from "../../utils/index";
 import { vrefData } from "../../utils/verseRefUtils/verseData";
 import { basename, dirname } from "path";
 import { CustomNotebookMetadata } from "../../../types";
-import { NotebookMetadataManager } from "../../utils/notebookMetadataManager";
+import {
+    NotebookMetadataManager,
+    getNotebookMetadataManager,
+} from "../../utils/notebookMetadataManager";
 import * as path from "path";
 
 export interface CodexNode {
     resource: vscode.Uri;
-    type: "corpus" | "document" | "section" | "cell";
+    type: "corpus" | "document" | "section" | "cell" | "dictionary";
     label: string;
     cellId?: string;
     sourceFileUri?: vscode.Uri;
@@ -29,8 +32,11 @@ export class CodexModel {
     private lastMetadataLoad = 0;
     private readonly METADATA_REFRESH_INTERVAL = 1000; // 1 second
 
-    constructor(private workspaceRoot: string | undefined) {
-        this.notebookMetadataManager = new NotebookMetadataManager();
+    constructor(
+        private workspaceRoot: string | undefined,
+        private context: vscode.ExtensionContext
+    ) {
+        this.notebookMetadataManager = getNotebookMetadataManager();
         debug("Initializing with workspace root:", workspaceRoot);
         this.notebookMetadataManager.initialize();
     }
@@ -94,9 +100,37 @@ export class CodexModel {
         try {
             this.isRefreshing = true;
             await this.ensureMetadataLoaded();
-            return this.processMetadataIntoCorpora();
+
+            const dictionaryFiles = await this.findDictionaryFiles();
+
+            const regularCorpora = this.processMetadataIntoCorpora();
+            return [...regularCorpora, ...dictionaryFiles];
         } finally {
             this.isRefreshing = false;
+        }
+    }
+
+    private async findDictionaryFiles(): Promise<CodexNode[]> {
+        if (!this.workspaceRoot) {
+            return [];
+        }
+
+        try {
+            const pattern = new vscode.RelativePattern(
+                this.workspaceRoot,
+                "**/files/**/*.dictionary"
+            );
+
+            const dictionaryFiles = await vscode.workspace.findFiles(pattern);
+
+            return dictionaryFiles.map((uri) => ({
+                resource: uri,
+                type: "dictionary",
+                label: path.basename(uri.fsPath, ".dictionary" + "dictionary"),
+            }));
+        } catch (error) {
+            console.error("Error finding dictionary files:", error);
+            return [];
         }
     }
 
@@ -112,8 +146,18 @@ export class CodexModel {
 
             debug("Processing metadata for corpus:", metadata.id);
             const notebookUri = vscode.Uri.file(metadata.codexFsPath);
-            const sourceUri = metadata.sourceFsPath
-                ? vscode.Uri.file(metadata.sourceFsPath)
+            const workspaceUri = getWorkSpaceUri();
+            if (!workspaceUri) {
+                throw new Error("No workspace found");
+            }
+            // Create source URI from originalName
+            const sourceUri = metadata.originalName
+                ? vscode.Uri.joinPath(
+                      workspaceUri,
+                      ".project",
+                      "sourceTexts",
+                      `${metadata.originalName}.source`
+                  )
                 : undefined;
 
             const fileName = path.basename(metadata.codexFsPath);
@@ -127,14 +171,6 @@ export class CodexModel {
                         resource: vscode.Uri.parse(`codex-corpus:${testament}`),
                         type: "corpus",
                         label: testament,
-                    };
-                }
-            } else if (metadata.corpusMarker) {
-                if (!corpora[metadata.corpusMarker]) {
-                    corpora[metadata.corpusMarker] = {
-                        resource: vscode.Uri.parse(`codex-corpus:${metadata.corpusMarker}`),
-                        type: "corpus",
-                        label: metadata.corpusMarker,
                     };
                 }
             } else {
@@ -156,34 +192,39 @@ export class CodexModel {
     private async getNotebooksForCorpus(corpus: string): Promise<CodexNode[]> {
         debug("Getting notebooks for corpus:", corpus);
         const notebooks: CodexNode[] = [];
+        const workspaceUri = getWorkSpaceUri();
+        if (!workspaceUri) {
+            throw new Error("No workspace found");
+        }
 
         // Use cached metadata instead of reloading
         for (const metadata of this.cachedMetadata.values()) {
-            if (!metadata.codexFsPath) {
-                debug("Skipping metadata without codexFsPath:", metadata.id);
+            if (!metadata.originalName) {
+                debug("Skipping metadata without originalName:", metadata.id);
                 continue;
             }
 
-            // Skip temp files
-            if (metadata.codexFsPath.includes(".codex-temp")) {
-                debug("Skipping temp file:", metadata.codexFsPath);
-                continue;
-            }
+            const notebookPath = vscode.Uri.joinPath(
+                workspaceUri,
+                "files",
+                "target",
+                `${metadata.originalName}.codex`
+            );
 
-            const notebookUri = vscode.Uri.file(metadata.codexFsPath);
-            const sourceUri = metadata.sourceFsPath
-                ? vscode.Uri.file(metadata.sourceFsPath)
-                : undefined;
+            const sourceUri = vscode.Uri.joinPath(
+                workspaceUri,
+                ".project",
+                "sourceTexts",
+                `${metadata.originalName}.source`
+            );
 
-            const fileName = path.basename(metadata.codexFsPath);
-            const fileNameWithoutExtension = fileName.slice(0, -6);
-
+            const fileNameWithoutExtension = metadata.originalName;
             const bookData = vrefData[fileNameWithoutExtension];
             const testament = bookData?.testament === "OT" ? "Old Testament" : "New Testament";
 
-            if (testament === corpus || metadata.corpusMarker === corpus) {
+            if (testament === corpus) {
                 notebooks.push({
-                    resource: notebookUri,
+                    resource: notebookPath,
                     type: "document",
                     label: fileNameWithoutExtension,
                     sourceFileUri: sourceUri,
@@ -202,6 +243,7 @@ export class CodexModel {
         debug("Getting sections for notebook:", notebookUri.fsPath);
         try {
             const metadata = await this.notebookMetadataManager.getMetadataByUri(notebookUri);
+            console.log("metadata sadfs", { metadata });
             if (!metadata) {
                 console.warn("CodexModel: No metadata found for notebook:", notebookUri.fsPath);
                 return [];
@@ -289,7 +331,7 @@ export class CodexNotebookTreeViewProvider
         context: vscode.ExtensionContext
     ) {
         console.log("TreeView: Initializing provider");
-        this.model = new CodexModel(workspaceRoot);
+        this.model = new CodexModel(workspaceRoot, context);
 
         // Debounce the refresh to prevent rapid updates
         const debouncedRefresh = debounce(() => this.refresh(), 500);
@@ -347,12 +389,12 @@ export class CodexNotebookTreeViewProvider
     }
 
     public getTreeItem(element: CodexNode): vscode.TreeItem {
-        console.log("TreeView: Getting tree item for:", element.label);
+        console.log("TreeView: Getting tree item for:", element.label, { element });
         const treeItem = new vscode.TreeItem(
             element.label,
-            element.type !== "cell"
-                ? vscode.TreeItemCollapsibleState.Collapsed
-                : vscode.TreeItemCollapsibleState.None
+            element.type === "cell" || element.type === "dictionary"
+                ? vscode.TreeItemCollapsibleState.None
+                : vscode.TreeItemCollapsibleState.Collapsed
         );
 
         if (element.type === "document" || element.type === "section") {
@@ -383,6 +425,13 @@ export class CodexNotebookTreeViewProvider
                     treeItem.resourceUri = element.sourceFileUri;
                 }
             }
+        } else if (element.type === "dictionary") {
+            treeItem.iconPath = new vscode.ThemeIcon("book");
+            treeItem.command = {
+                command: "vscode.open",
+                title: "Open Dictionary",
+                arguments: [element.resource],
+            };
         }
 
         return treeItem;
@@ -427,15 +476,27 @@ export class CodexNotebookTreeViewProvider
         this.disposables.forEach((d) => d.dispose());
     }
 
-    // Add this public method
     public async openSection(resource: vscode.Uri, cellId?: string): Promise<void> {
         try {
             const metadata = await this.model.notebookMetadataManager.getMetadataByUri(resource);
-            if (!metadata?.codexFsPath) {
+            console.log({ resource, cellId, metadata });
+            if (!metadata?.id) {
                 throw new Error(`No metadata found for ${resource.fsPath}`);
             }
 
-            const actualUri = vscode.Uri.file(metadata.codexFsPath);
+            const workspaceUri = getWorkSpaceUri();
+            if (!workspaceUri) {
+                throw new Error("No workspace found");
+            }
+
+            // Construct the actual URI using the ID
+            const actualUri = vscode.Uri.joinPath(
+                workspaceUri,
+                "files",
+                "target",
+                `${metadata.originalName}.codex`
+            );
+
             await vscode.commands.executeCommand("vscode.openWith", actualUri, "codex.cellEditor");
 
             if (cellId) {

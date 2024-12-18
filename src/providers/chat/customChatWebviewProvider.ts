@@ -14,6 +14,8 @@ import {
     TheographicBibleDataRecord,
 } from "../../activationHelpers/contextAware/sourceData";
 import { initializeStateStore } from "../../stateStore";
+import { fetchCompletionConfig } from "../translationSuggestions/inlineCompletionsProvider";
+import { performReflection } from "../../utils/llmUtils";
 
 const config = vscode.workspace.getConfiguration("translators-copilot");
 const endpoint = config.get("llmEndpoint"); // NOTE: config.endpoint is reserved so we must have unique name
@@ -264,7 +266,9 @@ export class CustomWebviewProvider {
     selectionChangeListener: any;
     constructor(extensionUri: vscode.Uri) {
         this._extensionUri = extensionUri;
-        checkThatChatThreadsFileExists();
+        if (vscode.workspace.workspaceFolders) {
+            checkThatChatThreadsFileExists();
+        }
     }
 
     async sendSelectMessage(
@@ -485,6 +489,32 @@ export class CustomWebviewProvider {
                             abortController.abort();
                         }
                         break;
+
+                    case "performReflection": {
+                        const reflectionConfig = await fetchCompletionConfig();
+                        const num_improverrs = 3;
+                        const number_of_loops = 2;
+                        const chatReflectionConcern =
+                            vscode.workspace
+                                .getConfiguration("translators-copilot")
+                                .get<string>("chatReflectionConcern") ?? "";
+                        const reflectedMessage = await performReflection(
+                            message.messageToReflect,
+                            message.context,
+                            num_improverrs,
+                            number_of_loops,
+                            chatReflectionConcern,
+                            reflectionConfig
+                        );
+
+                        webviewView.webview.postMessage({
+                            command: "reflectionResponse",
+                            reflectedMessage,
+                            lastMessageCreatedAt: message.lastMessageCreatedAt,
+                        });
+
+                        break;
+                    }
 
                     case "requestGradeResponse": {
                         const mainChatLanguage = vscode.workspace

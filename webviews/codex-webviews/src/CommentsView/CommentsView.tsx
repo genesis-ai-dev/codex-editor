@@ -1,11 +1,17 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import {
+    VSCodeButton,
+    VSCodePanels,
+    VSCodePanelTab,
+    VSCodePanelView,
+} from "@vscode/webview-ui-toolkit/react";
 import "../App.css";
 import { NotebookCommentThread, CommentPostMessages, CellIdGlobalState } from "../../../../types";
 import UpdateAndViewCommentThreadTitle from "../components/UpdateAndViewCommentThreadTitle";
 import CommentViewSlashEditorSlashDelete from "../components/CommentViewSlashEditorSlashDelete";
 import { CommentTextForm, CommentTextFormProps } from "../components/CommentTextForm";
 import { v4 as uuidv4 } from "uuid";
+import { AllCommentsList } from "./AllCommentsList";
 
 const vscode = acquireVsCodeApi();
 type Comment = NotebookCommentThread["comments"][0];
@@ -17,6 +23,15 @@ function App() {
     const [showCommentForm, setShowCommentForm] = useState<{
         [key: string]: boolean;
     }>({});
+    const [expandedThreadIndex, setExpandedThreadIndex] = useState<null | number>(null);
+
+    // Function to handle collapse/expand event
+    const handleCollapseClick = (threadIndex: number) => {
+        if (expandedThreadIndex === threadIndex) {
+            setExpandedThreadIndex(null);
+        }
+        setExpandedThreadIndex(threadIndex);
+    };
 
     const handleMessage = useCallback((event: MessageEvent) => {
         const message: CommentPostMessages = event.data;
@@ -69,10 +84,10 @@ function App() {
         threadId,
         commentId: commentIdForUpdating,
     }) => {
-        const exitingThread = commentThreadArray.find(
+        const existingThread = commentThreadArray.find(
             (commentThread) => commentThread.id === threadId
         );
-        const lastComment = exitingThread?.comments[exitingThread.comments.length - 1];
+        const lastComment = existingThread?.comments[existingThread.comments.length - 1];
         let commentId = commentIdForUpdating;
         if (!commentId) {
             commentId = lastComment?.id ? lastComment.id + 1 : 1;
@@ -137,8 +152,8 @@ function App() {
     return (
         <main
             style={{
-                display: "flex",
-                flexDirection: "column",
+                // display: "flex",
+                // flexDirection: "column",
                 height: "100vh",
                 width: "100%",
                 padding: "10px",
@@ -147,110 +162,177 @@ function App() {
                 color: "var(--vscode-editorWidget-foreground)",
             }}
         >
-            {!cellId.cellId ? (
-                <div>Select a cell to view comments</div>
-            ) : (
-                <>
-                    <h2>Current Cell ID: {cellId.cellId}</h2>
+            <VSCodePanels
+                style={{
+                    height: "100%",
+                    boxSizing: "border-box",
+                }}
+            >
+                <VSCodePanelTab id="current-comment" style={{ width: "100%" }}>
+                    <i className="codicon codicon-comment" style={{ marginInlineEnd: "0.5rem" }} />
+                    <div style={{ margin: "auto" }}>Current</div>
+                </VSCodePanelTab>
+                <VSCodePanelTab id="all-comments" style={{ width: "100%" }}>
+                    <i
+                        className="codicon codicon-checklist"
+                        style={{ marginInlineEnd: "0.5rem" }}
+                    />
+                    <div style={{ margin: "auto" }}>All</div>
+                </VSCodePanelTab>
+
+                <VSCodePanelView
+                    id="current-comment-view"
+                    style={{
+                        height: "100%",
+                        width: "100%",
+                        boxSizing: "border-box",
+                    }}
+                >
                     <div
-                        className="comments-container"
                         style={{
-                            flex: 1,
-                            overflowY: "auto",
+                            display: "flex",
                             width: "100%",
-                            marginTop: "10px",
+                            flexDirection: "column",
                         }}
                     >
-                        <div
-                            className="comments-content"
-                            style={{
-                                display: "flex",
-                                flexDirection: "column",
-                                gap: "10px",
-                            }}
-                        >
-                            {filteredCommentThreads.map((commentThread) => {
-                                console.log("Rendering comment thread:", commentThread);
-                                return (
+                        {!cellId.cellId ? (
+                            <div>Select a cell to view comments</div>
+                        ) : (
+                            <>
+                                <h4
+                                    style={{
+                                        textTransform: "uppercase",
+                                        fontSize: "0.8rem",
+                                        marginBottom: "1rem",
+                                    }}
+                                >
+                                    Current Cell ID: {cellId.cellId}
+                                </h4>
+                                <div
+                                    className="comments-container"
+                                    style={{
+                                        flex: 1,
+                                        overflowY: "auto",
+                                    }}
+                                >
                                     <div
-                                        key={commentThread.id}
+                                        className="comments-content"
                                         style={{
-                                            backgroundColor: "var(--vscode-dropdown-background)",
-                                            padding: "20px",
-                                            borderRadius: "5px",
-                                            boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
                                             display: "flex",
-                                            flexFlow: "column nowrap",
+                                            flexDirection: "column",
+                                            gap: "10px",
                                         }}
                                     >
-                                        <UpdateAndViewCommentThreadTitle
-                                            commentThread={commentThread}
-                                            handleCommentThreadDeletion={() =>
-                                                handleThreadDeletion(commentThread.id)
-                                            }
-                                            handleCommentUpdate={(args) => handleSubmit(args)}
-                                        />
-                                        <div
-                                            style={{
-                                                display: "flex",
-                                                flexFlow: "column nowrap",
-                                                marginBottom: 20,
-                                            }}
-                                        >
-                                            {commentThread.comments.map(
-                                                (comment, index) =>
-                                                    !comment.deleted && (
-                                                        <CommentViewSlashEditorSlashDelete
-                                                            comment={comment}
-                                                            commentThreadId={commentThread.id}
-                                                            showHorizontalLine={index !== 0}
-                                                            handleCommentDeletion={
-                                                                handleCommentDeletion
-                                                            }
-                                                            handleCommentUpdate={handleSubmit}
-                                                        />
-                                                    )
-                                            )}
-                                        </div>
-                                        {!showCommentForm[commentThread.id] ? (
-                                            <VSCodeButton
-                                                onClick={() =>
-                                                    handleToggleCommentForm(commentThread.id)
-                                                }
-                                            >
-                                                +
-                                            </VSCodeButton>
-                                        ) : (
-                                            <div>
-                                                <CommentTextForm
-                                                    handleSubmit={handleSubmit}
-                                                    showTitleInput={false}
-                                                    threadId={commentThread.id}
-                                                    commentId={null}
-                                                />
-                                                <VSCodeButton
-                                                    onClick={() =>
-                                                        handleToggleCommentForm(commentThread.id)
-                                                    }
+                                        {filteredCommentThreads.map((commentThread) => {
+                                            console.log("Rendering comment thread:", commentThread);
+                                            return (
+                                                <div
+                                                    key={commentThread.id}
+                                                    style={{
+                                                        backgroundColor:
+                                                            "var(--vscode-dropdown-background)",
+                                                        padding: "20px",
+                                                        borderRadius: "5px",
+                                                        boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+                                                        display: "flex",
+                                                        flexFlow: "column nowrap",
+                                                    }}
                                                 >
-                                                    Cancel
-                                                </VSCodeButton>
-                                            </div>
-                                        )}
+                                                    <UpdateAndViewCommentThreadTitle
+                                                        commentThread={commentThread}
+                                                        handleCommentThreadDeletion={() =>
+                                                            handleThreadDeletion(commentThread.id)
+                                                        }
+                                                        handleCommentUpdate={(args) =>
+                                                            handleSubmit(args)
+                                                        }
+                                                    />
+                                                    <div
+                                                        style={{
+                                                            display: "flex",
+                                                            flexFlow: "column nowrap",
+                                                            marginBottom: 20,
+                                                        }}
+                                                    >
+                                                        {commentThread.comments.map(
+                                                            (comment, index) =>
+                                                                !comment.deleted && (
+                                                                    <CommentViewSlashEditorSlashDelete
+                                                                        comment={comment}
+                                                                        commentThreadId={
+                                                                            commentThread.id
+                                                                        }
+                                                                        showHorizontalLine={
+                                                                            index !== 0
+                                                                        }
+                                                                        handleCommentDeletion={
+                                                                            handleCommentDeletion
+                                                                        }
+                                                                        handleCommentUpdate={
+                                                                            handleSubmit
+                                                                        }
+                                                                    />
+                                                                )
+                                                        )}
+                                                    </div>
+                                                    {!showCommentForm[commentThread.id] ? (
+                                                        <VSCodeButton
+                                                            onClick={() =>
+                                                                handleToggleCommentForm(
+                                                                    commentThread.id
+                                                                )
+                                                            }
+                                                        >
+                                                            +
+                                                        </VSCodeButton>
+                                                    ) : (
+                                                        <div>
+                                                            <CommentTextForm
+                                                                handleSubmit={handleSubmit}
+                                                                showTitleInput={false}
+                                                                threadId={commentThread.id}
+                                                                commentId={null}
+                                                            />
+                                                            <VSCodeButton
+                                                                onClick={() =>
+                                                                    handleToggleCommentForm(
+                                                                        commentThread.id
+                                                                    )
+                                                                }
+                                                            >
+                                                                Cancel
+                                                            </VSCodeButton>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
                                     </div>
-                                );
-                            })}
-                        </div>
+                                </div>
+                            </>
+                        )}
+                        {/* Input for sending messages */}
+
+                        <CommentTextForm
+                            handleSubmit={handleSubmit}
+                            showTitleInput={true}
+                            threadId={null}
+                            commentId={null}
+                        />
                     </div>
-                </>
-            )}
-            {/* Input for sending messages */}
-            <CommentTextForm
-                handleSubmit={handleSubmit}
-                showTitleInput={true}
-                threadId={null}
-                commentId={null}
-            />
+                </VSCodePanelView>
+
+                <VSCodePanelView
+                    id="all-comments-view"
+                    style={{
+                        height: "100%",
+                        width: "100dvw",
+                        boxSizing: "border-box",
+                    }}
+                >
+                    <AllCommentsList comments={commentThreadArray} />
+                </VSCodePanelView>
+            </VSCodePanels>
         </main>
     );
 }

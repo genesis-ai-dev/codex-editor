@@ -41,14 +41,14 @@ export function randomColor(): string {
 
 export function transformToTableData(dictionary: Dictionary): TableData {
     // const data = dictionary.entries;
-    let data = dictionary.entries.map((entry) => ({
+    const data = dictionary.entries.map((entry) => ({
         ...entry,
         metadata:
             typeof entry.metadata === "string" ? entry.metadata : JSON.stringify(entry.metadata), // Only stringify if not already a string
     }));
 
     let columns: TableColumn[] = [];
-    let checkboxColumn: TableColumn = {
+    const checkboxColumn: TableColumn = {
         // id: Constants.ADD_COLUMN_ID,
         id: Constants.CHECKBOX_COLUMN_ID as TableColumn["id"],
         label: " ",

@@ -6,12 +6,6 @@ node_modules
 pnpm-lock.yaml
 __pycache__
 webviews/editable-react-table/node_modules
-webviews/dictionary-side-panel/package-lock.json
-webviews/obs/build
-/webviews/obs/build/assets/index.css
-/webviews/obs/build/assets/views/CreateProject.js
-/webviews/obs/build/vite.svg
-/webviews/obs/package-lock.json
 /webviews/commentsWebview
 .DS_Store
 package-lock.json

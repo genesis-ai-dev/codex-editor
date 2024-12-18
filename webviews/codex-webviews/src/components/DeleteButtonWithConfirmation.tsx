@@ -29,7 +29,7 @@ const DeleteButtonWithConfirmation: React.FC<{
                     title="Delete"
                     onClick={() => setShowConfirmation(true)}
                 >
-                    <i className="codicon codicon-close"></i>
+                    <i className="codicon codicon-trash"></i>
                 </VSCodeButton>
             ) : (
                 <div
@@ -39,7 +39,7 @@ const DeleteButtonWithConfirmation: React.FC<{
                     }}
                 >
                     <VSCodeButton
-                        appearance="secondary"
+                        appearance="icon"
                         aria-label="Cancel Delete"
                         title="Cancel Delete"
                         onClick={() => setShowConfirmation(false)}
@@ -47,12 +47,21 @@ const DeleteButtonWithConfirmation: React.FC<{
                         <i className="codicon codicon-close"></i>
                     </VSCodeButton>
                     <VSCodeButton
-                        appearance="primary"
+                        appearance="icon"
                         aria-label="Confirm Delete"
                         title="Confirm Delete"
                         onClick={() => {
                             handleDeleteButtonClick();
                             setShowConfirmation(false);
+                        }}
+                        style={{
+                            border: "none",
+                            width: "100%",
+                            textAlign: "center",
+                            outline: "1px solid transparent",
+                            outlineOffset: "2px !important",
+                            color: "var(--vscode-button-foreground)",
+                            background: "var(--vscode-button-background)",
                         }}
                     >
                         <i className="codicon codicon-trash"></i>

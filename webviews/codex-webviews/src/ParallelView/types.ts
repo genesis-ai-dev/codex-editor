@@ -22,3 +22,10 @@ export interface SearchResults {
     bibleResults: Item[];
     codexResults: Item[];
 }
+
+export interface ChatMessage {
+    role: "user" | "assistant";
+    content: string;
+    isStreaming?: boolean;
+    isEditing?: boolean;
+}

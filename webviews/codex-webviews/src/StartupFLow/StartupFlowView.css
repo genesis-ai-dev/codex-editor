@@ -1,0 +1,209 @@
+.startup-flow-view {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    padding: 16px;
+}
+
+.auth-status-bar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 0.5rem 1rem;
+    background-color: var(--vscode-editor-background);
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.auth-status-bar span {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.auth-status-bar span::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.auth-status-bar .authenticated::before {
+    background-color: var(--vscode-testing-iconPassed);
+}
+
+.auth-status-bar .not-authenticated::before {
+    background-color: var(--vscode-testing-iconFailed);
+}
+
+.auth-status-bar .loading::before {
+    background-color: var(--vscode-testing-iconQueued);
+}
+
+.auth-status-bar .no-extension::before {
+    background-color: var(--vscode-testing-iconSkipped);
+}
+
+.auth-status-bar .authenticated {
+    color: var(--vscode-testing-iconPassed);
+}
+
+.auth-status-bar .not-authenticated {
+    color: var(--vscode-testing-iconFailed);
+}
+
+.auth-status-bar .no-extension {
+    color: var(--vscode-testing-iconSkipped);
+}
+
+.login-register-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    gap: 1rem;
+    text-align: center;
+}
+
+.login-register-step h2 {
+    margin-bottom: 1rem;
+    font-size: 1.5rem;
+}
+
+.login-register-step p {
+    margin-bottom: 1rem;
+    max-width: 600px;
+    line-height: 1.5;
+}
+
+.button-group {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.error-message {
+    color: var(--vscode-errorForeground);
+    background-color: var(--vscode-inputValidation-errorBackground);
+    border: 1px solid var(--vscode-inputValidation-errorBorder);
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    margin: 1rem 0;
+}
+
+/* Added missing styles from App.css */
+.startup-flow-container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+.workspace-step,
+.project-setup-step {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    align-items: center;
+    text-align: center;
+    margin-top: 2rem;
+}
+
+.workspace-options {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    width: 100%;
+    margin-top: 1rem;
+}
+
+.option {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1.5rem;
+    border: 1px solid var(--vscode-button-background);
+    border-radius: 4px;
+}
+
+.option h3 {
+    margin: 0;
+    color: var(--vscode-foreground);
+}
+
+.option p {
+    margin: 0;
+    color: var(--vscode-descriptionForeground);
+}
+
+.gitlab-projects-list {
+    margin: 1rem 0;
+    border: 1px solid var(--vscode-widget-border);
+    border-radius: 4px;
+}
+
+.project-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--vscode-widget-border);
+}
+
+.project-row:last-child {
+    border-bottom: none;
+}
+
+.project-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.project-name {
+    font-weight: 500;
+}
+
+.project-description {
+    font-size: 0.9em;
+    color: var(--vscode-descriptionForeground);
+}
+
+.project-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.status-icon {
+    font-size: 14px;
+}
+
+.status-icon.synced {
+    color: var(--vscode-testing-iconPassed);
+}
+
+.status-icon.error {
+    color: var(--vscode-testing-iconFailed);
+}
+
+.status-icon.cloud {
+    color: var(--vscode-foreground);
+}
+
+.loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+}
+
+.already-working-container {
+    text-align: center;
+    padding: 2rem;
+}

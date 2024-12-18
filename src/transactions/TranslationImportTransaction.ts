@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { ImportTransaction } from "./ImportTransaction";
-import { NotebookMetadataManager } from "../utils/notebookMetadataManager";
+import { NotebookMetadataManager, getNotebookMetadataManager } from "../utils/notebookMetadataManager";
 import { ProgressManager, ProgressStep } from "../utils/progressManager";
 import { CodexContentSerializer } from "../serializer";
 import {
@@ -29,7 +29,7 @@ type CellAligner = (
 ) => Promise<AlignedCell[]>;
 
 export class TranslationImportTransaction extends ImportTransaction {
-    private metadataManager: NotebookMetadataManager;
+    protected metadataManager: NotebookMetadataManager;
     private readonly context: vscode.ExtensionContext;
     private readonly sourceNotebookId: string;
     private importedContent: ImportedContent[] = [];
@@ -51,7 +51,7 @@ export class TranslationImportTransaction extends ImportTransaction {
         super(translationFile);
         this.sourceNotebookId = sourceNotebookId;
         this.context = context;
-        this.metadataManager = new NotebookMetadataManager();
+        this.metadataManager = getNotebookMetadataManager();
     }
 
     async prepare(): Promise<{

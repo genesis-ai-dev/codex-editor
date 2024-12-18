@@ -58,7 +58,11 @@ const CellList: React.FC<CellListProps> = ({
             <span
                 key={`group-${startIndex}`}
                 className={`verse-group cell-display-${cellDisplayMode}`}
-                style={{ direction: textDirection }}
+                style={{
+                    direction: textDirection,
+                    display: cellDisplayMode === CELL_DISPLAY_MODES.INLINE ? "inline" : "block",
+                    backgroundColor: "transparent",
+                }}
             >
                 {group.map(
                     ({ cellMarkers, cellContent, cellType, cellLabel, timestamps }, index) => {
@@ -66,9 +70,16 @@ const CellList: React.FC<CellListProps> = ({
                         const hasDuplicateId = duplicateCellIds.has(cellId);
 
                         return (
-                            <div
+                            <span
                                 key={startIndex + index}
-                                style={{ display: "flex", alignItems: "center" }}
+                                style={{
+                                    display:
+                                        cellDisplayMode === CELL_DISPLAY_MODES.INLINE
+                                            ? "inline"
+                                            : "block",
+                                    verticalAlign: "middle",
+                                    backgroundColor: "transparent",
+                                }}
                             >
                                 <CellContentDisplay
                                     cellIds={cellMarkers}
@@ -82,9 +93,13 @@ const CellList: React.FC<CellListProps> = ({
                                     isSourceText={isSourceText}
                                     hasDuplicateId={hasDuplicateId}
                                     timestamps={timestamps}
-                                    alertColorCode={alertColorCodes[cellId]}
+                                    alertColorCode={
+                                        cellDisplayMode === CELL_DISPLAY_MODES.INLINE
+                                            ? -1
+                                            : alertColorCodes[cellId]
+                                    }
                                 />
-                            </div>
+                            </span>
                         );
                     }
                 )}
@@ -134,9 +149,9 @@ const CellList: React.FC<CellListProps> = ({
                 }
                 const cellIsChild = checkIfCurrentCellIsChild();
                 result.push(
-                    <div
+                    <span
                         key={cellMarkers.join(" ")}
-                        style={{ display: "flex", alignItems: "center" }}
+                        style={{ display: "inline-flex", alignItems: "center" }}
                     >
                         <CellEditor
                             spellCheckResponse={spellCheckResponse}
@@ -152,8 +167,9 @@ const CellList: React.FC<CellListProps> = ({
                             handleCloseEditor={handleCloseEditor}
                             handleSaveHtml={handleSaveHtml}
                             textDirection={textDirection}
+                            openCellById={openCellById}
                         />
-                    </div>
+                    </span>
                 );
                 groupStartIndex = i + 1;
             } else if (cellContent?.trim()?.length === 0) {
@@ -169,6 +185,7 @@ const CellList: React.FC<CellListProps> = ({
                         setContentBeingUpdated={setContentBeingUpdated}
                         textDirection={textDirection}
                         vscode={vscode}
+                        openCellById={openCellById}
                     />
                 );
                 groupStartIndex = i + 1;
@@ -194,12 +211,36 @@ const CellList: React.FC<CellListProps> = ({
         vscode,
     ]);
 
+    const openCellById = useCallback(
+        (cellId: string, text: string) => {
+            const cellToOpen = translationUnits.find((unit) => unit.cellMarkers[0] === cellId);
+
+            if (cellToOpen) {
+                setContentBeingUpdated({
+                    cellMarkers: cellToOpen.cellMarkers,
+                    cellContent: text,
+                    cellChanged: true,
+                    cellLabel: cellToOpen.cellLabel,
+                });
+            } else {
+                vscode.postMessage({
+                    command: "showErrorMessage",
+                    text: `Cell with ID ${cellId} not found.`,
+                });
+            }
+        },
+        [translationUnits, setContentBeingUpdated, vscode]
+    );
+
     return (
         <div
             className="verse-list ql-editor"
             style={{
                 direction: textDirection,
                 overflowY: "auto",
+                display: cellDisplayMode === CELL_DISPLAY_MODES.INLINE ? "inline-block" : "block",
+                width: "100%",
+                backgroundColor: "transparent",
             }}
         >
             {renderCells()}

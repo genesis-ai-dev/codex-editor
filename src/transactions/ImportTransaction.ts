@@ -1,4 +1,6 @@
 import * as vscode from "vscode";
+import { NotebookMetadataManager, getNotebookMetadataManager } from "../utils/notebookMetadataManager";
+
 export interface ImportTransactionState {
     sourceFile: vscode.Uri;
     tempFiles: vscode.Uri[];
@@ -9,6 +11,7 @@ export interface ImportTransactionState {
 export abstract class ImportTransaction {
     protected state: ImportTransactionState;
     protected tempDir: vscode.Uri | null = null;
+    protected metadataManager: NotebookMetadataManager;
 
     constructor(sourceFile: vscode.Uri) {
         this.state = {
@@ -17,6 +20,7 @@ export abstract class ImportTransaction {
             metadata: null,
             status: "pending",
         };
+        this.metadataManager = getNotebookMetadataManager();
     }
 
     protected async createTempDirectory(): Promise<void> {

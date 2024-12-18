@@ -17,17 +17,8 @@ import {
 } from "vscode-languageserver/node";
 import { verseRefRegex } from "./types";
 import { SpellCheckResult } from "./types";
-import { Dictionary, DictionaryEntry } from "codex-types";
-import * as fs from "fs";
-import * as path from "path";
 import { URI } from "vscode-uri";
 import { cleanWord } from "../utils/cleaningUtils";
-import {
-    readDictionaryServer,
-    saveDictionaryServer,
-    addWordsToDictionary,
-} from "../utils/dictionaryUtils/server";
-import { Database } from "sql.js";
 
 let folderUri: URI | undefined;
 
@@ -36,34 +27,77 @@ interface CheckWordResponse {
     exists: boolean;
 }
 
-const CheckWordRequest = new RequestType<string, CheckWordResponse, never>("custom/checkWord");
+const DEBUG_MODE = false; // Flag for debug mode
+
+// Custom debug function
+function debugLog(...args: any[]) {
+    if (DEBUG_MODE) {
+        console.log(new Date().toISOString(), ...args);
+    }
+}
+const CheckWordRequest = new RequestType<
+    { word: string; caseSensitive: boolean },
+    CheckWordResponse,
+    never
+>("custom/checkWord");
 const GetSuggestionsRequest = new RequestType<string, string[], never>("custom/getSuggestions");
 const AddWordsRequest = new RequestType<string[], boolean, never>("custom/addWords");
 
 export class SpellChecker {
     private connection: Connection;
+    private wordCache: Map<string, SpellCheckResult> = new Map();
 
     constructor(connection: Connection) {
         this.connection = connection;
     }
 
     async spellCheck(word: string): Promise<SpellCheckResult> {
+        if (this.wordCache.has(word)) {
+            const cachedResult = this.wordCache.get(word);
+            if (cachedResult) {
+                return cachedResult;
+            }
+        }
         const originalWord = word;
         const cleanedWord = cleanWord(word);
 
         try {
             // Check if word exists in dictionary
-            const response = await this.connection.sendRequest(CheckWordRequest, cleanedWord);
+            const response = await this.connection.sendRequest(CheckWordRequest, {
+                word: cleanedWord,
+                caseSensitive: false,
+            });
+            debugLog("SERVER: CheckWordRequest response:", { response });
 
             if (response.exists) {
-                return { word: originalWord, corrections: [] };
+                const result: SpellCheckResult = {
+                    word: originalWord,
+                    wordIsFoundInDictionary: true,
+                    corrections: [],
+                };
+
+                this.wordCache.set(word, result);
+                return result;
             }
 
             const suggestions = await this.getSuggestions(originalWord);
-            return { word: originalWord, corrections: suggestions };
+            debugLog("SERVER: getSuggestions response:", { suggestions });
+            const result: SpellCheckResult = {
+                word: originalWord,
+                wordIsFoundInDictionary: false,
+                corrections: suggestions,
+            };
+            this.wordCache.set(word, result);
+            return result;
         } catch (error) {
             console.error("Error in spellCheck:", error);
-            return { word: originalWord, corrections: [] };
+            const result: SpellCheckResult = {
+                word: originalWord,
+                wordIsFoundInDictionary: false,
+                corrections: [],
+            };
+            this.wordCache.set(word, result);
+            return result;
         }
     }
 
@@ -79,15 +113,16 @@ export class SpellChecker {
 
             // Get all words from the dictionary
             const dictWords = await this.connection.sendRequest(GetSuggestionsRequest, cleanedWord);
+            debugLog("SERVER: GetSuggestionsRequest response:", { dictWords });
 
             const suggestions = dictWords.map((dictWord) => ({
                 word: dictWord,
                 distance: this.levenshteinDistance(cleanedWord, dictWord),
             }));
-
+            debugLog("SERVER: suggestions:", { suggestions });
             return suggestions
                 .sort((a, b) => a.distance - b.distance)
-                .slice(0, 3)
+                .slice(0, 5)
                 .map((suggestion) => {
                     let result = suggestion.word;
 
@@ -110,11 +145,16 @@ export class SpellChecker {
             const success = await this.connection.sendRequest(AddWordsRequest, words);
 
             if (success) {
+                this.wordCache.clear();
                 this.connection.sendNotification("custom/dictionaryUpdated");
             }
         } catch (error) {
             console.error("Error in addWords:", error);
         }
+    }
+
+    clearCache(): void {
+        this.wordCache.clear();
     }
 
     private levenshteinDistance(a: string, b: string): number {

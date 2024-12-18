@@ -13,7 +13,7 @@ import * as fs from "fs/promises"; // Add this import if not already present
 import * as path from "path";
 import * as grammar from "usfm-grammar";
 import { ParsedUSFM } from "usfm-grammar";
-import { NotebookMetadataManager } from "../utils/notebookMetadataManager";
+import { getNotebookMetadataManager } from "../utils/notebookMetadataManager";
 
 const DEBUG_MODE = true; // Set this to false to disable debug logging
 
@@ -121,7 +121,7 @@ export async function importTranslations(
 
         debug("Imported content length", importedContent.length);
 
-        const metadataManager = new NotebookMetadataManager();
+        const metadataManager = getNotebookMetadataManager();
         await metadataManager.initialize();
         await metadataManager.loadMetadata();
 

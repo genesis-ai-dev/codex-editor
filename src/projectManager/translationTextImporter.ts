@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { NotebookMetadataManager } from "../utils/notebookMetadataManager";
+import { NotebookMetadataManager, getNotebookMetadataManager } from "../utils/notebookMetadataManager";
 import { CodexContentSerializer } from "../serializer";
 import * as path from "path";
 import { WebVTTParser } from "webvtt-parser";
@@ -18,7 +18,7 @@ export async function importTranslations(
         const fileContent = await vscode.workspace.fs.readFile(fileUri);
         const fileContentString = new TextDecoder().decode(fileContent);
 
-        const metadataManager = new NotebookMetadataManager();
+        const metadataManager = getNotebookMetadataManager();
         await metadataManager.initialize();
         await metadataManager.loadMetadata();
 

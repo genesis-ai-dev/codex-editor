@@ -27,12 +27,96 @@
   .ql-editor .ql-font-verdana {
     font-family: Verdana, Geneva, sans-serif;
   } */
-  .ql-editor{
+.ql-editor {
     /* padding: 100px;
     font-size: 16px; */
     white-space: normal !important;
     /* direction: rtl;
     text-align: right; */
-  }
+}
 
- 
+.ql-toolbar {
+    transition: all 0.3s ease;
+    overflow: hidden;
+}
+
+.toolbar-toggle:hover {
+    opacity: 0.8;
+}
+
+.toolbar-container {
+    border: none;
+    margin-bottom: 0;
+}
+
+#basic-toolbar {
+    padding: 4px;
+    border-bottom: 1px solid var(--vscode-editor-foreground);
+}
+
+#formatting-toolbar {
+    padding: 8px 4px;
+    transition: all 0.2s ease;
+}
+
+/* Remove default Quill borders */
+.ql-toolbar.ql-snow {
+    border: none !important;
+    padding: 2px !important;
+}
+
+.ql-container.ql-snow {
+    /* border: 1px solid var(--vscode-editor-foreground) !important; */
+    /* border-top: none !important; */
+}
+
+/* Make toolbar more compact */
+.ql-toolbar.ql-snow {
+    padding: 2px !important;
+}
+
+/* Reduce size of toolbar buttons */
+.ql-toolbar.ql-snow .ql-formats {
+    margin-right: 6px !important;
+}
+
+.ql-toolbar.ql-snow button {
+    width: 24px !important;
+    height: 24px !important;
+    padding: 2px !important;
+}
+
+/* Adjust icon sizes */
+.ql-toolbar.ql-snow button svg {
+    width: 16px !important;
+    height: 16px !important;
+}
+
+/* Adjust dropdown (like the header selector) */
+.ql-toolbar.ql-snow .ql-picker {
+    height: 24px !important;
+    line-height: 24px !important;
+    font-size: 12px !important;
+}
+
+.ql-toolbar.ql-snow .ql-picker-label {
+    padding: 0 4px !important;
+}
+
+/* Custom icons (like your library and autocomplete) */
+.quill-toolbar-icon {
+    font-size: 16px !important;
+}
+
+/* Ensure proper spacing for the toggle button */
+.toolbar-toggle {
+    position: absolute;
+    right: 8px;
+    top: 4px;
+    z-index: 1000;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--vscode-editor-foreground);
+    padding: 4px;
+}

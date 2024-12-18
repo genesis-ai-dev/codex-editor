@@ -30,12 +30,11 @@ export const CommentTextForm: React.FC<CommentTextFormProps> = ({
         <form
             className="comments-input"
             style={{
-                width: "100%",
+                justifySelf: "flex-end",
                 display: "flex",
                 flexDirection: "column",
                 boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
-                padding: "20px",
-                borderRadius: "5px",
+                padding: "10px",
                 backgroundColor: "var(--vscode-dropdown-background)",
                 color: "var(--vscode-dropdown-foreground)",
                 boxSizing: "border-box",
