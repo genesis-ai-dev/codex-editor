@@ -194,12 +194,12 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
                         .getConfiguration("codex-project-manager")
                         .get<string>("userName") ||
                     "", // previously "Unknown"
-                userEmail:
-                    details.userEmail ||
-                    vscode.workspace
-                        .getConfiguration("codex-project-manager")
-                        .get<string>("userEmail") ||
-                    "",
+                // userEmail:
+                //     details.userEmail ||
+                //     vscode.workspace
+                //         .getConfiguration("codex-project-manager")
+                //         .get<string>("userEmail") ||
+                //     "",
             },
             defaultLocale: "en",
             dateCreated: new Date().toDateString(),
@@ -472,7 +472,7 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
                     softwareName: metadata.meta?.generator?.softwareName || "Unknown Software",
                     softwareVersion: metadata.meta?.generator?.softwareVersion || "0.0.1",
                     userName: userInfo?.username || "Anonymous",
-                    userEmail: userInfo?.email || "",
+                    // userEmail: userInfo?.email || "",
                 },
                 defaultLocale: metadata.meta?.defaultLocale || "en",
                 dateCreated: metadata.meta?.dateCreated || new Date().toISOString(),
