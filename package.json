@@ -847,7 +847,7 @@
                         "title": "API Key",
                         "type": "string",
                         "default": "",
-                        "description": "Your own OpenAI API key. Ignorable for local LLM."
+                        "description": "Your own OpenAI API key. Ignorable for local LLM. NOTE: Do not set this in workspace settings. This may compromise your key if .vscode/settings.json is saved to the cloud."
                     },
                     "translators-copilot.max_tokens": {
                         "title": "Max Tokens",

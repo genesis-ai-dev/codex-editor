@@ -222,13 +222,13 @@ async function verseCompletion(
 export async function fetchCompletionConfig(): Promise<CompletionConfig> {
     try {
         const config = vscode.workspace.getConfiguration("translators-copilot");
-        if (sharedStateExtension) {
-            const stateStore = sharedStateExtension.exports;
-            stateStore.updateStoreState({
-                key: "currentUserAPI",
-                value: config.get("api_key") || "",
-            });
-        }
+        // if (sharedStateExtension) {
+        //     const stateStore = sharedStateExtension.exports;
+        //     stateStore.updateStoreState({
+        //         key: "currentUserAPI",
+        //         value: config.get("api_key", undefined, true) || "",
+        //     });
+        // }
 
         return {
             endpoint: config.get("llmEndpoint") || "https://api.openai.com/v1",
