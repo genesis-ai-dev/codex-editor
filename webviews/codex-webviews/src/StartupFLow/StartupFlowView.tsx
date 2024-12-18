@@ -42,6 +42,10 @@ export const StartupFlowView: React.FC = () => {
                                 isLoading: false,
                                 error: undefined,
                                 gitlabInfo: undefined,
+                                workspaceState: {
+                                    isWorkspaceOpen: false,
+                                    isProjectInitialized: false,
+                                },
                             },
                         });
                     } else if (authState.isAuthenticated) {
@@ -53,6 +57,10 @@ export const StartupFlowView: React.FC = () => {
                                 isLoading: false,
                                 error: authState.error,
                                 gitlabInfo: authState.gitlabInfo,
+                                workspaceState: {
+                                    isWorkspaceOpen: true,
+                                    isProjectInitialized: true,
+                                },
                             },
                         });
                     } else {
@@ -64,6 +72,10 @@ export const StartupFlowView: React.FC = () => {
                                 isLoading: false,
                                 error: authState.error,
                                 gitlabInfo: undefined,
+                                workspaceState: {
+                                    isWorkspaceOpen: true,
+                                    isProjectInitialized: false,
+                                },
                             },
                         });
                     }
@@ -71,10 +83,25 @@ export const StartupFlowView: React.FC = () => {
                 }
                 case "workspace.statusResponse":
                     if (message.isOpen) {
-                        // send({ type: StartupFlowEvents.WORKSPACE_OPEN });
                         vscode.postMessage({
                             command: "metadata.check",
                         } as MessagesToStartupFlowProvider);
+                    } else {
+                        console.log("workspace.statusResponse workspace not open");
+                        send({
+                            type: StartupFlowEvents.NO_AUTH_EXTENSION,
+                            data: {
+                                isAuthenticated: false,
+                                isAuthExtensionInstalled: false,
+                                isLoading: false,
+                                error: undefined,
+                                gitlabInfo: undefined,
+                                workspaceState: {
+                                    isWorkspaceOpen: false,
+                                    isProjectInitialized: false,
+                                },
+                            },
+                        });
                     }
                     break;
                 case "workspace.opened":
@@ -83,11 +110,20 @@ export const StartupFlowView: React.FC = () => {
                     } as MessagesToStartupFlowProvider);
                     break;
                 case "metadata.checkResponse":
-                    if (message.exists) {
-                        send({ type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN });
-                    } else {
-                        send({ type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT });
-                    }
+                    send({
+                        type: StartupFlowEvents.NO_AUTH_EXTENSION,
+                        data: {
+                            isAuthenticated: false,
+                            isAuthExtensionInstalled: false,
+                            isLoading: false,
+                            error: undefined,
+                            gitlabInfo: undefined,
+                            workspaceState: {
+                                isWorkspaceOpen: true,
+                                isProjectInitialized: message.exists,
+                            },
+                        },
+                    });
                     break;
                 case "setupComplete": {
                     console.log("setupComplete called");

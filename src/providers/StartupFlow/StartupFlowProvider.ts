@@ -209,6 +209,18 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         switch (message.command) {
             case "auth.status": {
                 debugLog("Getting auth status");
+                if (!this.frontierApi) {
+                    debugLog("Auth extension not installed");
+                    webviewPanel.webview.postMessage({
+                        command: "updateAuthState",
+                        authState: {
+                            isAuthExtensionInstalled: false,
+                            isAuthenticated: false,
+                            isLoading: false,
+                        },
+                    } as MessagesFromStartupFlowProvider);
+                    return;
+                }
                 try {
                     const status = this.frontierApi.getAuthStatus();
                     debugLog("Got auth status", status);
@@ -239,6 +251,18 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             }
             case "auth.login": {
                 debugLog("Attempting login");
+                if (!this.frontierApi) {
+                    debugLog("Auth extension not installed");
+                    webviewPanel.webview.postMessage({
+                        command: "updateAuthState",
+                        authState: {
+                            isAuthExtensionInstalled: false,
+                            isAuthenticated: false,
+                            isLoading: false,
+                        },
+                    } as MessagesFromStartupFlowProvider);
+                    return;
+                }
                 try {
                     const success = await this.frontierApi.login(
                         message.username,
@@ -275,6 +299,18 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             }
             case "auth.signup": {
                 debugLog("Attempting registration");
+                if (!this.frontierApi) {
+                    debugLog("Auth extension not installed");
+                    webviewPanel.webview.postMessage({
+                        command: "updateAuthState",
+                        authState: {
+                            isAuthExtensionInstalled: false,
+                            isAuthenticated: false,
+                            isLoading: false,
+                        },
+                    } as MessagesFromStartupFlowProvider);
+                    return;
+                }
                 try {
                     const wasRegisteredSuccessful = await this.frontierApi.register(
                         message.username,
