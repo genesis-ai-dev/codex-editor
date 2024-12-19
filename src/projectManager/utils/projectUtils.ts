@@ -194,12 +194,12 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
                         .getConfiguration("codex-project-manager")
                         .get<string>("userName") ||
                     "", // previously "Unknown"
-                // userEmail:
-                //     details.userEmail ||
-                //     vscode.workspace
-                //         .getConfiguration("codex-project-manager")
-                //         .get<string>("userEmail") ||
-                //     "",
+                userEmail:
+                    details.userEmail ||
+                    vscode.workspace
+                        .getConfiguration("codex-project-manager")
+                        .get<string>("userEmail") ||
+                    "", // previously "Unknown"
             },
             defaultLocale: "en",
             dateCreated: new Date().toDateString(),
@@ -320,18 +320,28 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
                     dir: workspaceFolder,
                     filepath: ".gitignore",
                 });
+                const authApi = getAuthApi();
+                const userInfo = await authApi?.getUserInfo();
+                const author = {
+                    name:
+                        userInfo?.username ||
+                        vscode.workspace
+                            .getConfiguration("codex-project-manager")
+                            .get<string>("userName") ||
+                        "Unknown",
+                    email:
+                        userInfo?.email ||
+                        vscode.workspace
+                            .getConfiguration("codex-project-manager")
+                            .get<string>("userEmail") ||
+                        "unknown",
+                };
 
                 await git.commit({
                     fs,
                     dir: workspaceFolder,
                     message: "Initial commit: Add project metadata",
-                    author: {
-                        name: details.userName || "Unknown",
-                        email:
-                            vscode.workspace
-                                .getConfiguration("codex-project-manager")
-                                .get<string>("userEmail") || "unknown",
-                    },
+                    author,
                 });
 
                 vscode.window.showInformationMessage("Git repository initialized successfully");
@@ -472,7 +482,7 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
                     softwareName: metadata.meta?.generator?.softwareName || "Unknown Software",
                     softwareVersion: metadata.meta?.generator?.softwareVersion || "0.0.1",
                     userName: userInfo?.username || "Anonymous",
-                    // userEmail: userInfo?.email || "",
+                    userEmail: userInfo?.email || "",
                 },
                 defaultLocale: metadata.meta?.defaultLocale || "en",
                 dateCreated: metadata.meta?.dateCreated || new Date().toISOString(),
@@ -766,11 +776,9 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
     return projects;
 }
 
-export async function stageAndCommitAllAndSync(
-    commitMessage: string,
-    author?: { name: string; email: string }
-): Promise<void> {
-    console.log("Staging and committing all changes and syncing project");
+export async function stageAndCommitAllAndSync(commitMessage: string): Promise<void> {
+    const authApi = getAuthApi();
+    const userInfo = await authApi?.getUserInfo();
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceFolder) {
         vscode.window.showErrorMessage("No workspace folder found");
@@ -810,21 +818,27 @@ export async function stageAndCommitAllAndSync(
             }
         }
 
+        const author = {
+            name:
+                userInfo?.username ||
+                vscode.workspace
+                    .getConfiguration("codex-project-manager")
+                    .get<string>("userName") ||
+                "Unknown",
+            email:
+                userInfo?.email ||
+                vscode.workspace
+                    .getConfiguration("codex-project-manager")
+                    .get<string>("userEmail") ||
+                "unknown",
+        };
+
         // Create commit with staged changes
         await git.commit({
             fs,
             dir: workspaceFolder,
             message: commitMessage,
-            author: author || {
-                name:
-                    vscode.workspace
-                        .getConfiguration("codex-project-manager")
-                        .get<string>("userName") || "Unknown",
-                email:
-                    vscode.workspace
-                        .getConfiguration("codex-project-manager")
-                        .get<string>("userEmail") || "unknown",
-            },
+            author,
         });
         let remoteHasSynced = false;
         // Check if remote exists
@@ -853,7 +867,7 @@ export async function stageAndCommitAllAndSync(
                 remoteHasSynced = true;
             }
         } catch (error) {
-            console.log("No remote configured, skipping pull/push");
+            console.log("No remote configured, skipping pull/push", error);
         }
 
         if (remoteHasSynced) {
