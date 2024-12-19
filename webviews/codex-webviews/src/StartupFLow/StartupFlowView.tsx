@@ -42,10 +42,7 @@ export const StartupFlowView: React.FC = () => {
                                 isLoading: false,
                                 error: undefined,
                                 gitlabInfo: undefined,
-                                workspaceState: {
-                                    isWorkspaceOpen: false,
-                                    isProjectInitialized: false,
-                                },
+                                workspaceState: authState.workspaceState,
                             },
                         });
                     } else if (authState.isAuthenticated) {
@@ -57,10 +54,7 @@ export const StartupFlowView: React.FC = () => {
                                 isLoading: false,
                                 error: authState.error,
                                 gitlabInfo: authState.gitlabInfo,
-                                workspaceState: {
-                                    isWorkspaceOpen: true,
-                                    isProjectInitialized: true,
-                                },
+                                workspaceState: authState.workspaceState,
                             },
                         });
                     } else {
@@ -72,16 +66,13 @@ export const StartupFlowView: React.FC = () => {
                                 isLoading: false,
                                 error: authState.error,
                                 gitlabInfo: undefined,
-                                workspaceState: {
-                                    isWorkspaceOpen: true,
-                                    isProjectInitialized: false,
-                                },
+                                workspaceState: authState.workspaceState,
                             },
                         });
                     }
                     break;
                 }
-                case "workspace.statusResponse":
+                case "workspace.statusResponse": {
                     if (message.isOpen) {
                         vscode.postMessage({
                             command: "metadata.check",
@@ -104,6 +95,7 @@ export const StartupFlowView: React.FC = () => {
                         });
                     }
                     break;
+                }
                 case "workspace.opened":
                     vscode.postMessage({
                         command: "metadata.check",
@@ -124,6 +116,11 @@ export const StartupFlowView: React.FC = () => {
                             },
                         },
                     });
+                    if (message.exists) {
+                        send({ type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN });
+                    } else {
+                        send({ type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT });
+                    }
                     break;
                 case "setupComplete": {
                     console.log("setupComplete called");

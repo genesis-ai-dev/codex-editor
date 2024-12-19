@@ -13,7 +13,7 @@ interface AuthState {
     gitlabInfo?: any;
 }
 
-interface PreflightState {
+export interface PreflightState {
     authState: AuthState;
     workspaceState: {
         isOpen: boolean;

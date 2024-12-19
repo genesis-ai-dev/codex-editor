@@ -382,6 +382,10 @@ export type MessagesFromStartupFlowProvider =
                   email?: string;
                   id?: string;
               };
+              workspaceState: {
+                  isWorkspaceOpen: boolean;
+                  isProjectInitialized: boolean;
+              };
           };
       }
     | {

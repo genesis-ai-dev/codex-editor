@@ -65,13 +65,27 @@ export const startupFlowMachine = setup({
         events: StartupFlowEvent;
     },
     guards: {
-        hasNoOpenWorkspace: ({ context }) => !context.authState.workspaceState.isWorkspaceOpen,
-        hasInitializedProject: ({ context }) =>
-            context.authState.workspaceState.isWorkspaceOpen &&
-            context.authState.workspaceState.isProjectInitialized,
-        hasNotInitializedProject: ({ context }) =>
-            context.authState.workspaceState.isWorkspaceOpen &&
-            !context.authState.workspaceState.isProjectInitialized,
+        hasNoOpenWorkspace: ({ context }) => {
+            console.log(
+                "guards: hasNoOpenWorkspace check:",
+                !context.authState.workspaceState.isWorkspaceOpen
+            );
+            return !context.authState.workspaceState.isWorkspaceOpen;
+        },
+        hasInitializedProject: ({ context }) => {
+            const result =
+                context.authState.workspaceState.isWorkspaceOpen &&
+                context.authState.workspaceState.isProjectInitialized;
+            console.log("guards: hasInitializedProject check:", result);
+            return result;
+        },
+        hasNotInitializedProject: ({ context }) => {
+            const result =
+                context.authState.workspaceState.isWorkspaceOpen &&
+                !context.authState.workspaceState.isProjectInitialized;
+            console.log("guards: hasNotInitializedProject check:", result);
+            return result;
+        },
     },
     actions: {
         updateAuthState: assign({
@@ -103,10 +117,23 @@ export const startupFlowMachine = setup({
                 [StartupFlowEvents.UPDATE_AUTH_STATE]: {
                     actions: "updateAuthState",
                 },
-                [StartupFlowEvents.AUTH_LOGGED_IN]: {
-                    target: StartupFlowStates.OPEN_OR_CREATE_PROJECT,
-                    actions: "updateAuthState",
-                },
+                [StartupFlowEvents.AUTH_LOGGED_IN]: [
+                    {
+                        target: StartupFlowStates.OPEN_OR_CREATE_PROJECT,
+                        cond: "hasNoOpenWorkspace",
+                        actions: "updateAuthState",
+                    },
+                    {
+                        target: StartupFlowStates.ALREADY_WORKING,
+                        cond: "hasInitializedProject",
+                        actions: "updateAuthState",
+                    },
+                    {
+                        target: StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
+                        cond: "hasNotInitializedProject",
+                        actions: "updateAuthState",
+                    },
+                ],
                 [StartupFlowEvents.NO_AUTH_EXTENSION]: [
                     {
                         target: StartupFlowStates.OPEN_OR_CREATE_PROJECT,
