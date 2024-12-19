@@ -41,6 +41,22 @@ import { NotebookMetadataManager } from "./utils/notebookMetadataManager";
 import { stageAndCommitAllAndSync } from "./projectManager/utils/projectUtils";
 import { FrontierAPI } from "../webviews/codex-webviews/src/StartupFLow/types";
 import { waitForExtensionActivation } from "./utils/vscode";
+import { performance } from "perf_hooks";
+
+interface ActivationTiming {
+    step: string;
+    duration: number;
+    startTime: number;
+}
+
+const activationTimings: ActivationTiming[] = [];
+
+function trackTiming(step: string, startTime: number) {
+    const duration = performance.now() - startTime;
+    activationTimings.push({ step, duration, startTime });
+    console.log(`[Activation] ${step}: ${duration.toFixed(2)}ms`);
+    return performance.now();
+}
 
 declare global {
     // eslint-disable-next-line
@@ -57,191 +73,263 @@ let notebookMetadataManager: NotebookMetadataManager;
 let authApi: FrontierAPI | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
+    const activationStart = performance.now();
+    let stepStart = activationStart;
+
     try {
+        // Initialize Frontier API
+        stepStart = trackTiming("Initialize Frontier API", stepStart);
         const extension = await waitForExtensionActivation("frontier-rnd.frontier-authentication");
         if (extension?.isActive) {
             authApi = extension.exports;
         }
-    } catch (error) {
-        console.error("Failed to initialize Frontier API:", error);
-    }
 
-    // Initialize the metadata manager first
-    notebookMetadataManager = NotebookMetadataManager.getInstance(context);
-    await notebookMetadataManager.initialize();
+        // Initialize metadata manager
+        stepStart = trackTiming("Initialize Metadata Manager", stepStart);
+        notebookMetadataManager = NotebookMetadataManager.getInstance(context);
+        await notebookMetadataManager.initialize();
 
-    const handleSaveEvent = (commitMessage: string) => {
-        if (commitTimeout) {
-            clearTimeout(commitTimeout);
-        }
-        // eslint-disable-next-line
-        commitTimeout = setTimeout(async () => {
-            const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-            if (workspaceFolder) {
-                try {
-                    // Check if .git directory exists using isomorphic-git
-
-                    try {
-                        await stageAndCommitAllAndSync(commitMessage);
-                    } catch (gitError) {
-                        // No git repository found, skip commit
-                        console.debug("No git repository found in workspace, skipping commit");
-                    }
-                } catch (error) {
-                    console.error("Failed to auto-commit changes:", error);
-                }
+        // Register save event handlers
+        stepStart = trackTiming("Register Save Handlers", stepStart);
+        const handleSaveEvent = (commitMessage: string) => {
+            if (commitTimeout) {
+                clearTimeout(commitTimeout);
             }
-        }, COMMIT_DELAY);
-    };
+            // eslint-disable-next-line
+            commitTimeout = setTimeout(async () => {
+                const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                if (workspaceFolder) {
+                    try {
+                        // Check if .git directory exists using isomorphic-git
 
-    // Listen for text document saves (includes JSON files)
-    context.subscriptions.push(
-        vscode.workspace.onDidSaveTextDocument((document) => {
-            handleSaveEvent(`changes to ${document.uri.path.split("/").pop()}`);
-        })
-    );
-
-    // Listen for notebook document saves
-    context.subscriptions.push(
-        vscode.workspace.onDidSaveNotebookDocument((notebookDocument) => {
-            handleSaveEvent(`changes to ${notebookDocument.uri.path.split("/").pop()}`);
-        })
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand("extension.manualCommit", (message: string) => {
-            handleSaveEvent(message);
-        })
-    );
-
-    // Register startup flow commands early, as they handle the initial setup flow
-    await registerStartupFlowCommands(context);
-    registerPreflightCommand(context);
-
-    try {
-        global.db = await initializeSqlJs(context);
-        console.log("initializeSqlJs db", global.db);
-    } catch (error) {
-        console.error("Error initializing SqlJs:", error);
-    }
-    if (global.db) {
-        const importCommand = vscode.commands.registerCommand(
-            "extension.importWiktionaryJSONL",
-            () => global.db && importWiktionaryJSONL(global.db)
-        );
-        context.subscriptions.push(importCommand);
-        registerLookupWordCommand(global.db, context);
-        ingestJsonlDictionaryEntries(global.db);
-    }
-
-    vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
-
-    // Register trust change listener
-    // context.subscriptions.push(
-    //     vscode.workspace.onDidGrantWorkspaceTrust(async () => {
-    //         console.log("Workspace trust granted, reactivating extension");
-    //         await vscode.commands.executeCommand("workbench.action.reloadWindow");
-    //     })
-    // );
-
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-
-    // Always register the project manager
-    registerProjectManager(context);
-
-    if (workspaceFolders && workspaceFolders.length > 0) {
-        if (!vscode.workspace.isTrusted) {
-            console.log("Workspace not trusted. Waiting for trust...");
-            vscode.window
-                .showWarningMessage(
-                    "This workspace needs to be trusted before Codex Editor can fully activate.",
-                    "Trust Workspace"
-                )
-                .then((selection) => {
-                    if (selection === "Trust Workspace") {
-                        vscode.commands.executeCommand("workbench.action.trustWorkspace");
+                        try {
+                            await stageAndCommitAllAndSync(commitMessage);
+                        } catch (gitError) {
+                            // No git repository found, skip commit
+                            console.debug("No git repository found in workspace, skipping commit");
+                        }
+                    } catch (error) {
+                        console.error("Failed to auto-commit changes:", error);
                     }
-                });
-            return;
-        }
+                }
+            }, COMMIT_DELAY);
+        };
 
-        const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
+        // Listen for text document saves (includes JSON files)
+        context.subscriptions.push(
+            vscode.workspace.onDidSaveTextDocument((document) => {
+                handleSaveEvent(`changes to ${document.uri.path.split("/").pop()}`);
+            })
+        );
 
-        let metadataExists = false;
+        // Listen for notebook document saves
+        context.subscriptions.push(
+            vscode.workspace.onDidSaveNotebookDocument((notebookDocument) => {
+                handleSaveEvent(`changes to ${notebookDocument.uri.path.split("/").pop()}`);
+            })
+        );
+
+        context.subscriptions.push(
+            vscode.commands.registerCommand("extension.manualCommit", (message: string) => {
+                handleSaveEvent(message);
+            })
+        );
+
+        // Register startup flow commands
+        stepStart = trackTiming("Register Startup Flow", stepStart);
+        await registerStartupFlowCommands(context);
+        registerPreflightCommand(context);
+
+        // Initialize SqlJs
+        stepStart = trackTiming("Initialize SqlJs", stepStart);
         try {
-            await vscode.workspace.fs.stat(metadataUri);
-            metadataExists = true;
-        } catch {
-            metadataExists = false;
+            global.db = await initializeSqlJs(context);
+            console.log("initializeSqlJs db", global.db);
+        } catch (error) {
+            console.error("Error initializing SqlJs:", error);
+        }
+        if (global.db) {
+            const importCommand = vscode.commands.registerCommand(
+                "extension.importWiktionaryJSONL",
+                () => global.db && importWiktionaryJSONL(global.db)
+            );
+            context.subscriptions.push(importCommand);
+            registerLookupWordCommand(global.db, context);
+            ingestJsonlDictionaryEntries(global.db);
         }
 
-        if (!metadataExists) {
-            console.log("metadata.json not found. Waiting for initialization.");
-            await watchForInitialization(context, metadataUri);
+        vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
+
+        // Register project manager
+        stepStart = trackTiming("Register Project Manager", stepStart);
+        registerProjectManager(context);
+
+        // Initialize extension based on workspace state
+        stepStart = trackTiming("Initialize Workspace", stepStart);
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (workspaceFolders && workspaceFolders.length > 0) {
+            if (!vscode.workspace.isTrusted) {
+                console.log("Workspace not trusted. Waiting for trust...");
+                vscode.window
+                    .showWarningMessage(
+                        "This workspace needs to be trusted before Codex Editor can fully activate.",
+                        "Trust Workspace"
+                    )
+                    .then((selection) => {
+                        if (selection === "Trust Workspace") {
+                            vscode.commands.executeCommand("workbench.action.trustWorkspace");
+                        }
+                    });
+                return;
+            }
+
+            const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
+
+            let metadataExists = false;
+            try {
+                await vscode.workspace.fs.stat(metadataUri);
+                metadataExists = true;
+            } catch {
+                metadataExists = false;
+            }
+
+            if (!metadataExists) {
+                console.log("metadata.json not found. Waiting for initialization.");
+                await watchForInitialization(context, metadataUri);
+            } else {
+                await initializeExtension(context, metadataExists);
+            }
+            watchTableFiles(context);
         } else {
-            await initializeExtension(context, metadataExists);
+            console.log("No workspace folder found");
+            vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
         }
-        watchTableFiles(context);
-    } else {
-        console.log("No workspace folder found");
-        vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
+
+        // Register remaining components
+        stepStart = trackTiming("Register Core Components", stepStart);
+        let componentStart = stepStart;
+
+        componentStart = trackTiming("• Register Smart Edit Commands", componentStart);
+        registerSmartEditCommands(context);
+
+        componentStart = trackTiming("• Register Source Upload Commands", componentStart);
+        await registerSourceUploadCommands(context);
+
+        componentStart = trackTiming("• Register Providers", componentStart);
+        registerProviders(context);
+
+        componentStart = trackTiming("• Register Commands", componentStart);
+        await registerCommands(context);
+
+        componentStart = trackTiming("• Initialize Webviews", componentStart);
+        await initializeWebviews(context);
+
+        // Track total time for core components
+        trackTiming("Total Core Components", stepStart);
+
+        // Execute post-activation tasks
+        stepStart = trackTiming("Post-activation Tasks", stepStart);
+        await executeCommandsAfter();
+        await temporaryMigrationScript_checkMatthewNotebook();
+        await migration_changeDraftFolderToFilesFolder();
+        await migrateSourceFiles();
+
+        // Initialize status bar
+        stepStart = trackTiming("Initialize Status Bar", stepStart);
+        autoCompleteStatusBarItem = vscode.window.createStatusBarItem(
+            vscode.StatusBarAlignment.Right,
+            100
+        );
+        autoCompleteStatusBarItem.text = "$(sync~spin) Auto-completing...";
+        autoCompleteStatusBarItem.hide();
+        context.subscriptions.push(autoCompleteStatusBarItem);
+
+        // Show activation summary
+        const totalDuration = performance.now() - activationStart;
+        trackTiming("Total Activation Time", activationStart);
+
+        // Sort timings by duration (descending) and format the message
+        const sortedTimings = [...activationTimings].sort((a, b) => b.duration - a.duration);
+        const summaryMessage = [
+            `Codex Editor activated in ${totalDuration.toFixed(2)}ms`,
+            "",
+            "Top 5 longest steps:",
+            ...sortedTimings.slice(0, 5).map((t) => `${t.step}: ${t.duration.toFixed(2)}ms`),
+        ].join("\n");
+
+        // Show notification with details
+        vscode.window
+            .showInformationMessage(summaryMessage, "Show All Timings")
+            .then((selection) => {
+                if (selection === "Show All Timings") {
+                    // Create and show output channel with complete timing information
+                    const channel = vscode.window.createOutputChannel("Codex Editor Activation");
+                    channel.appendLine("Complete activation timing breakdown:");
+                    sortedTimings.forEach((t) => {
+                        channel.appendLine(`${t.step}: ${t.duration.toFixed(2)}ms`);
+                    });
+                    channel.show();
+                }
+            });
+    } catch (error) {
+        console.error("Error during extension activation:", error);
+        vscode.window.showErrorMessage(`Failed to activate Codex Editor: ${error}`);
     }
-
-    // Register these commands regardless of metadata existence
-    registerSmartEditCommands(context); // For the language server onRequest stuff
-    await registerSourceUploadCommands(context);
-    registerProviders(context);
-    await registerCommands(context);
-    await initializeWebviews(context);
-
-    await executeCommandsAfter();
-    await temporaryMigrationScript_checkMatthewNotebook();
-    await migration_changeDraftFolderToFilesFolder();
-    await migrateSourceFiles();
-
-    // Create the status bar item
-    autoCompleteStatusBarItem = vscode.window.createStatusBarItem(
-        vscode.StatusBarAlignment.Right,
-        100
-    );
-    autoCompleteStatusBarItem.text = "$(sync~spin) Auto-completing...";
-    autoCompleteStatusBarItem.hide();
-    context.subscriptions.push(autoCompleteStatusBarItem);
 }
 
 async function initializeExtension(context: vscode.ExtensionContext, metadataExists: boolean) {
+    const initStart = performance.now();
+    let stepStart = initStart;
+
     console.log("Initializing extension");
 
     if (metadataExists) {
-        console.log("metadata.json exists");
+        stepStart = trackTiming("• Show Project Overview", stepStart);
         vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
 
+        stepStart = trackTiming("• Register CodeLens Providers", stepStart);
         registerCodeLensProviders(context);
-        registerTextSelectionHandler(context, () => undefined);
-        await initializeBibleData(context);
 
+        stepStart = trackTiming("• Register Text Selection Handler", stepStart);
+        registerTextSelectionHandler(context, () => undefined);
+
+        // Break down language server initialization
+        const lsStart = performance.now();
         client = await registerLanguageServer(context);
         if (client && global.db) {
+            stepStart = trackTiming("  • Language Server Setup", lsStart);
             clientCommandsDisposable = registerClientCommands(context, client);
             context.subscriptions.push(clientCommandsDisposable);
+
+            stepStart = trackTiming("  • Register Client Requests", stepStart);
             try {
                 await registerClientOnRequests(client, global.db);
-                // Start the client after registering handlers
+                stepStart = trackTiming("  • Start Language Server", stepStart);
                 await client.start();
             } catch (error) {
                 console.error("Error registering client requests:", error);
             }
         }
-        console.log("Creating table indexes");
+        trackTiming("• Total Language Server", lsStart);
 
+        // Break down index creation
+        const indexStart = performance.now();
+        stepStart = trackTiming("  • Index Verse Refs", indexStart);
         await indexVerseRefsInSourceText();
+
+        stepStart = trackTiming("  • Create Context Index", stepStart);
         await createIndexWithContext(context);
+
+        stepStart = trackTiming("  • Create Table Indexes", stepStart);
         tableIndexMap = await createTableIndexes();
-        // console.log("tableIndexMap", Array.from(tableIndexMap.keys()), tableIndexMap.size);
+
+        trackTiming("• Total Index Creation", indexStart);
     } else {
-        console.log("metadata.json not found. Showing project overview.");
+        stepStart = trackTiming("• Show Project Overview (No Metadata)", stepStart);
         vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
     }
+
+    trackTiming("Total Initialize Extension", initStart);
 }
 
 let watcher: vscode.FileSystemWatcher | undefined;
