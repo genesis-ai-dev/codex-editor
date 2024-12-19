@@ -1,103 +1,122 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import {
-    CodexNotebookTreeViewProvider,
-    CodexNode,
-} from "../../providers/treeViews/navigationTreeViewProvider";
-import { NotebookMetadataManager } from "../../utils/notebookMetadataManager";
+    NextGenCodexTreeViewProvider,
+    NextGenCodexItem,
+} from "../../providers/treeViews/nextGenCodexTreeViewProvider";
 
-suite("CodexNotebookTreeViewProvider Test Suite", () => {
-    vscode.window.showInformationMessage("Start all tests for CodexNotebookTreeViewProvider.");
-    const folderPath = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+suite("NextGenCodexTreeViewProvider Test Suite", () => {
+    vscode.window.showInformationMessage("Start all tests for NextGenCodexTreeViewProvider.");
     const context = {} as vscode.ExtensionContext;
-    const provider = new CodexNotebookTreeViewProvider(folderPath, context);
+    const provider = new NextGenCodexTreeViewProvider(context);
 
-    test("Initialization of CodexNotebookTreeViewProvider", () => {
-        assert.ok(provider, "CodexNotebookTreeViewProvider should be initialized successfully");
+    test("Initialization of NextGenCodexTreeViewProvider", () => {
+        assert.ok(provider, "NextGenCodexTreeViewProvider should be initialized successfully");
     });
 
-    test("getTreeItem should return correct TreeItems for different node types", () => {
-        const testNodes: CodexNode[] = [
+    test("getTreeItem should return correct TreeItems for different item types", () => {
+        const testItems: NextGenCodexItem[] = [
             {
-                resource: vscode.Uri.parse("codex-corpus:Old Testament"),
-                type: "corpus",
-                label: "Old Testament",
+                uri: vscode.Uri.file("/path/to/Genesis.codex"),
+                label: "Genesis Codex",
+                type: "codexDocument",
             },
             {
-                resource: vscode.Uri.file("/path/to/Genesis.codex"),
-                type: "document",
-                label: "Genesis",
-                sourceFileUri: vscode.Uri.file("/path/to/source/Genesis.usfm"),
-            },
-            {
-                resource: vscode.Uri.parse("codex-section:Genesis#chapter1"),
-                type: "section",
-                label: "Chapter 1",
-                cellId: "chapter1",
+                uri: vscode.Uri.file("/path/to/Hebrew.dictionary"),
+                label: "Hebrew Dictionary",
+                type: "dictionary",
             },
         ];
 
-        testNodes.forEach((node) => {
-            const treeItem = provider.getTreeItem(node);
+        testItems.forEach((item) => {
+            const treeItem = provider.getTreeItem(item);
             assert.ok(
                 treeItem instanceof vscode.TreeItem,
-                `getTreeItem should return a TreeItem instance for ${node.type}`
+                `getTreeItem should return a TreeItem instance for ${item.type}`
             );
             assert.strictEqual(
                 treeItem.label,
-                node.label,
-                `TreeItem should have the correct label for ${node.type}`
+                item.label,
+                `TreeItem should have the correct label for ${item.type}`
             );
 
-            if (node.type !== "section") {
-                assert.strictEqual(
-                    treeItem.collapsibleState,
-                    vscode.TreeItemCollapsibleState.Collapsed,
-                    `TreeItem should have the correct collapsible state for ${node.type}`
-                );
-            } else {
-                assert.strictEqual(
-                    treeItem.collapsibleState,
-                    vscode.TreeItemCollapsibleState.None,
-                    `TreeItem should not be collapsible for ${node.type}`
-                );
-            }
+            assert.strictEqual(
+                treeItem.collapsibleState,
+                vscode.TreeItemCollapsibleState.None,
+                `TreeItem should not be collapsible for ${item.type}`
+            );
 
-            if (node.type === "document") {
-                assert.ok(
-                    treeItem.iconPath instanceof vscode.ThemeIcon,
-                    "Document node should have an icon"
+            assert.ok(
+                treeItem.iconPath instanceof vscode.ThemeIcon,
+                `${item.type} should have an icon`
+            );
+
+            if (item.type === "codexDocument") {
+                assert.strictEqual(
+                    (treeItem.command as vscode.Command).command,
+                    "nextGenCodexTreeView.openFile",
+                    "Codex document should have correct command"
+                );
+            } else if (item.type === "dictionary") {
+                assert.strictEqual(
+                    (treeItem.command as vscode.Command).command,
+                    "vscode.open",
+                    "Dictionary should have correct command"
                 );
             }
         });
     });
 
-    test("getChildren should return correct child nodes", async () => {
-        // Mock the NotebookMetadataManager
-        const mockMetadataManager = {
-            getAllMetadata: () => [
-                {
-                    codexFsPath: "/path/to/Genesis.codex",
-                    sourceFsPath: "/path/to/source/Genesis.usfm",
-                },
-                {
-                    codexFsPath: "/path/to/Exodus.codex",
-                    sourceFsPath: "/path/to/source/Exodus.usfm",
-                },
-            ],
+    test("getChildren should return correct items", async () => {
+        // Mock the file system results
+        const mockCodexUris = [
+            vscode.Uri.file("/path/to/Genesis.codex"),
+            vscode.Uri.file("/path/to/Exodus.codex"),
+        ];
+        const mockDictUris = [vscode.Uri.file("/path/to/Hebrew.dictionary")];
+
+        // Mock workspace.findFiles
+        const originalFindFiles = vscode.workspace.findFiles;
+        vscode.workspace.findFiles = async (pattern: vscode.GlobPattern) => {
+            if (pattern.toString().includes(".codex")) {
+                return mockCodexUris;
+            } else if (pattern.toString().includes(".dictionary")) {
+                return mockDictUris;
+            }
+            return [];
         };
-        (provider as any).model.notebookMetadataManager = mockMetadataManager;
 
-        const rootNodes = await provider.getChildren();
-        assert.ok(Array.isArray(rootNodes), "Root nodes should be an array");
-        assert.strictEqual(rootNodes.length, 1, "There should be one root node (Old Testament)");
+        try {
+            await provider.refresh();
+            const topLevelItems = await provider.getChildren();
 
-        const oldTestamentNode = rootNodes[0];
-        const bookNodes = await provider.getChildren(oldTestamentNode);
-        assert.strictEqual(bookNodes.length, 2, "There should be two book nodes");
-        assert.strictEqual(bookNodes[0].label, "Genesis", "First book should be Genesis");
-        assert.strictEqual(bookNodes[1].label, "Exodus", "Second book should be Exodus");
+            assert.ok(Array.isArray(topLevelItems), "Top level items should be an array");
+            assert.strictEqual(topLevelItems.length, 3, "Should have three items total");
 
-        // You might want to add more assertions here to test the structure and content of the tree
+            const codexItems = topLevelItems.filter((item) => item.type === "codexDocument");
+            const dictItems = topLevelItems.filter((item) => item.type === "dictionary");
+
+            assert.strictEqual(codexItems.length, 2, "Should have two codex items");
+            assert.strictEqual(dictItems.length, 1, "Should have one dictionary item");
+
+            assert.strictEqual(
+                codexItems[0].label,
+                "Genesis Codex",
+                "First codex should be Genesis"
+            );
+            assert.strictEqual(
+                codexItems[1].label,
+                "Exodus Codex",
+                "Second codex should be Exodus"
+            );
+            assert.strictEqual(
+                dictItems[0].label,
+                "Hebrew Dictionary",
+                "Dictionary should be Hebrew"
+            );
+        } finally {
+            // Restore original findFiles
+            vscode.workspace.findFiles = originalFindFiles;
+        }
     });
 });

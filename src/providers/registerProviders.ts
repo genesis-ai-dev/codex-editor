@@ -1,8 +1,7 @@
 import * as vscode from "vscode";
 import { CodexCellEditorProvider } from "./codexCellEditorProvider/codexCellEditorProvider";
-import { registerSourceControl } from "./sourceControl/sourceControlProvider";
-import { CodexNotebookTreeViewProvider } from "../providers/treeViews/navigationTreeViewProvider";
-import { getNotebookMetadataManager } from "../extension";
+import { NextGenCodexTreeViewProvider } from "./treeViews/nextGenCodexTreeViewProvider";
+import { openCodexFile } from "./treeViews/nextGenCodexTreeViewProvider";
 
 export function registerProviders(context: vscode.ExtensionContext) {
     const disposables: vscode.Disposable[] = [];
@@ -14,13 +13,29 @@ export function registerProviders(context: vscode.ExtensionContext) {
     // const sourceControlProvider = registerSourceControl(context);
     // disposables.push(sourceControlProvider);
 
-    // Register CodexNotebookTreeViewProvider
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const codexNotebookTreeViewProvider = new CodexNotebookTreeViewProvider(workspaceRoot, context);
+    // Register NextGenCodexTreeViewProvider
+    const nextGenCodexTreeViewProvider = new NextGenCodexTreeViewProvider(context);
+    const treeView = vscode.window.createTreeView("codexNotebookTreeView", {
+        treeDataProvider: nextGenCodexTreeViewProvider,
+        showCollapseAll: true,
+    });
+
     disposables.push(
-        vscode.window.registerTreeDataProvider(
-            "codexNotebookTreeView",
-            codexNotebookTreeViewProvider
+        treeView,
+        nextGenCodexTreeViewProvider,
+        vscode.commands.registerCommand(
+            "nextGenCodexTreeView.openFile",
+            async (uri: vscode.Uri) => {
+                try {
+                    await openCodexFile(uri);
+                } catch (error) {
+                    console.error("Failed to open codex file:", error);
+                    vscode.window.showErrorMessage(`Failed to open codex file: ${error}`);
+                }
+            }
+        ),
+        vscode.commands.registerCommand("codexNotebookTreeView.refresh", () =>
+            nextGenCodexTreeViewProvider.refresh()
         )
     );
 

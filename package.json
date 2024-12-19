@@ -158,14 +158,9 @@
                     "group": "navigation"
                 },
                 {
-                    "command": "codexNotebookTreeView.openSection",
-                    "when": "view == codexNotebookTreeView",
+                    "command": "nextGenCodexTreeView.openFile",
+                    "when": "view == codexNotebookTreeView && viewItem == codexDocument",
                     "group": "navigation"
-                },
-                {
-                    "command": "codexNotebookTreeView.openSourceFile",
-                    "when": "view == codexNotebookTreeView && viewItem == document",
-                    "group": "inline"
                 }
             ],
             "editor/title": [
@@ -677,6 +672,11 @@
             {
                 "command": "extension.importWiktionaryJSONL",
                 "title": "Import Wiktionary"
+            },
+            {
+                "command": "nextGenCodexTreeView.openFile",
+                "title": "Open Codex File",
+                "icon": "$(book)"
             }
         ],
         "notebooks": [
