@@ -10,9 +10,17 @@ interface CellItemProps {
     onPinToggle: (item: TranslationPair, isPinned: boolean) => void;
 }
 
+const stripHtmlTags = (html: string) => {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    return doc.body.textContent || "";
+};
+
 const CellItem: React.FC<CellItemProps> = ({ item, onUriClick, isPinned, onPinToggle }) => {
-    const handleCopy = (text: string) => {
-        navigator.clipboard.writeText(text);
+    const handleCopy = () => {
+        const cleanText = `${stripHtmlTags(item.sourceCell.content || "")}\n${stripHtmlTags(
+            item.targetCell.content || ""
+        )}`;
+        navigator.clipboard.writeText(cleanText);
     };
 
     const getTargetUri = (uri: string): string => {
@@ -45,10 +53,7 @@ const CellItem: React.FC<CellItemProps> = ({ item, onUriClick, isPinned, onPinTo
                         <p className="verse-text">{item.sourceCell.content}</p>
                     </div>
                     <div className="verse-buttons">
-                        <VSCodeButton
-                            appearance="secondary"
-                            onClick={() => handleCopy(item.sourceCell.content || "")}
-                        >
+                        <VSCodeButton appearance="secondary" onClick={handleCopy}>
                             <span className="codicon codicon-copy button-icon"></span>
                             Copy
                         </VSCodeButton>
@@ -73,10 +78,7 @@ const CellItem: React.FC<CellItemProps> = ({ item, onUriClick, isPinned, onPinTo
                         ></p>
                     </div>
                     <div className="verse-buttons">
-                        <VSCodeButton
-                            appearance="secondary"
-                            onClick={() => handleCopy(item.targetCell.content || "")}
-                        >
+                        <VSCodeButton appearance="secondary" onClick={handleCopy}>
                             <span className="codicon codicon-copy button-icon"></span>
                             Copy
                         </VSCodeButton>
