@@ -16,62 +16,6 @@
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-.session-controls-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 12px;
-}
-
-.session-search {
-    flex-grow: 1;
-    margin-left: 16px;
-}
-
-.session-search vscode-text-field {
-    width: 100%;
-}
-
-.session-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 12px;
-}
-
-.session-chip {
-    background-color: var(--vscode-button-secondaryBackground);
-    color: var(--vscode-button-secondaryForeground);
-    padding: 6px 12px;
-    border-radius: 16px;
-    font-size: 12px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    border: 1px solid transparent;
-}
-
-.session-chip:hover {
-    background-color: var(--vscode-button-secondaryHoverBackground);
-    border-color: var(--vscode-focusBorder);
-}
-
-.session-chip.active {
-    background-color: var(--vscode-button-background);
-    color: var(--vscode-button-foreground);
-    font-weight: bold;
-}
-
-.current-session-info {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 12px;
-    color: var(--vscode-descriptionForeground);
-    margin-top: 12px;
-    padding-top: 12px;
-    border-top: 1px solid var(--vscode-widget-border);
-}
-
 /* Pinned verses styles */
 .pinned-verses {
     background-color: var(--vscode-editor-background);
@@ -119,14 +63,6 @@
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
     border-color: var(--vscode-focusBorder);
 }
-
-.pinned-verse-id.target-passage {
-    background-color: var(--vscode-charts-green);
-    color: var(--vscode-foreground);
-    font-weight: bold;
-    border-color: var(--vscode-charts-green);
-}
-
 /* Chat history styles */
 .message-history {
     flex: 1;
@@ -153,11 +89,11 @@
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
-.chat-message.user {
+/* .chat-message.user {
     align-self: flex-end;
     background-color: var(--vscode-button-background);
     color: var(--vscode-button-foreground);
-}
+} */
 
 .chat-message.assistant {
     align-self: flex-start;
@@ -275,70 +211,7 @@
         transform: rotate(360deg);
     }
 }
-
-/* Additional styles from TeachTab.css */
-.current-passage {
-    position: static;
-    background-color: var(--vscode-activityBarBadge-background);
-    color: var(--vscode-activityBarBadge-foreground);
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 12px;
-    font-weight: bold;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-    margin-bottom: 8px;
-}
-
-.current-passage h3 {
-    margin: 0;
-    font-size: 12px;
-    font-weight: bold;
-}
-
-.select-target-instruction {
-    margin-bottom: 8px;
-    font-style: italic;
-    color: var(--vscode-descriptionForeground);
-}
-
-.suggestion {
-    margin-bottom: 8px;
-    color: var(--vscode-descriptionForeground);
-    cursor: pointer;
-    font-size: 12px;
-}
-
-.code {
-    font-family: var(--vscode-editor-font-family);
-    font-size: 12px;
-    background-color: var(--vscode-textCodeBlock-background);
-    padding: 8px;
-    border-radius: 3px;
-    overflow-x: auto;
-    color: var(--vscode-foreground);
-}
-
-.new-memory {
-    background-color: var(--vscode-textBlockQuote-background);
-    font-family: var(--vscode-editor-font-family);
-    font-size: 12px;
-    color: var(--vscode-foreground);
-    padding: 8px;
-    border-left: 3px solid var(--vscode-textBlockQuote-border);
-}
-
-.new-memory:empty {
-    display: none;
-}
-
 /* Additional styles from ChatTab.css */
-.chat-container {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    padding: 16px;
-}
-
 .chat-pinned-verses {
     background-color: var(--vscode-editor-background);
     border: 1px solid var(--vscode-widget-border);
