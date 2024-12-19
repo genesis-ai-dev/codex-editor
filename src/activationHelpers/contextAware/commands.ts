@@ -13,47 +13,16 @@ import {
     indexVerseRefsInSourceText,
 } from "../../commands/indexVrefsCommand";
 import { setTargetFont } from "../../projectManager/projectInitializers";
-
-import { CodexNotebookTreeViewProvider } from "../../providers/treeViews/navigationTreeViewProvider";
-import { getWorkSpaceFolder } from "../../utils";
 import {
     generateVerseContext,
     getBibleDataRecordById as getBibleDataRecordById,
     TheographicBibleDataRecord,
-    Verse,
 } from "./sourceData";
 import { exportCodexContent } from "../../commands/exportHandler";
-import debounce from "lodash/debounce";
 import { DownloadBibleTransaction } from "../../transactions/DownloadBibleTransaction";
 import { getExtendedEbibleMetadataByLanguageNameOrCode } from "../../utils/ebible/ebibleCorpusUtils";
 
-const ROOT_PATH = getWorkSpaceFolder();
-
 export async function registerCommands(context: vscode.ExtensionContext) {
-    const navigationTreeViewProvider = new CodexNotebookTreeViewProvider(ROOT_PATH, context);
-    vscode.window.registerTreeDataProvider("codexNotebookTreeView", navigationTreeViewProvider);
-
-    // Create a debounced refresh function
-    const debouncedRefresh = debounce(async () => {
-        console.log("Commands: Triggering debounced refresh");
-        try {
-            // Clear the metadata cache before refreshing
-            await navigationTreeViewProvider.model.invalidateCache();
-            navigationTreeViewProvider.refresh();
-        } catch (error) {
-            console.error("Commands: Error during refresh:", error);
-            vscode.window.showErrorMessage("Failed to refresh navigation tree");
-        }
-    }, 500);
-
-    const navigationExplorerRefreshCommand = vscode.commands.registerCommand(
-        "codexNotebookTreeView.refresh",
-        () => {
-            console.log("Commands: Refresh command triggered");
-            return debouncedRefresh();
-        }
-    );
-
     const indexVrefsCommand = vscode.commands.registerCommand(
         "codex-editor-extension.indexVrefs",
         indexVerseRefsInSourceText
@@ -244,21 +213,6 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
-    const navigationExplorerOpenChapterCommand = vscode.commands.registerCommand(
-        "codexNotebookTreeView.openSection",
-        async (resource: vscode.Uri, cellId?: string) => {
-            try {
-                await navigationTreeViewProvider.openSection(resource, cellId);
-            } catch (error) {
-                if (error instanceof Error) {
-                    vscode.window.showErrorMessage(`Failed to open notebook: ${error.message}`);
-                } else {
-                    vscode.window.showErrorMessage("Failed to open notebook: Unknown error");
-                }
-            }
-        }
-    );
-
     // Add to your command registration
     const downloadSourceBibleCommand = vscode.commands.registerCommand(
         "codex-editor-extension.downloadSourceBible",
@@ -315,8 +269,6 @@ export async function registerCommands(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        navigationTreeViewProvider,
-        navigationExplorerRefreshCommand,
         indexVrefsCommand,
         searchIndexCommand,
         notebookSerializer,
@@ -333,7 +285,6 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         openSourceUploadCommand,
         uploadSourceFolderCommand,
         uploadTranslationFolderCommand,
-        navigationExplorerOpenChapterCommand,
         downloadSourceBibleCommand
     );
 }
