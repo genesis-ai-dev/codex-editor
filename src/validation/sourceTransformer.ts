@@ -32,12 +32,13 @@ export class SourceTransformer {
         }
     }
 
-    private async transformWebVTT(content: string, baseName: string) {
+    private async transformWebVTT(content: string, unprocessedBaseName: string) {
+        const baseNameAsId = unprocessedBaseName.replace(/[^a-zA-Z0-9]/g, "-");
         const parser = new WebVTTParser();
         const parsed = parser.parse(content);
 
-        const sourceNotebook = this.createNotebookPreview("source", baseName);
-        const codexNotebook = this.createNotebookPreview("codex", baseName);
+        const sourceNotebook = this.createNotebookPreview("source", unprocessedBaseName);
+        const codexNotebook = this.createNotebookPreview("codex", unprocessedBaseName);
 
         // Add a chapter heading cell first
         const chapterHeadingCell = {
@@ -46,7 +47,7 @@ export class SourceTransformer {
             languageId: "html",
             metadata: {
                 type: CodexCellTypes.PARATEXT,
-                id: `${baseName} 1:0`,
+                id: `${baseNameAsId} 1:0`,
                 data: {},
             },
         };
@@ -56,7 +57,7 @@ export class SourceTransformer {
         // Add navigation for the chapter heading
         const navigationCells = [
             {
-                cellId: `${baseName} 1:0`,
+                cellId: `${baseNameAsId} 1:0`,
                 children: [],
                 label: "Chapter 1",
             },
@@ -64,7 +65,7 @@ export class SourceTransformer {
 
         for (const cue of parsed.cues) {
             // Generate a unique identifier for the cue that matches the expected format
-            const cueId = `${baseName} 1:cue-${cue.startTime}-${cue.endTime}`;
+            const cueId = `${baseNameAsId} 1:cue-${cue.startTime}-${cue.endTime}`;
 
             // Add cell to source notebook
             const sourceCell = {
@@ -98,8 +99,8 @@ export class SourceTransformer {
 
         // Update metadata for both notebooks
         const notebookMetadata = {
-            id: baseName,
-            originalName: baseName,
+            id: baseNameAsId,
+            originalName: unprocessedBaseName,
             sourceFsPath: undefined,
             codexFsPath: undefined,
             navigation: navigationCells,

@@ -242,7 +242,6 @@ export type SourceUploadPostMessages =
     | { command: "confirmBibleDownload"; transaction: DownloadBibleTransaction }
     | { command: "cancelBibleDownload"; transaction: DownloadBibleTransaction }
     | { command: "getMetadata" }
-    | { command: "createSourceFolder"; data: { sourcePath: string } }
     | { command: "importRemoteTranslation" }
     | { command: "importLocalTranslation" }
     | { command: "closePanel" }
