@@ -460,8 +460,8 @@ export const exportUserEntries = (db: Database) => {
     }
     const exportPath = vscode.Uri.joinPath(workspaceFolder.uri, "files", "project.dictionary");
     if (exportPath) {
+        // Export user entries to a file for persistence
         vscode.workspace.fs.writeFile(exportPath, Buffer.from(jsonlContent, "utf-8"));
-        vscode.window.showInformationMessage(`User dictionary entries exported successfully`);
     }
 };
 

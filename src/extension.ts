@@ -41,7 +41,6 @@ import { NotebookMetadataManager } from "./utils/notebookMetadataManager";
 import { stageAndCommitAllAndSync } from "./projectManager/utils/projectUtils";
 import { FrontierAPI } from "../webviews/codex-webviews/src/StartupFLow/types";
 import { waitForExtensionActivation } from "./utils/vscode";
-import { performance } from "perf_hooks";
 
 interface ActivationTiming {
     step: string;
@@ -52,10 +51,10 @@ interface ActivationTiming {
 const activationTimings: ActivationTiming[] = [];
 
 function trackTiming(step: string, startTime: number) {
-    const duration = performance.now() - startTime;
+    const duration = globalThis.performance.now() - startTime;
     activationTimings.push({ step, duration, startTime });
     console.log(`[Activation] ${step}: ${duration.toFixed(2)}ms`);
-    return performance.now();
+    return globalThis.performance.now();
 }
 
 declare global {
@@ -73,7 +72,7 @@ let notebookMetadataManager: NotebookMetadataManager;
 let authApi: FrontierAPI | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
-    const activationStart = performance.now();
+    const activationStart = globalThis.performance.now();
     let stepStart = activationStart;
 
     try {
@@ -245,7 +244,7 @@ export async function activate(context: vscode.ExtensionContext) {
         context.subscriptions.push(autoCompleteStatusBarItem);
 
         // Show activation summary
-        const totalDuration = performance.now() - activationStart;
+        const totalDuration = globalThis.performance.now() - activationStart;
         trackTiming("Total Activation Time", activationStart);
 
         // Sort timings by duration (descending) and format the message
@@ -257,20 +256,22 @@ export async function activate(context: vscode.ExtensionContext) {
             ...sortedTimings.slice(0, 5).map((t) => `${t.step}: ${t.duration.toFixed(2)}ms`),
         ].join("\n");
 
+        console.info(summaryMessage);
+
         // Show notification with details
-        vscode.window
-            .showInformationMessage(summaryMessage, "Show All Timings")
-            .then((selection) => {
-                if (selection === "Show All Timings") {
-                    // Create and show output channel with complete timing information
-                    const channel = vscode.window.createOutputChannel("Codex Editor Activation");
-                    channel.appendLine("Complete activation timing breakdown:");
-                    sortedTimings.forEach((t) => {
-                        channel.appendLine(`${t.step}: ${t.duration.toFixed(2)}ms`);
-                    });
-                    channel.show();
-                }
-            });
+        // vscode.window
+        //     .showInformationMessage(summaryMessage, "Show All Timings")
+        //     .then((selection) => {
+        //         if (selection === "Show All Timings") {
+        //             // Create and show output channel with complete timing information
+        //             const channel = vscode.window.createOutputChannel("Codex Editor Activation");
+        //             channel.appendLine("Complete activation timing breakdown:");
+        //             sortedTimings.forEach((t) => {
+        //                 channel.appendLine(`${t.step}: ${t.duration.toFixed(2)}ms`);
+        //             });
+        //             channel.show();
+        //         }
+        //     });
     } catch (error) {
         console.error("Error during extension activation:", error);
         vscode.window.showErrorMessage(`Failed to activate Codex Editor: ${error}`);
@@ -278,7 +279,7 @@ export async function activate(context: vscode.ExtensionContext) {
 }
 
 async function initializeExtension(context: vscode.ExtensionContext, metadataExists: boolean) {
-    const initStart = performance.now();
+    const initStart = globalThis.performance.now();
     let stepStart = initStart;
 
     console.log("Initializing extension");
@@ -294,7 +295,7 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
         registerTextSelectionHandler(context, () => undefined);
 
         // Break down language server initialization
-        const lsStart = performance.now();
+        const lsStart = globalThis.performance.now();
         client = await registerLanguageServer(context);
         if (client && global.db) {
             stepStart = trackTiming("  • Language Server Setup", lsStart);
@@ -313,7 +314,7 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
         trackTiming("• Total Language Server", lsStart);
 
         // Break down index creation
-        const indexStart = performance.now();
+        const indexStart = globalThis.performance.now();
         stepStart = trackTiming("  • Index Verse Refs", indexStart);
         await indexVerseRefsInSourceText();
 
