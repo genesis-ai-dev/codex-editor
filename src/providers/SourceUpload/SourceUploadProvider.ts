@@ -1,7 +1,9 @@
 import * as vscode from "vscode";
 import { importTranslations } from "../../projectManager/translationImporter";
-import { NotebookMetadataManager, getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
-import { importSourceText } from "../../projectManager/sourceTextImporter";
+import {
+    NotebookMetadataManager,
+    getNotebookMetadataManager,
+} from "../../utils/notebookMetadataManager";
 import { registerScmCommands } from "../scm/scmActionHandler";
 import {
     CodexNotebookAsJSONData,
@@ -410,12 +412,6 @@ export class SourceUploadProvider
                     //         vscode.window.showErrorMessage("File URI is null");
                     //     }
                     //     break;
-                    case "createSourceFolder": {
-                        if (message.data?.sourcePath) {
-                            await this.handleSourceFileSetup(webviewPanel, message.data.sourcePath);
-                        }
-                        break;
-                    }
                     case "selectSourceFile": {
                         try {
                             const fileUri = await vscode.window.showOpenDialog({
@@ -588,7 +584,9 @@ export class SourceUploadProvider
                                 name: meta.originalName || path.basename(meta.codexFsPath!),
                                 path: meta.codexFsPath!,
                             }));
-                        this.availableCodexFiles = codexFiles.map((f: CodexFile) => vscode.Uri.file(f.path));
+                        this.availableCodexFiles = codexFiles.map((f: CodexFile) =>
+                            vscode.Uri.file(f.path)
+                        );
 
                         webviewPanel.webview.postMessage({
                             command: "availableCodexFiles",
@@ -817,65 +815,6 @@ export class SourceUploadProvider
                 <script nonce="${nonce}" src="${scriptUri}"></script>
             </body>
             </html>`;
-    }
-
-    private async handleSourceFileSetup(webviewPanel: vscode.WebviewPanel, sourcePath: string) {
-        const validator = new SourceFileValidator();
-
-        try {
-            const sendStatus = (
-                status: Record<string, "pending" | "active" | "complete" | "error">
-            ) => {
-                webviewPanel.webview.postMessage({
-                    command: "updateProcessingStatus",
-                    status,
-                } as SourceUploadResponseMessages);
-            };
-
-            // Update processing status
-            sendStatus({ fileValidation: "active" });
-
-            // Validate file
-            const sourceUri = vscode.Uri.parse(sourcePath);
-            const validationResult = await validator.validateSourceFile(sourceUri);
-            if (!validationResult.isValid) {
-                throw new Error(
-                    `Validation failed: ${validationResult.errors.map((e) => e.message).join(", ")}`
-                );
-            }
-
-            sendStatus({
-                fileValidation: "complete",
-                folderCreation: "active",
-            });
-
-            // Import the source text
-            await importSourceText(this.context, sourceUri);
-
-            sendStatus({
-                fileValidation: "complete",
-                folderCreation: "complete",
-                metadataSetup: "complete",
-                importComplete: "complete",
-            });
-
-            // Signal completion
-            webviewPanel.webview.postMessage({
-                command: "setupComplete",
-                data: { path: sourcePath },
-            } as SourceUploadResponseMessages);
-
-            // Update metadata after successful import
-            await this.updateMetadata(webviewPanel);
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
-            console.error("Error in source file setup:", error);
-            webviewPanel.webview.postMessage({
-                command: "error",
-                message: `Failed to setup source file: ${errorMessage}`,
-            } as SourceUploadResponseMessages);
-            throw error;
-        }
     }
 
     // New method to generate preview
@@ -1123,17 +1062,18 @@ export class SourceUploadProvider
             for (const uri of fileUris) {
                 const fileExtension = uri.fsPath.split(".").pop()?.toLowerCase();
                 const fileType = fileTypeMap[fileExtension as keyof typeof fileTypeMap];
-                
+
                 try {
-                    const transaction = fileType === "usfm"
-                        ? new UsfmSourceImportTransaction(uri, this.context)
-                        : new SourceImportTransaction(uri, this.context);
+                    const transaction =
+                        fileType === "usfm"
+                            ? new UsfmSourceImportTransaction(uri, this.context)
+                            : new SourceImportTransaction(uri, this.context);
                     transactions.push(transaction);
                 } catch (error) {
                     const errorMessage = error instanceof Error ? error.message : "Unknown error";
-                    errors.push({ 
+                    errors.push({
                         fileName: path.basename(uri.fsPath),
-                        error: `Failed to create transaction: ${errorMessage}`
+                        error: `Failed to create transaction: ${errorMessage}`,
                     });
                 }
             }
@@ -1158,32 +1098,40 @@ export class SourceUploadProvider
                                 id: transaction.getId(),
                                 fileName: path.basename(transaction.getState().sourceFile.fsPath),
                                 fileSize: (
-                                    await vscode.workspace.fs.stat(transaction.getState().sourceFile)
+                                    await vscode.workspace.fs.stat(
+                                        transaction.getState().sourceFile
+                                    )
                                 ).size,
                                 preview: {
                                     type: "source",
                                     original: {
                                         preview: rawPreview.originalContent.preview,
-                                        validationResults: rawPreview.originalContent.validationResults,
+                                        validationResults:
+                                            rawPreview.originalContent.validationResults,
                                     },
                                     transformed: {
-                                        sourceNotebooks: rawPreview.transformedContent.sourceNotebooks,
-                                        codexNotebooks: rawPreview.transformedContent.codexNotebooks,
+                                        sourceNotebooks:
+                                            rawPreview.transformedContent.sourceNotebooks,
+                                        codexNotebooks:
+                                            rawPreview.transformedContent.codexNotebooks,
                                         validationResults:
                                             rawPreview.transformedContent.validationResults,
                                     },
                                 },
                             });
                         } catch (error) {
-                            const errorMessage = error instanceof Error ? error.message : "Unknown error";
-                            const fileName = path.basename(transaction.getState().sourceFile.fsPath);
-                            
+                            const errorMessage =
+                                error instanceof Error ? error.message : "Unknown error";
+                            const fileName = path.basename(
+                                transaction.getState().sourceFile.fsPath
+                            );
+
                             // For USFM files, provide more specific error messaging
-                            const isUsfm = fileName.toLowerCase().endsWith('.usfm');
-                            const formattedError = isUsfm 
+                            const isUsfm = fileName.toLowerCase().endsWith(".usfm");
+                            const formattedError = isUsfm
                                 ? `USFM Syntax Error: ${errorMessage}`
                                 : `Error preparing preview: ${errorMessage}`;
-                            
+
                             errors.push({ fileName, error: formattedError });
                             await transaction.rollback();
                         }
@@ -1202,8 +1150,8 @@ export class SourceUploadProvider
                 }
 
                 // Execute successful transactions in parallel with progress
-                const successfulTransactions = batch.filter(transaction => 
-                    batchPreviews.some(preview => preview.id === transaction.getId())
+                const successfulTransactions = batch.filter((transaction) =>
+                    batchPreviews.some((preview) => preview.id === transaction.getId())
                 );
 
                 if (successfulTransactions.length > 0) {
@@ -1234,11 +1182,22 @@ export class SourceUploadProvider
                             await Promise.all(
                                 successfulTransactions.map(async (transaction) => {
                                     try {
-                                        await transaction.execute({ report: progressCallback }, token);
+                                        await transaction.execute(
+                                            { report: progressCallback },
+                                            token
+                                        );
                                     } catch (error) {
-                                        const errorMessage = error instanceof Error ? error.message : "Unknown error";
-                                        const fileName = path.basename(transaction.getState().sourceFile.fsPath);
-                                        errors.push({ fileName, error: `Error during import: ${errorMessage}` });
+                                        const errorMessage =
+                                            error instanceof Error
+                                                ? error.message
+                                                : "Unknown error";
+                                        const fileName = path.basename(
+                                            transaction.getState().sourceFile.fsPath
+                                        );
+                                        errors.push({
+                                            fileName,
+                                            error: `Error during import: ${errorMessage}`,
+                                        });
                                         await transaction.rollback();
                                     }
                                 })
@@ -1250,7 +1209,7 @@ export class SourceUploadProvider
 
             // Send completion message with any errors
             if (errors.length > 0) {
-                const errorSummary = errors.map(e => `${e.fileName}: ${e.error}`).join('\n');
+                const errorSummary = errors.map((e) => `${e.fileName}: ${e.error}`).join("\n");
                 webviewPanel.webview.postMessage({
                     command: "error",
                     message: `Completed with errors:\n${errorSummary}`,
@@ -1263,7 +1222,7 @@ export class SourceUploadProvider
                     totalFiles: files.length,
                     successfulImports: transactions.length - errors.length,
                     failedImports: errors.length,
-                }
+                },
             } as SourceUploadResponseMessages);
 
             // Trigger reindex after successful import
@@ -1279,7 +1238,7 @@ export class SourceUploadProvider
             } as SourceUploadResponseMessages);
 
             // Attempt to rollback all transactions
-            await Promise.all(transactions.map(t => t.rollback().catch(console.error)));
+            await Promise.all(transactions.map((t) => t.rollback().catch(console.error)));
         }
     }
 
@@ -1289,7 +1248,8 @@ export class SourceUploadProvider
         token: vscode.CancellationToken
     ): Promise<void> {
         const BATCH_SIZE = 5;
-        const transactions: (TranslationImportTransaction | UsfmTranslationImportTransaction)[] = [];
+        const transactions: (TranslationImportTransaction | UsfmTranslationImportTransaction)[] =
+            [];
 
         try {
             // Create transactions for each file
@@ -1298,10 +1258,11 @@ export class SourceUploadProvider
                 const fileExtension = tempUri.fsPath.split(".").pop()?.toLowerCase();
                 const fileType = fileTypeMap[fileExtension as keyof typeof fileTypeMap];
 
-                const transaction = fileType === "usfm"
-                    ? new UsfmTranslationImportTransaction(tempUri, file.sourceId, this.context)
-                    : new TranslationImportTransaction(tempUri, file.sourceId, this.context);
-                    
+                const transaction =
+                    fileType === "usfm"
+                        ? new UsfmTranslationImportTransaction(tempUri, file.sourceId, this.context)
+                        : new TranslationImportTransaction(tempUri, file.sourceId, this.context);
+
                 transactions.push(transaction);
             }
 

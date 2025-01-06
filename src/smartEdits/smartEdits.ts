@@ -9,7 +9,6 @@ import {
 import * as vscode from "vscode";
 import * as path from "path";
 import { diffWords } from "diff";
-import * as fs from "fs/promises";
 
 const SYSTEM_MESSAGE = `You are a helpful assistant. Given similar edits across a corpus, you will suggest edits to a new text. 
 Your suggestions should follow this format:
@@ -49,6 +48,22 @@ export class SmartEdits {
         this.chatbot = new Chatbot(SYSTEM_MESSAGE);
         this.smartEditsPath = path.join(workspaceUri.fsPath, "files", "smart_edits.json");
         this.teachFile = path.join(workspaceUri.fsPath, "files", "silver_path_memories.json");
+
+        this.ensureFileExists(this.smartEditsPath);
+        this.ensureFileExists(this.teachFile);
+    }
+
+    private async ensureFileExists(filePath: string): Promise<void> {
+        const fileUri = vscode.Uri.file(filePath);
+        try {
+            await vscode.workspace.fs.stat(fileUri);
+        } catch (error) {
+            if ((error as any).code === "FileNotFound") {
+                await vscode.workspace.fs.writeFile(fileUri, new Uint8Array());
+            } else {
+                throw error;
+            }
+        }
     }
 
     async getEdits(text: string, cellId: string): Promise<SmartSuggestion[]> {
@@ -100,9 +115,10 @@ export class SmartEdits {
         try {
             const fileUri = vscode.Uri.file(this.smartEditsPath);
             const fileContent = await vscode.workspace.fs.readFile(fileUri);
-            const savedEdits: { [key: string]: SavedSuggestions } = JSON.parse(
-                fileContent.toString()
-            );
+            const fileString = fileContent.toString();
+            const savedEdits: { [key: string]: SavedSuggestions } = fileString
+                ? JSON.parse(fileString)
+                : {};
             const result = savedEdits[cellId] || null;
             return result;
         } catch (error) {
@@ -118,11 +134,13 @@ export class SmartEdits {
     ): Promise<void> {
         if (suggestions.length === 0) return;
         try {
+            const fileUri = vscode.Uri.file(this.smartEditsPath);
             let savedEdits: { [key: string]: SavedSuggestions } = {};
+
             try {
-                const fileUri = vscode.Uri.file(this.smartEditsPath);
                 const fileContent = await vscode.workspace.fs.readFile(fileUri);
-                savedEdits = JSON.parse(fileContent.toString());
+                const fileString = fileContent.toString();
+                savedEdits = fileString ? JSON.parse(fileString) : {};
             } catch (error) {
                 console.log("No existing saved edits found, starting with empty object");
             }
@@ -134,7 +152,6 @@ export class SmartEdits {
                 lastUpdatedDate: new Date().toISOString(),
             };
 
-            const fileUri = vscode.Uri.file(this.smartEditsPath);
             await vscode.workspace.fs.writeFile(
                 fileUri,
                 Buffer.from(JSON.stringify(savedEdits, null, 2))
@@ -171,8 +188,9 @@ export class SmartEdits {
                     filePath = filePath.replace(".source", ".codex");
                     const fileUri = vscode.Uri.parse(filePath);
                     const fileContent = await vscode.workspace.fs.readFile(fileUri);
-                    const jsonContent = JSON.parse(fileContent.toString());
-                    const cell = jsonContent.cells.find(
+                    const fileString = fileContent.toString();
+                    const jsonContent = fileString ? JSON.parse(fileString) : { cells: [] };
+                    const cell = jsonContent.cells?.find(
                         (cell: any) => cell.metadata.id === entry.cellId
                     );
                     if (cell) {
@@ -273,8 +291,10 @@ export class SmartEdits {
         [cellId: string]: { content: string; times_used: number };
     }> {
         try {
-            const data = await fs.readFile(this.teachFile, "utf-8");
-            return JSON.parse(data);
+            const fileUri = vscode.Uri.file(this.teachFile);
+            const fileContent = await vscode.workspace.fs.readFile(fileUri);
+            const fileString = fileContent.toString();
+            return fileString ? JSON.parse(fileString) : {};
         } catch (error) {
             console.error("Error reading memories:", error);
             return {};

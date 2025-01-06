@@ -27,6 +27,10 @@ type StartupFlowContext = {
         isLoading: boolean;
         error: undefined | string;
         gitlabInfo: undefined | any; // Replace 'any' with specific type if available
+        workspaceState: {
+            isWorkspaceOpen: boolean;
+            isProjectInitialized: boolean;
+        };
     };
 };
 
@@ -60,6 +64,29 @@ export const startupFlowMachine = setup({
         context: StartupFlowContext;
         events: StartupFlowEvent;
     },
+    guards: {
+        hasNoOpenWorkspace: ({ context }) => {
+            console.log(
+                "guards: hasNoOpenWorkspace check:",
+                !context.authState.workspaceState.isWorkspaceOpen
+            );
+            return !context.authState.workspaceState.isWorkspaceOpen;
+        },
+        hasInitializedProject: ({ context }) => {
+            const result =
+                context.authState.workspaceState.isWorkspaceOpen &&
+                context.authState.workspaceState.isProjectInitialized;
+            console.log("guards: hasInitializedProject check:", result);
+            return result;
+        },
+        hasNotInitializedProject: ({ context }) => {
+            const result =
+                context.authState.workspaceState.isWorkspaceOpen &&
+                !context.authState.workspaceState.isProjectInitialized;
+            console.log("guards: hasNotInitializedProject check:", result);
+            return result;
+        },
+    },
     actions: {
         updateAuthState: assign({
             authState: ({ event }) => {
@@ -78,6 +105,10 @@ export const startupFlowMachine = setup({
             isLoading: true,
             error: undefined,
             gitlabInfo: undefined,
+            workspaceState: {
+                isWorkspaceOpen: false,
+                isProjectInitialized: false,
+            },
         },
     },
     states: {
@@ -86,14 +117,40 @@ export const startupFlowMachine = setup({
                 [StartupFlowEvents.UPDATE_AUTH_STATE]: {
                     actions: "updateAuthState",
                 },
-                [StartupFlowEvents.AUTH_LOGGED_IN]: {
-                    target: StartupFlowStates.OPEN_OR_CREATE_PROJECT,
-                    actions: "updateAuthState",
-                },
-                [StartupFlowEvents.NO_AUTH_EXTENSION]: {
-                    target: StartupFlowStates.OPEN_OR_CREATE_PROJECT,
-                    actions: "updateAuthState",
-                },
+                [StartupFlowEvents.AUTH_LOGGED_IN]: [
+                    {
+                        target: StartupFlowStates.OPEN_OR_CREATE_PROJECT,
+                        cond: "hasNoOpenWorkspace",
+                        actions: "updateAuthState",
+                    },
+                    {
+                        target: StartupFlowStates.ALREADY_WORKING,
+                        cond: "hasInitializedProject",
+                        actions: "updateAuthState",
+                    },
+                    {
+                        target: StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
+                        cond: "hasNotInitializedProject",
+                        actions: "updateAuthState",
+                    },
+                ],
+                [StartupFlowEvents.NO_AUTH_EXTENSION]: [
+                    {
+                        target: StartupFlowStates.OPEN_OR_CREATE_PROJECT,
+                        cond: "hasNoOpenWorkspace",
+                        actions: "updateAuthState",
+                    },
+                    {
+                        target: StartupFlowStates.ALREADY_WORKING,
+                        cond: "hasInitializedProject",
+                        actions: "updateAuthState",
+                    },
+                    {
+                        target: StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
+                        cond: "hasNotInitializedProject",
+                        actions: "updateAuthState",
+                    },
+                ],
                 [StartupFlowEvents.SKIP_AUTH]: {
                     target: StartupFlowStates.OPEN_OR_CREATE_PROJECT,
                 },
@@ -105,7 +162,8 @@ export const startupFlowMachine = setup({
         [StartupFlowStates.OPEN_OR_CREATE_PROJECT]: {
             on: {
                 [StartupFlowEvents.BACK_TO_LOGIN]: StartupFlowStates.LOGIN_REGISTER,
-                [StartupFlowEvents.PROJECT_CREATE_EMPTY]: StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
+                [StartupFlowEvents.PROJECT_CREATE_EMPTY]:
+                    StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
                 [StartupFlowEvents.PROJECT_CLONE_OR_OPEN]: StartupFlowStates.ALREADY_WORKING,
                 [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]: StartupFlowStates.ALREADY_WORKING,
                 [StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT]:

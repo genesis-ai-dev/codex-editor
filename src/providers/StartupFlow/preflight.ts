@@ -13,7 +13,7 @@ interface AuthState {
     gitlabInfo?: any;
 }
 
-interface PreflightState {
+export interface PreflightState {
     authState: AuthState;
     workspaceState: {
         isOpen: boolean;
@@ -111,7 +111,7 @@ export class PreflightCheck {
             const isAuthenticated = await this.checkAuthentication();
             state.authState.isAuthenticated = isAuthenticated;
             state.authState.isLoading = false;
-            state.authState.isAuthExtensionInstalled = true;
+            state.authState.isAuthExtensionInstalled = !!this.frontierApi;
 
             // Subscribe to auth status changes
             this.subscribeToAuthChanges(() => {

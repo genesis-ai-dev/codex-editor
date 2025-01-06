@@ -2,11 +2,7 @@ import { getWorkSpaceUri } from "./../utils/index";
 import * as vscode from "vscode";
 import { CustomNotebookMetadata, FileType, SupportedFileExtension } from "../../types";
 import { fileTypeMap } from "./translationImporter";
-import {
-    importLocalUsfmSourceBible,
-    createCodexNotebookFromWebVTT,
-    splitSourceFileByBook,
-} from "../utils/codexNotebookUtils";
+import { importLocalUsfmSourceBible, splitSourceFileByBook } from "../utils/codexNotebookUtils";
 import {
     NotebookMetadataManager,
     getNotebookMetadataManager,
@@ -25,135 +21,10 @@ export async function validateSourceFile(fileUri: vscode.Uri): Promise<boolean> 
     }
 }
 
-export async function importSourceText(
-    context: vscode.ExtensionContext,
-    fileUri: vscode.Uri
-): Promise<void> {
-    const stat = await vscode.workspace.fs.stat(fileUri);
-    const isDirectory = stat.type === vscode.FileType.Directory;
-
-    if (isDirectory) {
-        await importSourceFolder(context, fileUri);
-    } else {
-        await importSourceFile(context, fileUri);
-    }
-}
-
-async function importSourceFolder(
-    context: vscode.ExtensionContext,
-    folderUri: vscode.Uri
-): Promise<void> {
-    const files = await vscode.workspace.fs.readDirectory(folderUri);
-    const usfmFileExtensions = [".usfm", ".sfm", ".SFM", ".USFM"];
-
-    for (const [fileName, fileType] of files) {
-        if (
-            fileType === vscode.FileType.File &&
-            usfmFileExtensions.some((ext) => fileName.toLowerCase().endsWith(ext))
-        ) {
-            const fileUri = vscode.Uri.joinPath(folderUri, fileName);
-            await importSourceFile(context, fileUri);
-        }
-    }
-
-    vscode.window.showInformationMessage("Source folder imported successfully.");
-}
-
 function getFileNameFromUri(fileUri: vscode.Uri): string {
     const fileNameWithExtension = path.basename(fileUri.fsPath);
     const fileName = path.parse(fileNameWithExtension).name || fileNameWithExtension;
     return fileName;
-}
-
-// Update the importSourceFile function to prevent duplicate file creation
-async function importSourceFile(
-    context: vscode.ExtensionContext,
-    fileUri: vscode.Uri
-): Promise<void> {
-    const fileExtension = fileUri.fsPath.split(".").pop()?.toLowerCase() as SupportedFileExtension;
-    const fileType = fileTypeMap[fileExtension] || "plaintext";
-
-    try {
-        // First validate the source file exists
-        const isValid = await validateSourceFile(fileUri);
-        if (!isValid) {
-            throw new Error(`Source file not found or invalid: ${fileUri.fsPath}`);
-        }
-
-        const metadataManager = getNotebookMetadataManager();
-        await metadataManager.initialize();
-        await metadataManager.loadMetadata();
-
-        const baseName = path.basename(fileUri.fsPath).split(".")[0] || `new_source`;
-        const notebookId = baseName; // Remove timestamp from ID generation
-
-        let importedNotebookIds: string[];
-
-        // Import based on file type
-        switch (fileType) {
-            case "subtitles": {
-                const fileContent = await vscode.workspace.fs.readFile(fileUri);
-                importedNotebookIds = [
-                    await createCodexNotebookFromWebVTT(
-                        new TextDecoder().decode(fileContent),
-                        notebookId
-                    ),
-                ];
-
-                break;
-            }
-            case "plaintext":
-                importedNotebookIds = [await importPlaintext(fileUri, notebookId)];
-                break;
-            case "usfm":
-                importedNotebookIds = await importUSFM(fileUri, notebookId);
-                break;
-            default:
-                throw new Error("Unsupported file type for source text.");
-        }
-
-        // Only create target notebooks after source is successfully imported
-        const workspaceFolderUri = getWorkSpaceUri();
-        if (!workspaceFolderUri) {
-            throw new Error("No workspace folder found. Cannot import source text.");
-        }
-
-        for (const importedNotebookId of importedNotebookIds) {
-            const sourceUri = vscode.Uri.joinPath(
-                workspaceFolderUri,
-                ".project",
-                "sourceTexts",
-                `${importedNotebookId}.source`
-            );
-
-            // Verify source file was created before creating target
-            const sourceExists = await validateSourceFile(sourceUri);
-            if (!sourceExists) {
-                throw new Error(`Source file was not created successfully: ${sourceUri.fsPath}`);
-            }
-
-            // Check if target notebook already exists
-            const codexUri = vscode.Uri.joinPath(
-                workspaceFolderUri,
-                "files",
-                "target",
-                `${importedNotebookId}.codex`
-            );
-
-            try {
-                const codexExists = await vscode.workspace.fs.stat(codexUri);
-                console.log(`Target notebook already exists: ${codexUri.fsPath}`, codexExists);
-            } catch {
-                // Create target notebook only if it doesn't exist
-                await createEmptyCodexNotebooks(importedNotebookId);
-            }
-        }
-
-        vscode.window.showInformationMessage("Source text imported successfully.");
-    } catch (error) {
-        console.error("Error importing source text:", error);
-        throw error;
-    }
 }
 
 // Helper function to wait for a file to exist
@@ -187,25 +58,6 @@ async function addMetadataToSourceFile(sourceUri: vscode.Uri, metadata: any): Pr
         console.error("Error adding metadata to source file:", error);
         throw error;
     }
-}
-
-async function importSubtitles(fileUri: vscode.Uri, notebookId: string): Promise<string> {
-    const fileContent = await vscode.workspace.fs.readFile(fileUri);
-    const fileContentString = new TextDecoder().decode(fileContent);
-    await createCodexNotebookFromWebVTT(fileContentString, notebookId);
-    return notebookId;
-}
-
-async function importPlaintext(fileUri: vscode.Uri, notebookId: string): Promise<string> {
-    // TODO: Implement plaintext import logic
-    // This might involve reading the file and creating a new Codex notebook
-    // with appropriate cell structure
-    throw new Error("Plaintext import not yet implemented");
-}
-
-async function importUSFM(fileUri: vscode.Uri, notebookId: string): Promise<string[]> {
-    const importedNotebookIds = await importLocalUsfmSourceBible(fileUri, notebookId);
-    return importedNotebookIds;
 }
 
 export async function createEmptyCodexNotebooks(sourceFileName: string): Promise<void> {

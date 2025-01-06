@@ -6,9 +6,9 @@ import {
     ProjectWithSyncStatus,
 } from "../../../types";
 import * as vscode from "vscode";
-import { PreflightCheck } from "./preflight";
+import { PreflightCheck, PreflightState } from "./preflight";
 import { findAllCodexProjects } from "../../../src/projectManager/utils/projectUtils";
-import { FrontierAPI } from "webviews/codex-webviews/src/StartupFLow/types";
+import { AuthState, FrontierAPI } from "webviews/codex-webviews/src/StartupFLow/types";
 import { CustomWebviewProvider } from "../../projectManager/projectManagerViewProvider";
 import {
     createNewProject,
@@ -38,9 +38,29 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     private disposables: vscode.Disposable[] = [];
     private frontierApi?: FrontierAPI;
     private webviewPanel?: vscode.WebviewPanel;
-
+    private preflightState: PreflightState = {
+        authState: {
+            isAuthExtensionInstalled: false,
+            isAuthenticated: false,
+            isLoading: true,
+        },
+        workspaceState: {
+            isOpen: false,
+            hasMetadata: false,
+        },
+        projectSelection: {
+            type: undefined,
+            path: undefined,
+            repoUrl: undefined,
+        },
+        gitState: {
+            isGitRepo: false,
+            hasRemote: false,
+        },
+    };
     constructor(private readonly context: vscode.ExtensionContext) {
         this.initializeFrontierApi();
+        this.initializePreflightState();
 
         // Add disposal of webview panel when extension is deactivated
         this.context.subscriptions.push(
@@ -50,6 +70,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 },
             })
         );
+    }
+
+    private async initializePreflightState() {
+        const preflightCheck = new PreflightCheck();
+        this.preflightState = await preflightCheck.preflight(this.context);
     }
 
     private async sendList(webviewPanel: vscode.WebviewPanel) {
@@ -127,6 +152,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     isAuthExtensionInstalled: true,
                     isAuthenticated: initialStatus?.isAuthenticated,
                     isLoading: false,
+                    workspaceState: {
+                        isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
+                        isProjectInitialized: this.preflightState.workspaceState.hasMetadata,
+                    },
                 });
 
                 // Subscribe to auth status changes
@@ -135,6 +164,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         isAuthExtensionInstalled: true,
                         isAuthenticated: status?.isAuthenticated,
                         isLoading: false,
+                        workspaceState: {
+                            isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
+                            isProjectInitialized: this.preflightState.workspaceState.hasMetadata,
+                        },
                     });
                 });
                 disposable && this.disposables.push(disposable);
@@ -146,6 +179,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     isAuthExtensionInstalled: false,
                     isAuthenticated: false,
                     isLoading: false,
+                    workspaceState: {
+                        isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
+                        isProjectInitialized: this.preflightState.workspaceState.hasMetadata,
+                    },
                 });
             }
         } catch (error) {
@@ -155,11 +192,15 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 isAuthenticated: false,
                 isLoading: false,
                 error: "Failed to initialize Frontier API",
+                workspaceState: {
+                    isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
+                    isProjectInitialized: this.preflightState.workspaceState.hasMetadata,
+                },
             });
         }
     }
 
-    private async updateAuthState(authState: any) {
+    private async updateAuthState(authState: AuthState) {
         if (this.webviewPanel) {
             await this.webviewPanel.webview.postMessage({
                 command: "updateAuthState",
@@ -170,6 +211,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     isLoading: false,
                     error: authState.error,
                     gitlabInfo: authState.gitlabInfo,
+                    workspaceState: {
+                        isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
+                        isProjectInitialized: this.preflightState.workspaceState.hasMetadata,
+                    },
                 },
             });
         }
@@ -201,6 +246,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     isAuthExtensionInstalled: false,
                     isAuthenticated: false,
                     isLoading: false,
+                    workspaceState: {
+                        isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
+                        isProjectInitialized: this.preflightState.workspaceState.hasMetadata,
+                    },
                 },
             } as MessagesFromStartupFlowProvider);
             return;
@@ -209,6 +258,23 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         switch (message.command) {
             case "auth.status": {
                 debugLog("Getting auth status");
+                if (!this.frontierApi) {
+                    debugLog("Auth extension not installed");
+                    webviewPanel.webview.postMessage({
+                        command: "updateAuthState",
+                        authState: {
+                            isAuthExtensionInstalled: false,
+                            isAuthenticated: false,
+                            isLoading: false,
+                            workspaceState: {
+                                isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
+                                isProjectInitialized:
+                                    this.preflightState.workspaceState.hasMetadata,
+                            },
+                        },
+                    } as MessagesFromStartupFlowProvider);
+                    return;
+                }
                 try {
                     const status = this.frontierApi.getAuthStatus();
                     debugLog("Got auth status", status);
@@ -218,6 +284,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             isAuthExtensionInstalled: true,
                             isAuthenticated: status.isAuthenticated,
                             isLoading: false,
+                            workspaceState: {
+                                isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
+                                isProjectInitialized:
+                                    this.preflightState.workspaceState.hasMetadata,
+                            },
                         },
                     } as MessagesFromStartupFlowProvider);
                 } catch (error) {
@@ -232,6 +303,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 error instanceof Error
                                     ? error.message
                                     : "Failed to get auth status",
+                            workspaceState: {
+                                isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
+                                isProjectInitialized:
+                                    this.preflightState.workspaceState.hasMetadata,
+                            },
                         },
                     } as MessagesFromStartupFlowProvider);
                 }
@@ -239,6 +315,23 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             }
             case "auth.login": {
                 debugLog("Attempting login");
+                if (!this.frontierApi) {
+                    debugLog("Auth extension not installed");
+                    webviewPanel.webview.postMessage({
+                        command: "updateAuthState",
+                        authState: {
+                            isAuthExtensionInstalled: false,
+                            isAuthenticated: false,
+                            isLoading: false,
+                            workspaceState: {
+                                isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
+                                isProjectInitialized:
+                                    this.preflightState.workspaceState.hasMetadata,
+                            },
+                        },
+                    } as MessagesFromStartupFlowProvider);
+                    return;
+                }
                 try {
                     const success = await this.frontierApi.login(
                         message.username,
@@ -253,6 +346,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 isAuthExtensionInstalled: true,
                                 isAuthenticated: true,
                                 isLoading: false,
+                                workspaceState: {
+                                    isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
+                                    isProjectInitialized:
+                                        this.preflightState.workspaceState.hasMetadata,
+                                },
                             },
                         } as MessagesFromStartupFlowProvider);
                     } else {
@@ -268,6 +366,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             isAuthenticated: false,
                             isLoading: false,
                             error: error instanceof Error ? error.message : "Login failed",
+                            workspaceState: {
+                                isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
+                                isProjectInitialized:
+                                    this.preflightState.workspaceState.hasMetadata,
+                            },
                         },
                     } as MessagesFromStartupFlowProvider);
                 }
@@ -275,6 +378,23 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             }
             case "auth.signup": {
                 debugLog("Attempting registration");
+                if (!this.frontierApi) {
+                    debugLog("Auth extension not installed");
+                    webviewPanel.webview.postMessage({
+                        command: "updateAuthState",
+                        authState: {
+                            isAuthExtensionInstalled: false,
+                            isAuthenticated: false,
+                            isLoading: false,
+                            workspaceState: {
+                                isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
+                                isProjectInitialized:
+                                    this.preflightState.workspaceState.hasMetadata,
+                            },
+                        },
+                    } as MessagesFromStartupFlowProvider);
+                    return;
+                }
                 try {
                     const wasRegisteredSuccessful = await this.frontierApi.register(
                         message.username,
@@ -289,6 +409,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 isAuthExtensionInstalled: true,
                                 isAuthenticated: true,
                                 isLoading: false,
+                                workspaceState: {
+                                    isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
+                                    isProjectInitialized:
+                                        this.preflightState.workspaceState.hasMetadata,
+                                },
                             },
                         } as MessagesFromStartupFlowProvider);
                         await this.handleWorkspaceStatus(webviewPanel);
@@ -304,6 +429,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             isAuthenticated: false,
                             isLoading: false,
                             error: error instanceof Error ? error.message : "Registration failed",
+                            workspaceState: {
+                                isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
+                                isProjectInitialized:
+                                    this.preflightState.workspaceState.hasMetadata,
+                            },
                         },
                     } as MessagesFromStartupFlowProvider);
                 }
@@ -320,6 +450,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             isAuthExtensionInstalled: true,
                             isAuthenticated: false,
                             isLoading: false,
+                            workspaceState: {
+                                isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
+                                isProjectInitialized:
+                                    this.preflightState.workspaceState.hasMetadata,
+                            },
                         },
                     } as MessagesFromStartupFlowProvider);
                     await this.handleWorkspaceStatus(webviewPanel);
@@ -332,6 +467,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             isAuthenticated: true,
                             isLoading: false,
                             error: error instanceof Error ? error.message : "Logout failed",
+                            workspaceState: {
+                                isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
+                                isProjectInitialized:
+                                    this.preflightState.workspaceState.hasMetadata,
+                            },
                         },
                     } as MessagesFromStartupFlowProvider);
                 }

@@ -59,6 +59,10 @@ export interface AuthState {
     isLoading: boolean;
     error?: string;
     gitlabInfo?: GitLabInfo;
+    workspaceState: {
+        isWorkspaceOpen: boolean;
+        isProjectInitialized: boolean;
+    };
 }
 
 // Add project selection state interface

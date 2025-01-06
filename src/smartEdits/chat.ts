@@ -2,9 +2,10 @@ import * as vscode from "vscode";
 import OpenAI from "openai";
 import { ChatMessage } from "../../types";
 import { ChatCompletionMessageParam } from "openai/resources/chat";
+import { getAuthApi } from "../extension";
 
 class Chatbot {
-    private openai: OpenAI;
+    private openai!: OpenAI; // Using definite assignment assertion
     private config: vscode.WorkspaceConfiguration;
     public messages: ChatMessage[];
     private contextMessage: ChatMessage | null;
@@ -14,10 +15,7 @@ class Chatbot {
     constructor(private systemMessage: string) {
         this.config = vscode.workspace.getConfiguration("translators-copilot");
         this.language = this.config.get("main_chat_language") || "en";
-        this.openai = new OpenAI({
-            apiKey: this.getApiKey(),
-            baseURL: this.config.get("llmEndpoint") || "https://api.openai.com/v1",
-        });
+        this.initializeOpenAI(); // Initialize OpenAI in constructor
         this.messages = [
             {
                 role: "system",
@@ -27,6 +25,33 @@ class Chatbot {
         ];
         this.contextMessage = null;
         this.maxBuffer = 30;
+    }
+
+    private async initializeOpenAI() {
+        // Get the LLM endpoint from auth API if available
+        let llmEndpoint: string | undefined;
+        let authBearerToken: string | undefined;
+        try {
+            const frontierApi = getAuthApi();
+            if (frontierApi) {
+                llmEndpoint = await frontierApi.getLlmEndpoint();
+                // Get auth token from the auth provider
+                authBearerToken = await frontierApi.authProvider.getToken();
+            }
+        } catch (error) {
+            console.debug("Could not get LLM endpoint from auth API:", error);
+        }
+
+        this.openai = new OpenAI({
+            apiKey: this.getApiKey(),
+            baseURL: llmEndpoint || this.config.get("llmEndpoint") || "https://api.openai.com/v1",
+            defaultHeaders: authBearerToken
+                ? {
+                      Authorization: `Bearer ${authBearerToken}`,
+                  }
+                : undefined,
+        });
+        console.log('Called OpenAI from smart edits with', {llmEndpoint: llmEndpoint || this.config.get("llmEndpoint") || "https://api.openai.com/v1", authBearerToken})
     }
 
     private getApiKey(): string {

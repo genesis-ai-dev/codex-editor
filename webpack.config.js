@@ -177,12 +177,12 @@ const testConfig = {
     resolve: {
         extensions: [".ts", ".js"],
         alias: {
-            //I don't know if this actually works, but it got rid of the error message.
+            "@": path.resolve(__dirname, "src"),
             "fs/promises": "memfs",
+            "process/browser": require.resolve("process/browser"),
         },
         fallback: {
             assert: require.resolve("assert/"),
-            // process: require.resolve("process/browser"),
             url: require.resolve("url/"),
             fs: require.resolve("memfs"),
             zlib: require.resolve("browserify-zlib"),
@@ -192,6 +192,7 @@ const testConfig = {
             crypto: require.resolve("crypto-browserify"),
             vm: require.resolve("vm-browserify"),
             readline: require.resolve("readline-browserify"),
+            process: require.resolve("process/browser"),
         },
     },
     module: {
@@ -218,9 +219,18 @@ const testConfig = {
         ],
     },
     plugins: [
+        new webpack.ProvidePlugin({
+            process: require.resolve("process/browser"),
+        }),
+        new webpack.DefinePlugin({
+            "process.env.NODE_ENV": JSON.stringify(process.env.NODE_ENV || "development"),
+        }),
         // ... other plugins if necessary
     ],
     devtool: "nosources-source-map",
+    node: {
+        global: true,
+    },
 };
 
 module.exports = [extensionConfig, serverConfig, testConfig];
