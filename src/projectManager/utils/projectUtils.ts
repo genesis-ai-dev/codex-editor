@@ -303,7 +303,7 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
                 // Create .gitignore file
                 const gitignorePath = vscode.Uri.joinPath(WORKSPACE_FOLDER.uri, ".gitignore");
                 const gitignoreContent = Buffer.from(
-                    ".project/dictionary.sqlite\n.DS_Store\n",
+                    ".project/dictionary.sqlite\n.DS_Store\n.project/complete_drafts.txt\n",
                     "utf8"
                 );
                 await vscode.workspace.fs.writeFile(gitignorePath, gitignoreContent);

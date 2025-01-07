@@ -52,10 +52,12 @@ export class NotebookMetadataManager {
     private metadataCache: Map<string, CustomNotebookMetadata> = new Map();
     private lastLoadTime = 0;
     private readonly CACHE_TTL = 5000; // 5 seconds
+    private context: vscode.ExtensionContext;
 
     private constructor(context: vscode.ExtensionContext, storageUri?: vscode.Uri) {
         this.storage = context.workspaceState;
-        
+        this.context = context;
+
         if (storageUri) {
             this.storageUri = storageUri;
         } else {
@@ -72,10 +74,15 @@ export class NotebookMetadataManager {
         }
     }
 
-    public static getInstance(context: vscode.ExtensionContext, storageUri?: vscode.Uri): NotebookMetadataManager {
+    public static getInstance(
+        context: vscode.ExtensionContext,
+        storageUri?: vscode.Uri
+    ): NotebookMetadataManager {
         if (!NotebookMetadataManager.instance) {
             if (!context) {
-                throw new Error('NotebookMetadataManager must be initialized with a VS Code extension context');
+                throw new Error(
+                    "NotebookMetadataManager must be initialized with a VS Code extension context"
+                );
             }
             NotebookMetadataManager.instance = new NotebookMetadataManager(context, storageUri);
         }
@@ -83,37 +90,37 @@ export class NotebookMetadataManager {
     }
 
     async initialize(): Promise<void> {
-        const metadataArray = this.storage.get<CustomNotebookMetadata[]>('notebookMetadata', []);
-        this.metadataMap = new Map(metadataArray.map(m => [m.id, m]));
+        const metadataArray = this.storage.get<CustomNotebookMetadata[]>("notebookMetadata", []);
+        this.metadataMap = new Map(metadataArray.map((m) => [m.id, m]));
     }
 
     private validateMetadata(metadata: CustomNotebookMetadata): MetadataValidationResult {
         const errors: string[] = [];
-        
+
         if (!metadata.id) {
             errors.push("Metadata must have an ID");
         }
-        
-        if (metadata.sourceFsPath && !metadata.sourceFsPath.endsWith('.source')) {
+
+        if (metadata.sourceFsPath && !metadata.sourceFsPath.endsWith(".source")) {
             errors.push("Source path must end with .source extension");
         }
-        
-        if (metadata.codexFsPath && !metadata.codexFsPath.endsWith('.codex')) {
+
+        if (metadata.codexFsPath && !metadata.codexFsPath.endsWith(".codex")) {
             errors.push("Codex path must end with .codex extension");
         }
-        
+
         return {
             isValid: errors.length === 0,
-            errors
+            errors,
         };
     }
 
     async addOrUpdateMetadata(metadata: CustomNotebookMetadata): Promise<void> {
         const validation = this.validateMetadata(metadata);
         if (!validation.isValid) {
-            throw new Error(`Invalid metadata: ${validation.errors.join(', ')}`);
+            throw new Error(`Invalid metadata: ${validation.errors.join(", ")}`);
         }
-        
+
         this.metadataMap.set(metadata.id, metadata);
         await this.persistMetadata();
         this._onDidChangeMetadata.fire();
@@ -134,7 +141,7 @@ export class NotebookMetadataManager {
 
     private async persistMetadata(): Promise<void> {
         const metadataArray = Array.from(this.metadataMap.values());
-        await this.storage.update('notebookMetadata', metadataArray);
+        await this.storage.update("notebookMetadata", metadataArray);
     }
 
     public getAllMetadata(): CustomNotebookMetadata[] {
@@ -454,8 +461,12 @@ export class NotebookMetadataManager {
 
     public static getManager(): NotebookMetadataManager {
         if (!NotebookMetadataManager.instance) {
-            throw new Error('NotebookMetadataManager must be initialized before use');
+            throw new Error("NotebookMetadataManager must be initialized before use");
         }
         return NotebookMetadataManager.instance;
+    }
+
+    public getContext(): vscode.ExtensionContext {
+        return this.context;
     }
 }
