@@ -18,6 +18,7 @@ import {
     getProjectOverview,
     updateProjectSettings,
 } from "./utils/projectUtils";
+import { openSystemMessageEditor } from "../copilotSettings/copilotSettings";
 
 export async function registerProjectManager(context: vscode.ExtensionContext) {
     console.log("Codex Project Manager is now active!");
@@ -464,9 +465,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
 
     const openAISettingsCommand = vscode.commands.registerCommand(
         "codex-project-manager.openAISettings",
-        async () => {
-            vscode.commands.executeCommand("workbench.action.openSettings", "translators-copilot");
-        }
+        openSystemMessageEditor
     );
 
     const importLocalUsfmSourceBibleCommand = vscode.commands.registerCommand(
