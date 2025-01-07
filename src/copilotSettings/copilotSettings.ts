@@ -13,10 +13,9 @@ export async function openSystemMessageEditor() {
 
     // Get both workspace and user configurations
     const config = vscode.workspace.getConfiguration("translators-copilot");
-    const workspaceMessage = config.inspect("chatSystemMessage")?.workspaceValue ?? "";
-    const userMessage = config.inspect("chatSystemMessage")?.globalValue ?? "";
+    const workspaceMessage = (config.inspect("chatSystemMessage")?.workspaceValue as string) ?? "";
+    const userMessage = (config.inspect("chatSystemMessage")?.globalValue as string) ?? "";
 
-    console.log("workspaceMessage", workspaceMessage);
     panel.webview.html = getWebviewContent(workspaceMessage, userMessage);
 
     panel.webview.onDidReceiveMessage(async (message) => {
@@ -84,7 +83,6 @@ function getWebviewContent(workspaceMessage: string, userMessage: string) {
                 .tab-content {
                     display: none;
                     flex: 1;
-                    display: flex;
                     flex-direction: column;
                 }
                 .tab-content.active {
@@ -137,6 +135,7 @@ function getWebviewContent(workspaceMessage: string, userMessage: string) {
             </style>
         </head>
         <body>
+            <h1>Instructions for AI Translator</h1>
             <div class="tabs">
                 <button class="tab active" onclick="switchTab('workspace')">Workspace Settings</button>
                 <button class="tab" onclick="switchTab('user')">User Settings</button>
@@ -144,7 +143,7 @@ function getWebviewContent(workspaceMessage: string, userMessage: string) {
 
             <div id="workspace-tab" class="tab-content active">
                 <div class="description">
-                    ✨ Recommended: Configure the system message for this workspace only.
+                    Configure the system message for this project only. This will override any user-level instructions you set.
                 </div>
                 <textarea id="workspace-input" spellcheck="false">${escapeHtml(workspaceMessage)}</textarea>
                 <div class="button-container">
@@ -155,7 +154,7 @@ function getWebviewContent(workspaceMessage: string, userMessage: string) {
 
             <div id="user-tab" class="tab-content">
                 <div class="description">
-                    Configure the default system message for all workspaces.
+                    Configure the default system message for all projects.
                 </div>
                 <textarea id="user-input" spellcheck="false">${escapeHtml(userMessage)}</textarea>
                 <div class="button-container">
@@ -173,13 +172,17 @@ function getWebviewContent(workspaceMessage: string, userMessage: string) {
                 function switchTab(tab) {
                     // Update tab buttons
                     document.querySelectorAll('.tab').forEach(t => {
-                        t.classList.toggle('active', t.textContent.toLowerCase().includes(tab));
+                        t.classList.remove('active');
+                        if (t.textContent.toLowerCase().includes(tab)) {
+                            t.classList.add('active');
+                        }
                     });
 
                     // Update tab content
                     document.querySelectorAll('.tab-content').forEach(content => {
-                        content.classList.toggle('active', content.id === \`\${tab}-tab\`);
+                        content.classList.remove('active');
                     });
+                    document.getElementById(\`\${tab}-tab\`).classList.add('active');
 
                     activeTab = tab;
                 }
