@@ -211,7 +211,10 @@ suite("CodexCellEditorProvider Test Suite", () => {
         );
         const cellId = "newCellId";
         const cellIdOfCellBeforeNewCell = codexSubtitleContent.cells[0].metadata.id;
-        document.addCell(cellId, cellIdOfCellBeforeNewCell, CodexCellTypes.PARATEXT, {});
+        const direction = "below"; // Assuming a default direction
+        const cellType = CodexCellTypes.PARATEXT;
+        const data = {};
+        document.addCell(cellId, cellIdOfCellBeforeNewCell, direction, cellType, data);
         const updatedContent = await document.getText();
         const cells = JSON.parse(updatedContent).cells;
         // cells should contain the new cell
@@ -234,11 +237,13 @@ suite("CodexCellEditorProvider Test Suite", () => {
         );
         const cellId = "newCellId";
         const cellIdOfCellBeforeNewCell = codexSubtitleContent.cells[0].metadata.id;
+        const direction = "below"; // Assuming a default direction
+        const cellType = CodexCellTypes.PARATEXT;
         const timestamps: Timestamps = {
             startTime: new Date().getTime(),
             endTime: new Date().getTime(),
         };
-        document.addCell(cellId, cellIdOfCellBeforeNewCell, CodexCellTypes.PARATEXT, {
+        document.addCell(cellId, cellIdOfCellBeforeNewCell, direction, cellType, {
             ...timestamps,
         });
         const updatedContent = await document.getText();

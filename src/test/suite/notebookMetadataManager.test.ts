@@ -19,7 +19,40 @@ suite("NotebookMetadataManager Test Suite", () => {
     });
 
     setup(async () => {
-        manager = new NotebookMetadataManager();
+        // Create mock extension context with required properties
+        class MockMemento implements vscode.Memento {
+            private storage = new Map<string, any>();
+
+            get<T>(key: string): T | undefined;
+            get<T>(key: string, defaultValue: T): T;
+            get<T>(key: string, defaultValue?: T): T | undefined {
+                return this.storage.get(key) ?? defaultValue;
+            }
+
+            update(key: string, value: any): Thenable<void> {
+                this.storage.set(key, value);
+                return Promise.resolve();
+            }
+
+            keys(): readonly string[] {
+                return Array.from(this.storage.keys());
+            }
+
+            setKeysForSync(keys: readonly string[]): void {
+                // No-op for testing
+            }
+        }
+
+        const mockContext: Partial<vscode.ExtensionContext> = {
+            globalStorageUri: vscode.Uri.file("/tmp/test-workspace"),
+            subscriptions: [],
+            workspaceState: new MockMemento(),
+            globalState: new MockMemento(),
+            extensionUri: vscode.Uri.file("/tmp/test-workspace"),
+            storageUri: vscode.Uri.file("/tmp/test-workspace/storage"),
+        };
+
+        manager = NotebookMetadataManager.getInstance(mockContext as vscode.ExtensionContext);
         testMetadata = {
             id: "test-id",
             originalName: "Test Notebook",
@@ -91,8 +124,8 @@ suite("NotebookMetadataManager Test Suite", () => {
     test("should persist metadata changes across sessions", async () => {
         await manager.addOrUpdateMetadata(testMetadata);
 
-        // Simulate VS Code crash/reload
-        const newManager = new NotebookMetadataManager();
+        // Simulate VS Code crash/reload with same context
+        const newManager = NotebookMetadataManager.getInstance(manager.getContext());
         await newManager.initialize();
 
         const retrievedMetadata = await newManager.getMetadata(testMetadata.id);

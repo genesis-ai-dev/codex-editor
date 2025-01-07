@@ -1,5 +1,4 @@
 import * as vscode from "vscode";
-import { createCodexNotebookFromWebVTT } from "../../utils/codexNotebookUtils";
 function getNonce(): string {
     let text = "";
     const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
