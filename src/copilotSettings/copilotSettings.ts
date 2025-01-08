@@ -1,9 +1,17 @@
 import * as vscode from "vscode";
+import { callLLM } from "../utils/llmUtils";
+import { CompletionConfig } from "../providers/translationSuggestions/inlineCompletionsProvider";
+
+interface ProjectLanguage {
+    tag: string;
+    refName: string;
+    projectStatus: string;
+}
 
 export async function openSystemMessageEditor() {
     const panel = vscode.window.createWebviewPanel(
         "systemMessageEditor",
-        "Edit System Message",
+        "AI Translation Instructions",
         vscode.ViewColumn.One,
         {
             enableScripts: true,
@@ -11,25 +19,81 @@ export async function openSystemMessageEditor() {
         }
     );
 
-    // Get both workspace and user configurations
+    // Get configurations
     const config = vscode.workspace.getConfiguration("translators-copilot");
     const workspaceMessage = (config.inspect("chatSystemMessage")?.workspaceValue as string) ?? "";
-    const userMessage = (config.inspect("chatSystemMessage")?.globalValue as string) ?? "";
 
-    panel.webview.html = getWebviewContent(workspaceMessage, userMessage);
+    const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
+    const sourceLanguage = projectConfig.get("sourceLanguage") as ProjectLanguage;
+    const targetLanguage = projectConfig.get("targetLanguage") as ProjectLanguage;
+
+    panel.webview.html = getWebviewContent(workspaceMessage, sourceLanguage, targetLanguage);
 
     panel.webview.onDidReceiveMessage(async (message) => {
         switch (message.command) {
+            case "generate":
+                try {
+                    if (!sourceLanguage?.refName || !targetLanguage?.refName) {
+                        await vscode.commands.executeCommand(
+                            "codex-project-manager.openProjectSettings"
+                        );
+                        return;
+                    }
+
+                    const llmConfig: CompletionConfig = {
+                        apiKey: config.get("openAIKey") || "",
+                        model: config.get("model") || "gpt-4",
+                        endpoint: config.get("endpoint") || "https://api.openai.com/v1",
+                        maxTokens: 500,
+                        temperature: 0.3,
+                        customModel: "",
+                        contextSize: "2000",
+                        additionalResourceDirectory: "",
+                        contextOmission: false,
+                        sourceBookWhitelist: "",
+                        mainChatLanguage: "en",
+                        chatSystemMessage: "",
+                        numberOfFewShotExamples: 0,
+                        debugMode: false,
+                    };
+
+                    const prompt = `Generate a concise, one-paragraph set of linguistic instructions critical for a linguistically informed translator to keep in mind at all times when translating from ${sourceLanguage.refName} to ${targetLanguage.refName}. Keep it to a single plaintext paragraph. Note key lexicosemantic, information structuring, register-relevant and other key distinctions necessary for grammatical, natural text in ${targetLanguage.refName} if the starting place is ${sourceLanguage.refName}`;
+
+                    const response = await callLLM(
+                        [
+                            {
+                                role: "user",
+                                content: prompt,
+                            },
+                        ],
+                        llmConfig
+                    );
+
+                    // Update the message and re-render the view
+                    await config.update(
+                        "chatSystemMessage",
+                        response,
+                        vscode.ConfigurationTarget.Workspace
+                    );
+                    panel.webview.html = getWebviewContent(
+                        response,
+                        sourceLanguage,
+                        targetLanguage
+                    );
+                } catch (error) {
+                    vscode.window.showErrorMessage(
+                        "Failed to generate instructions. Please check your API configuration."
+                    );
+                }
+                break;
             case "save":
                 await config.update(
                     "chatSystemMessage",
                     message.text,
-                    message.scope === "user"
-                        ? vscode.ConfigurationTarget.Global
-                        : vscode.ConfigurationTarget.Workspace
+                    vscode.ConfigurationTarget.Workspace
                 );
                 vscode.window.showInformationMessage(
-                    `System message updated successfully (${message.scope} settings)`
+                    "Translation instructions updated successfully"
                 );
                 panel.dispose();
                 break;
@@ -40,8 +104,13 @@ export async function openSystemMessageEditor() {
     });
 }
 
-// Helper function to generate the webview content
-function getWebviewContent(workspaceMessage: string, userMessage: string) {
+function getWebviewContent(
+    workspaceMessage: string,
+    sourceLanguage?: ProjectLanguage,
+    targetLanguage?: ProjectLanguage
+) {
+    const hasLanguages = sourceLanguage?.refName && targetLanguage?.refName;
+
     return `<!DOCTYPE html>
     <html>
         <head>
@@ -55,38 +124,10 @@ function getWebviewContent(workspaceMessage: string, userMessage: string) {
                     background-color: var(--vscode-editor-background);
                     color: var(--vscode-editor-foreground);
                 }
-                .tabs {
-                    display: flex;
-                    margin-bottom: 16px;
-                    border-bottom: 1px solid var(--vscode-input-border);
-                }
-                .tab {
-                    padding: 8px 16px;
-                    cursor: pointer;
-                    border: none;
-                    background: none;
-                    color: var(--vscode-foreground);
-                    position: relative;
-                }
-                .tab.active {
-                    color: var(--vscode-button-background);
-                }
-                .tab.active::after {
-                    content: '';
-                    position: absolute;
-                    bottom: -1px;
-                    left: 0;
-                    right: 0;
-                    height: 2px;
-                    background-color: var(--vscode-button-background);
-                }
-                .tab-content {
-                    display: none;
+                .container {
                     flex: 1;
-                    flex-direction: column;
-                }
-                .tab-content.active {
                     display: flex;
+                    flex-direction: column;
                 }
                 textarea {
                     flex: 1;
@@ -108,17 +149,28 @@ function getWebviewContent(workspaceMessage: string, userMessage: string) {
                     display: flex;
                     justify-content: flex-end;
                     gap: 8px;
+                    margin-top: 16px;
                 }
                 button {
                     padding: 8px 16px;
                     background-color: var(--vscode-button-background);
                     color: var(--vscode-button-foreground);
-                    border: none;
-                    border-radius: 4px;
+                    border: 1px solid transparent;
+                    border-radius: var(--vscode-button-border-radius, 2px);
                     cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    font-family: var(--vscode-font-family);
+                    font-size: var(--vscode-font-size);
+                    line-height: 1.4;
                 }
                 button:hover {
                     background-color: var(--vscode-button-hoverBackground);
+                }
+                button:focus {
+                    outline: 1px solid var(--vscode-focusBorder);
+                    outline-offset: 2px;
                 }
                 button.secondary {
                     background-color: var(--vscode-button-secondaryBackground);
@@ -127,85 +179,83 @@ function getWebviewContent(workspaceMessage: string, userMessage: string) {
                 button.secondary:hover {
                     background-color: var(--vscode-button-secondaryHoverBackground);
                 }
-                .description {
-                    font-size: 12px;
+                .message {
+                    text-align: center;
+                    margin: 20px;
+                    padding: 20px;
+                    border: 1px solid var(--vscode-input-border);
+                    border-radius: var(--vscode-panel-border-radius, 4px);
                     color: var(--vscode-descriptionForeground);
-                    margin-bottom: 8px;
+                }
+                .generate-button {
+                    margin: 20px auto;
+                    font-size: var(--vscode-font-size);
+                    padding: 12px 24px;
                 }
             </style>
         </head>
         <body>
-            <h1>Instructions for AI Translator</h1>
-            <div class="tabs">
-                <button class="tab active" onclick="switchTab('workspace')">Workspace Settings</button>
-                <button class="tab" onclick="switchTab('user')">User Settings</button>
-            </div>
-
-            <div id="workspace-tab" class="tab-content active">
-                <div class="description">
-                    Configure the system message for this project only. This will override any user-level instructions you set.
-                </div>
-                <textarea id="workspace-input" spellcheck="false">${escapeHtml(workspaceMessage)}</textarea>
-                <div class="button-container">
-                    <button class="secondary" onclick="cancel()">Cancel</button>
-                    <button onclick="save('workspace')">Save Workspace Settings</button>
-                </div>
-            </div>
-
-            <div id="user-tab" class="tab-content">
-                <div class="description">
-                    Configure the default system message for all projects.
-                </div>
-                <textarea id="user-input" spellcheck="false">${escapeHtml(userMessage)}</textarea>
-                <div class="button-container">
-                    <button class="secondary" onclick="cancel()">Cancel</button>
-                    <button onclick="save('user')">Save User Settings</button>
-                </div>
+            <div class="container">
+                ${
+                    hasLanguages
+                        ? `
+                    ${
+                        workspaceMessage
+                            ? `
+                        <textarea id="input" spellcheck="false">${escapeHtml(workspaceMessage)}</textarea>
+                        <div class="button-container">
+                            <button onclick="generate()">✨ Regenerate</button>
+                            <button class="secondary" onclick="cancel()">Cancel</button>
+                            <button onclick="save()">Save</button>
+                        </div>
+                    `
+                            : `
+                        <button class="generate-button" onclick="generate()">✨ Generate AI Instructions</button>
+                    `
+                    }
+                `
+                        : `
+                    <div class="message">
+                        Please set source and target languages first
+                        <div class="button-container" style="justify-content: center">
+                            <button onclick="openSettings()">Open Project Settings</button>
+                        </div>
+                    </div>
+                `
+                }
             </div>
 
             <script>
                 const vscode = acquireVsCodeApi();
-                const workspaceInput = document.getElementById('workspace-input');
-                const userInput = document.getElementById('user-input');
-                let activeTab = 'workspace';
+                const input = document.getElementById('input');
 
-                function switchTab(tab) {
-                    // Update tab buttons
-                    document.querySelectorAll('.tab').forEach(t => {
-                        t.classList.remove('active');
-                        if (t.textContent.toLowerCase().includes(tab)) {
-                            t.classList.add('active');
-                        }
-                    });
-
-                    // Update tab content
-                    document.querySelectorAll('.tab-content').forEach(content => {
-                        content.classList.remove('active');
-                    });
-                    document.getElementById(\`\${tab}-tab\`).classList.add('active');
-
-                    activeTab = tab;
+                function generate() {
+                    vscode.postMessage({ command: 'generate' });
                 }
 
-                function save(scope) {
-                    const text = scope === 'user' ? userInput.value : workspaceInput.value;
+                function save() {
                     vscode.postMessage({
                         command: 'save',
-                        text,
-                        scope
+                        text: input.value
                     });
                 }
 
                 function cancel() {
-                    vscode.postMessage({
-                        command: 'cancel'
-                    });
+                    vscode.postMessage({ command: 'cancel' });
                 }
 
-                // Handle Ctrl+Enter or Cmd+Enter to save
-                document.addEventListener('keydown', (e) => {
-                    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                        save(activeTab);
+                function openSettings() {
+                    vscode.postMessage({ command: 'generate' });
+                }
+
+                window.addEventListener('message', event => {
+                    const message = event.data;
+                    if (message.command === 'updateInput') {
+                        if (!input) {
+                            location.reload();
+                        } else {
+                            input.value = message.text;
+                        }
                     }
                 });
             </script>
@@ -213,7 +263,6 @@ function getWebviewContent(workspaceMessage: string, userMessage: string) {
     </html>`;
 }
 
-// Helper function to escape HTML special characters
 function escapeHtml(unsafe: string) {
     return unsafe
         .replace(/&/g, "&amp;")
