@@ -11,7 +11,11 @@ import { ProjectSetupStep } from "./components/ProjectSetupStep";
 import { VSCodeButton, VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
 import "./StartupFlowView.css";
 import { AuthState } from "./types";
-import { MessagesToStartupFlowProvider, ProjectWithSyncStatus } from "../../../../types";
+import {
+    MessagesFromStartupFlowProvider,
+    MessagesToStartupFlowProvider,
+    ProjectWithSyncStatus,
+} from "../../../../types";
 
 const vscode = acquireVsCodeApi();
 
@@ -27,11 +31,11 @@ export const StartupFlowView: React.FC = () => {
         vscode.postMessage({ command: "workspace.status" });
 
         // Listen for messages from the extension
-        const messageHandler = (event: MessageEvent) => {
+        const messageHandler = (event: MessageEvent<MessagesFromStartupFlowProvider>) => {
             const message = event.data;
             switch (message.command) {
                 case "updateAuthState": {
-                    console.log("updateAuthState", message);
+                    console.log("updateAuthState", JSON.stringify(message, null, 2));
                     const authState: AuthState = message.authState;
                     if (!authState.isAuthExtensionInstalled) {
                         send({
@@ -96,35 +100,48 @@ export const StartupFlowView: React.FC = () => {
                     }
                     break;
                 }
-                case "workspace.opened":
-                    vscode.postMessage({
-                        command: "metadata.check",
-                    } as MessagesToStartupFlowProvider);
-                    break;
+                // case "workspace.opened":
+                //     vscode.postMessage({
+                //         command: "metadata.check",
+                //     } as MessagesToStartupFlowProvider);
+                //     break;
                 case "metadata.checkResponse":
-                    send({
-                        type: StartupFlowEvents.NO_AUTH_EXTENSION,
-                        data: {
-                            isAuthenticated: false,
-                            isAuthExtensionInstalled: false,
-                            isLoading: false,
-                            error: undefined,
-                            gitlabInfo: undefined,
-                            workspaceState: {
-                                isWorkspaceOpen: true,
-                                isProjectInitialized: message.exists,
-                            },
-                        },
-                    });
-                    if (message.exists) {
-                        send({ type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN });
+                    // send({
+                    //     type: StartupFlowEvents.UPDATE_AUTH_STATE,
+                    //     data: {
+                    //         isAuthenticated: false,
+                    //         isAuthExtensionInstalled: false,
+                    //         isLoading: false,
+                    //         error: undefined,
+                    //         gitlabInfo: undefined,
+                    //         workspaceState: {
+                    //             isWorkspaceOpen: true,
+                    //             isProjectInitialized: message.data.hasCriticalData,
+                    //         },
+                    //     },
+                    // });
+                    console.log("metadata.checkResponse", JSON.stringify(message, null, 2));
+                    if (message.data.exists) {
+                        if (message.data.hasCriticalData) {
+                            send({ type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN });
+                        } else {
+                            send({ type: StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA });
+                        }
                     } else {
                         send({ type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT });
                     }
                     break;
+                case "setupIncompleteCriticalDataMissing": {
+                    console.log("setupIncompleteCriticalDataMissing called", {
+                        state,
+                    });
+                    send({ type: StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA }); // fixme: this should be a generic. ex "projectSet", "workspaceOpen"
+                    break;
+                }
                 case "setupComplete": {
                     console.log("setupComplete called");
                     send({ type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN }); // fixme: this should be a generic. ex "projectSet", "workspaceOpen"
+                    break;
                 }
             }
         };
@@ -196,6 +213,8 @@ export const StartupFlowView: React.FC = () => {
         }
     }, [state.value]);
 
+    console.log({ state });
+
     return (
         <div className="startup-flow-container">
             {state.matches(StartupFlowStates.LOGIN_REGISTER) && (
@@ -222,7 +241,6 @@ export const StartupFlowView: React.FC = () => {
                 <div
                     style={{
                         display: "flex",
-
                         gap: "10px",
                         width: "100%",
                         height: "100vh",
@@ -244,6 +262,33 @@ export const StartupFlowView: React.FC = () => {
                             className="codicon codicon-symbol-variable"
                             style={{ fontSize: "72px" }}
                         ></i>
+                        <VSCodeButton
+                            onClick={() => {
+                                vscode.postMessage({
+                                    command: "renameProject",
+                                });
+                            }}
+                        >
+                            Name Project <i className="codicon codicon-arrow-right"></i>
+                        </VSCodeButton>
+                        <VSCodeButton
+                            onClick={() => {
+                                vscode.postMessage({
+                                    command: "changeSourceLanguage",
+                                });
+                            }}
+                        >
+                            Source Language <i className="codicon codicon-arrow-right"></i>
+                        </VSCodeButton>
+                        <VSCodeButton
+                            onClick={() => {
+                                vscode.postMessage({
+                                    command: "changeTargetLanguage",
+                                });
+                            }}
+                        >
+                            Target Language <i className="codicon codicon-arrow-right"></i>
+                        </VSCodeButton>
                         <VSCodeButton
                             onClick={() => {
                                 send({ type: StartupFlowEvents.INITIALIZE_PROJECT });

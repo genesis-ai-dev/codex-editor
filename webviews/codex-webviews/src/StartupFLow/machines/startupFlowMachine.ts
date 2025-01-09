@@ -4,6 +4,7 @@ export enum StartupFlowStates {
     LOGIN_REGISTER = "loginRegister",
     OPEN_OR_CREATE_PROJECT = "createNewProject",
     PROMPT_USER_TO_INITIALIZE_PROJECT = "promptUserToInitializeProject",
+    PROMPT_USER_TO_ADD_CRITICAL_DATA = "promptUserToAddCriticalData",
     ALREADY_WORKING = "alreadyWorking",
 }
 
@@ -18,6 +19,7 @@ export enum StartupFlowEvents {
     INITIALIZE_PROJECT = "INITIALIZE_PROJECT",
     EMPTY_WORKSPACE_THAT_NEEDS_PROJECT = "EMPTY_WORKSPACE_THAT_NEEDS_PROJECT",
     VALIDATE_PROJECT_IS_OPEN = "VALIDATE_PROJECT_IS_OPEN",
+    PROJECT_MISSING_CRITICAL_DATA = "PROJECT_MISSING_CRITICAL_DATA",
 }
 
 type StartupFlowContext = {
@@ -57,6 +59,9 @@ type StartupFlowEvent =
       }
     | {
           type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT;
+      }
+    | {
+          type: StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA;
       };
 
 export const startupFlowMachine = setup({
@@ -154,6 +159,9 @@ export const startupFlowMachine = setup({
                 [StartupFlowEvents.SKIP_AUTH]: {
                     target: StartupFlowStates.OPEN_OR_CREATE_PROJECT,
                 },
+                [StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA]: {
+                    target: StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA,
+                },
                 [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]: {
                     target: StartupFlowStates.ALREADY_WORKING,
                 },
@@ -168,11 +176,20 @@ export const startupFlowMachine = setup({
                 [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]: StartupFlowStates.ALREADY_WORKING,
                 [StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT]:
                     StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
+                [StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA]: {
+                    target: StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA,
+                },
             },
         },
         [StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT]: {
             on: {
-                [StartupFlowEvents.INITIALIZE_PROJECT]: StartupFlowStates.ALREADY_WORKING,
+                [StartupFlowEvents.INITIALIZE_PROJECT]:
+                    StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA,
+                [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]: StartupFlowStates.ALREADY_WORKING,
+            },
+        },
+        [StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA]: {
+            on: {
                 [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]: StartupFlowStates.ALREADY_WORKING,
             },
         },

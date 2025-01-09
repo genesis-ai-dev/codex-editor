@@ -18,6 +18,7 @@ export interface PreflightState {
     workspaceState: {
         isOpen: boolean;
         hasMetadata: boolean;
+        isProjectSetup: boolean;
         error?: string;
     };
     projectSelection: {
@@ -80,7 +81,7 @@ export class PreflightCheck {
         this.authStateSubscription?.dispose();
     }
 
-    public async preflight(context: vscode.ExtensionContext): Promise<PreflightState> {
+    public async preflight(): Promise<PreflightState> {
         const state: PreflightState = {
             authState: {
                 isAuthenticated: false,
@@ -92,6 +93,7 @@ export class PreflightCheck {
             workspaceState: {
                 isOpen: false,
                 hasMetadata: false,
+                isProjectSetup: false,
                 error: undefined,
             },
             projectSelection: {
@@ -134,6 +136,22 @@ export class PreflightCheck {
                 await vscode.workspace.fs.stat(metadataUri);
                 state.workspaceState.hasMetadata = true;
 
+                // Read and parse metadata.json to check if project is properly setup
+                const metadataContent = await vscode.workspace.fs.readFile(metadataUri);
+                const metadata = JSON.parse(metadataContent.toString());
+
+                // Check if metadata has required fields
+                const hasProjectName = !!metadata.projectName;
+                const sourceLanguage = metadata.languages?.find(
+                    (l: any) => l.projectStatus === "source"
+                );
+                const targetLanguage = metadata.languages?.find(
+                    (l: any) => l.projectStatus === "target"
+                );
+
+                state.workspaceState.isProjectSetup =
+                    hasProjectName && !!sourceLanguage && !!targetLanguage;
+
                 // Check git repository status
                 const workspacePath = workspaceFolders[0].uri.fsPath;
                 try {
@@ -172,7 +190,7 @@ export const registerPreflightCommand = (context: vscode.ExtensionContext) => {
     const preflightCommand = vscode.commands.registerCommand(
         "codex-project-manager.preflight",
         async () => {
-            const state = await preflightCheck.preflight(context);
+            const state = await preflightCheck.preflight();
             console.log("Preflight state:", state);
 
             // Decision tree matching the state machine:
@@ -189,6 +207,11 @@ export const registerPreflightCommand = (context: vscode.ExtensionContext) => {
             }
 
             if (!state.workspaceState.hasMetadata) {
+                vscode.commands.executeCommand("codex-project-manager.openStartupFlow");
+                return;
+            }
+
+            if (!state.workspaceState.isProjectSetup) {
                 vscode.commands.executeCommand("codex-project-manager.openStartupFlow");
                 return;
             }

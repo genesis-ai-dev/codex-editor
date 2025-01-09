@@ -394,8 +394,12 @@ export type MessagesFromStartupFlowProvider =
       }
     | {
           command: "metadata.checkResponse";
-          exists: boolean;
+          data: {
+              exists: boolean;
+              hasCriticalData: boolean;
+          };
       }
+    | { command: "setupIncompleteCriticalDataMissing" }
     | { command: "setupComplete" };
 type DictionaryPostMessages =
     | {

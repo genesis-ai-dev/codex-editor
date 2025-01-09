@@ -47,6 +47,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         workspaceState: {
             isOpen: false,
             hasMetadata: false,
+            isProjectSetup: false,
         },
         projectSelection: {
             type: undefined,
@@ -74,7 +75,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
     private async initializePreflightState() {
         const preflightCheck = new PreflightCheck();
-        this.preflightState = await preflightCheck.preflight(this.context);
+        this.preflightState = await preflightCheck.preflight();
     }
 
     private async sendList(webviewPanel: vscode.WebviewPanel) {
@@ -154,7 +155,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     isLoading: false,
                     workspaceState: {
                         isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
-                        isProjectInitialized: this.preflightState.workspaceState.hasMetadata,
+                        isProjectInitialized: this.preflightState.workspaceState.isProjectSetup,
                     },
                 });
 
@@ -166,7 +167,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         isLoading: false,
                         workspaceState: {
                             isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
-                            isProjectInitialized: this.preflightState.workspaceState.hasMetadata,
+                            isProjectInitialized: this.preflightState.workspaceState.isProjectSetup,
                         },
                     });
                 });
@@ -181,7 +182,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     isLoading: false,
                     workspaceState: {
                         isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
-                        isProjectInitialized: this.preflightState.workspaceState.hasMetadata,
+                        isProjectInitialized: this.preflightState.workspaceState.isProjectSetup,
                     },
                 });
             }
@@ -194,7 +195,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 error: "Failed to initialize Frontier API",
                 workspaceState: {
                     isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
-                    isProjectInitialized: this.preflightState.workspaceState.hasMetadata,
+                    isProjectInitialized: this.preflightState.workspaceState.isProjectSetup,
                 },
             });
         }
@@ -213,7 +214,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     gitlabInfo: authState.gitlabInfo,
                     workspaceState: {
                         isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
-                        isProjectInitialized: this.preflightState.workspaceState.hasMetadata,
+                        isProjectInitialized: this.preflightState.workspaceState.isProjectSetup,
                     },
                 },
             });
@@ -248,7 +249,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     isLoading: false,
                     workspaceState: {
                         isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
-                        isProjectInitialized: this.preflightState.workspaceState.hasMetadata,
+                        isProjectInitialized: this.preflightState.workspaceState.isProjectSetup,
                     },
                 },
             } as MessagesFromStartupFlowProvider);
@@ -269,7 +270,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             workspaceState: {
                                 isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
                                 isProjectInitialized:
-                                    this.preflightState.workspaceState.hasMetadata,
+                                    this.preflightState.workspaceState.isProjectSetup,
                             },
                         },
                     } as MessagesFromStartupFlowProvider);
@@ -287,7 +288,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             workspaceState: {
                                 isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
                                 isProjectInitialized:
-                                    this.preflightState.workspaceState.hasMetadata,
+                                    this.preflightState.workspaceState.isProjectSetup,
                             },
                         },
                     } as MessagesFromStartupFlowProvider);
@@ -306,7 +307,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             workspaceState: {
                                 isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
                                 isProjectInitialized:
-                                    this.preflightState.workspaceState.hasMetadata,
+                                    this.preflightState.workspaceState.isProjectSetup,
                             },
                         },
                     } as MessagesFromStartupFlowProvider);
@@ -326,7 +327,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             workspaceState: {
                                 isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
                                 isProjectInitialized:
-                                    this.preflightState.workspaceState.hasMetadata,
+                                    this.preflightState.workspaceState.isProjectSetup,
                             },
                         },
                     } as MessagesFromStartupFlowProvider);
@@ -349,7 +350,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 workspaceState: {
                                     isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
                                     isProjectInitialized:
-                                        this.preflightState.workspaceState.hasMetadata,
+                                        this.preflightState.workspaceState.isProjectSetup,
                                 },
                             },
                         } as MessagesFromStartupFlowProvider);
@@ -369,7 +370,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             workspaceState: {
                                 isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
                                 isProjectInitialized:
-                                    this.preflightState.workspaceState.hasMetadata,
+                                    this.preflightState.workspaceState.isProjectSetup,
                             },
                         },
                     } as MessagesFromStartupFlowProvider);
@@ -389,7 +390,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             workspaceState: {
                                 isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
                                 isProjectInitialized:
-                                    this.preflightState.workspaceState.hasMetadata,
+                                    this.preflightState.workspaceState.isProjectSetup,
                             },
                         },
                     } as MessagesFromStartupFlowProvider);
@@ -412,7 +413,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 workspaceState: {
                                     isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
                                     isProjectInitialized:
-                                        this.preflightState.workspaceState.hasMetadata,
+                                        this.preflightState.workspaceState.isProjectSetup,
                                 },
                             },
                         } as MessagesFromStartupFlowProvider);
@@ -432,7 +433,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             workspaceState: {
                                 isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
                                 isProjectInitialized:
-                                    this.preflightState.workspaceState.hasMetadata,
+                                    this.preflightState.workspaceState.isProjectSetup,
                             },
                         },
                     } as MessagesFromStartupFlowProvider);
@@ -453,7 +454,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             workspaceState: {
                                 isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
                                 isProjectInitialized:
-                                    this.preflightState.workspaceState.hasMetadata,
+                                    this.preflightState.workspaceState.isProjectSetup,
                             },
                         },
                     } as MessagesFromStartupFlowProvider);
@@ -470,7 +471,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             workspaceState: {
                                 isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
                                 isProjectInitialized:
-                                    this.preflightState.workspaceState.hasMetadata,
+                                    this.preflightState.workspaceState.isProjectSetup,
                             },
                         },
                     } as MessagesFromStartupFlowProvider);
@@ -502,15 +503,36 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     return;
                 }
 
+                // Read and parse metadata.json to check if project is properly setup
+                const metadataContent = await vscode.workspace.fs.readFile(metadataUri);
+                const metadata = JSON.parse(metadataContent.toString());
+
+                // Check if metadata has required fields
+                const hasProjectName = !!metadata.projectName;
+                const sourceLanguage = metadata.languages?.find(
+                    (l: any) => l.projectStatus === "source"
+                );
+                const targetLanguage = metadata.languages?.find(
+                    (l: any) => l.projectStatus === "target"
+                );
+
+                const hasCriticalData = hasProjectName && !!sourceLanguage && !!targetLanguage;
+                console.log("hasCriticalData", hasCriticalData);
                 // Only send metadata exists if authenticated
                 webviewPanel.webview.postMessage({
                     command: "metadata.checkResponse",
-                    exists: true,
+                    data: {
+                        exists: true,
+                        hasCriticalData,
+                    },
                 } as MessagesFromStartupFlowProvider);
             } catch {
                 webviewPanel.webview.postMessage({
                     command: "metadata.checkResponse",
-                    exists: false,
+                    data: {
+                        exists: false,
+                        hasCriticalData: false,
+                    },
                 } as MessagesFromStartupFlowProvider);
             }
         }
@@ -584,7 +606,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 } else {
                     console.log("No workspace folder found");
                 }
-                webviewPanel.dispose();
+                // webviewPanel.dispose();
                 break;
             }
             case "project.open": {
@@ -604,6 +626,16 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         token: vscode.CancellationToken
     ): Promise<vscode.CustomDocument> {
         return { uri, dispose: () => {} };
+    }
+
+    private async handleProjectChange(command: string) {
+        try {
+            await vscode.commands.executeCommand(`codex-project-manager.${command}`);
+            // await this.refreshState();
+        } catch (error) {
+            console.error(`Error handling ${command}:`, error);
+            throw error;
+        }
     }
 
     public async resolveCustomTextEditor(
@@ -653,6 +685,20 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         // Send initial state immediately after webview is ready
         webviewPanel.webview.onDidReceiveMessage(async (message) => {
             switch (message.command) {
+                case "openProjectSettings":
+                case "renameProject":
+                case "editAbbreviation":
+                case "":
+                case "changeTargetLanguage":
+                case "selectCategory":
+                case "downloadSourceText":
+                case "openAISettings":
+                case "openSourceUpload":
+                    await this.handleProjectChange(message.command);
+                    // FIXME: sometimes this refreshes before the command is finished. Need to return values on all of them
+                    // Send a response back to the webview
+                    this.webviewPanel?.webview.postMessage({ command: "actionCompleted" });
+                    break;
                 case "project.createEmpty": {
                     debugLog("Creating empty project");
                     await createNewWorkspaceAndProject();
@@ -677,7 +723,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     break;
                 }
                 case "webview.ready": {
-                    const preflightState = await preflightCheck.preflight(this.context);
+                    const preflightState = await preflightCheck.preflight();
                     debugLog("Sending initial preflight state:", preflightState);
                     webviewPanel.webview.postMessage({
                         command: "updateAuthState",
@@ -691,13 +737,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         preflightState.workspaceState.isOpen &&
                         preflightState.workspaceState.hasMetadata
                     ) {
-                        if (!preflightState.authState.isAuthExtensionInstalled) {
+                        if (preflightState.workspaceState.isProjectSetup) {
                             webviewPanel.webview.postMessage({
                                 command: "setupComplete",
                             } as MessagesFromStartupFlowProvider);
-                        } else if (preflightState.authState.isAuthenticated) {
+                        } else {
                             webviewPanel.webview.postMessage({
-                                command: "setupComplete",
+                                command: "setupIncompleteCriticalDataMissing",
                             } as MessagesFromStartupFlowProvider);
                         }
                     }
