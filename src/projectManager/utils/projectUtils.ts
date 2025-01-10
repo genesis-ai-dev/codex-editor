@@ -167,14 +167,23 @@ export function generateProjectScope(
     return projectScope;
 }
 
+export type ProjectWithId = Project & { projectId: string };
+
+export const generateProjectId = () => {
+    return (
+        Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
+    );
+};
+
 export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
     // Initialize a new project with the given details and return the project object
-    const newProject: Project = {
+    const newProject: ProjectWithId = {
         format: "scripture burrito",
         projectName:
             details.projectName ||
             vscode.workspace.getConfiguration("codex-project-manager").get<string>("projectName") ||
             "", // previously "Codex Project"
+        projectId: generateProjectId(),
         meta: {
             version: "0.0.0",
             category:
@@ -470,6 +479,7 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
         return {
             format: metadata.format || "Unknown Format",
             projectName: metadata.projectName || "Unnamed Project",
+            projectId: metadata.projectId || "Unknown Project ID",
             projectStatus: metadata.projectStatus || "Unknown Status",
             category: metadata.meta?.category || "Uncategorized",
             userName: userInfo?.username || "Anonymous",
@@ -777,104 +787,13 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
 }
 
 export async function stageAndCommitAllAndSync(commitMessage: string): Promise<void> {
-    const authApi = getAuthApi();
-    const userInfo = await authApi?.getUserInfo();
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceFolder) {
         vscode.window.showErrorMessage("No workspace folder found");
         return;
     }
     try {
-        // Check if git repository exists by attempting to list the remotes
-        try {
-            await git.listRemotes({ fs, dir: workspaceFolder });
-        } catch (error) {
-            vscode.window.showErrorMessage("No git repository found in this project");
-            return;
-        }
-
-        // Get status of all files
-        const statusMatrix = await git.statusMatrix({
-            fs,
-            dir: workspaceFolder,
-        });
-
-        // Stage all changed files
-        for (const [filepath, , worktreeStatus] of statusMatrix) {
-            try {
-                if (worktreeStatus !== 1) {
-                    // 1 means unchanged
-                    // Check if file exists before trying to add it
-                    await fs.promises.access(path.join(workspaceFolder, filepath));
-                    await git.add({
-                        fs,
-                        dir: workspaceFolder,
-                        filepath,
-                    });
-                }
-            } catch (error) {
-                console.log(`Skipping non-existent file: ${filepath}`);
-                continue;
-            }
-        }
-
-        const author = {
-            name:
-                userInfo?.username ||
-                vscode.workspace
-                    .getConfiguration("codex-project-manager")
-                    .get<string>("userName") ||
-                "Unknown",
-            email:
-                userInfo?.email ||
-                vscode.workspace
-                    .getConfiguration("codex-project-manager")
-                    .get<string>("userEmail") ||
-                "unknown",
-        };
-
-        // Create commit with staged changes
-        await git.commit({
-            fs,
-            dir: workspaceFolder,
-            message: commitMessage,
-            author,
-        });
-        let remoteHasSynced = false;
-        // Check if remote exists
-        try {
-            const remotes = await git.listRemotes({ fs, dir: workspaceFolder });
-            const hasOrigin = remotes.some((remote) => remote.remote === "origin");
-
-            if (hasOrigin) {
-                // Pull latest changes from remote
-                await git.pull({
-                    fs,
-                    http,
-                    dir: workspaceFolder,
-                    ref: "main",
-                    singleBranch: true,
-                });
-
-                // Push changes to remote
-                await git.push({
-                    fs,
-                    http,
-                    dir: workspaceFolder,
-                    remote: "origin",
-                    ref: "main",
-                });
-                remoteHasSynced = true;
-            }
-        } catch (error) {
-            console.log("No remote configured, skipping pull/push", error);
-        }
-
-        if (remoteHasSynced) {
-            vscode.window.showInformationMessage("Changes committed and synced successfully");
-        } else {
-            vscode.window.showInformationMessage("Changes committed successfully");
-        }
+        await vscode.commands.executeCommand("frontier.syncChanges");
     } catch (error) {
         console.error("Failed to commit and sync changes:", error);
         vscode.window.showErrorMessage(

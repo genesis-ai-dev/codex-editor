@@ -429,12 +429,29 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                                 this.store.setState({ repoHasRemote: false });
                             }
                             break;
-                        case "publishProject":
+                        case "publishProject": {
+                            const projectName =
+                                this.store.getState().projectOverview?.projectName || "";
+                            const projectId =
+                                this.store.getState().projectOverview?.projectId || "";
+
+                            if (!projectName) {
+                                vscode.window.showErrorMessage("No project name found");
+                                return;
+                            }
+
+                            const sanitizedName = `${projectName}-${projectId}`
+                                .toLowerCase()
+                                .replace(/[^a-z0-9._-]/g, "-")
+                                .replace(/^-+|-+$/g, "")
+                                .replace(/\.git$/i, "");
+
                             await this.frontierApi?.publishWorkspace({
-                                name: this.store.getState().projectOverview?.projectName || "",
+                                name: sanitizedName,
                                 visibility: "private",
                             });
                             break;
+                        }
                         case "syncProject":
                             console.log("Syncing project");
                             await stageAndCommitAllAndSync("Syncing project");

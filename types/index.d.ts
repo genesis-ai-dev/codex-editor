@@ -753,6 +753,7 @@ type SpellCheckResult = SpellCheckResponse[];
 /* This is the project overview that populates the project manager webview */
 interface ProjectOverview extends Project {
     projectName: string;
+    projectId: string;
     abbreviation: string;
     sourceLanguage: LanguageMetadata;
     targetLanguage: LanguageMetadata;
