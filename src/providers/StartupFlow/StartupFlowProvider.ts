@@ -200,7 +200,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             {
                                 target: StartupFlowStates.OPEN_OR_CREATE_PROJECT,
                                 guard: ({ context }) =>
-                                    !context.authState?.workspaceState?.isWorkspaceOpen ?? false,
+                                    !context.authState?.workspaceState?.isWorkspaceOpen || false,
                                 actions: assign({
                                     authState: ({ event }) => ({
                                         isAuthenticated:
