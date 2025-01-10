@@ -1197,7 +1197,8 @@
         "vscode-languageclient": "^9.0.1",
         "vscode-uri": "^3.0.8",
         "webvtt-parser": "^2.2.0",
-        "xml2js": "^0.6.2"
+        "xml2js": "^0.6.2",
+        "xstate": "^5.19.1"
     },
     "overrides": {
         "minimatch": "5.1.2"

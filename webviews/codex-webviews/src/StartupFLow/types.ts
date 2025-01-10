@@ -129,7 +129,7 @@ export interface GitLabInfo {
 }
 
 export interface LoginRegisterStepProps {
-    authState: AuthState;
+    // authState: AuthState;
     onLogin: (username: string, password: string) => void;
     onRegister: (username: string, email: string, password: string) => void;
     onLogout: () => void;

@@ -20,8 +20,8 @@ export interface ProjectSetupStepProps {
     gitlabInfo?: GitLabInfo;
     vscode: WebviewApi<any>;
     onOpenProject: (project: ProjectWithSyncStatus) => void;
-    state: StateFrom<typeof startupFlowMachine>;
-    send: (event: EventFrom<typeof startupFlowMachine>) => void;
+    // state: StateFrom<typeof startupFlowMachine>;
+    // send: (event: EventFrom<typeof startupFlowMachine>) => void;
 }
 
 export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
@@ -30,8 +30,8 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
     onOpenProject,
     gitlabInfo,
     vscode,
-    state,
-    send,
+    // state,
+    // send,
 }) => {
     const [projectsList, setProjectsList] = useState<ProjectWithSyncStatus[]>([]);
     const [syncStatus, setSyncStatus] = useState<Record<string, "synced" | "cloud" | "error">>({});
@@ -80,10 +80,10 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
             window.removeEventListener("message", messageHandler);
         };
     }, []);
-    console.log({ state }, "state in ProjectSetupStep");
+    // console.log({ state }, "state in ProjectSetupStep");
     return (
         <div className="project-setup-step">
-            {state.context.authState.isAuthExtensionInstalled && (
+            {/* {state.context.authState.isAuthExtensionInstalled && (
                 <div>
                     <VSCodeButton
                         appearance="icon"
@@ -93,7 +93,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                         <i className="codicon codicon-arrow-left"></i>
                     </VSCodeButton>
                 </div>
-            )}
+            )} */}
             <h2>Project Setup</h2>
             {gitlabInfo && (
                 <div className="gitlab-info">
