@@ -899,7 +899,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 } else {
                     debugLog("No workspace folder found");
                 }
-                // webviewPanel.dispose();
+                webviewPanel.dispose();
                 break;
             }
             case "project.open": {
@@ -981,7 +981,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 case "openProjectSettings":
                 case "renameProject":
                 case "editAbbreviation":
-                case "":
+                case "changeSourceLanguage":
                 case "changeTargetLanguage":
                 case "selectCategory":
                 case "downloadSourceText":
