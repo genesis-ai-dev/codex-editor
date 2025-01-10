@@ -235,7 +235,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                     <VSCodeButton type="submit">
                         {isRegistering ? "Register" : "Login"}
                     </VSCodeButton>
-                    {!isRegistering && (
+                    {/* {!isRegistering && (
                         <VSCodeButton onClick={onSkip} appearance="icon">
                             <span
                                 style={{
@@ -247,7 +247,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                 Skip
                             </span>
                         </VSCodeButton>
-                    )}
+                    )} */}
                 </div>
             </form>
         </div>

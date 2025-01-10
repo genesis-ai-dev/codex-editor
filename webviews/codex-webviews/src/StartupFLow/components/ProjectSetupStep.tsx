@@ -80,7 +80,6 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
             window.removeEventListener("message", messageHandler);
         };
     }, []);
-    // console.log({ state }, "state in ProjectSetupStep");
     return (
         <div className="project-setup-step">
             {/* {state.context.authState.isAuthExtensionInstalled && (

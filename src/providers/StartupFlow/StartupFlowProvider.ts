@@ -128,14 +128,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     };
 
     constructor(private readonly context: vscode.ExtensionContext) {
-        // Initialize state machine first
-        this.initializeStateMachine();
-
         // Then initialize preflight state
-        this.initializePreflightState();
-
-        // Finally initialize Frontier API
-        this.initializeFrontierApi();
+        this.initializePreflightState().then(() => {
+            // Initialize state machine first
+            this.initializeStateMachine();
+            // Finally initialize`   Frontier API
+            this.initializeFrontierApi();
+        });
 
         // Add disposal of webview panel when extension is deactivated
         this.context.subscriptions.push(
@@ -538,8 +537,22 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
         debugLog({
             eventType,
-            authState: JSON.stringify(authState),
-            stateMachine: JSON.stringify(this.stateMachine),
+            authState: authState,
+            stateMachine: this.stateMachine,
+            preflightState: this.preflightState,
+        });
+        this.stateMachine.send({
+            type: StartupFlowEvents.UPDATE_AUTH_STATE,
+            data: {
+                ...authState,
+                isAuthExtensionInstalled: !!authState.isAuthExtensionInstalled,
+                isAuthenticated: !!authState.isAuthenticated,
+                isLoading: false,
+                workspaceState: {
+                    isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
+                    isProjectInitialized: this.preflightState.workspaceState.isProjectSetup,
+                },
+            },
         });
 
         this.stateMachine.send({
