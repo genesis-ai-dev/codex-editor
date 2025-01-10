@@ -8,7 +8,6 @@ import {
     MessagesToStartupFlowProvider,
 } from "../../../../../types";
 import { GitLabProjectsList } from "./GitLabProjectsList";
-import { StartupFlowEvents, startupFlowMachine } from "../machines/startupFlowMachine";
 import { useMachine } from "@xstate/react";
 import { WebviewApi } from "vscode-webview";
 import { EventFrom } from "xstate";

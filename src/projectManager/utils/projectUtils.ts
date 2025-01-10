@@ -793,6 +793,16 @@ export async function stageAndCommitAllAndSync(commitMessage: string): Promise<v
         return;
     }
     try {
+        try {
+            const remotes = await git.listRemotes({ fs, dir: workspaceFolder });
+            if (remotes.length === 0) {
+                console.log("No remotes found");
+                return;
+            }
+        } catch (error) {
+            vscode.window.showErrorMessage("No git repository found in this project");
+            return;
+        }
         await vscode.commands.executeCommand("frontier.syncChanges");
     } catch (error) {
         console.error("Failed to commit and sync changes:", error);
