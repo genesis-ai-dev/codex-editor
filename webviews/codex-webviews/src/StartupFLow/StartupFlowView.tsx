@@ -1,10 +1,5 @@
 import React, { useEffect, useState } from "react";
 import { useActor } from "@xstate/react";
-import {
-    StartupFlowEvents,
-    startupFlowMachine,
-    StartupFlowStates,
-} from "./machines/startupFlowMachine";
 import { LoginRegisterStep } from "./components/LoginRegisterStep";
 import { WorkspaceStep } from "./components/WorkspaceStep";
 import { ProjectSetupStep } from "./components/ProjectSetupStep";
@@ -18,11 +13,11 @@ import {
 } from "../../../../types";
 import { createActor } from "xstate";
 import { InputCriticalProjectInfo } from "./components/InputCriticalProjectInfo";
+import { StartupFlowStates } from "../../../../src/providers/StartupFlow/StartupFlowProvider";
 
 const vscode = acquireVsCodeApi();
 
 export const StartupFlowView: React.FC = () => {
-    // const [state, send] = useActor(startupFlowMachine);
     const [value, setValue] = useState<StartupFlowStates | null>(null);
     useEffect(() => {
         // Notify the extension that the webview is ready
