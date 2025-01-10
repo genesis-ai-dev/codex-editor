@@ -167,14 +167,23 @@ export function generateProjectScope(
     return projectScope;
 }
 
+export type ProjectWithId = Project & { projectId: string };
+
+export const generateProjectId = () => {
+    return (
+        Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
+    );
+};
+
 export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
     // Initialize a new project with the given details and return the project object
-    const newProject: Project = {
+    const newProject: ProjectWithId = {
         format: "scripture burrito",
         projectName:
             details.projectName ||
             vscode.workspace.getConfiguration("codex-project-manager").get<string>("projectName") ||
             "", // previously "Codex Project"
+        projectId: generateProjectId(),
         meta: {
             version: "0.0.0",
             category:
@@ -470,6 +479,7 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
         return {
             format: metadata.format || "Unknown Format",
             projectName: metadata.projectName || "Unnamed Project",
+            projectId: metadata.projectId || "Unknown Project ID",
             projectStatus: metadata.projectStatus || "Unknown Status",
             category: metadata.meta?.category || "Uncategorized",
             userName: userInfo?.username || "Anonymous",
