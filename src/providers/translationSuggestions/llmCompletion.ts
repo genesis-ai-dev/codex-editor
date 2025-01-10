@@ -152,7 +152,7 @@ export async function llmCompletion(
                 .slice(0, numberOfFewShotExamples)
                 .map(
                     (pair) =>
-                        `${pair.cellId}: ${pair.sourceCell.content} -> ${pair.targetCell.content}`
+                        `${pair.sourceCell.content} -> ${pair.targetCell?.content?.replace(/<[^>]*?>/g, "").trim()}` // remove HTML tags
                 )
                 .join("\n");
 
@@ -178,7 +178,7 @@ export async function llmCompletion(
                 fewShotExamples,
                 "## Current Context",
                 precedingTranslationPairs.filter(Boolean).join("\n"),
-                `${currentCellId}: ${currentCellSourceContent} ->`,
+                `${currentCellSourceContent} ->`,
             ].join("\n\n");
 
             const messages = [
