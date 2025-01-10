@@ -62,7 +62,8 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
             className="gitlab-projects-list"
             style={{
                 padding: "1rem",
-                maxHeight: "400px",
+                minHeight: "200px", // Ensures at least 2-3 projects visible
+                maxHeight: "calc(100vh - 300px)", // Dynamic height based on viewport
                 overflowY: "auto",
             }}
         >
