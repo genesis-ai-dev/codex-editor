@@ -376,6 +376,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
         actor.subscribe((state) => {
             debugLog({ state }, "state in startup flow");
+            if (state.value === StartupFlowStates.ALREADY_WORKING) {
+                this.webviewPanel?.dispose();
+            }
             if (this.webviewPanel) {
                 this.webviewPanel.webview.postMessage({
                     command: "state.update",
