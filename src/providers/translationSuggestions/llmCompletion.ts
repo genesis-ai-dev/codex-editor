@@ -134,9 +134,7 @@ export async function llmCompletion(
                 // then we don't want to use the cell content
                 // as it has not yet been verified by the user
 
-                const result = `${cellIds.join(
-                    ", "
-                )}: ${combinedSourceContent} -> ${cellContentWithoutHTMLTags}`;
+                const result = `${combinedSourceContent} -> ${cellContentWithoutHTMLTags}`;
                 return result;
             })
         );
