@@ -1,6 +1,9 @@
 import * as vscode from "vscode";
 import { ImportTransaction } from "./ImportTransaction";
-import { NotebookMetadataManager, getNotebookMetadataManager } from "../utils/notebookMetadataManager";
+import {
+    NotebookMetadataManager,
+    getNotebookMetadataManager,
+} from "../utils/notebookMetadataManager";
 import { ProgressManager, ProgressStep } from "../utils/progressManager";
 import { CodexContentSerializer } from "../serializer";
 import {
@@ -98,7 +101,10 @@ export class UsfmTranslationImportTransaction extends ImportTransaction {
             const fileContentString = new TextDecoder().decode(fileContent);
 
             // Parse USFM using relaxed mode
-            const relaxedUsfmParser = new grammar.USFMParser(fileContentString, grammar.LEVEL.RELAXED);
+            const relaxedUsfmParser = new grammar.USFMParser(
+                fileContentString,
+                grammar.LEVEL.RELAXED
+            );
             const jsonOutput = relaxedUsfmParser.toJSON() as any as ParsedUSFM;
 
             // Convert USFM content to ImportedContent array
@@ -125,22 +131,32 @@ export class UsfmTranslationImportTransaction extends ImportTransaction {
             const sourceMetadata = await this.metadataManager.getMetadataById(
                 this.sourceNotebookId
             );
-            if (!sourceMetadata?.sourceFsPath) {
+            if (!sourceMetadata?.originalName) {
                 throw new Error("Source notebook not found");
             }
 
-            const sourceUri = vscode.Uri.file(sourceMetadata.sourceFsPath);
-            const codexUri = vscode.Uri.file(sourceMetadata.codexFsPath!);
+            // Find the source and codex files in the workspace
+            const sourceFile = await this.findFileInWorkspace(sourceMetadata.originalName);
+            const codexFile = await this.findFileInWorkspace(
+                sourceMetadata.originalName.replace(".source.", ".codex.")
+            );
+
+            if (!sourceFile || !codexFile) {
+                throw new Error("Could not locate source or codex files in workspace");
+            }
 
             const serializer = new CodexContentSerializer();
-            const sourceContent = await vscode.workspace.fs.readFile(sourceUri);
+            const sourceContent = await vscode.workspace.fs.readFile(sourceFile);
             const sourceNotebook = await serializer.deserializeNotebook(
                 sourceContent,
                 new vscode.CancellationTokenSource().token
             );
 
             // Align cells
-            const alignedCells = await this.alignUSFMCells(sourceNotebook.cells, this.importedContent);
+            const alignedCells = await this.alignUSFMCells(
+                sourceNotebook.cells,
+                this.importedContent
+            );
 
             const matchedCells = alignedCells.filter(
                 (cell) => cell.notebookCell && !cell.isParatext
@@ -158,19 +174,21 @@ export class UsfmTranslationImportTransaction extends ImportTransaction {
                 },
                 transformed: {
                     sourceNotebook: {
-                        name: path.basename(sourceUri.fsPath),
+                        name: path.basename(sourceFile.fsPath),
                         cells: sourceNotebook.cells.map((cell) => ({
                             value: cell.value,
                             metadata: cell.metadata,
                         })),
                     },
                     targetNotebook: {
-                        name: path.basename(codexUri.fsPath),
+                        name: path.basename(codexFile.fsPath),
                         cells: alignedCells.map((cell) => ({
                             value: cell.importedContent.content,
                             metadata: cell.notebookCell?.metadata || {
                                 id: cell.importedContent.id,
-                                type: cell.isParatext ? CodexCellTypes.PARATEXT : CodexCellTypes.TEXT,
+                                type: cell.isParatext
+                                    ? CodexCellTypes.PARATEXT
+                                    : CodexCellTypes.TEXT,
                             },
                         })),
                     },
@@ -205,19 +223,25 @@ export class UsfmTranslationImportTransaction extends ImportTransaction {
             const sourceMetadata = await this.metadataManager.getMetadataById(
                 this.sourceNotebookId
             );
-            if (!sourceMetadata) {
+            if (!sourceMetadata?.originalName) {
                 throw new Error("Source notebook metadata not found");
             }
 
             // Preparation step
             await progressManager?.nextStep(token);
-            const codexUri = vscode.Uri.file(sourceMetadata.codexFsPath!);
+            const codexFile = await this.findFileInWorkspace(
+                sourceMetadata.originalName.replace(".source.", ".codex.")
+            );
+            if (!codexFile) {
+                throw new Error("Could not locate codex file in workspace");
+            }
+
             const serializer = new CodexContentSerializer();
 
             // Processing step
             await progressManager?.nextStep(token);
             const existingNotebook = await serializer.deserializeNotebook(
-                await vscode.workspace.fs.readFile(codexUri),
+                await vscode.workspace.fs.readFile(codexFile),
                 token || new vscode.CancellationTokenSource().token
             );
 
@@ -232,7 +256,7 @@ export class UsfmTranslationImportTransaction extends ImportTransaction {
             // Create temp file for the updated notebook
             const tempCodexFile = vscode.Uri.joinPath(
                 this.getTempDir(),
-                path.basename(codexUri.fsPath)
+                path.basename(codexFile.fsPath)
             );
             const serializedContent = await serializer.serializeNotebook(
                 updatedNotebook,
@@ -267,13 +291,19 @@ export class UsfmTranslationImportTransaction extends ImportTransaction {
 
     protected async commitChanges(): Promise<void> {
         const sourceMetadata = await this.metadataManager.getMetadataById(this.sourceNotebookId);
-        if (!sourceMetadata?.codexFsPath) {
+        if (!sourceMetadata?.originalName) {
             throw new Error("Source notebook metadata not found");
         }
 
-        const codexUri = vscode.Uri.file(sourceMetadata.codexFsPath);
+        const codexFile = await this.findFileInWorkspace(
+            sourceMetadata.originalName.replace(".source.", ".codex.")
+        );
+        if (!codexFile) {
+            throw new Error("Could not locate codex file in workspace");
+        }
+
         const tempCodexFile = this.state.tempFiles.find((uri) =>
-            uri.fsPath.endsWith(path.basename(codexUri.fsPath))
+            uri.fsPath.endsWith(path.basename(codexFile.fsPath))
         );
 
         if (!tempCodexFile) {
@@ -281,7 +311,7 @@ export class UsfmTranslationImportTransaction extends ImportTransaction {
         }
 
         // Copy the updated notebook to its final location
-        await vscode.workspace.fs.copy(tempCodexFile, codexUri, { overwrite: true });
+        await vscode.workspace.fs.copy(tempCodexFile, codexFile, { overwrite: true });
 
         // Clean up temp files
         await this.cleanupTempFiles();
@@ -432,4 +462,9 @@ export class UsfmTranslationImportTransaction extends ImportTransaction {
 
         return updatedNotebook;
     }
-} 
+
+    private async findFileInWorkspace(fileName: string): Promise<vscode.Uri | undefined> {
+        const files = await vscode.workspace.findFiles(`**/${fileName}`);
+        return files[0]; // Return the first match
+    }
+}

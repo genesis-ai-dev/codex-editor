@@ -117,14 +117,14 @@ export async function activate(context: vscode.ExtensionContext) {
         // Listen for text document saves (includes JSON files)
         context.subscriptions.push(
             vscode.workspace.onDidSaveTextDocument((document) => {
-                handleSaveEvent(`changes to ${document.uri.path.split("/").pop()}`);
+                handleSaveEvent(`changes to ${vscode.workspace.asRelativePath(document.uri).split(/[/\\]/).pop()}`);
             })
         );
 
         // Listen for notebook document saves
         context.subscriptions.push(
             vscode.workspace.onDidSaveNotebookDocument((notebookDocument) => {
-                handleSaveEvent(`changes to ${notebookDocument.uri.path.split("/").pop()}`);
+                handleSaveEvent(`changes to ${vscode.workspace.asRelativePath(notebookDocument.uri).split(/[/\\]/).pop()}`);
             })
         );
 

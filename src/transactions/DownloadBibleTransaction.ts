@@ -12,6 +12,7 @@ import { allORGBibleVerseRefs } from "../utils/verseRefUtils/verseData";
 import { getTestamentForBook } from "../utils/verseRefUtils/verseData";
 import { NotebookMetadataManager, getNotebookMetadataManager } from "../utils/notebookMetadataManager";
 import { getWorkSpaceUri } from "../utils";
+import path from "path";
 
 export interface DownloadBibleTransactionState extends TransactionState {
     metadata: {
@@ -441,10 +442,7 @@ export class DownloadBibleTransaction extends BaseTransaction {
                                         workspaceUri,
                                         ".project",
                                         "sourceTexts",
-                                        `${codexUri.path
-                                            .split("/")
-                                            .pop()
-                                            ?.replace(".codex", ".source")}`
+                                        `${path.basename(codexUri.fsPath, ".codex")}.source`
                                     );
 
                                     // Read both files in parallel
