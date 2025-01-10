@@ -342,8 +342,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         [StartupFlowEvents.BACK_TO_LOGIN]: StartupFlowStates.LOGIN_REGISTER,
                         [StartupFlowEvents.PROJECT_CREATE_EMPTY]:
                             StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
-                        [StartupFlowEvents.PROJECT_CLONE_OR_OPEN]:
-                            StartupFlowStates.ALREADY_WORKING,
                         [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]:
                             StartupFlowStates.ALREADY_WORKING,
                         [StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT]:
@@ -789,9 +787,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     private async handleWorkspaceStatus(webviewPanel: vscode.WebviewPanel) {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         const isOpen = !!workspaceFolders?.length;
-
+        debugLog("Workspace status", { isOpen, workspaceFolders });
         if (!isOpen) {
-            this.stateMachine.send({ type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT });
+            debugLog("Workspace is not open");
+            this.stateMachine.send({ type: StartupFlowEvents.PROJECT_CLONE_OR_OPEN });
             return;
         }
 
@@ -1013,6 +1012,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 case "project.initialize": {
                     debugLog("Initializing project");
                     await createNewProject();
+                    this.stateMachine.send({ type: StartupFlowEvents.INITIALIZE_PROJECT });
                     break;
                 }
                 case "webview.ready": {

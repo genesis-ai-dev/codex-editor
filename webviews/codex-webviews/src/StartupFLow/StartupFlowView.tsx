@@ -193,7 +193,7 @@ export const StartupFlowView: React.FC = () => {
     // }, [state.value]);
 
     console.log(
-        { value, doesThisWork: value === StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA },
+        { value, doesThisWork: value === StartupFlowStates.OPEN_OR_CREATE_PROJECT },
         "value in startup flow"
     );
 
