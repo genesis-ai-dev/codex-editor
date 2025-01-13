@@ -125,6 +125,15 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
             }
             onDrop(files);
         },
+        noClick: false,
+        noKeyboard: false,
+        preventDropOnDocument: true,
+        onDragOver: (event) => {
+            event.preventDefault();
+        },
+        onDragEnter: (event) => {
+            event.preventDefault();
+        },
     });
 
     // Track which codex files are already associated
@@ -160,7 +169,7 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
 
     return (
         <div>
-            <div
+            {/* <div
                 {...getRootProps()}
                 style={{
                     border: "1px dashed var(--vscode-button-border)",
@@ -198,6 +207,31 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
                             or click to select files
                         </p>
                     </div>
+                )}
+            </div> */}
+
+            <div
+                {...getRootProps()}
+                style={{
+                    display: "flex",
+                    justifyContent: "center",
+                    marginBottom: selectedFiles.length ? "1rem" : 0,
+                }}
+            >
+                <input {...getInputProps({ multiple: true })} />
+                {selectedFiles.length === 0 && (
+                    <VSCodeButton>
+                        <div
+                            style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "0.5rem",
+                            }}
+                        >
+                            <i className="codicon codicon-cloud-upload"></i>
+                            <span>Select {type} files</span>
+                        </div>
+                    </VSCodeButton>
                 )}
             </div>
 
