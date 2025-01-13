@@ -403,6 +403,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             if (this.frontierApi) {
                 remoteProjects = await this.frontierApi.listProjects(false);
             }
+            remoteProjects.forEach((project) => {
+                // remove the unique id from the project name if it exists
+                if (project.name[project.name.length - 23] === "-") {
+                    project.name = project.name.slice(0, -23);
+                }
+            });
             const localProject = await findAllCodexProjects();
 
             for (const project of remoteProjects) {
