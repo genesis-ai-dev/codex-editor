@@ -116,12 +116,20 @@ export class TranslationImportTransaction extends ImportTransaction {
             }
 
             // Find the source and codex files in the workspace
+            console.log("Source metadata original name:", sourceMetadata.originalName);
+
             const sourceFile = await this.findFileInWorkspace(sourceMetadata.originalName);
-            const codexFile = await this.findFileInWorkspace(
-                sourceMetadata.originalName.replace(".source.", ".codex.")
-            );
+            const codexFileName = sourceMetadata.originalName
+                .replace(/\.source\b/g, ".codex") // Replace .source with .codex
+                .replace(/\.source\./g, ".codex.") // Replace .source. with .codex.
+                .replace(/^(.+?)(?:\..*)?$/, "$1.codex"); // Add .codex if no extension
+
+            console.log("Looking for codex file with name:", codexFileName);
+            const codexFile = await this.findFileInWorkspace(codexFileName);
 
             if (!sourceFile || !codexFile) {
+                console.log("Source file found:", sourceFile?.fsPath);
+                console.log("Codex file found:", codexFile?.fsPath);
                 throw new Error("Could not locate source or codex files in workspace");
             }
 
@@ -208,7 +216,10 @@ export class TranslationImportTransaction extends ImportTransaction {
             // Preparation step
             await progressManager?.nextStep(token);
             const codexFile = await this.findFileInWorkspace(
-                sourceMetadata.originalName.replace(".source.", ".codex.")
+                sourceMetadata.originalName
+                    .replace(/\.source\b/g, ".codex") // Replace .source with .codex
+                    .replace(/\.source\./g, ".codex.") // Replace .source. with .codex.
+                    .replace(/^(.+?)(?:\..*)?$/, "$1.codex") // Add .codex if no extension
             );
             if (!codexFile) {
                 throw new Error("Could not locate codex file in workspace");
@@ -274,7 +285,10 @@ export class TranslationImportTransaction extends ImportTransaction {
         }
 
         const codexFile = await this.findFileInWorkspace(
-            sourceMetadata.originalName.replace(".source.", ".codex.")
+            sourceMetadata.originalName
+                .replace(/\.source\b/g, ".codex") // Replace .source with .codex
+                .replace(/\.source\./g, ".codex.") // Replace .source. with .codex.
+                .replace(/^(.+?)(?:\..*)?$/, "$1.codex") // Add .codex if no extension
         );
         if (!codexFile) {
             throw new Error("Could not locate codex file in workspace");
@@ -750,7 +764,43 @@ export class TranslationImportTransaction extends ImportTransaction {
     }
 
     private async findFileInWorkspace(fileName: string): Promise<vscode.Uri | undefined> {
-        const files = await vscode.workspace.findFiles(`**/${fileName}`);
-        return files[0]; // Return the first match
+        console.log("Searching for file:", fileName);
+
+        // Add .source extension if it's missing and we're looking for a source file
+        const sourceFileName = fileName.endsWith(".source") ? fileName : `${fileName}.source`;
+
+        // Try to find source file in .project/sourceTexts/
+        const sourcePattern = `**/.project/sourceTexts/${sourceFileName}`;
+        console.log("Searching for source file with pattern:", sourcePattern);
+        const sourceFiles = await vscode.workspace.findFiles(sourcePattern);
+        console.log(
+            "Source files found:",
+            sourceFiles.map((f) => f.fsPath)
+        );
+        if (sourceFiles.length > 0) {
+            return sourceFiles[0];
+        }
+
+        // Try to find codex file in files/target/
+        const codexFileName = fileName.endsWith(".codex") ? fileName : `${fileName}.codex`;
+        const codexPattern = `**/files/target/${codexFileName}`;
+        console.log("Searching for codex file with pattern:", codexPattern);
+        const codexFiles = await vscode.workspace.findFiles(codexPattern);
+        console.log(
+            "Codex files found:",
+            codexFiles.map((f) => f.fsPath)
+        );
+        if (codexFiles.length > 0) {
+            return codexFiles[0];
+        }
+
+        // Fallback to searching anywhere in the workspace with both extensions
+        console.log("Falling back to workspace-wide search for:", fileName);
+        const files = await vscode.workspace.findFiles(`**/${fileName}*`);
+        console.log(
+            "Files found in workspace:",
+            files.map((f) => f.fsPath)
+        );
+        return files[0];
     }
 }

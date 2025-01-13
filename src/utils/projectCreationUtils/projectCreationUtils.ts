@@ -28,36 +28,54 @@ export async function checkForParentProjects(folderUri: vscode.Uri): Promise<boo
 }
 
 /**
- * Creates a new project in a new or existing folder
+ * Creates a new project in a new folder
  */
 export async function createNewWorkspaceAndProject() {
-    const choice = await vscode.window.showInformationMessage(
-        "Would you like to create a new folder for your project?",
-        { modal: true },
-        "Create New Folder",
-        "Select Existing Empty Folder"
-    );
+    const projectNameInput = await vscode.window.showInputBox({
+        title: "New Project",
+        prompt: "Choose a name for your new project",
+        placeHolder: "my-translation-project",
+        validateInput: (value: string) => {
+            if (!value) {
+                return "Project name cannot be empty";
+            }
+            if (value.length > 100) {
+                return "Project name is too long (max 100 characters)";
+            }
+            return null;
+        },
+        ignoreFocusOut: true,
+    });
 
-    if (!choice) {
-        return;
+    if (!projectNameInput) {
+        return; // User cancelled
     }
 
-    if (choice === "Create New Folder") {
-        await createProjectInNewFolder();
-    } else {
-        await createProjectInExistingFolder();
+    const projectName = sanitizeProjectName(projectNameInput);
+    if (projectName !== projectNameInput) {
+        const proceed = await vscode.window.showInformationMessage(
+            `Project name will be saved as "${projectName}"`,
+            { modal: true },
+            "Continue",
+            "Cancel"
+        );
+        if (proceed !== "Continue") {
+            return;
+        }
     }
+
+    await createProjectInNewFolder(projectName);
 }
 
 /**
  * Creates a new project in a new folder
  */
-async function createProjectInNewFolder() {
+async function createProjectInNewFolder(projectName: string) {
     const parentFolderUri = await vscode.window.showOpenDialog({
         canSelectFolders: true,
         canSelectFiles: false,
         canSelectMany: false,
-        openLabel: "Choose Location for New Project Folder",
+        openLabel: `Choose location for "${projectName}" folder`,
     });
 
     if (!parentFolderUri || !parentFolderUri[0]) {
@@ -73,20 +91,7 @@ async function createProjectInNewFolder() {
         return;
     }
 
-    const folderName = await vscode.window.showInputBox({
-        prompt: "Enter name for new project folder",
-        validateInput: (value) => {
-            if (!value) return "Folder name cannot be empty";
-            if (value.match(/[<>:"/\\|?*]/)) return "Folder name contains invalid characters";
-            return null;
-        },
-    });
-
-    if (!folderName) {
-        return;
-    }
-
-    const newFolderUri = vscode.Uri.joinPath(parentFolderUri[0], folderName);
+    const newFolderUri = vscode.Uri.joinPath(parentFolderUri[0], projectName);
     try {
         await vscode.workspace.fs.createDirectory(newFolderUri);
         await vscode.commands.executeCommand("vscode.openFolder", newFolderUri);
@@ -219,4 +224,26 @@ export async function openProject(projectPath: string) {
             { modal: true }
         );
     }
+}
+
+/**
+ * Sanitizes a project name to be used as a folder name.
+ * Ensure name is safe for:
+ * - Windows
+ * - Mac
+ * - Linux
+ * - Git
+ */
+function sanitizeProjectName(name: string): string {
+    // Replace invalid characters with hyphens
+    // This handles Windows, Mac, Linux filesystem restrictions and Git-unsafe characters
+    return (
+        name
+            .replace(/[<>:"/\\|?*]|^\.|\.$|\.lock$|^git$/i, "-") // Invalid/reserved chars and names
+            .replace(/\s+/g, "-") // Replace spaces with hyphens
+            .replace(/\.+/g, "-") // Replace periods with hyphens
+            .replace(/-+/g, "-") // Replace multiple hyphens with single hyphen
+            .replace(/^-|-$/g, "") || // Remove leading/trailing hyphens OR
+        "new-project" // Fallback if name becomes empty after sanitization
+    );
 }
