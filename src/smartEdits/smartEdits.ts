@@ -7,7 +7,6 @@ import {
     EditHistoryEntry,
 } from "../../types";
 import * as vscode from "vscode";
-import * as path from "path";
 import { diffWords } from "diff";
 
 const SYSTEM_MESSAGE = `You are a helpful assistant. Given similar edits across a corpus, you will suggest edits to a new text. 
@@ -38,23 +37,22 @@ Your suggestions should follow this format:
 
 export class SmartEdits {
     private chatbot: Chatbot;
-    private smartEditsPath: string;
-    private teachFile: string;
+    private smartEditsPath: vscode.Uri;
+    private teachFile: vscode.Uri;
     private lastProcessedCellId: string | null = null;
     private lastSuggestions: SmartSuggestion[] = [];
     private editHistory: { [key: string]: EditHistoryEntry[] } = {};
 
     constructor(workspaceUri: vscode.Uri) {
         this.chatbot = new Chatbot(SYSTEM_MESSAGE);
-        this.smartEditsPath = path.join(workspaceUri.fsPath, "files", "smart_edits.json");
-        this.teachFile = path.join(workspaceUri.fsPath, "files", "silver_path_memories.json");
+        this.smartEditsPath = vscode.Uri.joinPath(workspaceUri, "files", "smart_edits.json");
+        this.teachFile = vscode.Uri.joinPath(workspaceUri, "files", "silver_path_memories.json");
 
         this.ensureFileExists(this.smartEditsPath);
         this.ensureFileExists(this.teachFile);
     }
 
-    private async ensureFileExists(filePath: string): Promise<void> {
-        const fileUri = vscode.Uri.file(filePath);
+    private async ensureFileExists(fileUri: vscode.Uri): Promise<void> {
         try {
             await vscode.workspace.fs.stat(fileUri);
         } catch (error) {
@@ -113,8 +111,7 @@ export class SmartEdits {
 
     async loadSavedSuggestions(cellId: string): Promise<SavedSuggestions | null> {
         try {
-            const fileUri = vscode.Uri.file(this.smartEditsPath);
-            const fileContent = await vscode.workspace.fs.readFile(fileUri);
+            const fileContent = await vscode.workspace.fs.readFile(this.smartEditsPath);
             const fileString = fileContent.toString();
             const savedEdits: { [key: string]: SavedSuggestions } = fileString
                 ? JSON.parse(fileString)
@@ -134,11 +131,10 @@ export class SmartEdits {
     ): Promise<void> {
         if (suggestions.length === 0) return;
         try {
-            const fileUri = vscode.Uri.file(this.smartEditsPath);
             let savedEdits: { [key: string]: SavedSuggestions } = {};
 
             try {
-                const fileContent = await vscode.workspace.fs.readFile(fileUri);
+                const fileContent = await vscode.workspace.fs.readFile(this.smartEditsPath);
                 const fileString = fileContent.toString();
                 savedEdits = fileString ? JSON.parse(fileString) : {};
             } catch (error) {
@@ -153,7 +149,7 @@ export class SmartEdits {
             };
 
             await vscode.workspace.fs.writeFile(
-                fileUri,
+                this.smartEditsPath,
                 Buffer.from(JSON.stringify(savedEdits, null, 2))
             );
         } catch (error) {
@@ -181,12 +177,26 @@ export class SmartEdits {
         for (const entry of similarEntries) {
             if (entry.targetCell.uri) {
                 try {
-                    let filePath = entry.targetCell.uri
-                        .toString()
-                        .replace(".source", ".codex")
-                        .replace(".project/sourceTexts/", "files/target/");
-                    filePath = filePath.replace(".source", ".codex");
-                    const fileUri = vscode.Uri.parse(filePath);
+                    const uri = vscode.Uri.parse(entry.targetCell.uri.toString());
+                    const pathSegments = uri.path.split("/").filter(Boolean);
+
+                    // Create new path segments array with modifications
+                    const newPathSegments = pathSegments
+                        .map((segment) => {
+                            if (segment === ".source") return ".codex";
+                            if (segment === "sourceTexts") return "target";
+                            return segment;
+                        })
+                        .filter((segment) => segment !== ".project");
+
+                    // Ensure 'files' is in the correct position
+                    if (!newPathSegments.includes("files")) {
+                        newPathSegments.unshift("files");
+                    }
+
+                    // Create new URI with modified path
+                    const fileUri = uri.with({ path: "/" + newPathSegments.join("/") });
+
                     const fileContent = await vscode.workspace.fs.readFile(fileUri);
                     const fileString = fileContent.toString();
                     const jsonContent = fileString ? JSON.parse(fileString) : { cells: [] };
@@ -291,8 +301,7 @@ export class SmartEdits {
         [cellId: string]: { content: string; times_used: number };
     }> {
         try {
-            const fileUri = vscode.Uri.file(this.teachFile);
-            const fileContent = await vscode.workspace.fs.readFile(fileUri);
+            const fileContent = await vscode.workspace.fs.readFile(this.teachFile);
             const fileString = fileContent.toString();
             return fileString ? JSON.parse(fileString) : {};
         } catch (error) {
