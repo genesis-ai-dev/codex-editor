@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.1.6",
+    "version": "0.1.8",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -547,11 +547,6 @@
                 "category": "Translators Copilot"
             },
             {
-                "command": "translators-copilot.getZeroDraftContentOptions",
-                "title": "Get Zero Draft Content Options for Vref",
-                "category": "Translators Copilot"
-            },
-            {
                 "command": "translators-copilot.insertZeroDraftsIntoNotebooks",
                 "title": "Insert Zero Drafts into Notebooks",
                 "category": "Translators Copilot"
@@ -642,19 +637,11 @@
             },
             {
                 "command": "translators-copilot.getTranslationPairsFromSourceCellQuery",
-                "title": "Search Source Cells"
+                "title": "Get Translation Pairs from Source Cell Query"
             },
             {
                 "command": "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
                 "title": "Get Source Cell by Cell ID"
-            },
-            {
-                "command": "translators-copilot.getTranslationPairFromProject",
-                "title": "Get Translation Pair from Project"
-            },
-            {
-                "command": "translators-copilot.getTranslationPairsFromSourceCellQuery",
-                "title": "Get Translation Pairs from Source Cell Query"
             },
             {
                 "command": "translators-copilot.getTargetCellByCellId",
