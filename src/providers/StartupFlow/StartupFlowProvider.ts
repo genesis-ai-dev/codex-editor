@@ -8,7 +8,7 @@ import {
 import * as vscode from "vscode";
 import { PreflightCheck, PreflightState } from "./preflight";
 import { findAllCodexProjects } from "../../../src/projectManager/utils/projectUtils";
-import { AuthState, FrontierAPI } from "webviews/codex-webviews/src/StartupFLow/types";
+import { AuthState, FrontierAPI } from "webviews/codex-webviews/src/StartupFlow/types";
 import { CustomWebviewProvider } from "../../projectManager/projectManagerViewProvider";
 import {
     createNewProject,
@@ -91,7 +91,7 @@ function getNonce(): string {
     return text;
 }
 
-const DEBUG_MODE = false; // Set to true to enable debug logging
+const DEBUG_MODE = true; // Set to true to enable debug logging
 
 function debugLog(...args: any[]): void {
     if (DEBUG_MODE) {
@@ -403,6 +403,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             if (this.frontierApi) {
                 remoteProjects = await this.frontierApi.listProjects(false);
             }
+            remoteProjects.forEach((project) => {
+                // remove the unique id from the project name if it exists
+                if (project.name[project.name.length - 23] === "-") {
+                    project.name = project.name.slice(0, -23);
+                }
+            });
             const localProject = await findAllCodexProjects();
 
             for (const project of remoteProjects) {

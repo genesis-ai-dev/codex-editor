@@ -743,6 +743,25 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
                     if (projectStatus.isValid) {
                         const stats = await vscode.workspace.fs.stat(vscode.Uri.file(projectPath));
 
+                        // Try to get project name from metadata.json
+                        let projectName = name;
+                        try {
+                            const metadataPath = vscode.Uri.file(
+                                path.join(projectPath, "metadata.json")
+                            );
+                            const metadata = await vscode.workspace.fs.readFile(metadataPath);
+                            const metadataJson = JSON.parse(
+                                Buffer.from(metadata).toString("utf-8")
+                            );
+                            if (metadataJson.projectName) {
+                                projectName = metadataJson.projectName;
+                            }
+                        } catch (error) {
+                            console.debug(
+                                `Could not read metadata.json for ${projectPath}, using folder name`
+                            );
+                        }
+
                         // Get git origin URL using isomorphic-git
                         let gitOriginUrl: string | undefined;
                         try {
@@ -756,12 +775,11 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
                                 gitOriginUrl = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}`;
                             }
                         } catch (error) {
-                            // Repository might not exist or have no remotes
                             console.debug(`No git origin found for ${projectPath}:`, error);
                         }
 
                         projects.push({
-                            name,
+                            name: projectName,
                             path: projectPath,
                             lastOpened: projectHistory[projectPath]
                                 ? new Date(projectHistory[projectPath])
