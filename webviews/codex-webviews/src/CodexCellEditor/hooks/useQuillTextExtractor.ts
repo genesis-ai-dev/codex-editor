@@ -26,7 +26,7 @@ export function useQuillTextExtractor() {
                 quillRef.current = null;
             }
         };
-    }, []); // Empty dependency array ensures this runs once on mount
+    }, []);
 
     function extractTextFromHtml(htmlContent: string): string {
         if (!quillRef.current) {
@@ -45,5 +45,25 @@ export function useQuillTextExtractor() {
         return text;
     }
 
-    return extractTextFromHtml;
+    function addHtmlToText(text: string): string {
+        if (!quillRef.current) {
+            return text;
+        }
+
+        // Clear any existing content
+        quillRef.current.setContents([]);
+
+        // Insert the plain text
+        quillRef.current.setText(text);
+
+        // Get the resulting HTML with Quill's default formatting
+        const html = quillRef.current.root.innerHTML;
+
+        // Clear the editor for next use
+        quillRef.current.setContents([]);
+
+        return html;
+    }
+
+    return { extractTextFromHtml, addHtmlToText };
 }
