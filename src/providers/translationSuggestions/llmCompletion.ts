@@ -11,7 +11,8 @@ export async function llmCompletion(
     currentNotebookReader: CodexNotebookReader,
     currentCellId: string,
     completionConfig: CompletionConfig,
-    token: vscode.CancellationToken
+    token: vscode.CancellationToken,
+    returnHTML: boolean = true
 ): Promise<string> {
     const { contextSize, numberOfFewShotExamples, debugMode, chatSystemMessage } = completionConfig;
 
@@ -193,6 +194,9 @@ export async function llmCompletion(
                 await logDebugMessages(messages, completion);
             }
 
+            if (returnHTML) {
+                return `<span>${completion}</span>`;
+            }
             return completion;
         } catch (error) {
             console.error("Error in llmCompletion:", error);
