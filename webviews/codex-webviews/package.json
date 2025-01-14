@@ -5,6 +5,7 @@
     "type": "module",
     "scripts": {
         "dev": "vite",
+        "build:ChatView": "APP_NAME=ChatView vite build",
         "build:StartupFlow": "APP_NAME=StartupFlow vite build",
         "build:ParallelView": "APP_NAME=ParallelView vite build",
         "build:CodexCellEditor": "APP_NAME=CodexCellEditor vite build",
@@ -13,7 +14,7 @@
         "build:EditableReactTable": "APP_NAME=EditableReactTable vite build",
         "build:ProjectManagerView": "APP_NAME=ProjectManagerView vite build",
         "build:SourceUpload": "APP_NAME=SourceUpload vite build",
-        "build:all": "pnpm run build:StartupFlow && pnpm run build:ParallelView && pnpm run build:EditableReactTable && pnpm run build:CommentsView && pnpm run build:CodexCellEditor && pnpm run build:ProjectManagerView && pnpm run build:SourceUpload",
+        "build:all": "pnpm run build:StartupFlow && pnpm run build:ParallelView && pnpm run build:EditableReactTable && pnpm run build:CommentsView && pnpm run build:CodexCellEditor && pnpm run build:ProjectManagerView && pnpm run build:SourceUpload && pnpm run build:ChatView",
         "type-check": "tsc --noEmit",
         "watch:all": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:all",
         "watch:CodexCellEditor": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:CodexCellEditor",

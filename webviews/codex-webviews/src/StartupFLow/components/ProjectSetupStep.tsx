@@ -2,16 +2,12 @@ import React, { useEffect, useState } from "react";
 import { VSCodeButton, VSCodeTextField } from "@vscode/webview-ui-toolkit/react";
 import { GitLabInfo } from "../types";
 import {
-    GitLabProject,
     ProjectWithSyncStatus,
     MessagesFromStartupFlowProvider,
     MessagesToStartupFlowProvider,
-} from "../../../../../types";
+} from "types";
 import { GitLabProjectsList } from "./GitLabProjectsList";
-import { useMachine } from "@xstate/react";
 import { WebviewApi } from "vscode-webview";
-import { EventFrom } from "xstate";
-import { StateFrom } from "xstate";
 
 export interface ProjectSetupStepProps {
     onCreateEmpty: () => void;

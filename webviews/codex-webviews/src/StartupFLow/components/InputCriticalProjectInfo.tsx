@@ -1,6 +1,6 @@
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { useState } from "react";
-import { MessagesToStartupFlowProvider } from "../../../../../types";
+import { MessagesToStartupFlowProvider } from "types";
 
 export const InputCriticalProjectInfo = ({
     vscode,

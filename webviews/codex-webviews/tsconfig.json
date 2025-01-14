@@ -26,10 +26,9 @@
 
         "baseUrl": ".",
         "paths": {
-            "@/*": ["../../src/*"],
             "types": ["../../types/index.d.ts"],
             "types/*": ["../../types/*"],
-            "webviews/*": ["../codex-webviews/src/*"]
+            "webviews/*": ["./src/*"]
         }
     },
     "include": ["src/**/*", "../../types/index.d.ts"],

@@ -1,5 +1,5 @@
 import React from "react";
-import { ProjectWithSyncStatus, ProjectSyncStatus } from "../../../../../types";
+import { ProjectWithSyncStatus, ProjectSyncStatus } from "types";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 
 interface GitLabProjectsListProps {

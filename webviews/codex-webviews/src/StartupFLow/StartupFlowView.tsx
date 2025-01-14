@@ -10,10 +10,18 @@ import {
     MessagesFromStartupFlowProvider,
     MessagesToStartupFlowProvider,
     ProjectWithSyncStatus,
-} from "../../../../types";
+} from "types";
 import { createActor } from "xstate";
 import { InputCriticalProjectInfo } from "./components/InputCriticalProjectInfo";
-import { StartupFlowStates } from "../../../../src/providers/StartupFlow/StartupFlowProvider";
+
+enum StartupFlowStates {
+    LOGIN_REGISTER = "loginRegister",
+    OPEN_OR_CREATE_PROJECT = "createNewProject",
+    PROMPT_USER_TO_INITIALIZE_PROJECT = "promptUserToInitializeProject",
+    PROMPT_USER_TO_ADD_CRITICAL_DATA = "promptUserToAddCriticalData",
+    ALREADY_WORKING = "alreadyWorking",
+}
+
 
 const vscode = acquireVsCodeApi();
 
