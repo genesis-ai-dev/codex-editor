@@ -1,27 +1,27 @@
 /* In-text suggestion element */
 quill-spck-match:not(.purple):not(.blue) {
-    border-bottom: #ff6a6a solid 3px;
+    border-bottom: var(--vscode-editorError-foreground) solid 3px;
 }
 quill-spck-match:hover {
-    background-color: #fdcccc;
+    background-color: var(--vscode-editorError-background);
     cursor: pointer;
 }
 
 /* LLM suggestions (purple) */
 quill-spck-match.purple {
-    border-bottom: #8a2be2 solid 3px;
+    border-bottom: var(--vscode-editorInfo-foreground) solid 3px;
 }
 quill-spck-match.purple:hover {
-    background-color: #e6d4f7;
+    background-color: var(--vscode-editorInfo-background);
     cursor: pointer;
 }
 
 /* ICE suggestions (blue) */
 quill-spck-match.blue {
-    border-bottom: #0078d4 solid 3px;
+    border-bottom: var(--vscode-editorWarning-foreground) solid 3px;
 }
 quill-spck-match.blue:hover {
-    background-color: #cce5ff;
+    background-color: var(--vscode-editorWarning-background);
     cursor: pointer;
 }
 
@@ -39,23 +39,22 @@ quill-spck-match.blue.low-confidence {
 /* Popup */
 .quill-spck-match-popup {
     isolation: isolate;
-    background-color: white;
+    background-color: var(--vscode-editor-background);
     border-radius: 7px;
-    border: 1px solid #dadce0;
-    box-shadow: 0 1px 3px 1px rgb(60 64 67 / 15%);
+    border: 1px solid var(--vscode-editorWidget-border);
+    box-shadow: var(--vscode-widget-shadow);
     z-index: 1;
     max-width: 400px;
-    font-family: -apple-system, BlinkMacSystemFont, "Avenir Next", Avenir, "Segoe UI", Roboto,
-        Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+    font-family: var(--vscode-font-family);
     font-size: 1rem;
-    color: white;
+    color: var(--vscode-editor-foreground);
     overflow: hidden;
 }
 
 .quill-spck-match-popup-actions {
     display: flex;
     flex-direction: row;
-    margin-right: 0.0625rem solid #313131;
+    margin-right: 0.0625rem solid var(--vscode-editorWidget-border);
 }
 
 .quill-spck-match-popup-action {
@@ -111,8 +110,8 @@ quill-spck-match.blue.low-confidence {
     visibility: visible;
     content: "";
     transform: rotate(45deg);
-    background: white;
-    border: 1px solid #dadce0;
+    background: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-editorWidget-border);
 }
 quill-spck-popup[data-popper-placement^="top"] > .quill-spck-popup-arrow {
     bottom: -4px;
@@ -142,8 +141,8 @@ quill-spck-popup[data-popper-placement^="right"] > .quill-spck-popup-arrow {
     width: 1rem;
     height: 1rem;
     border-radius: 50%;
-    border: 2px solid #ccc;
-    border-top-color: #39475c;
+    border: 2px solid var(--vscode-editorWidget-border);
+    border-top-color: var(--vscode-editor-foreground);
     animation: quill-spck-loading-indicator-spin 1s linear infinite;
 }
 @keyframes quill-spck-loading-indicator-spin {
@@ -157,16 +156,15 @@ quill-spck-popup[data-popper-placement^="right"] > .quill-spck-popup-arrow {
 
 /* Example for purple highlighting */
 quill-spck-match.purple {
-    border-bottom: #8a2be2 solid 3px;
+    border-bottom: var(--vscode-editorInfo-foreground) solid 3px;
 }
 quill-spck-match.purple:hover {
-    background-color: #e6d4f7;
+    background-color: var(--vscode-editorInfo-background);
     cursor: pointer;
 }
 
 .quill-spck-match-popup-reason {
     font-size: 12px;
     padding: 0.5rem;
-    color: #8a2be2;
+    color: var(--vscode-editorInfo-foreground);
 }
-/* Add additional color classes if needed */
