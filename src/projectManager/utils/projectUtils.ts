@@ -547,7 +547,6 @@ export const checkIfMetadataAndGitIsInitialized = async (): Promise<boolean> => 
     }
 
     const metadataUri = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
-    console.log("Checking metadata and git at:", metadataUri.fsPath);
 
     let metadataExists = false;
     let gitExists = false;
@@ -555,7 +554,6 @@ export const checkIfMetadataAndGitIsInitialized = async (): Promise<boolean> => 
     try {
         // Check metadata file
         await vscode.workspace.fs.stat(metadataUri);
-        console.log("Metadata file exists");
         metadataExists = true;
     } catch {
         console.log("No metadata.json file found yet"); // Changed to log since this is expected for new projects
@@ -568,7 +566,6 @@ export const checkIfMetadataAndGitIsInitialized = async (): Promise<boolean> => 
             dir: workspaceFolder.uri.fsPath,
             ref: "HEAD",
         });
-        console.log("Git repository exists");
         gitExists = true;
     } catch {
         console.log("Git repository not initialized yet"); // Changed to log since this is expected for new projects

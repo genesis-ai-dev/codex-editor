@@ -18,14 +18,12 @@ quill-spck-match.purple:hover {
 /* Popup */
 .quill-spck-match-popup {
     isolation: isolate;
-
     background-color: white;
     border-radius: 7px;
     border: 1px solid #dadce0;
     box-shadow: 0 1px 3px 1px rgb(60 64 67 / 15%);
     z-index: 1;
     max-width: 400px;
-
     font-family: -apple-system, BlinkMacSystemFont, "Avenir Next", Avenir, "Segoe UI", Roboto,
         Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
     font-size: 1rem;

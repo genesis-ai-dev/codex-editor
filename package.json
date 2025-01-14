@@ -35,7 +35,7 @@
         "viewsWelcome": [
             {
                 "view": "codexNotebookTreeView",
-                "contents": "Welcome to the Codex Translation Editor! When you bookmark cells in your Codex notebook, you will see navigation shortcuts here."
+                "contents": "Welcome to the Codex Translation Editor! When you load some texts to translate, you can find your them here."
             }
         ],
         "notebookEditorDecorations": [
