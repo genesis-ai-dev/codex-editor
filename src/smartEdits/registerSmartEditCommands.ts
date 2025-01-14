@@ -320,5 +320,24 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
         })
     );
 
+    // Add new command for recording ICE edits
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-smart-edits.recordIceEdit",
+            async (oldText: string, newText: string) => {
+                console.log("[RYDER] recordIceEdit called from registerSmartEditCommands.ts");
+                try {
+                    // Use recordFullEdit which handles diffing and context extraction
+                    await iceEdits.recordFullEdit(oldText, newText);
+                } catch (error) {
+                    console.error("Error recording ICE edit:", error);
+                    vscode.window.showErrorMessage(
+                        "Failed to record ICE edit. Please check the console for more details."
+                    );
+                }
+            }
+        )
+    );
+
     console.log("Smart Edit commands registered");
 };

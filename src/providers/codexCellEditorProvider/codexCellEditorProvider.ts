@@ -228,7 +228,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     private async executeGitCommit(document: CodexCellDocument): Promise<void> {
         await vscode.commands.executeCommand(
-            "extension.manualCommit", 
+            "extension.manualCommit",
             `changes to ${vscode.workspace.asRelativePath(document.uri).split(/[/\\]/).pop()}`
         );
     }

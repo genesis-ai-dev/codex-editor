@@ -134,6 +134,21 @@ export class CodexCellEditorMessageHandling {
             }
             case "saveHtml":
                 try {
+                    const oldContent = document.getCellContent(event.content.cellMarkers[0]);
+                    const oldText = oldContent?.cellContent || "";
+                    const newText = event.content.cellContent || "";
+
+                    console.log("[RYDER] saveHtml message received", { oldText, newText });
+
+                    // Only record ICE edit if content actually changed
+                    if (oldText !== newText) {
+                        await vscode.commands.executeCommand(
+                            "codex-smart-edits.recordIceEdit",
+                            oldText,
+                            newText
+                        );
+                    }
+
                     document.updateCellContent(
                         event.content.cellMarkers[0],
                         event.content.cellContent,

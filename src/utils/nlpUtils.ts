@@ -9,21 +9,29 @@ interface TokenizeTextOptions {
     text: string;
 }
 
+// Common HTML whitespace characters
+const HTML_WHITESPACE = ["&nbsp;", "&ensp;", "&emsp;", "&thinsp;", "&zwnj;", "&zwj;"];
+const HTML_WHITESPACE_PATTERN = new RegExp(HTML_WHITESPACE.join("|"));
+
 export function tokenizeText({ method, text }: TokenizeTextOptions): string[] {
     switch (method) {
         case "whitespace":
-            return text.split(/\s+/);
+            return text.split(new RegExp(`\\s+|${HTML_WHITESPACE_PATTERN.source}|\\n`));
         case "whitespace_and_punctuation":
-            return text.split(/[\s\p{P}]+/u);
+            return text.split(new RegExp(`[\\s\\p{P}]+|${HTML_WHITESPACE_PATTERN.source}`, "u"));
         case "words":
-            return text.match(/\b\w+\b/g) || [];
+            return text.replace(HTML_WHITESPACE_PATTERN, " ").match(/\b\w+\b/g) || [];
         case "words_and_punctuation":
-            return text.match(/\w+|[^\w\s]/g) || [];
+            return text.replace(HTML_WHITESPACE_PATTERN, " ").match(/\w+|[^\w\s]/g) || [];
         case "lines":
             return text.split(/\n+/);
         case "lines_and_punctuation":
-            return text.split(/\n/).flatMap((line) => line.match(/\w+|[^\w\s]/g) || []);
+            return text
+                .split(/\n/)
+                .flatMap(
+                    (line) => line.replace(HTML_WHITESPACE_PATTERN, " ").match(/\w+|[^\w\s]/g) || []
+                );
         default:
-            return text.split(/\s+/);
+            return text.split(new RegExp(`\\s+|${HTML_WHITESPACE_PATTERN.source}`));
     }
 }

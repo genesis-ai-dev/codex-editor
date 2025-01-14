@@ -9,6 +9,7 @@ import {
 import * as vscode from "vscode";
 import { diffWords } from "diff";
 import { ICEEdits } from "./iceEdits";
+import { tokenizeText } from "@/utils/nlpUtils";
 
 const SYSTEM_MESSAGE = `You are a helpful assistant. Given similar edits across a corpus, you will suggest edits to a new text. 
 Your suggestions should follow this format:
@@ -72,7 +73,7 @@ export class SmartEdits {
         const cellHistory = this.editHistory[cellId] || [];
 
         // Get ICE suggestions first
-        const tokens = text.split(/\s+/);
+        const tokens = tokenizeText({ method: "whitespace", text });
         const iceSuggestions: SmartSuggestion[] = [];
 
         // Process each word/token for ICE suggestions
@@ -340,9 +341,9 @@ export class SmartEdits {
     async updateEditHistory(cellId: string, history: EditHistoryEntry[]): Promise<void> {
         this.editHistory[cellId] = history;
 
-        // Record each edit in ICE edits
+        // Record each edit in ICE edits using the new recordFullEdit method
         for (const entry of history) {
-            await this.recordEdit(entry.before, entry.after);
+            await this.iceEdits.recordFullEdit(entry.before, entry.after);
         }
     }
 
@@ -359,44 +360,8 @@ export class SmartEdits {
         }
     }
 
-    // Add method to record edits in ICE
-    async recordEdit(oldText: string, newText: string): Promise<void> {
-        const oldTokens = oldText.split(/\s+/);
-        const newTokens = newText.split(/\s+/);
-
-        // Find the differences between old and new text
-        const diff = diffWords(oldText, newText);
-
-        let oldIndex = 0;
-        diff.forEach((part) => {
-            if (part.removed) {
-                // This part was removed/replaced
-                const tokens = part.value.split(/\s+/);
-                tokens.forEach((token, i) => {
-                    const leftToken = oldIndex > 0 ? oldTokens[oldIndex - 1] : "";
-                    const rightToken =
-                        oldIndex + 1 < oldTokens.length ? oldTokens[oldIndex + 1] : "";
-
-                    // Find the corresponding addition if this is a replacement
-                    const nextPart = diff[diff.indexOf(part) + 1];
-                    if (nextPart && nextPart.added) {
-                        const newTokens = nextPart.value.split(/\s+/);
-                        if (i < newTokens.length) {
-                            // Record the replacement
-                            this.iceEdits.recordEdit(token, newTokens[i], leftToken, rightToken);
-                        }
-                    }
-                    oldIndex++;
-                });
-            } else if (!part.added) {
-                // Move the oldIndex for unchanged parts
-                oldIndex += part.value.split(/\s+/).length;
-            }
-        });
-    }
-
     async getIceEdits(text: string): Promise<SmartSuggestion[]> {
-        const tokens = text.split(/\s+/);
+        const tokens = tokenizeText({ method: "whitespace", text });
         const iceSuggestions: SmartSuggestion[] = [];
 
         // Process each word/token for ICE suggestions

@@ -203,6 +203,21 @@ export class CodexCellDocument implements vscode.CustomDocument {
         return JSON.stringify(this._documentData, null, 2);
     }
 
+    public getCellContent(cellId: string): QuillCellContent | undefined {
+        const cell = this._documentData.cells?.find((cell) => cell.metadata?.id === cellId);
+        if (!cell) {
+            return undefined;
+        }
+        return {
+            cellMarkers: [cell.metadata.id],
+            cellContent: cell.value,
+            cellType: cell.metadata.type,
+            editHistory: cell.metadata.edits || [],
+            timestamps: cell.metadata.data,
+            cellLabel: cell.metadata.cellLabel,
+        };
+    }
+
     // Additional methods for other edit operations...
 
     // For example, updating cell timestamps
