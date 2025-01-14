@@ -80,14 +80,14 @@ export default class PopupManager {
 
         // Only add replacement suggestions if they exist
         match.replacements?.slice(0, 5).forEach((replacement, index) => {
-            const button = this.createActionButton(replacement.value, () =>
+            const button = this.createActionButton(this.formatReplacementLabel(replacement), () =>
                 this.applySuggestion(match, replacement.value, index)
             );
             actionsDiv.appendChild(button);
         });
 
         // Add "Add to dictionary" button only if the match is not a special phrase
-        if (match.color !== "purple") {
+        if (match.color !== "purple" && match.color !== "blue") {
             const addToDictionaryButton = this.createActionButton(`${match.text} → 📖`, () =>
                 this.addWordToDictionary(match.text)
             );
@@ -95,16 +95,23 @@ export default class PopupManager {
         }
 
         popupContent.appendChild(actionsDiv);
+
+        // Add source and confidence information
+        const reasonLabel = document.createElement("div");
+        reasonLabel.className = "quill-spck-match-popup-reason";
+
         if (match.color === "purple") {
-            // Add reason/label for smart edits
-            const reasonLabel = document.createElement("div");
-            reasonLabel.className = "quill-spck-match-popup-reason";
-            reasonLabel.textContent = "From edits made on similar texts";
-            popupContent.appendChild(reasonLabel);
+            reasonLabel.textContent = "AI suggestion based on similar texts";
+        } else if (match.color === "blue") {
+            const firstReplacement = match.replacements?.[0];
+            const confidence = firstReplacement?.confidence || "low";
+            const frequency = firstReplacement?.frequency || 1;
+            reasonLabel.innerHTML = `From your previous edits (${confidence} confidence) <span class="quill-spck-match-popup-frequency">${frequency}×</span>`;
         }
 
-        popup.appendChild(popupContent);
+        popupContent.appendChild(reasonLabel);
 
+        popup.appendChild(popupContent);
         document.body.appendChild(popup);
 
         createPopper(suggestion, popup, {
@@ -113,6 +120,25 @@ export default class PopupManager {
         });
 
         this.openPopup = popup;
+    }
+
+    private formatReplacementLabel(
+        replacement: NonNullable<MatchesEntity["replacements"]>[number]
+    ): string {
+        if (!replacement) return "";
+
+        let label = replacement.value;
+
+        // Add confidence indicator for ICE suggestions
+        if (replacement.source === "ice") {
+            if (replacement.confidence === "high") {
+                label += " ✓✓"; // Double check for high confidence
+            } else {
+                label += " ✓"; // Single check for low confidence
+            }
+        }
+
+        return label;
     }
 
     private createActionButton(label: string, onClick: () => void): HTMLElement {

@@ -447,6 +447,10 @@
                 "title": "JOSH_COMMAND"
             },
             {
+                "command": "codex-smart-edits.testIceEdit",
+                "title": "Test ICE Edit"
+            },
+            {
                 "command": "codex-editor-extension.triggerInlineCompletion",
                 "title": "Autocomplete",
                 "group": "translators-copilot",

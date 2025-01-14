@@ -34,7 +34,7 @@ let diagnosticsProvider: SpellCheckDiagnosticsProvider;
 let codeActionProvider: SpellCheckCodeActionProvider;
 let completionItemProvider: SpellCheckCompletionItemProvider;
 let wordSuggestionProvider: WordSuggestionProvider;
-let pendingSmartEditsPromise: Promise<any> | null = null;
+const pendingSmartEditsPromise: Promise<any> | null = null;
 let lastSmartEditsText: string | null = null;
 let lastSmartEditResults: any[] | null = null;
 
@@ -46,8 +46,8 @@ function debugLog(...args: any[]) {
 }
 
 // Define special phrases with their replacements and colors
-let specialPhrases = [
-    { phrase: "hello world", replacement: "hi", color: "purple" },
+let specialPhrases: { phrase: string; replacement: string; color: string; source: string }[] = [
+    { phrase: "hello world", replacement: "hi", color: "purple", source: "llm" },
     // Add more phrases as needed
 ];
 
@@ -118,7 +118,7 @@ connection.onRequest(
 
                     // debugLog("No smart edits found, checking for applicable prompt");
                     // If no spelling errors or smart edits, check for applicable prompt
-                   
+
                     const code = 0;
 
                     return {
@@ -149,20 +149,22 @@ connection.onRequest("spellcheck/check", async (params: { text: string }) => {
     const text = params.text;
     const matches: MatchesEntity[] = [];
 
-    // Start a new smart edits request if we don't have one pending or if the text changed
-    if (!pendingSmartEditsPromise || lastSmartEditsText !== text) {
-        lastSmartEditsText = text;
-        lastSmartEditResults = null;
-        pendingSmartEditsPromise = connection
-            .sendRequest(ExecuteCommandRequest, {
-                command: "codex-smart-edits.getEdits",
-                args: [text],
-            })
-            .then((results) => {
-                lastSmartEditResults = results;
-                return results;
-            });
-    }
+    // Start parallel requests for both smart edits and ICE suggestions
+    const [smartEditsPromise, iceEditsPromise] = [
+        // Existing smart edits request
+        !pendingSmartEditsPromise || lastSmartEditsText !== text
+            ? connection.sendRequest(ExecuteCommandRequest, {
+                  command: "codex-smart-edits.getEdits",
+                  args: [text],
+              })
+            : Promise.resolve(lastSmartEditResults),
+
+        // New ICE edits request
+        connection.sendRequest(ExecuteCommandRequest, {
+            command: "codex-smart-edits.getIceEdits",
+            args: [text],
+        }),
+    ];
 
     // Process spell checking
     const words = tokenizeText({
@@ -170,6 +172,7 @@ connection.onRequest("spellcheck/check", async (params: { text: string }) => {
         text: params.text,
     });
 
+    // Process traditional spell checking
     for (const word of words) {
         if (!word) continue;
         const spellCheckResult = await spellChecker.spellCheck(word);
@@ -184,7 +187,10 @@ connection.onRequest("spellcheck/check", async (params: { text: string }) => {
                 text: word,
                 replacements: spellCheckResult.corrections
                     .filter((c) => c !== null && c !== undefined)
-                    .map((correction) => ({ value: correction })),
+                    .map((correction) => ({
+                        value: correction,
+                        source: "spellcheck",
+                    })),
                 offset: offset,
                 length: word.length,
                 color: "red",
@@ -192,18 +198,31 @@ connection.onRequest("spellcheck/check", async (params: { text: string }) => {
         }
     }
 
-    // Include smart edits if they're ready
-    if (lastSmartEditResults) {
+    // Wait for both smart edits and ICE suggestions
+    const [smartEditResults, iceResults] = await Promise.all([smartEditsPromise, iceEditsPromise]);
+
+    // Update smart edits cache
+    if (lastSmartEditsText !== text) {
+        lastSmartEditsText = text;
+        lastSmartEditResults = smartEditResults;
+    }
+
+    // Process smart edits
+    if (smartEditResults) {
         specialPhrases = [];
-        lastSmartEditResults.forEach((suggestion: any) => {
+        smartEditResults.forEach((suggestion: any, index: number) => {
+            const source = suggestion.source || "llm";
+            const color = source === "ice" ? "blue" : "purple";
+
             specialPhrases.push({
                 phrase: suggestion.oldString,
                 replacement: suggestion.newString,
-                color: "purple",
+                color: color,
+                source: source,
             });
         });
 
-        specialPhrases.forEach(({ phrase, replacement, color }, index) => {
+        specialPhrases.forEach(({ phrase, replacement, color, source }, index) => {
             let startIndex = 0;
             const phraseLower = phrase.toLowerCase();
 
@@ -211,12 +230,41 @@ connection.onRequest("spellcheck/check", async (params: { text: string }) => {
                 matches.push({
                     id: `SPECIAL_PHRASE_${index}_${matches.length}`,
                     text: phrase,
-                    replacements: [{ value: replacement }],
+                    replacements: [
+                        {
+                            value: replacement,
+                            source: source as "llm" | "ice",
+                        },
+                    ],
                     offset: startIndex,
                     length: phrase.length,
-                    color: color,
+                    color: color as "red" | "blue" | "purple",
                 });
                 startIndex += phrase.length;
+            }
+        });
+    }
+
+    // Process ICE results
+    if (iceResults && Array.isArray(iceResults)) {
+        iceResults.forEach((suggestion: any, index) => {
+            const wordOffset = text.indexOf(suggestion.original);
+            if (wordOffset !== -1) {
+                matches.push({
+                    id: `ICE_${index}`,
+                    text: suggestion.original,
+                    replacements: [
+                        {
+                            value: suggestion.replacement,
+                            confidence: suggestion.confidence,
+                            source: "ice",
+                            frequency: suggestion.frequency,
+                        },
+                    ],
+                    offset: wordOffset,
+                    length: suggestion.original.length,
+                    color: "blue",
+                });
             }
         });
     }

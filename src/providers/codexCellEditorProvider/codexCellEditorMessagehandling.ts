@@ -82,12 +82,20 @@ export class CodexCellEditorMessageHandling {
                 return;
             }
             case "from-quill-spellcheck-getSpellCheckResponse": {
+                console.log(
+                    "[RYDER] from-quill-spellcheck-getSpellCheckResponse message received",
+                    {
+                        event,
+                    }
+                );
                 try {
                     const response = await vscode.commands.executeCommand(
                         "translators-copilot.spellCheckText",
                         event.content.cellContent
                     );
-                    console.log("response", { response });
+                    console.log("[RYDER] response from translators-copilot.spellCheckText", {
+                        response,
+                    });
                     this.provider.postMessageToWebview(webviewPanel, {
                         type: "providerSendsSpellCheckResponse",
                         content: response as SpellCheckResponse,

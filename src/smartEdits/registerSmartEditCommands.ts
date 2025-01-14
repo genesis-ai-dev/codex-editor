@@ -3,17 +3,20 @@ import { SmartEdits } from "./smartEdits";
 import { getWorkSpaceFolder } from "../utils";
 import { SmartPassages } from "./smartPassages";
 import { SmartBacktranslation, SavedBacktranslation } from "./smartBacktranslation";
+import { ICEEdits } from "./iceEdits";
 
 export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
     const workspaceFolder = getWorkSpaceFolder();
     if (!workspaceFolder) {
-        console.error("No workspace folder found");
+        console.warn("No workspace folder found, smart edits will be disabled");
         return;
     }
 
-    const smartEdits = new SmartEdits(vscode.Uri.file(workspaceFolder));
+    const workspaceUri = vscode.Uri.file(workspaceFolder);
+    const smartEdits = new SmartEdits(workspaceUri);
     const smartPassages = new SmartPassages();
-    const smartBacktranslation = new SmartBacktranslation(vscode.Uri.file(workspaceFolder));
+    const smartBacktranslation = new SmartBacktranslation(workspaceUri);
+    const iceEdits = new ICEEdits(workspaceFolder);
 
     context.subscriptions.push(
         vscode.commands.registerCommand(
@@ -278,6 +281,43 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
                 }
             }
         )
+    );
+
+    // Test command for ICE edits
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-smart-edits.testIceEdit", async () => {
+            try {
+                // Record a test edit
+                await iceEdits.recordEdit("hello", "hi", "", "there");
+                vscode.window.showInformationMessage(
+                    "Recorded test ICE edit: 'hello' -> 'hi' (with 'there' as right context)"
+                );
+            } catch (error) {
+                console.error("Error recording ICE edit:", error);
+                vscode.window.showErrorMessage("Failed to record ICE edit");
+            }
+        })
+    );
+
+    // Test command to check ICE suggestions
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-smart-edits.checkIceSuggestions", async () => {
+            try {
+                const suggestions = await iceEdits.calculateSuggestions("hello", "", "there");
+                console.log("ICE Suggestions:", suggestions);
+                vscode.window.showInformationMessage(`Found ${suggestions.length} ICE suggestions`);
+            } catch (error) {
+                console.error("Error checking ICE suggestions:", error);
+                vscode.window.showErrorMessage("Failed to check ICE suggestions");
+            }
+        })
+    );
+
+    // Add this to your command registrations
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-smart-edits.getIceEdits", async (text: string) => {
+            return await smartEdits.getIceEdits(text);
+        })
     );
 
     console.log("Smart Edit commands registered");

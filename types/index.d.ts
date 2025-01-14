@@ -118,6 +118,9 @@ interface SmartEditContext {
 interface SmartSuggestion {
     oldString: string;
     newString: string;
+    confidence?: "high" | "low";
+    source?: "llm" | "ice";
+    frequency?: number;
 }
 
 interface SavedSuggestions {

@@ -8,6 +8,7 @@ import {
 } from "../../types";
 import * as vscode from "vscode";
 import { diffWords } from "diff";
+import { ICEEdits } from "./iceEdits";
 
 const SYSTEM_MESSAGE = `You are a helpful assistant. Given similar edits across a corpus, you will suggest edits to a new text. 
 Your suggestions should follow this format:
@@ -42,11 +43,13 @@ export class SmartEdits {
     private lastProcessedCellId: string | null = null;
     private lastSuggestions: SmartSuggestion[] = [];
     private editHistory: { [key: string]: EditHistoryEntry[] } = {};
+    private iceEdits: ICEEdits;
 
     constructor(workspaceUri: vscode.Uri) {
         this.chatbot = new Chatbot(SYSTEM_MESSAGE);
         this.smartEditsPath = vscode.Uri.joinPath(workspaceUri, "files", "smart_edits.json");
         this.teachFile = vscode.Uri.joinPath(workspaceUri, "files", "silver_path_memories.json");
+        this.iceEdits = new ICEEdits(workspaceUri.fsPath);
 
         this.ensureFileExists(this.smartEditsPath);
         this.ensureFileExists(this.teachFile);
@@ -68,10 +71,48 @@ export class SmartEdits {
         const similarEntries = await this.findSimilarEntries(text);
         const cellHistory = this.editHistory[cellId] || [];
 
+        // Get ICE suggestions first
+        const tokens = text.split(/\s+/);
+        const iceSuggestions: SmartSuggestion[] = [];
+
+        // Process each word/token for ICE suggestions
+        for (let i = 0; i < tokens.length; i++) {
+            const leftToken = i > 0 ? tokens[i - 1] : "";
+            const rightToken = i < tokens.length - 1 ? tokens[i + 1] : "";
+            const currentToken = tokens[i];
+
+            const suggestions = await this.iceEdits.calculateSuggestions(
+                currentToken,
+                leftToken,
+                rightToken
+            );
+
+            // Convert ICE suggestions to SmartSuggestions
+            suggestions.forEach((suggestion) => {
+                iceSuggestions.push({
+                    oldString: suggestion.original,
+                    newString: suggestion.replacement,
+                    confidence: suggestion.confidence,
+                    source: "ice",
+                    frequency: suggestion.frequency,
+                });
+            });
+        }
+
+        // If we have high-confidence ICE suggestions, return them immediately
+        const highConfidenceIceSuggestions = iceSuggestions.filter((s) => s.confidence === "high");
+        if (highConfidenceIceSuggestions.length > 0) {
+            this.lastProcessedCellId = cellId;
+            this.lastSuggestions = highConfidenceIceSuggestions;
+            return highConfidenceIceSuggestions;
+        }
+
+        // Continue with LLM suggestions if no high-confidence ICE suggestions
         if (similarEntries.length === 0) {
             this.lastProcessedCellId = cellId;
-            this.lastSuggestions = [];
-            return [];
+            // Include low-confidence ICE suggestions if available
+            this.lastSuggestions = iceSuggestions;
+            return iceSuggestions;
         }
 
         const firstResultCellId = similarEntries[0].cellId;
@@ -89,24 +130,27 @@ export class SmartEdits {
         }
 
         const similarTexts = await this.getSimilarTexts(similarEntries);
-
         const similarTextsString = this.formatSimilarTexts(similarTexts);
         const message = this.createEditMessage(similarTextsString, text, cellHistory);
 
         const jsonResponse = await this.chatbot.getJsonCompletion(message);
 
-        let suggestions: SmartSuggestion[] = [];
+        let llmSuggestions: SmartSuggestion[] = [];
         if (Array.isArray(jsonResponse.suggestions)) {
-            suggestions = jsonResponse.suggestions.map((suggestion: any) => ({
+            llmSuggestions = jsonResponse.suggestions.map((suggestion: any) => ({
                 oldString: suggestion.oldString || "",
                 newString: suggestion.newString || "",
+                source: "llm",
             }));
         }
 
-        await this.saveSuggestions(firstResultCellId, text, suggestions);
+        // Combine LLM suggestions with ICE suggestions
+        const allSuggestions = [...llmSuggestions, ...iceSuggestions];
+        await this.saveSuggestions(firstResultCellId, text, allSuggestions);
+
         this.lastProcessedCellId = firstResultCellId;
-        this.lastSuggestions = suggestions;
-        return suggestions;
+        this.lastSuggestions = allSuggestions;
+        return allSuggestions;
     }
 
     async loadSavedSuggestions(cellId: string): Promise<SavedSuggestions | null> {
@@ -295,6 +339,11 @@ export class SmartEdits {
 
     async updateEditHistory(cellId: string, history: EditHistoryEntry[]): Promise<void> {
         this.editHistory[cellId] = history;
+
+        // Record each edit in ICE edits
+        for (const entry of history) {
+            await this.recordEdit(entry.before, entry.after);
+        }
     }
 
     private async readAllMemories(): Promise<{
@@ -308,5 +357,71 @@ export class SmartEdits {
             console.error("Error reading memories:", error);
             return {};
         }
+    }
+
+    // Add method to record edits in ICE
+    async recordEdit(oldText: string, newText: string): Promise<void> {
+        const oldTokens = oldText.split(/\s+/);
+        const newTokens = newText.split(/\s+/);
+
+        // Find the differences between old and new text
+        const diff = diffWords(oldText, newText);
+
+        let oldIndex = 0;
+        diff.forEach((part) => {
+            if (part.removed) {
+                // This part was removed/replaced
+                const tokens = part.value.split(/\s+/);
+                tokens.forEach((token, i) => {
+                    const leftToken = oldIndex > 0 ? oldTokens[oldIndex - 1] : "";
+                    const rightToken =
+                        oldIndex + 1 < oldTokens.length ? oldTokens[oldIndex + 1] : "";
+
+                    // Find the corresponding addition if this is a replacement
+                    const nextPart = diff[diff.indexOf(part) + 1];
+                    if (nextPart && nextPart.added) {
+                        const newTokens = nextPart.value.split(/\s+/);
+                        if (i < newTokens.length) {
+                            // Record the replacement
+                            this.iceEdits.recordEdit(token, newTokens[i], leftToken, rightToken);
+                        }
+                    }
+                    oldIndex++;
+                });
+            } else if (!part.added) {
+                // Move the oldIndex for unchanged parts
+                oldIndex += part.value.split(/\s+/).length;
+            }
+        });
+    }
+
+    async getIceEdits(text: string): Promise<SmartSuggestion[]> {
+        const tokens = text.split(/\s+/);
+        const iceSuggestions: SmartSuggestion[] = [];
+
+        // Process each word/token for ICE suggestions
+        for (let i = 0; i < tokens.length; i++) {
+            const leftToken = i > 0 ? tokens[i - 1] : "";
+            const rightToken = i < tokens.length - 1 ? tokens[i + 1] : "";
+            const currentToken = tokens[i];
+
+            const suggestions = await this.iceEdits.calculateSuggestions(
+                currentToken,
+                leftToken,
+                rightToken
+            );
+
+            suggestions.forEach((suggestion) => {
+                iceSuggestions.push({
+                    oldString: currentToken,
+                    newString: suggestion.replacement,
+                    confidence: suggestion.confidence,
+                    source: "ice",
+                    frequency: suggestion.frequency,
+                });
+            });
+        }
+
+        return iceSuggestions;
     }
 }

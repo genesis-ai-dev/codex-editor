@@ -23,12 +23,19 @@ export interface DetectedLanguage {
 }
 export interface MatchesEntity {
     id: string;
-    text: string;
-    replacements?: ReplacementsEntity[] | null;
     offset: number;
     length: number;
-    color?: string; // Property for highlight color
+    text: string;
+    replacements?: ReplacementsEntity[] | null;
+    color?: "purple" | "blue" | "red"; // purple for LLM suggestions, blue for ICE suggestions, red for spelling
 }
 export interface ReplacementsEntity {
     value: string;
+    confidence?: "high" | "low";
+    source?: "llm" | "ice" | "spellcheck";
+    frequency?: number;
+}
+
+export interface SpellCheckerApi {
+    check: (text: string) => Promise<MatchesEntity[]>;
 }
