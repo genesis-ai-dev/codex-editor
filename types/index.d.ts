@@ -123,11 +123,12 @@ interface SmartSuggestion {
     frequency?: number;
 }
 
-interface SavedSuggestions {
+export interface SavedSuggestions {
     cellId: string;
     lastCellValue: string;
     suggestions: SmartSuggestion[];
     lastUpdatedDate: string;
+    rejectedSuggestions?: { oldString: string; newString: string }[];
 }
 
 interface SmartEdit {
@@ -611,6 +612,17 @@ export type EditorPostMessages =
               cellId: string;
               originalText: string;
               userBacktranslation: string;
+          };
+      }
+    | {
+          command: "rejectEditSuggestion";
+          content: {
+              source: "ice" | "llm";
+              cellId?: string;
+              oldString: string;
+              newString: string;
+              leftToken: string;
+              rightToken: string;
           };
       };
 type EditorReceiveMessages =

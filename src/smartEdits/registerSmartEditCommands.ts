@@ -339,5 +339,56 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
         )
     );
 
+    // Add command to reject edit suggestions
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-smart-edits.rejectEditSuggestion",
+            async ({
+                source,
+                cellId,
+                oldString,
+                newString,
+                leftToken,
+                rightToken,
+            }: {
+                source: "ice" | "llm";
+                cellId?: string;
+                oldString: string;
+                newString: string;
+                leftToken: string;
+                rightToken: string;
+            }) => {
+                console.log(
+                    "[RYDER] rejectEditSuggestion called from registerSmartEditCommands.ts"
+                );
+                try {
+                    if (source === "ice") {
+                        console.log("[RYDER] rejecting ICE edit");
+                        if (!leftToken && !rightToken) {
+                            throw new Error(
+                                "At least one of leftToken or rightToken is required for ICE edit rejections"
+                            );
+                        }
+                        console.log("[RYDER] rejecting ICE edit", { oldString, newString, leftToken, rightToken });
+                        await iceEdits.rejectEdit(oldString, newString, leftToken, rightToken);
+                    } else {
+                        if (!cellId) {
+                            throw new Error("cellId is required for LLM edit rejections");
+                        }
+                        console.log("[RYDER] rejecting LLM edit");
+                        await smartEdits.rejectSmartSuggestion(cellId, oldString, newString);
+                    }
+                    return true;
+                } catch (error) {
+                    console.error("Error rejecting edit suggestion:", error);
+                    vscode.window.showErrorMessage(
+                        "Failed to reject edit suggestion. Please check the console for more details."
+                    );
+                    return false;
+                }
+            }
+        )
+    );
+
     console.log("Smart Edit commands registered");
 };

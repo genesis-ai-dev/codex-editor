@@ -9,6 +9,7 @@ interface ICEEditRecord {
     rightToken: string;
     frequency: number;
     lastUpdated: number;
+    rejected?: boolean;
 }
 
 interface ICECandidateSuggestion {
@@ -16,6 +17,8 @@ interface ICECandidateSuggestion {
     replacement: string;
     confidence: "high" | "low";
     frequency: number;
+    leftToken: string;
+    rightToken: string;
 }
 
 export class ICEEdits {
@@ -172,7 +175,12 @@ export class ICEEdits {
             const fileContent = await vscode.workspace.fs.readFile(this.iceEditsPath);
             const fileString = fileContent.toString();
             const records: Record<string, ICEEditRecord> = fileString ? JSON.parse(fileString) : {};
-            this.editRecords = new Map(Object.entries(records));
+
+            // Filter out rejected records when loading
+            const filteredRecords = Object.entries(records).filter(
+                ([_, record]) => !record.rejected
+            );
+            this.editRecords = new Map(filteredRecords);
         } catch (error) {
             console.error("Error loading ICE edit records:", error);
             this.editRecords = new Map();
@@ -267,6 +275,8 @@ export class ICEEdits {
                     replacement: exactMatch.replacement,
                     confidence: "high",
                     frequency: exactMatch.frequency,
+                    leftToken,
+                    rightToken,
                 });
             }
         }
@@ -281,6 +291,8 @@ export class ICEEdits {
                         replacement: record.replacement,
                         confidence: "low",
                         frequency: record.frequency,
+                        leftToken: record.leftToken,
+                        rightToken: record.rightToken,
                     });
                 }
             }
@@ -288,5 +300,98 @@ export class ICEEdits {
 
         // Sort by frequency descending
         return suggestions.sort((a, b) => b.frequency - a.frequency);
+    }
+
+    /**
+     * Mark an edit suggestion as rejected
+     */
+    async rejectEdit(
+        original: string,
+        replacement: string,
+        leftToken: string,
+        rightToken: string
+    ): Promise<void> {
+        console.log("[RYDER] rejectEdit called from ICEEdits class", {
+            original,
+            replacement,
+            leftToken,
+            rightToken,
+        });
+        await this.loadEditRecords();
+
+        // Load all records including rejected ones
+        const fileContent = await vscode.workspace.fs.readFile(this.iceEditsPath);
+        const fileString = fileContent.toString();
+        const allRecords: Record<string, ICEEditRecord> = fileString ? JSON.parse(fileString) : {};
+
+        // Log all record keys to help debug
+        console.log("[RYDER] allRecords details:", JSON.stringify(allRecords, null, 2));
+
+        // Find the record by matching fields directly
+        const entries = Object.entries(allRecords);
+
+        // Debug each comparison
+        entries.forEach(([key, record]) => {
+            console.log("[RYDER] Comparing record:", {
+                key,
+                recordOriginal: record.original,
+                recordReplacement: record.replacement,
+                expectedOriginal: original,
+                expectedReplacement: replacement,
+                originalMatches: record.original === original,
+                replacementMatches: record.replacement === replacement,
+                // Debug the actual string values
+                recordOriginalType: typeof record.original,
+                recordReplacementType: typeof record.replacement,
+                originalType: typeof original,
+                replacementType: typeof replacement,
+                // Debug string lengths
+                recordOriginalLength: record.original.length,
+                recordReplacementLength: record.replacement.length,
+                originalLength: original.length,
+                replacementLength: replacement.length,
+                // Debug character codes
+                recordOriginalCodes: [...record.original].map((c) => c.charCodeAt(0)),
+                recordReplacementCodes: [...record.replacement].map((c) => c.charCodeAt(0)),
+                originalCodes: [...original].map((c) => c.charCodeAt(0)),
+                replacementCodes: [...replacement].map((c) => c.charCodeAt(0)),
+            });
+        });
+
+        const matchingEntry = entries.find(
+            ([_, record]) => record.original === original && record.replacement === replacement
+        );
+
+        if (matchingEntry) {
+            const [key, record] = matchingEntry;
+            console.log("[RYDER] found matching record", { key, record });
+
+            // Create the updated record and verify it has the rejected flag
+            const updatedRecord = { ...record, rejected: true };
+            console.log("[RYDER] updated record", { updatedRecord });
+
+            allRecords[key] = updatedRecord;
+            console.log("[RYDER] allRecords after rejection", JSON.stringify(allRecords, null, 2));
+
+            await vscode.workspace.fs.writeFile(
+                this.iceEditsPath,
+                Buffer.from(JSON.stringify(allRecords, null, 2))
+            );
+            console.log("[RYDER] Successfully wrote to file");
+
+            // Update in-memory records
+            this.editRecords.delete(key);
+        } else {
+            // Log why we didn't find a match
+            console.log("[RYDER] Did not find matching record for:", {
+                original,
+                replacement,
+                availableRecords: entries.map(([key, record]) => ({
+                    key,
+                    original: record.original,
+                    replacement: record.replacement,
+                })),
+            });
+        }
     }
 }

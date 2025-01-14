@@ -162,10 +162,71 @@ export class SmartEdits {
                 ? JSON.parse(fileString)
                 : {};
             const result = savedEdits[cellId] || null;
+
+            if (result) {
+                // Filter out rejected suggestions
+                result.suggestions = result.suggestions.filter(
+                    (suggestion) =>
+                        !result.rejectedSuggestions?.some(
+                            (rejected) =>
+                                rejected.oldString === suggestion.oldString &&
+                                rejected.newString === suggestion.newString
+                        )
+                );
+            }
+
             return result;
         } catch (error) {
             console.error("Error loading saved suggestions:", error);
             return null;
+        }
+    }
+
+    /**
+     * Mark a smart edit suggestion as rejected
+     */
+    async rejectSmartSuggestion(
+        cellId: string,
+        oldString: string,
+        newString: string
+    ): Promise<void> {
+        try {
+            const fileContent = await vscode.workspace.fs.readFile(this.smartEditsPath);
+            const fileString = fileContent.toString();
+            const savedEdits: { [key: string]: SavedSuggestions } = fileString
+                ? JSON.parse(fileString)
+                : {};
+
+            const cellEdits = savedEdits[cellId];
+            if (cellEdits) {
+                // Initialize rejectedSuggestions if it doesn't exist
+                if (!cellEdits.rejectedSuggestions) {
+                    cellEdits.rejectedSuggestions = [];
+                }
+
+                // Add to rejected suggestions if not already there
+                if (
+                    !cellEdits.rejectedSuggestions.some(
+                        (s) => s.oldString === oldString && s.newString === newString
+                    )
+                ) {
+                    cellEdits.rejectedSuggestions.push({ oldString, newString });
+                }
+
+                // Filter out the rejected suggestion from current suggestions
+                cellEdits.suggestions = cellEdits.suggestions.filter(
+                    (s) => !(s.oldString === oldString && s.newString === newString)
+                );
+
+                savedEdits[cellId] = cellEdits;
+                await vscode.workspace.fs.writeFile(
+                    this.smartEditsPath,
+                    Buffer.from(JSON.stringify(savedEdits, null, 2))
+                );
+            }
+        } catch (error) {
+            console.error("Error rejecting smart suggestion:", error);
+            throw error;
         }
     }
 

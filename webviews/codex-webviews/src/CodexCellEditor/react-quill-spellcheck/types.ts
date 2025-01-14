@@ -23,11 +23,19 @@ export interface DetectedLanguage {
 }
 export interface MatchesEntity {
     id: string;
+    text: string;
+    replacements?: Array<{
+        value: string;
+        confidence?: "high" | "low";
+        source?: "ice" | "llm";
+        frequency?: number;
+    }>;
     offset: number;
     length: number;
-    text: string;
-    replacements?: ReplacementsEntity[] | null;
-    color?: "purple" | "blue" | "red"; // purple for LLM suggestions, blue for ICE suggestions, red for spelling
+    color?: "purple" | "blue";
+    cellId?: string;
+    leftToken?: string;
+    rightToken?: string;
 }
 export interface ReplacementsEntity {
     value: string;

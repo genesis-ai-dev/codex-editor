@@ -520,6 +520,21 @@ export class CodexCellEditorMessageHandling {
                 }
                 return;
             }
+
+            case "rejectEditSuggestion": {
+                try {
+                    console.log("[RYDER] rejectEditSuggestion message received", { event });
+                    await vscode.commands.executeCommand(
+                        "codex-smart-edits.rejectEditSuggestion",
+                        event.content
+                    );
+                } catch (error) {
+                    console.error("Error rejecting edit suggestion:", error);
+                    vscode.window.showErrorMessage("Failed to reject edit suggestion.");
+                }
+                return;
+            }
+
             case "webviewFocused": {
                 try {
                     if (this.provider.currentDocument && event.content?.uri) {

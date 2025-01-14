@@ -189,11 +189,11 @@ connection.onRequest("spellcheck/check", async (params: { text: string }) => {
                     .filter((c) => c !== null && c !== undefined)
                     .map((correction) => ({
                         value: correction,
-                        source: "spellcheck",
+                        source: "llm" as const,
                     })),
                 offset: offset,
                 length: word.length,
-                color: "red",
+                color: "purple" as const,
             });
         }
     }
@@ -227,6 +227,24 @@ connection.onRequest("spellcheck/check", async (params: { text: string }) => {
             const phraseLower = phrase.toLowerCase();
 
             while ((startIndex = text.toLowerCase().indexOf(phraseLower, startIndex)) !== -1) {
+                // Get context tokens for ICE suggestions
+                let leftToken = "";
+                let rightToken = "";
+                if (source === "ice") {
+                    const words = text.split(/\s+/);
+                    const wordIndex = words.findIndex(
+                        (w, i) =>
+                            text.indexOf(
+                                w,
+                                i === 0 ? 0 : text.indexOf(words[i - 1]) + words[i - 1].length
+                            ) === startIndex
+                    );
+                    if (wordIndex !== -1) {
+                        leftToken = wordIndex > 0 ? words[wordIndex - 1] : "";
+                        rightToken = wordIndex < words.length - 1 ? words[wordIndex + 1] : "";
+                    }
+                }
+
                 matches.push({
                     id: `SPECIAL_PHRASE_${index}_${matches.length}`,
                     text: phrase,
@@ -238,7 +256,9 @@ connection.onRequest("spellcheck/check", async (params: { text: string }) => {
                     ],
                     offset: startIndex,
                     length: phrase.length,
-                    color: color as "red" | "blue" | "purple",
+                    color: color as "purple" | "blue",
+                    leftToken: source === "ice" ? leftToken : "",
+                    rightToken: source === "ice" ? rightToken : "",
                 });
                 startIndex += phrase.length;
             }
@@ -264,6 +284,8 @@ connection.onRequest("spellcheck/check", async (params: { text: string }) => {
                     offset: wordOffset,
                     length: suggestion.original.length,
                     color: "blue",
+                    leftToken: suggestion.leftToken || "",
+                    rightToken: suggestion.rightToken || "",
                 });
             }
         });

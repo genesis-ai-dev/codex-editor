@@ -1,6 +1,7 @@
 import { createPopper } from "@popperjs/core";
 import { QuillSpellChecker } from ".";
 import { MatchesEntity } from "./types";
+import { EditorPostMessages } from "../../../../../types";
 
 /**
  * Manager for popups.
@@ -94,6 +95,19 @@ export default class PopupManager {
             actionsDiv.appendChild(addToDictionaryButton);
         }
 
+        // Add reject button for smart edits (purple) and ice edits (blue)
+        if (match.color === "purple" || match.color === "blue") {
+            const rejectButton = document.createElement("button");
+            rejectButton.className = "quill-spck-match-popup-action reject-action";
+            rejectButton.innerHTML = '<i class="codicon codicon-thumbsdown"></i>';
+            rejectButton.title = "Reject this suggestion";
+            rejectButton.addEventListener("click", () => {
+                this.rejectSuggestion(match);
+                this.closePopup();
+            });
+            actionsDiv.appendChild(rejectButton);
+        }
+
         popupContent.appendChild(actionsDiv);
 
         // Add source and confidence information
@@ -179,5 +193,27 @@ export default class PopupManager {
             element = element.parentElement;
         }
         return element;
+    }
+
+    private rejectSuggestion(match: MatchesEntity) {
+        // if (!match.replacements?.[0]) return;
+
+        const content = {
+            source: match.replacements?.[0]?.source || "llm",
+            cellId: match.cellId,
+            oldString: match.text,
+            newString: match.replacements?.[0]?.value || "",
+            leftToken: match.leftToken || "",
+            rightToken: match.rightToken || "",
+        };
+
+        console.log("[RYDER*]", content);
+
+        const message: EditorPostMessages = {
+            command: "rejectEditSuggestion",
+            content: content,
+        };
+
+        window.vscodeApi?.postMessage(message);
     }
 }
