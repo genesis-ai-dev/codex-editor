@@ -10,7 +10,10 @@ import {
 import { CodexCellTypes } from "../../types/enums";
 import { allORGBibleVerseRefs } from "../utils/verseRefUtils/verseData";
 import { getTestamentForBook } from "../utils/verseRefUtils/verseData";
-import { NotebookMetadataManager, getNotebookMetadataManager } from "../utils/notebookMetadataManager";
+import {
+    NotebookMetadataManager,
+    getNotebookMetadataManager,
+} from "../utils/notebookMetadataManager";
 import { getWorkSpaceUri } from "../utils";
 import path from "path";
 
@@ -298,7 +301,7 @@ export class DownloadBibleTransaction extends BaseTransaction {
 
     // FIXME: add an endpoint for our blank slate bibles
     private async downloadVerseContent(): Promise<string[]> {
-        const ebibleUrl = `https://raw.githubusercontent.com/BibleNLP/ebible/main/corpus/${this.getEbibleFileName()}`;
+        const ebibleUrl = `https://raw.githubusercontent.com/BibleNLP/ebible/0eed6f47ff555201874d5416bbfebba4ed743d4f/corpus/${this.getEbibleFileName()}`;
         let response;
         try {
             response = await fetch(ebibleUrl);
@@ -307,7 +310,6 @@ export class DownloadBibleTransaction extends BaseTransaction {
                 `Failed to fetch Bible text from ${ebibleUrl}. This could be due to network issues or the server being unavailable. Error: ${
                     (error as any).message
                 }`
-                
             );
         }
         if (!response.ok) {
