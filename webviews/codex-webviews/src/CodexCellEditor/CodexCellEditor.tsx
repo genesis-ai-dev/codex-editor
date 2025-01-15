@@ -76,7 +76,7 @@ const CodexCellEditor: React.FC = () => {
     const playerRef = useRef<ReactPlayer>(null);
     const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
     const { setSourceCellMap } = useContext(SourceCellContext);
-    const extractTextFromHtml = useQuillTextExtractor();
+    const { extractTextFromHtml } = useQuillTextExtractor();
 
     const removeHtmlTags = (text: string) => {
         return extractTextFromHtml(text);

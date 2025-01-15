@@ -72,16 +72,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [editedBacktranslation, setEditedBacktranslation] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<"source" | "backtranslation">("source");
 
-    const unsavedChangesState = !!(
-        contentBeingUpdated.cellContent &&
-        getCleanedHtml(contentBeingUpdated.cellContent) &&
-        getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !==
-            cellContent.replace(/\s/g, "")
-    );
+    // const unsavedChangesState = !!(
+    //     contentBeingUpdated.cellContent &&
+    //     getCleanedHtml(contentBeingUpdated.cellContent) &&
+    //     getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !==
+    //         cellContent.replace(/\s/g, "")
+    // );
 
-    useEffect(() => {
-        setUnsavedChanges(unsavedChangesState);
-    }, [unsavedChangesState, setUnsavedChanges]);
+    // useEffect(() => {
+    //     setUnsavedChanges(unsavedChangesState);
+    // }, [unsavedChangesState, setUnsavedChanges]);
 
     useEffect(() => {
         if (showFlashingBorder && cellEditorRef.current) {
@@ -483,11 +483,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         setEditorContent(html);
 
                         // Calculate unsaved changes state here
-                        const hasUnsavedChanges = !!(
-                            html &&
-                            getCleanedHtml(html).replace(/\s/g, "") !==
-                                cellContent.replace(/\s/g, "")
-                        );
+                        // const hasUnsavedChanges = !!(
+                        //     html &&
+                        //     getCleanedHtml(html).replace(/\s/g, "") !==
+                        //         cellContent.replace(/\s/g, "")
+                        // );
 
                         setContentBeingUpdated({
                             cellMarkers,
