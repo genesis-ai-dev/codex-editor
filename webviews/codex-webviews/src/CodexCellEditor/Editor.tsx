@@ -215,8 +215,7 @@ export default function Editor(props: EditorProps) {
                                 after: finalContent,
                                 timestamp: Date.now(),
                             };
-                            // Keep only the last 7 entries
-                            return [...prev, newEntry].slice(-7);
+                            return [...prev, newEntry];
                         });
                     }
                 }
