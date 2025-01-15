@@ -304,7 +304,6 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
         vscode.commands.registerCommand("codex-smart-edits.checkIceSuggestions", async () => {
             try {
                 const suggestions = await iceEdits.calculateSuggestions("hello", "", "there");
-                console.log("ICE Suggestions:", suggestions);
                 vscode.window.showInformationMessage(`Found ${suggestions.length} ICE suggestions`);
             } catch (error) {
                 console.error("Error checking ICE suggestions:", error);
@@ -316,9 +315,7 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
     // Register the getIceEdits command
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-smart-edits.getIceEdits", async (text: string) => {
-            console.log("[ICE] Getting ICE edits for:", text);
             const suggestions = await smartEdits.getIceEdits(text);
-            console.log("[ICE] Suggestions:", suggestions);
             return suggestions;
         })
     );
@@ -328,7 +325,6 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
         vscode.commands.registerCommand(
             "codex-smart-edits.recordIceEdit",
             async (oldText: string, newText: string) => {
-                console.log("[RYDER] recordIceEdit called from registerSmartEditCommands.ts");
                 try {
                     // Use recordFullEdit which handles diffing and context extraction
                     await iceEdits.recordFullEdit(oldText, newText);
@@ -366,24 +362,16 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
                 );
                 try {
                     if (source === "ice") {
-                        console.log("[RYDER] rejecting ICE edit");
                         if (!leftToken && !rightToken) {
                             throw new Error(
                                 "At least one of leftToken or rightToken is required for ICE edit rejections"
                             );
                         }
-                        console.log("[RYDER] rejecting ICE edit", {
-                            oldString,
-                            newString,
-                            leftToken,
-                            rightToken,
-                        });
                         await iceEdits.rejectEdit(oldString, newString, leftToken, rightToken);
                     } else {
                         if (!cellId) {
                             throw new Error("cellId is required for LLM edit rejections");
                         }
-                        console.log("[RYDER] rejecting LLM edit");
                         await smartEdits.rejectSmartSuggestion(cellId, oldString, newString);
                     }
                     return true;

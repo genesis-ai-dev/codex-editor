@@ -82,20 +82,11 @@ export class CodexCellEditorMessageHandling {
                 return;
             }
             case "from-quill-spellcheck-getSpellCheckResponse": {
-                console.log(
-                    "[RYDER] from-quill-spellcheck-getSpellCheckResponse message received",
-                    {
-                        event,
-                    }
-                );
                 try {
                     const response = await vscode.commands.executeCommand(
                         "translators-copilot.spellCheckText",
                         event.content.cellContent
                     );
-                    console.log("[RYDER] response from translators-copilot.spellCheckText", {
-                        response,
-                    });
                     this.provider.postMessageToWebview(webviewPanel, {
                         type: "providerSendsSpellCheckResponse",
                         content: response as SpellCheckResponse,
@@ -137,8 +128,6 @@ export class CodexCellEditorMessageHandling {
                     const oldContent = document.getCellContent(event.content.cellMarkers[0]);
                     const oldText = oldContent?.cellContent || "";
                     const newText = event.content.cellContent || "";
-
-                    console.log("[RYDER] saveHtml message received", { oldText, newText });
 
                     // Only record ICE edit if content actually changed
                     if (oldText !== newText) {
@@ -523,7 +512,6 @@ export class CodexCellEditorMessageHandling {
 
             case "rejectEditSuggestion": {
                 try {
-                    console.log("[RYDER] rejectEditSuggestion message received", { event });
                     await vscode.commands.executeCommand(
                         "codex-smart-edits.rejectEditSuggestion",
                         event.content

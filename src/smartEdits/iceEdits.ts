@@ -64,8 +64,6 @@ export class ICEEdits {
         // 3) Diff them
         const diff = diffWords(cleanOld, cleanNew);
 
-        console.log("[RYDER] diff", { cleanOld, cleanNew, oldTokens, newTokens, diff });
-
         let oldIndex = 0;
         let skipNextAdded = false; // Flag to skip processing added parts that were already handled as replacements
 
@@ -75,11 +73,6 @@ export class ICEEdits {
             if (part.removed) {
                 // Handle removals (with potential replacements)
                 const removedTokens = part.value.split(/\s+/);
-                console.log("[ICE] Processing removed tokens:", {
-                    removedTokens,
-                    oldIndex,
-                    partValue: part.value,
-                });
 
                 for (let t = 0; t < removedTokens.length; t++) {
                     const token = removedTokens[t];
@@ -94,13 +87,6 @@ export class ICEEdits {
                     const nextPart = diff[i + 1];
                     if (nextPart && nextPart.added) {
                         const addedTokens = nextPart.value.split(/\s+/).filter((t) => t); // Filter out empty tokens
-                        console.log("[ICE] Found replacement:", {
-                            removedToken: token,
-                            addedTokens,
-                            tokenIndex: t,
-                            context: { left: leftToken, right: rightToken },
-                        });
-
                         if (t < addedTokens.length) {
                             await this.recordEdit(token, addedTokens[t], leftToken, rightToken);
                         }
@@ -116,11 +102,6 @@ export class ICEEdits {
             } else if (part.added && !skipNextAdded) {
                 // Handle pure additions (no preceding removal)
                 const addedTokens = part.value.split(/\s+/).filter((t) => t); // Filter out empty tokens
-                console.log("[ICE] Processing pure additions:", {
-                    addedTokens,
-                    oldIndex,
-                    partValue: part.value,
-                });
 
                 for (let t = 0; t < addedTokens.length; t++) {
                     const token = addedTokens[t];
@@ -134,20 +115,12 @@ export class ICEEdits {
 
                     // Only record addition if we have some context
                     if (leftToken || rightToken) {
-                        console.log("[ICE] Recording pure addition:", {
-                            addedToken: token,
-                            context: { left: leftToken, right: rightToken },
-                        });
                         await this.recordEdit("", token, leftToken, rightToken);
                     }
                 }
             } else {
                 // Skip unchanged tokens
                 const skipTokens = part.value.split(/\s+/).filter((t) => t).length;
-                console.log("[ICE] Skipping unchanged tokens:", {
-                    count: skipTokens,
-                    value: part.value,
-                });
                 oldIndex += skipTokens;
             }
 
@@ -170,20 +143,25 @@ export class ICEEdits {
         }
     }
 
-    private async loadEditRecords(): Promise<void> {
+    private async loadEditRecords(): Promise<Record<string, ICEEditRecord>> {
         try {
             const fileContent = await vscode.workspace.fs.readFile(this.iceEditsPath);
             const fileString = fileContent.toString();
             const records: Record<string, ICEEditRecord> = fileString ? JSON.parse(fileString) : {};
 
             // Filter out rejected records when loading
-            const filteredRecords = Object.entries(records).filter(
-                ([_, record]) => !record.rejected
+            const filteredRecords = Object.fromEntries(
+                Object.entries(records).filter(([_, record]) => !record.rejected)
             );
-            this.editRecords = new Map(filteredRecords);
+
+            // Update the in-memory records
+            this.editRecords = new Map(Object.entries(filteredRecords));
+
+            // Return all records (including rejected ones) for reference
+            return records;
         } catch (error) {
             console.error("Error loading ICE edit records:", error);
-            this.editRecords = new Map();
+            return {};
         }
     }
 
@@ -218,12 +196,6 @@ export class ICEEdits {
             return;
         }
 
-        console.log("[RYDER] recordEdit called from ICEEdits class", {
-            original,
-            replacement,
-            leftToken,
-            rightToken,
-        });
         await this.loadEditRecords();
 
         const key = this.getRecordKey(original, leftToken, rightToken);
@@ -257,49 +229,67 @@ export class ICEEdits {
     }
 
     async calculateSuggestions(
-        text: string,
+        currentToken: string,
         leftToken: string,
         rightToken: string
-    ): Promise<ICECandidateSuggestion[]> {
-        await this.loadEditRecords();
-        const suggestions: ICECandidateSuggestion[] = [];
+    ): Promise<Array<{ replacement: string; confidence: string; frequency: number }>> {
+        console.log("[RYDER] Calculating suggestions for:", {
+            currentToken,
+            leftToken,
+            rightToken,
+        });
 
-        // Look for exact matches with context
-        const exactKey = this.getRecordKey(text, leftToken, rightToken);
-        if (exactKey) {
-            const exactMatch = this.editRecords.get(exactKey);
-            if (exactMatch && exactMatch.replacement !== text) {
-                // Don't suggest the same text
+        const allRecords = await this.loadEditRecords();
+        console.log("[RYDER] allRecords details:", allRecords);
+
+        const suggestions: Array<{ replacement: string; confidence: string; frequency: number }> =
+            [];
+
+        for (const [key, record] of Object.entries(allRecords || {})) {
+            // Skip rejected records
+            if (record.rejected) {
+                console.log("[RYDER] Skipping rejected record:", { key, record });
+                continue;
+            }
+
+            console.log("[RYDER] Comparing record:", {
+                key,
+                recordOriginal: record.original,
+                recordReplacement: record.replacement,
+                expectedOriginal: currentToken,
+                expectedReplacement: record.replacement,
+                recordLeft: record.leftToken,
+                recordRight: record.rightToken,
+                currentLeft: leftToken,
+                currentRight: rightToken,
+            });
+
+            const {
+                original: recordOriginal,
+                replacement: recordReplacement,
+                leftToken: recordLeftToken,
+                rightToken: recordRightToken,
+                rejected: recordRejected,
+            } = record;
+
+            // Only add suggestion if it matches exactly and isn't rejected
+            if (
+                recordOriginal === currentToken &&
+                recordLeftToken === leftToken &&
+                recordRightToken === rightToken &&
+                !recordRejected // Double-check rejection status
+            ) {
+                console.log("[RYDER] found matching record", { key, record });
                 suggestions.push({
-                    original: text,
-                    replacement: exactMatch.replacement,
+                    replacement: record.replacement,
                     confidence: "high",
-                    frequency: exactMatch.frequency,
-                    leftToken,
-                    rightToken,
+                    frequency: record.frequency || 1,
                 });
             }
         }
 
-        // Look for matches with partial context
-        for (const [key, record] of this.editRecords.entries()) {
-            if (key !== exactKey && record.original === text) {
-                // Only add if we haven't already suggested this replacement
-                if (!suggestions.some((s) => s.replacement === record.replacement)) {
-                    suggestions.push({
-                        original: text,
-                        replacement: record.replacement,
-                        confidence: "low",
-                        frequency: record.frequency,
-                        leftToken: record.leftToken,
-                        rightToken: record.rightToken,
-                    });
-                }
-            }
-        }
-
-        // Sort by frequency descending
-        return suggestions.sort((a, b) => b.frequency - a.frequency);
+        console.log("[RYDER] Final suggestions:", suggestions);
+        return suggestions;
     }
 
     /**
@@ -358,9 +348,22 @@ export class ICEEdits {
             });
         });
 
-        const matchingEntry = entries.find(
-            ([_, record]) => record.original === original && record.replacement === replacement
-        );
+        const matchingEntry = entries.find(([_, record]) => {
+            const originalMatch = original === record.original;
+            const replacementMatch = replacement === record.replacement;
+            const leftTokenMatch = leftToken === record.leftToken;
+            const rightTokenMatch = rightToken === record.rightToken;
+
+            return (
+                originalMatch &&
+                replacementMatch &&
+                leftTokenMatch &&
+                rightTokenMatch &&
+                !record.rejected
+            );
+        });
+
+        console.log(matchingEntry);
 
         if (matchingEntry) {
             const [key, record] = matchingEntry;
