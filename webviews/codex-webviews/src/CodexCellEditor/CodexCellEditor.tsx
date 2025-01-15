@@ -32,6 +32,13 @@ export enum CELL_DISPLAY_MODES {
     ONE_LINE_PER_CELL = "one-line-per-cell",
 }
 
+const DEBUG_ENABLED = false;
+function debug(message: string, ...args: any[]): void {
+    if (DEBUG_ENABLED) {
+        console.log(`[CodexCellEditor] ${message}`, ...args);
+    }
+}
+
 const CodexCellEditor: React.FC = () => {
     const [translationUnits, setTranslationUnits] = useState<QuillCellContent[]>([]);
     const [alertColorCodes, setAlertColorCodes] = useState<{
@@ -201,7 +208,7 @@ const CodexCellEditor: React.FC = () => {
 
     const handleSaveHtml = () => {
         const content = contentBeingUpdated;
-
+        debug("content", content);
         vscode.postMessage({
             command: "saveHtml",
             content: content,

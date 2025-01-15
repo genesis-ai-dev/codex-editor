@@ -23,6 +23,13 @@ interface CellListProps {
     alertColorCodes: { [cellId: string]: number };
 }
 
+const DEBUG_ENABLED = false;
+function debug(message: string, ...args: any[]): void {
+    if (DEBUG_ENABLED) {
+        console.log(`[CellList] ${message}`, ...args);
+    }
+}
+
 const CellList: React.FC<CellListProps> = ({
     translationUnits,
     contentBeingUpdated,
@@ -216,6 +223,7 @@ const CellList: React.FC<CellListProps> = ({
             const cellToOpen = translationUnits.find((unit) => unit.cellMarkers[0] === cellId);
 
             if (cellToOpen) {
+                debug("openCellById", { cellToOpen, text });
                 setContentBeingUpdated({
                     cellMarkers: cellToOpen.cellMarkers,
                     cellContent: text,
