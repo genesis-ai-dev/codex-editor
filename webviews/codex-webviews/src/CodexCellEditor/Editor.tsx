@@ -1,9 +1,10 @@
-import { useRef, useEffect, useMemo, useState } from "react";
+import { useRef, useEffect, useMemo, useState, useContext } from "react";
 import Quill from "quill";
 import "quill/dist/quill.snow.css";
 import registerQuillSpellChecker, { getCleanedHtml } from "./react-quill-spellcheck";
 import { EditorPostMessages, SpellCheckResponse } from "../../../../types";
 import "./TextEditor.css"; // Override the default Quill styles so spans flow
+import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 
 const icons: any = Quill.import("ui/icons");
 // Assuming you have access to the VSCode API here
@@ -59,6 +60,13 @@ Quill.register({
     "formats/openLibrary": OpenLibraryFormat,
 });
 
+const DEBUG_ENABLED = false;
+function debug(message: string, ...args: any[]): void {
+    if (DEBUG_ENABLED) {
+        console.log(`[Editor] ${message}`, ...args);
+    }
+}
+
 export default function Editor(props: EditorProps) {
     const [isToolbarExpanded, setIsToolbarExpanded] = useState(false);
     const [showModal, setShowModal] = useState(false);
@@ -67,7 +75,7 @@ export default function Editor(props: EditorProps) {
     const [editHistory, setEditHistory] = useState<EditHistoryEntry[]>([]);
     const initialContentRef = useRef<string>("");
     const [headerLabel, setHeaderLabel] = useState<string>("Normal"); // Track header label
-
+    const { setUnsavedChanges } = useContext(UnsavedChangesContext);
     const quillRef = useRef<Quill | null>(null);
     const editorRef = useRef<HTMLDivElement>(null);
 
@@ -122,50 +130,78 @@ export default function Editor(props: EditorProps) {
 
             quillRef.current = quill;
 
+            if (props.initialValue) {
+                quill.root.innerHTML = props.initialValue;
+            }
             // Store initial content when editor is mounted
             initialContentRef.current = quill.root.innerHTML;
+            let isFirstLoad = true;
+            let quillInitialContent = "";
 
             // Add text-change event listener
             quill.on("text-change", () => {
-                const content = quill.root.innerHTML;
-                if (props.onChange) {
-                    const cleanedContents = getCleanedHtml(content);
-
-                    // New function to remove excessive empty paragraphs and line breaks
-                    const removeExcessiveEmptyTags = (html: string) => {
-                        return html
-                            .replace(/<p><br><\/p>/g, "<p></p>") // Replace <p><br></p> with <p></p>
-                            .replace(/<p><\/p>(\s*<p><\/p>)+/g, "<p></p>") // Remove consecutive empty paragraphs
-                            .replace(/^(\s*<p><\/p>)+/, "") // Remove leading empty paragraphs
-                            .replace(/(\s*<p><\/p>)+$/, ""); // Remove trailing empty paragraphs
-                    };
-
-                    const trimmedContent = removeExcessiveEmptyTags(cleanedContents);
-
-                    const arrayOfParagraphs = trimmedContent
-                        .trim()
-                        .split("</p>")
-                        .map((p) => p.trim())
-                        .filter((p) => p !== "");
-
-                    const finalParagraphs = arrayOfParagraphs.map((p) =>
-                        p.startsWith("<p>") ? `${p}</p>` : `<p>${p}</p>`
-                    );
-
-                    const firstParagraph = finalParagraphs[0] || "";
-                    const restOfParagraphs = finalParagraphs.slice(1) || [];
-                    const firstParagraphWithoutP = firstParagraph.trim().slice(3, -4);
-                    const contentIsEmpty = isQuillEmpty(quill);
-
-                    const finalContent = contentIsEmpty
-                        ? ""
-                        : [`<span>${firstParagraphWithoutP}</span>`, ...restOfParagraphs].join("");
-
-                    props.onChange({
-                        html: finalContent,
-                    });
+                if (isFirstLoad) {
+                    quillInitialContent = quill.root.innerHTML;
+                    isFirstLoad = false;
+                    return;
                 }
-                updateHeaderLabel();
+                const initialQuillContent = "<p><br></p>";
+                const content = quill.root.innerHTML;
+                let isDirty = false;
+                if (quillInitialContent !== initialQuillContent) {
+                    isDirty = content !== quillInitialContent;
+                }
+
+                debug("isDirty", {
+                    isDirty,
+                    content,
+                    initialContentRefCurrent: initialContentRef.current,
+                    quillInitialContent,
+                    // initialContentConvertedByQuill,
+                });
+                if (isDirty) {
+                    setUnsavedChanges(isDirty);
+                    if (props.onChange) {
+                        const cleanedContents = getCleanedHtml(content);
+
+                        // New function to remove excessive empty paragraphs and line breaks
+                        const removeExcessiveEmptyTags = (html: string) => {
+                            return html
+                                .replace(/<p><br><\/p>/g, "<p></p>") // Replace <p><br></p> with <p></p>
+                                .replace(/<p><\/p>(\s*<p><\/p>)+/g, "<p></p>") // Remove consecutive empty paragraphs
+                                .replace(/^(\s*<p><\/p>)+/, "") // Remove leading empty paragraphs
+                                .replace(/(\s*<p><\/p>)+$/, ""); // Remove trailing empty paragraphs
+                        };
+
+                        const trimmedContent = removeExcessiveEmptyTags(cleanedContents);
+
+                        const arrayOfParagraphs = trimmedContent
+                            .trim()
+                            .split("</p>")
+                            .map((p) => p.trim())
+                            .filter((p) => p !== "");
+
+                        const finalParagraphs = arrayOfParagraphs.map((p) =>
+                            p.startsWith("<p>") ? `${p}</p>` : `<p>${p}</p>`
+                        );
+
+                        const firstParagraph = finalParagraphs[0] || "";
+                        const restOfParagraphs = finalParagraphs.slice(1) || [];
+                        const firstParagraphWithoutP = firstParagraph.trim().slice(3, -4);
+                        const contentIsEmpty = isQuillEmpty(quill);
+
+                        const finalContent = contentIsEmpty
+                            ? ""
+                            : [`<span>${firstParagraphWithoutP}</span>`, ...restOfParagraphs].join(
+                                  ""
+                              );
+
+                        props.onChange({
+                            html: finalContent,
+                        });
+                    }
+                    updateHeaderLabel();
+                }
             });
 
             // Save edit history on unmount
@@ -248,10 +284,11 @@ export default function Editor(props: EditorProps) {
     function isQuillEmpty(quill: Quill | null) {
         if (!quill) return true;
         const delta = quill.getContents();
+        debug("delta", delta);
         const text = delta.ops?.reduce((text, op) => {
             return text + (op.insert ? op.insert : "");
         }, "");
-
+        debug("text", text);
         return text?.trim().length === 0;
     }
 
@@ -284,7 +321,9 @@ export default function Editor(props: EditorProps) {
                 } else if (event.data.type === "providerSendsLLMCompletionResponse") {
                     const completionText = event.data.content.completion;
                     quill.root.innerHTML = completionText; // Clear existing content
+                    setUnsavedChanges(true);
                 }
+                props.onChange?.({ html: quill.root.innerHTML });
                 updateHeaderLabel(); // Update header label after external changes
             }
         };
