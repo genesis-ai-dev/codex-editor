@@ -54,6 +54,7 @@ quill-spck-match.blue.low-confidence {
 .quill-spck-match-popup-actions {
     display: flex;
     flex-direction: row;
+    justify-content: space-between;
     margin-right: 0.0625rem solid var(--vscode-editorWidget-border);
 }
 
@@ -173,8 +174,9 @@ quill-spck-match.purple:hover {
     color: var(--vscode-errorForeground);
     padding: 4px 8px;
     margin-left: 8px;
+    max-width: max-content;
 }
 
 .quill-spck-match-popup-action.reject-action:hover {
-    background-color: var(--vscode-errorBackground);
+    background-color: var(--vscode-list-hoverBackground);
 }

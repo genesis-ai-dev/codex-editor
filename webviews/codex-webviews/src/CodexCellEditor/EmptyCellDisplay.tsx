@@ -5,7 +5,7 @@ import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 interface EmptyCellDisplayProps {
     cellMarkers: string[];
     cellLabel?: string;
-    setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorCellContent>>;
+    setContentBeingUpdated: (content: EditorCellContent) => void;
     textDirection: "ltr" | "rtl";
     vscode: any;
     openCellById: (cellId: string, text: string) => void;

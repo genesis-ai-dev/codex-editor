@@ -102,7 +102,7 @@ export default class PopupManager {
             rejectButton.innerHTML = '<i class="codicon codicon-thumbsdown"></i>';
             rejectButton.title = "Reject this suggestion";
             rejectButton.addEventListener("click", () => {
-                this.rejectSuggestion(match);
+                this.rejectSuggestion({ match, suggestion });
                 this.closePopup();
             });
             actionsDiv.appendChild(rejectButton);
@@ -115,12 +115,13 @@ export default class PopupManager {
         reasonLabel.className = "quill-spck-match-popup-reason";
 
         if (match.color === "purple") {
-            reasonLabel.textContent = "AI suggestion based on similar texts";
+            reasonLabel.innerHTML =
+                '<i class="codicon codicon-sparkle"></i> AI suggestion based on similar texts';
         } else if (match.color === "blue") {
             const firstReplacement = match.replacements?.[0];
             const confidence = firstReplacement?.confidence || "low";
             const frequency = firstReplacement?.frequency || 1;
-            reasonLabel.innerHTML = `From your previous edits (${confidence} confidence) <span class="quill-spck-match-popup-frequency">${frequency}×</span>`;
+            reasonLabel.innerHTML = `<i class="codicon codicon-sparkle"></i> From your previous edits (${confidence} confidence) <span class="quill-spck-match-popup-frequency">${frequency}×</span>`;
         }
 
         popupContent.appendChild(reasonLabel);
@@ -195,19 +196,32 @@ export default class PopupManager {
         return element;
     }
 
-    private rejectSuggestion(match: MatchesEntity) {
-        // if (!match.replacements?.[0]) return;
+    private rejectSuggestion({
+        match,
+        suggestion,
+    }: {
+        match: MatchesEntity;
+        suggestion: HTMLElement;
+    }) {
+        const getCurrentEditingCellId = (window as any).getCurrentEditingCellId;
+        const currentCellId = getCurrentEditingCellId?.();
+
+        if (!currentCellId) {
+            console.error("No cell ID found for current edit");
+            return;
+        }
 
         const content = {
             source: match.replacements?.[0]?.source || "llm",
-            cellId: match.cellId,
+            cellId: currentCellId,
             oldString: match.text,
             newString: match.replacements?.[0]?.value || "",
             leftToken: match.leftToken || "",
             rightToken: match.rightToken || "",
         };
 
-        console.log("[RYDER*]", content);
+        console.log("[RYDER*]", { content, match, suggestion });
+        // FIXME: how did we lose the leftToken and rightToken? check ./index.ts
 
         const message: EditorPostMessages = {
             command: "rejectEditSuggestion",
@@ -215,5 +229,12 @@ export default class PopupManager {
         };
 
         window.vscodeApi?.postMessage(message);
+
+        // Close popup and hide diagnostic
+        this.closePopup();
+        this.hideDiagnostic();
+
+        // Force a new spell check immediately
+        this.parent.forceCheckSpelling();
     }
 }

@@ -10,7 +10,7 @@ import { WebviewApi } from "vscode-webview";
 interface CellListProps {
     translationUnits: QuillCellContent[];
     contentBeingUpdated: EditorCellContent;
-    setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorCellContent>>;
+    setContentBeingUpdated: (content: EditorCellContent) => void;
     handleCloseEditor: () => void;
     handleSaveHtml: () => void;
     vscode: WebviewApi<unknown>;

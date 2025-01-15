@@ -86,6 +86,13 @@ const CodexCellEditor: React.FC = () => {
     // video URL back to the extension so the user can save or cancel the change.
     const [tempVideoUrl, setTempVideoUrl] = useState<string>("");
     // const [documentHasVideoAvailable, setDocumentHasVideoAvailable] = useState<boolean>(false);
+    const [currentEditingCellId, setCurrentEditingCellId] = useState<string | null>(null);
+
+    const handleSetContentBeingUpdated = (content: EditorCellContent) => {
+        setContentBeingUpdated(content);
+        setCurrentEditingCellId(content.cellMarkers?.[0] || null);
+    };
+
     useVSCodeMessageHandler({
         setContent: (
             content: QuillCellContent[],
@@ -348,6 +355,10 @@ const CodexCellEditor: React.FC = () => {
         );
     }
 
+    const getCurrentEditingCellId = () => currentEditingCellId;
+
+    (window as any).getCurrentEditingCellId = getCurrentEditingCellId;
+
     return (
         <div className="codex-cell-editor">
             <div className="static-header" ref={headerRef}>
@@ -418,7 +429,7 @@ const CodexCellEditor: React.FC = () => {
                         spellCheckResponse={spellCheckResponse}
                         translationUnits={translationUnitsForSection}
                         contentBeingUpdated={contentBeingUpdated}
-                        setContentBeingUpdated={setContentBeingUpdated}
+                        setContentBeingUpdated={handleSetContentBeingUpdated}
                         handleCloseEditor={handleCloseEditor}
                         handleSaveHtml={handleSaveHtml}
                         vscode={vscode}

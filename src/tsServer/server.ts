@@ -46,8 +46,22 @@ function debugLog(...args: any[]) {
 }
 
 // Define special phrases with their replacements and colors
-let specialPhrases: { phrase: string; replacement: string; color: string; source: string }[] = [
-    { phrase: "hello world", replacement: "hi", color: "purple", source: "llm" },
+let specialPhrases: {
+    phrase: string;
+    replacement: string;
+    color: string;
+    source: string;
+    leftToken: string;
+    rightToken: string;
+}[] = [
+    {
+        phrase: "hello world",
+        replacement: "hi",
+        color: "purple",
+        source: "llm",
+        leftToken: "",
+        rightToken: "",
+    },
     // Add more phrases as needed
 ];
 
@@ -143,7 +157,7 @@ connection.onRequest(
     }
 );
 
-connection.onRequest("spellcheck/check", async (params: { text: string }) => {
+connection.onRequest("spellcheck/check", async (params: { text: string; cellId: string }) => {
     debugLog("SERVER: Received spellcheck/check request:", { params });
 
     const text = params.text;
@@ -194,6 +208,7 @@ connection.onRequest("spellcheck/check", async (params: { text: string }) => {
                 offset: offset,
                 length: word.length,
                 color: "purple" as const,
+                cellId: params.cellId,
             });
         }
     }
@@ -219,24 +234,26 @@ connection.onRequest("spellcheck/check", async (params: { text: string }) => {
                 replacement: suggestion.newString,
                 color: color,
                 source: source,
+                leftToken: suggestion.leftToken || "",
+                rightToken: suggestion.rightToken || "",
             });
         });
 
         specialPhrases.forEach(({ phrase, replacement, color, source }, index) => {
             let startIndex = 0;
-            const phraseLower = phrase.toLowerCase();
+            const phraseLower = phrase?.toLowerCase();
 
-            while ((startIndex = text.toLowerCase().indexOf(phraseLower, startIndex)) !== -1) {
+            while ((startIndex = text?.toLowerCase()?.indexOf(phraseLower, startIndex)) !== -1) {
                 // Get context tokens for ICE suggestions
                 let leftToken = "";
                 let rightToken = "";
                 if (source === "ice") {
-                    const words = text.split(/\s+/);
-                    const wordIndex = words.findIndex(
+                    const words = text?.split(/\s+/);
+                    const wordIndex = words?.findIndex(
                         (w, i) =>
-                            text.indexOf(
+                            text?.indexOf(
                                 w,
-                                i === 0 ? 0 : text.indexOf(words[i - 1]) + words[i - 1].length
+                                i === 0 ? 0 : text?.indexOf(words[i - 1]) + words[i - 1].length
                             ) === startIndex
                     );
                     if (wordIndex !== -1) {
@@ -259,36 +276,47 @@ connection.onRequest("spellcheck/check", async (params: { text: string }) => {
                     color: color as "purple" | "blue",
                     leftToken: source === "ice" ? leftToken : "",
                     rightToken: source === "ice" ? rightToken : "",
+                    cellId: params.cellId,
                 });
                 startIndex += phrase.length;
             }
         });
     }
 
-    // Process ICE results
+    // Process ICE results first
     if (iceResults && Array.isArray(iceResults)) {
-        iceResults.forEach((suggestion: any, index) => {
-            const wordOffset = text.indexOf(suggestion.original);
+        console.log("[RYDER**] iceResults", { iceResults });
+        for (const suggestion of iceResults) {
+            if (suggestion.rejected === true) continue;
+
+            const wordOffset = text.indexOf(suggestion.oldString);
             if (wordOffset !== -1) {
                 matches.push({
-                    id: `ICE_${index}`,
-                    text: suggestion.original,
+                    id: `ICE_${matches.length}`,
+                    text: suggestion.oldString,
                     replacements: [
                         {
-                            value: suggestion.replacement,
+                            value: suggestion.newString,
                             confidence: suggestion.confidence,
                             source: "ice",
                             frequency: suggestion.frequency,
                         },
                     ],
                     offset: wordOffset,
-                    length: suggestion.original.length,
+                    length: suggestion.oldString.length,
                     color: "blue",
                     leftToken: suggestion.leftToken || "",
                     rightToken: suggestion.rightToken || "",
+                    cellId: params.cellId,
                 });
             }
-        });
+        }
+    }
+
+    // Update smart edits cache and process results
+    if (lastSmartEditsText !== text) {
+        lastSmartEditsText = text;
+        lastSmartEditResults = smartEditResults;
     }
 
     debugLog(`Returning matches: ${JSON.stringify(matches)}`);

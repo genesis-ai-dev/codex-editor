@@ -313,10 +313,13 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
         })
     );
 
-    // Add this to your command registrations
+    // Register the getIceEdits command
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-smart-edits.getIceEdits", async (text: string) => {
-            return await smartEdits.getIceEdits(text);
+            console.log("[ICE] Getting ICE edits for:", text);
+            const suggestions = await smartEdits.getIceEdits(text);
+            console.log("[ICE] Suggestions:", suggestions);
+            return suggestions;
         })
     );
 
@@ -369,7 +372,12 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
                                 "At least one of leftToken or rightToken is required for ICE edit rejections"
                             );
                         }
-                        console.log("[RYDER] rejecting ICE edit", { oldString, newString, leftToken, rightToken });
+                        console.log("[RYDER] rejecting ICE edit", {
+                            oldString,
+                            newString,
+                            leftToken,
+                            rightToken,
+                        });
                         await iceEdits.rejectEdit(oldString, newString, leftToken, rightToken);
                     } else {
                         if (!cellId) {

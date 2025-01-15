@@ -12,7 +12,7 @@ interface CellContentDisplayProps {
     cellIndex: number;
     cellType: CodexCellTypes;
     cellLabel?: string;
-    setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorCellContent>>;
+    setContentBeingUpdated: (content: EditorCellContent) => void;
     vscode: WebviewApi<unknown>;
     textDirection: "ltr" | "rtl";
     isSourceText: boolean;

@@ -11,9 +11,9 @@ export function registerClientCommands(
     disposables.push(
         vscode.commands.registerCommand(
             "translators-copilot.spellCheckText",
-            async (text: string) => {
+            async (text: string, cellId: string) => {
                 if (client) {
-                    return client.sendRequest("spellcheck/check", { text });
+                    return client.sendRequest("spellcheck/check", { text, cellId });
                 }
             }
         )

@@ -33,7 +33,7 @@ interface CellEditorProps {
     cellType: CodexCellTypes;
     spellCheckResponse: SpellCheckResponse | null;
     contentBeingUpdated: EditorCellContent;
-    setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorCellContent>>;
+    setContentBeingUpdated: (content: EditorCellContent) => void;
     handleCloseEditor: () => void;
     handleSaveHtml: () => void;
     textDirection: "ltr" | "rtl";
@@ -128,10 +128,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
         window.vscodeApi.postMessage(messageContent);
 
         // Update local state
-        setContentBeingUpdated((prev) => ({
-            ...prev,
+        setContentBeingUpdated({
+            cellMarkers,
+            cellContent: contentBeingUpdated.cellContent,
+            cellChanged: contentBeingUpdated.cellChanged,
             cellLabel: editableLabel,
-        }));
+        });
     };
 
     const handleLabelSave = () => {
@@ -248,10 +250,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
         getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !== "";
 
     const handleContentUpdate = (newContent: string) => {
-        setContentBeingUpdated((prev) => ({
-            ...prev,
+        setContentBeingUpdated({
+            cellMarkers,
             cellContent: newContent,
-        }));
+            cellChanged: true,
+            cellLabel: editableLabel,
+        });
         setEditorContent(newContent);
     };
 
@@ -353,11 +357,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
             openCellById(cellId, text);
 
             // Update the local state with the new content
-            setContentBeingUpdated((prev) => ({
-                ...prev,
+            setContentBeingUpdated({
+                cellMarkers,
                 cellContent: text,
                 cellChanged: true,
-            }));
+                cellLabel: editableLabel,
+            });
 
             // Update the editor content
             setEditorContent(text);

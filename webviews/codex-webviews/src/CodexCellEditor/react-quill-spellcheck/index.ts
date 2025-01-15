@@ -167,10 +167,16 @@ export class QuillSpellChecker {
         this.onRequestComplete = callback;
     }
 
-    public async checkSpelling() {
+    public forceCheckSpelling() {
+        // Reset the last check time to ensure it runs
+        this.lastSpellCheckTime = 0;
+        return this.checkSpelling();
+    }
+
+    public async checkSpelling(force: boolean = false) {
         debug("checkSpelling");
         const now = Date.now();
-        if (now - this.lastSpellCheckTime < this.spellCheckCooldown) {
+        if (!force && now - this.lastSpellCheckTime < this.spellCheckCooldown) {
             return;
         }
 
