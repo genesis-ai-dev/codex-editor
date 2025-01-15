@@ -224,7 +224,7 @@ export class SmartEdits {
 
             const cellEdits = savedEdits[cellId];
 
-            console.log("Rejecting smart suggestion for cellId:", cellId, {
+            console.log("[RYDER] Rejecting smart suggestion for cellId:", cellId, {
                 oldString,
                 newString,
                 cellEdits,
@@ -250,7 +250,15 @@ export class SmartEdits {
                 (s) => !(s.oldString === oldString && s.newString === newString)
             );
 
-            console.log("Rejected suggestion:", { oldString, newString });
+            // Update in-memory suggestions if this is for the last processed cell
+            if (this.lastProcessedCellId === cellId) {
+                this.lastSuggestions = this.lastSuggestions.filter(
+                    (s) => !(s.oldString === oldString && s.newString === newString)
+                );
+                console.log("[RYDER] Updated in-memory suggestions:", this.lastSuggestions);
+            }
+
+            console.log("[RYDER] Rejected suggestion:", { oldString, newString });
 
             savedEdits[cellId] = cellEdits;
             await vscode.workspace.fs.writeFile(
