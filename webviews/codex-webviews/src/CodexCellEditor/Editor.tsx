@@ -196,6 +196,8 @@ export default function Editor(props: EditorProps) {
                                   ""
                               );
 
+                        debug("finalContent", { finalContent, contentIsEmpty });
+
                         props.onChange({
                             html: finalContent,
                         });
@@ -320,9 +322,9 @@ export default function Editor(props: EditorProps) {
                 } else if (event.data.type === "providerSendsLLMCompletionResponse") {
                     const completionText = event.data.content.completion;
                     quill.root.innerHTML = completionText; // Clear existing content
+                    props.onChange?.({ html: quill.root.innerHTML });
                     setUnsavedChanges(true);
                 }
-                props.onChange?.({ html: quill.root.innerHTML });
                 updateHeaderLabel(); // Update header label after external changes
             }
         };
