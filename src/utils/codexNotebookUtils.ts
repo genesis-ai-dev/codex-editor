@@ -42,6 +42,7 @@ interface deprecated_CodexCell extends vscode.NotebookCellData {
         data: {
             chapter: string;
         };
+        cellLabel?: string;
     };
 }
 
@@ -222,6 +223,7 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
                             type: "text",
                             id: verseRef,
                             data: {},
+                            cellLabel: verseRef,
                         };
                         newCells.push(verseCell as CodexCell);
                     }
@@ -595,6 +597,7 @@ export async function createProjectNotebooks({
                         type: "text",
                         id: verse,
                         data: {},
+                        cellLabel: verse,
                     };
                     newCells.push(verseCell);
                 }
@@ -753,7 +756,6 @@ export async function migrateSourceFiles() {
 
     console.log("Source file migration completed.");
 }
-
 
 export async function writeSourceFile(uri: vscode.Uri, content: string): Promise<void> {
     const tempUri = vscode.Uri.joinPath(uri, ".temp");

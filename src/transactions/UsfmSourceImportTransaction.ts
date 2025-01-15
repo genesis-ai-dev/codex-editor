@@ -158,6 +158,7 @@ export class UsfmSourceImportTransaction extends ImportTransaction {
                                 type: content.type === "verse" ? CodexCellTypes.TEXT : CodexCellTypes.PARATEXT,
                                 id: content.id,
                                 data: {},
+                                cellLabel: content.id.split(" ")?.[1],
                             }
                         })),
                         metadata: {
@@ -182,6 +183,7 @@ export class UsfmSourceImportTransaction extends ImportTransaction {
                                 type: content.type === "verse" ? CodexCellTypes.TEXT : CodexCellTypes.PARATEXT,
                                 id: content.id,
                                 data: {},
+                                cellLabel: content.id.split(" ")?.[1],
                             }
                         })),
                         metadata: {

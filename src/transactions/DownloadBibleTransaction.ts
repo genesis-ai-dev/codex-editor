@@ -354,6 +354,7 @@ export class DownloadBibleTransaction extends BaseTransaction {
                             type: CodexCellTypes.TEXT,
                             id: verse.vref,
                             data: {},
+                            cellLabel: verse.vref.split(" ")?.[1],
                         },
                     })),
                     // @ts-expect-error - will be populated shortly
@@ -371,6 +372,7 @@ export class DownloadBibleTransaction extends BaseTransaction {
                             type: CodexCellTypes.TEXT,
                             id: verse.vref,
                             data: {},
+                            cellLabel: verse.vref.split(" ")?.[1],
                         },
                     })),
                     // @ts-expect-error - will be populated shortly

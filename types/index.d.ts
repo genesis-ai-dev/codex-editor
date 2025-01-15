@@ -697,6 +697,7 @@ type CustomCellMetaData = {
             type: string;
         };
     };
+    cellLabel?: string;
 };
 
 type CustomNotebookCellData = vscode.NotebookCellData & {

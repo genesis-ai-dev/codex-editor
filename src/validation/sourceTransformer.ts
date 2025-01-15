@@ -204,6 +204,7 @@ export class SourceTransformer {
                     id: verseRef,
                     type: CodexCellTypes.TEXT,
                     data: {},
+                    cellLabel: verseRef,
                 },
             });
 
@@ -216,6 +217,7 @@ export class SourceTransformer {
                     id: verseRef,
                     type: CodexCellTypes.TEXT,
                     data: {},
+                    cellLabel: verseRef,
                 },
             });
         }
