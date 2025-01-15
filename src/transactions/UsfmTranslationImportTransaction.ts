@@ -423,7 +423,7 @@ export class UsfmTranslationImportTransaction extends ImportTransaction {
                         type: CodexCellTypes.PARATEXT,
                         id: paratextId,
                         data: {},
-                        cellLabel: paratextId.split(" ")[1],
+                        cellLabel: paratextId.split(":")[1],
                     },
                 });
                 paratextCount++;
@@ -445,7 +445,7 @@ export class UsfmTranslationImportTransaction extends ImportTransaction {
                             type: CodexCellTypes.TEXT,
                             id: cellId,
                             data: {},
-                            cellLabel: cellId.split(" ")[1],
+                            cellLabel: cellId.split(":")[1],
                         },
                     });
 
@@ -462,7 +462,7 @@ export class UsfmTranslationImportTransaction extends ImportTransaction {
                         value: cellContent,
                         metadata: {
                             ...alignedCell.notebookCell.metadata,
-                            cellLabel: alignedCell.notebookCell.metadata.id.split(" ")[1],
+                            cellLabel: alignedCell.notebookCell.metadata.id.split(":")[1],
                         } as CustomCellMetaData,
                     } as CustomNotebookCellData);
                     skippedCount++;

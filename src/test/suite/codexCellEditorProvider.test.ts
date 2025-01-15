@@ -490,7 +490,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 referenceCellId: codexSubtitleContent.cells[0].metadata.id,
                 cellType: CodexCellTypes.PARATEXT,
                 data: {},
-                cellLabel: childCellId.split(" ")?.[1],
+                cellLabel: childCellId.split(":")?.[1],
             },
         });
         await new Promise((resolve) => setTimeout(resolve, 10));
