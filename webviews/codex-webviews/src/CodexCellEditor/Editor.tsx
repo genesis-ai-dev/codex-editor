@@ -60,7 +60,7 @@ Quill.register({
     "formats/openLibrary": OpenLibraryFormat,
 });
 
-const DEBUG_ENABLED = true;
+const DEBUG_ENABLED = false;
 function debug(message: string, ...args: any[]): void {
     if (DEBUG_ENABLED) {
         console.log(`[Editor] ${message}`, ...args);
@@ -140,12 +140,10 @@ export default function Editor(props: EditorProps) {
 
             // Add text-change event listener
             quill.on("text-change", () => {
-                // const quillIsEmpty = isQuillEmpty(quill);
-
                 if (isFirstLoad) {
                     quillInitialContent = quill.root.innerHTML;
                     isFirstLoad = false;
-                    return; 
+                    return;
                 }
                 const initialQuillContent = "<p><br></p>";
                 const content = quill.root.innerHTML;
@@ -323,7 +321,9 @@ export default function Editor(props: EditorProps) {
                 } else if (event.data.type === "providerSendsLLMCompletionResponse") {
                     const completionText = event.data.content.completion;
                     quill.root.innerHTML = completionText; // Clear existing content
+                    setUnsavedChanges(true);
                 }
+                props.onChange?.({ html: quill.root.innerHTML });
                 updateHeaderLabel(); // Update header label after external changes
             }
         };

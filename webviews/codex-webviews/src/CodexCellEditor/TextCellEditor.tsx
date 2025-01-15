@@ -43,6 +43,13 @@ interface CellEditorProps {
     openCellById: (cellId: string, text: string) => void;
 }
 
+const DEBUG_ENABLED = false;
+function debug(message: string, ...args: any[]): void {
+    if (DEBUG_ENABLED) {
+        console.log(`[TextCellEditor] ${message}`, ...args);
+    }
+}
+
 const CellEditor: React.FC<CellEditorProps> = ({
     cellMarkers,
     cellContent,
@@ -482,12 +489,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     onChange={({ html }) => {
                         setEditorContent(html);
 
-                        // Calculate unsaved changes state here
-                        // const hasUnsavedChanges = !!(
-                        //     html &&
-                        //     getCleanedHtml(html).replace(/\s/g, "") !==
-                        //         cellContent.replace(/\s/g, "")
-                        // );
+                        debug("html", { html, cellMarkers, editableLabel });
 
                         setContentBeingUpdated({
                             cellMarkers,
