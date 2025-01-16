@@ -3,7 +3,7 @@ import { VSCodeButton, VSCodeTextField } from "@vscode/webview-ui-toolkit/react"
 import { LoginRegisterStepProps } from "../types";
 
 export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
-    authState,
+    // authState,
     onLogin,
     onRegister,
     onLogout,
@@ -54,25 +54,25 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
         setPasswordStrength(strength);
     };
 
-    if (authState.isAuthenticated) {
-        return (
-            <div className="login-register-step">
-                <h2>Welcome, {authState.gitlabInfo?.username || "User"}!</h2>
-                <VSCodeButton onClick={onLogout}>Logout</VSCodeButton>
-                <VSCodeButton onClick={onSkip} appearance="icon">
-                    <span
-                        style={{
-                            textDecoration: "underline",
-                            width: "auto",
-                            height: "auto",
-                        }}
-                    >
-                        Back
-                    </span>
-                </VSCodeButton>
-            </div>
-        );
-    }
+    // if (authState.isAuthenticated) {
+    //     return (
+    //         <div className="login-register-step">
+    //             <h2>Welcome, {authState.gitlabInfo?.username || "User"}!</h2>
+    //             <VSCodeButton onClick={onLogout}>Logout</VSCodeButton>
+    //             <VSCodeButton onClick={onSkip} appearance="icon">
+    //                 <span
+    //                     style={{
+    //                         textDecoration: "underline",
+    //                         width: "auto",
+    //                         height: "auto",
+    //                     }}
+    //                 >
+    //                     Back
+    //                 </span>
+    //             </VSCodeButton>
+    //         </div>
+    //     );
+    // }
 
     const centerBumpValue = 2.5;
 
@@ -235,7 +235,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                     <VSCodeButton type="submit">
                         {isRegistering ? "Register" : "Login"}
                     </VSCodeButton>
-                    {!isRegistering && (
+                    {/* {!isRegistering && (
                         <VSCodeButton onClick={onSkip} appearance="icon">
                             <span
                                 style={{
@@ -247,7 +247,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                 Skip
                             </span>
                         </VSCodeButton>
-                    )}
+                    )} */}
                 </div>
             </form>
         </div>

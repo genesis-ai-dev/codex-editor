@@ -7,8 +7,19 @@ import {
     EditHistoryEntry,
 } from "../../types";
 import * as vscode from "vscode";
-import * as path from "path";
 import { diffWords } from "diff";
+import { ICEEdits } from "./iceEdits";
+import { tokenizeText } from "@/utils/nlpUtils";
+
+interface IceSuggestion {
+    text: string;
+    replacement: string;
+    confidence: string;
+    frequency: number;
+    rejected?: boolean;
+    leftToken: string;
+    rightToken: string;
+}
 
 const SYSTEM_MESSAGE = `You are a helpful assistant. Given similar edits across a corpus, you will suggest edits to a new text. 
 Your suggestions should follow this format:
@@ -38,23 +49,24 @@ Your suggestions should follow this format:
 
 export class SmartEdits {
     private chatbot: Chatbot;
-    private smartEditsPath: string;
-    private teachFile: string;
+    private smartEditsPath: vscode.Uri;
+    private teachFile: vscode.Uri;
     private lastProcessedCellId: string | null = null;
     private lastSuggestions: SmartSuggestion[] = [];
     private editHistory: { [key: string]: EditHistoryEntry[] } = {};
+    private iceEdits: ICEEdits;
 
     constructor(workspaceUri: vscode.Uri) {
         this.chatbot = new Chatbot(SYSTEM_MESSAGE);
-        this.smartEditsPath = path.join(workspaceUri.fsPath, "files", "smart_edits.json");
-        this.teachFile = path.join(workspaceUri.fsPath, "files", "silver_path_memories.json");
+        this.smartEditsPath = vscode.Uri.joinPath(workspaceUri, "files", "smart_edits.json");
+        this.teachFile = vscode.Uri.joinPath(workspaceUri, "files", "silver_path_memories.json");
+        this.iceEdits = new ICEEdits(workspaceUri.fsPath);
 
         this.ensureFileExists(this.smartEditsPath);
         this.ensureFileExists(this.teachFile);
     }
 
-    private async ensureFileExists(filePath: string): Promise<void> {
-        const fileUri = vscode.Uri.file(filePath);
+    private async ensureFileExists(fileUri: vscode.Uri): Promise<void> {
         try {
             await vscode.workspace.fs.stat(fileUri);
         } catch (error) {
@@ -67,13 +79,45 @@ export class SmartEdits {
     }
 
     async getEdits(text: string, cellId: string): Promise<SmartSuggestion[]> {
+        // Get ICE suggestions first
+        const iceSuggestions: SmartSuggestion[] = [];
         const similarEntries = await this.findSimilarEntries(text);
         const cellHistory = this.editHistory[cellId] || [];
 
+        // Get ICE suggestions
+        const iceResults = await vscode.commands.executeCommand<IceSuggestion[]>(
+            "codex-smart-edits.getIceEdits",
+            text
+        );
+
+        if (iceResults?.length) {
+            iceResults
+                .filter((suggestion) => suggestion.rejected !== true)
+                .forEach((suggestion) => {
+                    iceSuggestions.push({
+                        oldString: suggestion.text,
+                        newString: suggestion.replacement,
+                        confidence: suggestion.confidence as "high" | "low",
+                        source: "ice",
+                        frequency: suggestion.frequency,
+                    });
+                });
+        }
+
+        // If we have high-confidence ICE suggestions, return them immediately
+        const highConfidenceIceSuggestions = iceSuggestions.filter((s) => s.confidence === "high");
+        if (highConfidenceIceSuggestions.length > 0) {
+            this.lastProcessedCellId = cellId;
+            this.lastSuggestions = highConfidenceIceSuggestions;
+            return highConfidenceIceSuggestions;
+        }
+
+        // Continue with LLM suggestions if no high-confidence ICE suggestions
         if (similarEntries.length === 0) {
             this.lastProcessedCellId = cellId;
-            this.lastSuggestions = [];
-            return [];
+            // Include low-confidence ICE suggestions if available
+            this.lastSuggestions = iceSuggestions;
+            return iceSuggestions;
         }
 
         const firstResultCellId = similarEntries[0].cellId;
@@ -85,45 +129,145 @@ export class SmartEdits {
         const savedSuggestions = await this.loadSavedSuggestions(firstResultCellId);
 
         if (savedSuggestions && savedSuggestions.lastCellValue === text) {
+            // Filter out rejected suggestions
+            const filteredSuggestions = savedSuggestions.suggestions.filter(
+                (suggestion) =>
+                    !savedSuggestions.rejectedSuggestions?.some(
+                        (rejected) =>
+                            rejected.oldString === suggestion.oldString &&
+                            rejected.newString === suggestion.newString
+                    )
+            );
+
             this.lastProcessedCellId = firstResultCellId;
-            this.lastSuggestions = savedSuggestions.suggestions;
-            return savedSuggestions.suggestions;
+            this.lastSuggestions = filteredSuggestions;
+            return filteredSuggestions;
         }
 
         const similarTexts = await this.getSimilarTexts(similarEntries);
-
         const similarTextsString = this.formatSimilarTexts(similarTexts);
         const message = this.createEditMessage(similarTextsString, text, cellHistory);
 
         const jsonResponse = await this.chatbot.getJsonCompletion(message);
 
-        let suggestions: SmartSuggestion[] = [];
+        let llmSuggestions: SmartSuggestion[] = [];
         if (Array.isArray(jsonResponse.suggestions)) {
-            suggestions = jsonResponse.suggestions.map((suggestion: any) => ({
+            llmSuggestions = jsonResponse.suggestions.map((suggestion: any) => ({
                 oldString: suggestion.oldString || "",
                 newString: suggestion.newString || "",
+                source: "llm",
             }));
         }
 
-        await this.saveSuggestions(firstResultCellId, text, suggestions);
+        // Combine LLM suggestions with ICE suggestions and filter out rejected ones
+        const allSuggestions = [...llmSuggestions, ...iceSuggestions];
+        await this.saveSuggestions(firstResultCellId, text, allSuggestions);
+
         this.lastProcessedCellId = firstResultCellId;
-        this.lastSuggestions = suggestions;
-        return suggestions;
+        this.lastSuggestions = allSuggestions;
+        return allSuggestions;
     }
 
     async loadSavedSuggestions(cellId: string): Promise<SavedSuggestions | null> {
         try {
-            const fileUri = vscode.Uri.file(this.smartEditsPath);
-            const fileContent = await vscode.workspace.fs.readFile(fileUri);
+            const fileContent = await vscode.workspace.fs.readFile(this.smartEditsPath);
             const fileString = fileContent.toString();
             const savedEdits: { [key: string]: SavedSuggestions } = fileString
                 ? JSON.parse(fileString)
                 : {};
             const result = savedEdits[cellId] || null;
+
+            if (result) {
+                // Filter out rejected suggestions
+                result.suggestions = result.suggestions.filter(
+                    (suggestion) =>
+                        !result.rejectedSuggestions?.some(
+                            (rejected) =>
+                                rejected.oldString === suggestion.oldString &&
+                                rejected.newString === suggestion.newString
+                        )
+                );
+            }
+
             return result;
         } catch (error) {
             console.error("Error loading saved suggestions:", error);
             return null;
+        }
+    }
+
+    /**
+     * Mark a smart edit suggestion as rejected
+     */
+    async rejectSmartSuggestion(
+        cellId: string,
+        oldString: string,
+        newString: string
+    ): Promise<void> {
+        try {
+            const fileContent = await vscode.workspace.fs.readFile(this.smartEditsPath);
+            const fileString = fileContent.toString();
+            const savedEdits: { [key: string]: SavedSuggestions } = fileString
+                ? JSON.parse(fileString)
+                : {};
+
+            // Initialize the cell entry if it doesn't exist
+            if (!savedEdits[cellId]) {
+                savedEdits[cellId] = {
+                    cellId,
+                    lastCellValue: "",
+                    suggestions: [],
+                    rejectedSuggestions: [],
+                    lastUpdatedDate: new Date().toISOString(),
+                };
+            }
+
+            const cellEdits = savedEdits[cellId];
+
+            console.log("[RYDER] Rejecting smart suggestion for cellId:", cellId, {
+                oldString,
+                newString,
+                cellEdits,
+                savedEdits,
+            });
+
+            // Initialize rejectedSuggestions if it doesn't exist
+            if (!cellEdits.rejectedSuggestions) {
+                cellEdits.rejectedSuggestions = [];
+            }
+
+            // Add to rejected suggestions if not already there
+            if (
+                !cellEdits.rejectedSuggestions.some(
+                    (s) => s.oldString === oldString && s.newString === newString
+                )
+            ) {
+                cellEdits.rejectedSuggestions.push({ oldString, newString });
+            }
+
+            // Filter out the rejected suggestion from current suggestions
+            cellEdits.suggestions = cellEdits.suggestions.filter(
+                (s) => !(s.oldString === oldString && s.newString === newString)
+            );
+
+            // Update in-memory suggestions if this is for the last processed cell
+            if (this.lastProcessedCellId === cellId) {
+                this.lastSuggestions = this.lastSuggestions.filter(
+                    (s) => !(s.oldString === oldString && s.newString === newString)
+                );
+                console.log("[RYDER] Updated in-memory suggestions:", this.lastSuggestions);
+            }
+
+            console.log("[RYDER] Rejected suggestion:", { oldString, newString });
+
+            savedEdits[cellId] = cellEdits;
+            await vscode.workspace.fs.writeFile(
+                this.smartEditsPath,
+                Buffer.from(JSON.stringify(savedEdits, null, 2))
+            );
+        } catch (error) {
+            console.error("Error rejecting smart suggestion:", error);
+            throw error;
         }
     }
 
@@ -134,11 +278,10 @@ export class SmartEdits {
     ): Promise<void> {
         if (suggestions.length === 0) return;
         try {
-            const fileUri = vscode.Uri.file(this.smartEditsPath);
             let savedEdits: { [key: string]: SavedSuggestions } = {};
 
             try {
-                const fileContent = await vscode.workspace.fs.readFile(fileUri);
+                const fileContent = await vscode.workspace.fs.readFile(this.smartEditsPath);
                 const fileString = fileContent.toString();
                 savedEdits = fileString ? JSON.parse(fileString) : {};
             } catch (error) {
@@ -153,7 +296,7 @@ export class SmartEdits {
             };
 
             await vscode.workspace.fs.writeFile(
-                fileUri,
+                this.smartEditsPath,
                 Buffer.from(JSON.stringify(savedEdits, null, 2))
             );
         } catch (error) {
@@ -181,12 +324,26 @@ export class SmartEdits {
         for (const entry of similarEntries) {
             if (entry.targetCell.uri) {
                 try {
-                    let filePath = entry.targetCell.uri
-                        .toString()
-                        .replace(".source", ".codex")
-                        .replace(".project/sourceTexts/", "files/target/");
-                    filePath = filePath.replace(".source", ".codex");
-                    const fileUri = vscode.Uri.parse(filePath);
+                    const uri = vscode.Uri.parse(entry.targetCell.uri.toString());
+                    const pathSegments = uri.path.split("/").filter(Boolean);
+
+                    // Create new path segments array with modifications
+                    const newPathSegments = pathSegments
+                        .map((segment) => {
+                            if (segment === ".source") return ".codex";
+                            if (segment === "sourceTexts") return "target";
+                            return segment;
+                        })
+                        .filter((segment) => segment !== ".project");
+
+                    // Ensure 'files' is in the correct position
+                    if (!newPathSegments.includes("files")) {
+                        newPathSegments.unshift("files");
+                    }
+
+                    // Create new URI with modified path
+                    const fileUri = uri.with({ path: "/" + newPathSegments.join("/") });
+
                     const fileContent = await vscode.workspace.fs.readFile(fileUri);
                     const fileString = fileContent.toString();
                     const jsonContent = fileString ? JSON.parse(fileString) : { cells: [] };
@@ -285,19 +442,68 @@ export class SmartEdits {
 
     async updateEditHistory(cellId: string, history: EditHistoryEntry[]): Promise<void> {
         this.editHistory[cellId] = history;
+
+        // Record each edit in ICE edits using the new recordFullEdit method
+        for (const entry of history) {
+            await this.iceEdits.recordFullEdit(entry.before, entry.after);
+        }
     }
 
     private async readAllMemories(): Promise<{
         [cellId: string]: { content: string; times_used: number };
     }> {
         try {
-            const fileUri = vscode.Uri.file(this.teachFile);
-            const fileContent = await vscode.workspace.fs.readFile(fileUri);
+            const fileContent = await vscode.workspace.fs.readFile(this.teachFile);
             const fileString = fileContent.toString();
             return fileString ? JSON.parse(fileString) : {};
         } catch (error) {
             console.error("Error reading memories:", error);
             return {};
         }
+    }
+
+    async getIceEdits(text: string): Promise<IceSuggestion[]> {
+        console.log("[ICE] Starting getIceEdits with text:", text);
+        // First tokenize by whitespace
+        const tokens = tokenizeText({ method: "whitespace", text });
+        console.log("[ICE] Initial tokens:", tokens);
+
+        // Then clean each token of punctuation
+        const cleanTokens = tokens.map((token) => token.replace(/[.,!?;:]$/, ""));
+        console.log("[ICE] Cleaned tokens:", cleanTokens);
+
+        const iceSuggestions: IceSuggestion[] = [];
+
+        // Process each word/token for ICE suggestions
+        for (let i = 0; i < cleanTokens.length; i++) {
+            const leftToken = i > 0 ? cleanTokens[i - 1] : "";
+            const rightToken = i < cleanTokens.length - 1 ? cleanTokens[i + 1] : "";
+            const currentToken = cleanTokens[i];
+            const originalToken = tokens[i]; // Keep original for replacement
+            console.log("[ICE] Processing token:", { currentToken, leftToken, rightToken });
+
+            const suggestions = await this.iceEdits.calculateSuggestions(
+                currentToken,
+                leftToken,
+                rightToken
+            );
+            console.log("[ICE] Got suggestions:", suggestions);
+
+            suggestions.forEach((suggestion) => {
+                // Preserve the original punctuation when creating the suggestion
+                const punctuation = tokens[i].slice(currentToken.length);
+                iceSuggestions.push({
+                    text: originalToken,
+                    replacement: suggestion.replacement + punctuation,
+                    confidence: suggestion.confidence,
+                    frequency: suggestion.frequency,
+                    leftToken,
+                    rightToken,
+                });
+            });
+        }
+
+        console.log("[ICE] Final suggestions:", iceSuggestions);
+        return iceSuggestions;
     }
 }

@@ -12,6 +12,8 @@ import {
     PreviewContent,
     SourceUploadPostMessages,
     SourceUploadResponseMessages,
+    NotebookPreview,
+    CustomCellMetaData,
 } from "../../../../types";
 import { WorkflowProgress } from "./components/WorkflowProgress";
 import { SourcePreview } from "./components/SourcePreview";
@@ -363,7 +365,26 @@ export const SourceUploader: React.FC = () => {
         ) {
             return (
                 <BiblePreview
-                    preview={workflow.preview}
+                    preview={{
+                        type: "bible",
+                        original: workflow.preview.original,
+                        transformed: {
+                            sourceNotebooks: (
+                                workflow.preview.transformed.sourceNotebooks as NotebookPreview[]
+                            ).map((notebook) => ({
+                                name: notebook.name,
+                                cells: notebook.cells.map((cell) => ({
+                                    value: cell.value,
+                                    metadata: {
+                                        id: cell.metadata?.id || "",
+                                        type: cell.metadata?.type || "",
+                                    },
+                                })),
+                                metadata: notebook.metadata,
+                            })),
+                            validationResults: workflow.preview.transformed.validationResults,
+                        },
+                    }}
                     onConfirm={() => {
                         console.log("confirmBibleDownload in webview", {
                             transaction: workflow.currentTransaction,
@@ -507,7 +528,28 @@ export const SourceUploader: React.FC = () => {
                 if (workflow.importType === "bible-download" && workflow.preview) {
                     return (
                         <BiblePreview
-                            preview={{ ...workflow.preview, type: "bible" } as BiblePreviewData}
+                            preview={{
+                                type: "bible",
+                                original: workflow.preview.original,
+                                transformed: {
+                                    sourceNotebooks: (
+                                        workflow.preview.transformed
+                                            .sourceNotebooks as NotebookPreview[]
+                                    ).map((notebook) => ({
+                                        name: notebook.name,
+                                        cells: notebook.cells.map((cell) => ({
+                                            value: cell.value,
+                                            metadata: {
+                                                id: cell.metadata?.id || "",
+                                                type: cell.metadata?.type || "",
+                                            },
+                                        })),
+                                        metadata: notebook.metadata,
+                                    })),
+                                    validationResults:
+                                        workflow.preview.transformed.validationResults,
+                                },
+                            }}
                             onConfirm={() => {
                                 if (workflow.currentTransaction) {
                                     vscode.postMessage({

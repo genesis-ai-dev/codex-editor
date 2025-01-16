@@ -86,8 +86,12 @@ export class QuillSpellChecker {
 
     private handleVSCodeMessage = (event: MessageEvent) => {
         const message = event.data;
-        if (message.type === "wordAdded") {
-            this.checkSpelling();
+        debug("handleVSCodeMessage", { message });
+
+        // Add explicit handling for rejection updates
+        if (message.type === "wordAdded" || message.type === "suggestionRejected") {
+            debug("Forcing spell check after rejection/word addition");
+            this.forceCheckSpelling();
         }
     };
 
@@ -167,38 +171,59 @@ export class QuillSpellChecker {
         this.onRequestComplete = callback;
     }
 
-    public async checkSpelling() {
-        debug("checkSpelling");
+    public forceCheckSpelling() {
+        debug("forceCheckSpelling called");
+        // Reset the last check time to ensure it runs
+        this.lastSpellCheckTime = 200;
+        return this.checkSpelling(true);
+    }
+
+    public async checkSpelling(force: boolean = false) {
+        debug("checkSpelling", { force });
         const now = Date.now();
-        if (now - this.lastSpellCheckTime < this.spellCheckCooldown) {
+        if (!force && now - this.lastSpellCheckTime < this.spellCheckCooldown) {
+            debug("Skipping spell check due to cooldown");
             return;
         }
 
         this.lastSpellCheckTime = now;
 
-        if (document.querySelector("spck-toolbar")) return;
+        if (document.querySelector("spck-toolbar")) {
+            debug("Skipping spell check due to toolbar");
+            return;
+        }
 
         const text = this.quill.getText().trim();
         debug("checkSpelling text", { text });
 
-        if (!text) return;
-
-        const results = await this.getSpellCheckerResults(text);
-        this.boxes.removeSuggestionBoxes();
-        debug("checkSpelling results", { results });
-
-        if (results?.length) {
-            this.matches = results
-                .filter((match) => match.replacements?.length)
-                .map((match, index) => ({ ...match, id: index.toString() }));
-            debug("checkSpelling matches", { matches: this.matches });
-            this.boxes.addSuggestionBoxes();
-        } else {
-            this.matches = [];
-            this.boxes.removeSuggestionBoxes();
+        if (!text) {
+            debug("Skipping spell check due to empty text");
+            return;
         }
 
-        this.onRequestComplete();
+        try {
+            const results = await this.getSpellCheckerResults(text);
+            this.boxes.removeSuggestionBoxes();
+            debug("checkSpelling results", { results });
+
+            if (results?.length) {
+                this.matches = results
+                    .filter((match) => match.replacements?.length)
+                    .map((match, index) => ({ ...match, id: index.toString() }));
+                debug("checkSpelling matches", { matches: this.matches });
+                this.boxes.addSuggestionBoxes();
+            } else {
+                this.matches = [];
+                this.boxes.removeSuggestionBoxes();
+            }
+
+            this.onRequestComplete();
+        } catch (error) {
+            console.error("Error during spell check:", error);
+            this.matches = [];
+            this.boxes.removeSuggestionBoxes();
+            this.onRequestComplete();
+        }
     }
 
     private async getSpellCheckerResults(text: string): Promise<MatchesEntity[] | null> {

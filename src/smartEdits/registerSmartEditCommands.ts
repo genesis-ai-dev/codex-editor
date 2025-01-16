@@ -3,17 +3,20 @@ import { SmartEdits } from "./smartEdits";
 import { getWorkSpaceFolder } from "../utils";
 import { SmartPassages } from "./smartPassages";
 import { SmartBacktranslation, SavedBacktranslation } from "./smartBacktranslation";
+import { ICEEdits } from "./iceEdits";
 
 export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
     const workspaceFolder = getWorkSpaceFolder();
     if (!workspaceFolder) {
-        console.error("No workspace folder found");
+        console.warn("No workspace folder found, smart edits will be disabled");
         return;
     }
 
-    const smartEdits = new SmartEdits(vscode.Uri.file(workspaceFolder));
+    const workspaceUri = vscode.Uri.file(workspaceFolder);
+    const smartEdits = new SmartEdits(workspaceUri);
     const smartPassages = new SmartPassages();
-    const smartBacktranslation = new SmartBacktranslation(vscode.Uri.file(workspaceFolder));
+    const smartBacktranslation = new SmartBacktranslation(workspaceUri);
+    const iceEdits = new ICEEdits(workspaceFolder);
 
     context.subscriptions.push(
         vscode.commands.registerCommand(
@@ -273,6 +276,109 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
                     console.error("Error deleting chat session:", error);
                     vscode.window.showErrorMessage(
                         "Failed to delete chat session. Please check the console for more details."
+                    );
+                    return false;
+                }
+            }
+        )
+    );
+
+    // Test command for ICE edits
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-smart-edits.testIceEdit", async () => {
+            try {
+                // Record a test edit
+                await iceEdits.recordEdit("hello", "hi", "", "there");
+                vscode.window.showInformationMessage(
+                    "Recorded test ICE edit: 'hello' -> 'hi' (with 'there' as right context)"
+                );
+            } catch (error) {
+                console.error("Error recording ICE edit:", error);
+                vscode.window.showErrorMessage("Failed to record ICE edit");
+            }
+        })
+    );
+
+    // Test command to check ICE suggestions
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-smart-edits.checkIceSuggestions", async () => {
+            try {
+                const suggestions = await iceEdits.calculateSuggestions("hello", "", "there");
+                vscode.window.showInformationMessage(`Found ${suggestions.length} ICE suggestions`);
+            } catch (error) {
+                console.error("Error checking ICE suggestions:", error);
+                vscode.window.showErrorMessage("Failed to check ICE suggestions");
+            }
+        })
+    );
+
+    // Register the getIceEdits command
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-smart-edits.getIceEdits", async (text: string) => {
+            const suggestions = await smartEdits.getIceEdits(text);
+            return suggestions;
+        })
+    );
+
+    // Add new command for recording ICE edits
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-smart-edits.recordIceEdit",
+            async (oldText: string, newText: string) => {
+                try {
+                    // Use recordFullEdit which handles diffing and context extraction
+                    await iceEdits.recordFullEdit(oldText, newText);
+                } catch (error) {
+                    console.error("Error recording ICE edit:", error);
+                    vscode.window.showErrorMessage(
+                        "Failed to record ICE edit. Please check the console for more details."
+                    );
+                }
+            }
+        )
+    );
+
+    // Add command to reject edit suggestions
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-smart-edits.rejectEditSuggestion",
+            async ({
+                source,
+                cellId,
+                oldString,
+                newString,
+                leftToken,
+                rightToken,
+            }: {
+                source: "ice" | "llm";
+                cellId?: string;
+                oldString: string;
+                newString: string;
+                leftToken: string;
+                rightToken: string;
+            }) => {
+                console.log(
+                    "[RYDER] rejectEditSuggestion called from registerSmartEditCommands.ts"
+                );
+                try {
+                    if (source === "ice") {
+                        if (!leftToken && !rightToken) {
+                            throw new Error(
+                                "At least one of leftToken or rightToken is required for ICE edit rejections"
+                            );
+                        }
+                        await iceEdits.rejectEdit(oldString, newString, leftToken, rightToken);
+                    } else {
+                        if (!cellId) {
+                            throw new Error("cellId is required for LLM edit rejections");
+                        }
+                        await smartEdits.rejectSmartSuggestion(cellId, oldString, newString);
+                    }
+                    return true;
+                } catch (error) {
+                    console.error("Error rejecting edit suggestion:", error);
+                    vscode.window.showErrorMessage(
+                        "Failed to reject edit suggestion. Please check the console for more details."
                     );
                     return false;
                 }

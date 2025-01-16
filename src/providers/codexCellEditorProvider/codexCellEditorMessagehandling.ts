@@ -87,7 +87,6 @@ export class CodexCellEditorMessageHandling {
                         "translators-copilot.spellCheckText",
                         event.content.cellContent
                     );
-                    console.log("response", { response });
                     this.provider.postMessageToWebview(webviewPanel, {
                         type: "providerSendsSpellCheckResponse",
                         content: response as SpellCheckResponse,
@@ -126,6 +125,19 @@ export class CodexCellEditorMessageHandling {
             }
             case "saveHtml":
                 try {
+                    const oldContent = document.getCellContent(event.content.cellMarkers[0]);
+                    const oldText = oldContent?.cellContent || "";
+                    const newText = event.content.cellContent || "";
+
+                    // Only record ICE edit if content actually changed
+                    if (oldText !== newText) {
+                        await vscode.commands.executeCommand(
+                            "codex-smart-edits.recordIceEdit",
+                            oldText,
+                            newText
+                        );
+                    }
+
                     document.updateCellContent(
                         event.content.cellMarkers[0],
                         event.content.cellContent,
@@ -497,6 +509,20 @@ export class CodexCellEditorMessageHandling {
                 }
                 return;
             }
+
+            case "rejectEditSuggestion": {
+                try {
+                    await vscode.commands.executeCommand(
+                        "codex-smart-edits.rejectEditSuggestion",
+                        event.content
+                    );
+                } catch (error) {
+                    console.error("Error rejecting edit suggestion:", error);
+                    vscode.window.showErrorMessage("Failed to reject edit suggestion.");
+                }
+                return;
+            }
+
             case "webviewFocused": {
                 try {
                     if (this.provider.currentDocument && event.content?.uri) {

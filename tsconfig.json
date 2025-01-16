@@ -18,8 +18,12 @@
         "skipLibCheck": true,
         "baseUrl": ".",
         "paths": {
+            "@/*": ["src/*"],
             "@types": ["types/index.d.ts"],
-            "@types/*": ["types/*"]
+            "@types/*": ["types/*"],
+            "types": ["types/index.d.ts"],
+            "types/*": ["types/*"],
+            "webviews/*": ["webviews/*"]
         }
     },
     "include": ["src/**/*", "types/**/*", "custom.d.ts"],

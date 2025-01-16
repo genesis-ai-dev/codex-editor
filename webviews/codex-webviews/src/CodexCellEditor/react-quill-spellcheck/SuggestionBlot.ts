@@ -18,6 +18,7 @@ export default function createSuggestionBlotForQuillInstance(Quill: any) {
         static create(match?: MatchesEntity) {
             const node: HTMLElement = super.create();
             if (match) {
+                console.log("[RYDER] SuggestionBlot create called", { match });
                 Object.entries({
                     "data-offset": match.offset,
                     "data-length": match.length,
@@ -27,6 +28,11 @@ export default function createSuggestionBlotForQuillInstance(Quill: any) {
                 // Apply color class if specified
                 if (match.color) {
                     node.classList.add(match.color);
+
+                    // Add confidence class for ICE suggestions
+                    if (match.color === "blue" && match.replacements?.[0]?.confidence) {
+                        node.classList.add(`${match.replacements[0].confidence}-confidence`);
+                    }
                 }
 
                 debug("SuggestionBlot node created with attributes", { node });

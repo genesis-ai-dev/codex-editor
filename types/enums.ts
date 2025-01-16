@@ -8,7 +8,27 @@ export enum CodexCellTypes {
     TEXT = "text",
     PARATEXT = "paratext",
 }
+export enum StartupFlowStates {
+    LOGIN_REGISTER = "loginRegister",
+    OPEN_OR_CREATE_PROJECT = "createNewProject",
+    PROMPT_USER_TO_INITIALIZE_PROJECT = "promptUserToInitializeProject",
+    PROMPT_USER_TO_ADD_CRITICAL_DATA = "promptUserToAddCriticalData",
+    ALREADY_WORKING = "alreadyWorking",
+}
 
+export enum StartupFlowEvents {
+    AUTH_LOGGED_IN = "AUTH_LOGGED_IN",
+    NO_AUTH_EXTENSION = "NO_AUTH_EXTENSION",
+    SKIP_AUTH = "SKIP_AUTH",
+    PROJECT_CREATE_EMPTY = "PROJECT_CREATE_EMPTY",
+    PROJECT_CLONE_OR_OPEN = "PROJECT_CLONE_OR_OPEN",
+    BACK_TO_LOGIN = "BACK_TO_LOGIN",
+    UPDATE_AUTH_STATE = "UPDATE_AUTH_STATE",
+    INITIALIZE_PROJECT = "INITIALIZE_PROJECT",
+    EMPTY_WORKSPACE_THAT_NEEDS_PROJECT = "EMPTY_WORKSPACE_THAT_NEEDS_PROJECT",
+    VALIDATE_PROJECT_IS_OPEN = "VALIDATE_PROJECT_IS_OPEN",
+    PROJECT_MISSING_CRITICAL_DATA = "PROJECT_MISSING_CRITICAL_DATA",
+}
 export enum MainChatLanguage {
     English = "English",
     Tamil = "தமிழ் (Tamil)",

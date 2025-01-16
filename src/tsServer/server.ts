@@ -34,7 +34,7 @@ let diagnosticsProvider: SpellCheckDiagnosticsProvider;
 let codeActionProvider: SpellCheckCodeActionProvider;
 let completionItemProvider: SpellCheckCompletionItemProvider;
 let wordSuggestionProvider: WordSuggestionProvider;
-let pendingSmartEditsPromise: Promise<any> | null = null;
+const pendingSmartEditsPromise: Promise<any> | null = null;
 let lastSmartEditsText: string | null = null;
 let lastSmartEditResults: any[] | null = null;
 
@@ -46,8 +46,22 @@ function debugLog(...args: any[]) {
 }
 
 // Define special phrases with their replacements and colors
-let specialPhrases = [
-    { phrase: "hello world", replacement: "hi", color: "purple" },
+let specialPhrases: {
+    phrase: string;
+    replacement: string;
+    color: string;
+    source: string;
+    leftToken: string;
+    rightToken: string;
+}[] = [
+    {
+        phrase: "hello world",
+        replacement: "hi",
+        color: "purple",
+        source: "llm",
+        leftToken: "",
+        rightToken: "",
+    },
     // Add more phrases as needed
 ];
 
@@ -118,7 +132,7 @@ connection.onRequest(
 
                     // debugLog("No smart edits found, checking for applicable prompt");
                     // If no spelling errors or smart edits, check for applicable prompt
-                   
+
                     const code = 0;
 
                     return {
@@ -143,26 +157,28 @@ connection.onRequest(
     }
 );
 
-connection.onRequest("spellcheck/check", async (params: { text: string }) => {
+connection.onRequest("spellcheck/check", async (params: { text: string; cellId: string }) => {
     debugLog("SERVER: Received spellcheck/check request:", { params });
 
     const text = params.text;
     const matches: MatchesEntity[] = [];
 
-    // Start a new smart edits request if we don't have one pending or if the text changed
-    if (!pendingSmartEditsPromise || lastSmartEditsText !== text) {
-        lastSmartEditsText = text;
-        lastSmartEditResults = null;
-        pendingSmartEditsPromise = connection
-            .sendRequest(ExecuteCommandRequest, {
-                command: "codex-smart-edits.getEdits",
-                args: [text],
-            })
-            .then((results) => {
-                lastSmartEditResults = results;
-                return results;
-            });
-    }
+    // Start parallel requests for both smart edits and ICE suggestions
+    const [smartEditsPromise, iceEditsPromise] = [
+        // Existing smart edits request
+        !pendingSmartEditsPromise || lastSmartEditsText !== text
+            ? connection.sendRequest(ExecuteCommandRequest, {
+                  command: "codex-smart-edits.getEdits",
+                  args: [text],
+              })
+            : Promise.resolve(lastSmartEditResults),
+
+        // New ICE edits request
+        connection.sendRequest(ExecuteCommandRequest, {
+            command: "codex-smart-edits.getIceEdits",
+            args: [text],
+        }),
+    ];
 
     // Process spell checking
     const words = tokenizeText({
@@ -170,6 +186,7 @@ connection.onRequest("spellcheck/check", async (params: { text: string }) => {
         text: params.text,
     });
 
+    // Process traditional spell checking
     for (const word of words) {
         if (!word) continue;
         const spellCheckResult = await spellChecker.spellCheck(word);
@@ -184,41 +201,122 @@ connection.onRequest("spellcheck/check", async (params: { text: string }) => {
                 text: word,
                 replacements: spellCheckResult.corrections
                     .filter((c) => c !== null && c !== undefined)
-                    .map((correction) => ({ value: correction })),
+                    .map((correction) => ({
+                        value: correction,
+                        source: "llm" as const,
+                    })),
                 offset: offset,
                 length: word.length,
-                color: "red",
+                color: "purple" as const,
+                cellId: params.cellId,
             });
         }
     }
 
-    // Include smart edits if they're ready
-    if (lastSmartEditResults) {
+    // Wait for both smart edits and ICE suggestions
+    const [smartEditResults, iceResults] = await Promise.all([smartEditsPromise, iceEditsPromise]);
+
+    // Update smart edits cache
+    if (lastSmartEditsText !== text) {
+        lastSmartEditsText = text;
+        lastSmartEditResults = smartEditResults;
+    }
+
+    // Process smart edits
+    if (smartEditResults) {
         specialPhrases = [];
-        lastSmartEditResults.forEach((suggestion: any) => {
+        smartEditResults.forEach((suggestion: any, index: number) => {
+            const source = suggestion.source || "llm";
+            const color = source === "ice" ? "blue" : "purple";
+
             specialPhrases.push({
                 phrase: suggestion.oldString,
                 replacement: suggestion.newString,
-                color: "purple",
+                color: color,
+                source: source,
+                leftToken: suggestion.leftToken || "",
+                rightToken: suggestion.rightToken || "",
             });
         });
 
-        specialPhrases.forEach(({ phrase, replacement, color }, index) => {
+        specialPhrases.forEach(({ phrase, replacement, color, source }, index) => {
             let startIndex = 0;
-            const phraseLower = phrase.toLowerCase();
+            const phraseLower = phrase?.toLowerCase();
 
-            while ((startIndex = text.toLowerCase().indexOf(phraseLower, startIndex)) !== -1) {
+            while ((startIndex = text?.toLowerCase()?.indexOf(phraseLower, startIndex)) !== -1) {
+                // Get context tokens for ICE suggestions
+                let leftToken = "";
+                let rightToken = "";
+                if (source === "ice") {
+                    const words = text?.split(/\s+/);
+                    const wordIndex = words?.findIndex(
+                        (w, i) =>
+                            text?.indexOf(
+                                w,
+                                i === 0 ? 0 : text?.indexOf(words[i - 1]) + words[i - 1].length
+                            ) === startIndex
+                    );
+                    if (wordIndex !== -1) {
+                        leftToken = wordIndex > 0 ? words[wordIndex - 1] : "";
+                        rightToken = wordIndex < words.length - 1 ? words[wordIndex + 1] : "";
+                    }
+                }
+
                 matches.push({
                     id: `SPECIAL_PHRASE_${index}_${matches.length}`,
                     text: phrase,
-                    replacements: [{ value: replacement }],
+                    replacements: [
+                        {
+                            value: replacement,
+                            source: source as "llm" | "ice",
+                        },
+                    ],
                     offset: startIndex,
                     length: phrase.length,
-                    color: color,
+                    color: color as "purple" | "blue",
+                    leftToken: source === "ice" ? leftToken : "",
+                    rightToken: source === "ice" ? rightToken : "",
+                    cellId: params.cellId,
                 });
                 startIndex += phrase.length;
             }
         });
+    }
+
+    // Process ICE results first
+    if (iceResults && Array.isArray(iceResults)) {
+        console.log("[RYDER**] iceResults", { iceResults });
+        for (const suggestion of iceResults) {
+            if (suggestion.rejected === true) continue;
+
+            const wordOffset = text.indexOf(suggestion.oldString);
+            if (wordOffset !== -1) {
+                matches.push({
+                    id: `ICE_${matches.length}`,
+                    text: suggestion.oldString,
+                    replacements: [
+                        {
+                            value: suggestion.newString,
+                            confidence: suggestion.confidence,
+                            source: "ice",
+                            frequency: suggestion.frequency,
+                        },
+                    ],
+                    offset: wordOffset,
+                    length: suggestion.oldString.length,
+                    color: "blue",
+                    leftToken: suggestion.leftToken || "",
+                    rightToken: suggestion.rightToken || "",
+                    cellId: params.cellId,
+                });
+            }
+        }
+    }
+
+    // Update smart edits cache and process results
+    if (lastSmartEditsText !== text) {
+        lastSmartEditsText = text;
+        lastSmartEditResults = smartEditResults;
     }
 
     debugLog(`Returning matches: ${JSON.stringify(matches)}`);

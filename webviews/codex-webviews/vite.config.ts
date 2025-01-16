@@ -9,6 +9,7 @@ export default defineConfig({
     build: {
         rollupOptions: {
             input: `src/${appToBuild}/index.tsx`,
+            external: ["vscode"],
             output: {
                 // Specify naming conventions here without a hash
                 entryFileNames: `[name].js`,

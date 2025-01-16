@@ -167,14 +167,23 @@ export function generateProjectScope(
     return projectScope;
 }
 
+export type ProjectWithId = Project & { projectId: string };
+
+export const generateProjectId = () => {
+    return (
+        Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
+    );
+};
+
 export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
     // Initialize a new project with the given details and return the project object
-    const newProject: Project = {
+    const newProject: ProjectWithId = {
         format: "scripture burrito",
         projectName:
             details.projectName ||
             vscode.workspace.getConfiguration("codex-project-manager").get<string>("projectName") ||
             "", // previously "Codex Project"
+        projectId: generateProjectId(),
         meta: {
             version: "0.0.0",
             category:
@@ -470,6 +479,7 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
         return {
             format: metadata.format || "Unknown Format",
             projectName: metadata.projectName || "Unnamed Project",
+            projectId: metadata.projectId || "Unknown Project ID",
             projectStatus: metadata.projectStatus || "Unknown Status",
             category: metadata.meta?.category || "Uncategorized",
             userName: userInfo?.username || "Anonymous",
@@ -537,7 +547,6 @@ export const checkIfMetadataAndGitIsInitialized = async (): Promise<boolean> => 
     }
 
     const metadataUri = vscode.Uri.joinPath(workspaceFolder.uri, "metadata.json");
-    console.log("Checking metadata and git at:", metadataUri.fsPath);
 
     let metadataExists = false;
     let gitExists = false;
@@ -545,7 +554,6 @@ export const checkIfMetadataAndGitIsInitialized = async (): Promise<boolean> => 
     try {
         // Check metadata file
         await vscode.workspace.fs.stat(metadataUri);
-        console.log("Metadata file exists");
         metadataExists = true;
     } catch {
         console.log("No metadata.json file found yet"); // Changed to log since this is expected for new projects
@@ -558,7 +566,6 @@ export const checkIfMetadataAndGitIsInitialized = async (): Promise<boolean> => 
             dir: workspaceFolder.uri.fsPath,
             ref: "HEAD",
         });
-        console.log("Git repository exists");
         gitExists = true;
     } catch {
         console.log("Git repository not initialized yet"); // Changed to log since this is expected for new projects
@@ -736,6 +743,25 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
                     if (projectStatus.isValid) {
                         const stats = await vscode.workspace.fs.stat(vscode.Uri.file(projectPath));
 
+                        // Try to get project name from metadata.json
+                        let projectName = name;
+                        try {
+                            const metadataPath = vscode.Uri.file(
+                                path.join(projectPath, "metadata.json")
+                            );
+                            const metadata = await vscode.workspace.fs.readFile(metadataPath);
+                            const metadataJson = JSON.parse(
+                                Buffer.from(metadata).toString("utf-8")
+                            );
+                            if (metadataJson.projectName) {
+                                projectName = metadataJson.projectName;
+                            }
+                        } catch (error) {
+                            console.debug(
+                                `Could not read metadata.json for ${projectPath}, using folder name`
+                            );
+                        }
+
                         // Get git origin URL using isomorphic-git
                         let gitOriginUrl: string | undefined;
                         try {
@@ -749,12 +775,11 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
                                 gitOriginUrl = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}`;
                             }
                         } catch (error) {
-                            // Repository might not exist or have no remotes
                             console.debug(`No git origin found for ${projectPath}:`, error);
                         }
 
                         projects.push({
-                            name,
+                            name: projectName,
                             path: projectPath,
                             lastOpened: projectHistory[projectPath]
                                 ? new Date(projectHistory[projectPath])
@@ -777,104 +802,23 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
 }
 
 export async function stageAndCommitAllAndSync(commitMessage: string): Promise<void> {
-    const authApi = getAuthApi();
-    const userInfo = await authApi?.getUserInfo();
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceFolder) {
         vscode.window.showErrorMessage("No workspace folder found");
         return;
     }
     try {
-        // Check if git repository exists by attempting to list the remotes
         try {
-            await git.listRemotes({ fs, dir: workspaceFolder });
+            const remotes = await git.listRemotes({ fs, dir: workspaceFolder });
+            if (remotes.length === 0) {
+                console.log("No remotes found");
+                return;
+            }
         } catch (error) {
             vscode.window.showErrorMessage("No git repository found in this project");
             return;
         }
-
-        // Get status of all files
-        const statusMatrix = await git.statusMatrix({
-            fs,
-            dir: workspaceFolder,
-        });
-
-        // Stage all changed files
-        for (const [filepath, , worktreeStatus] of statusMatrix) {
-            try {
-                if (worktreeStatus !== 1) {
-                    // 1 means unchanged
-                    // Check if file exists before trying to add it
-                    await fs.promises.access(path.join(workspaceFolder, filepath));
-                    await git.add({
-                        fs,
-                        dir: workspaceFolder,
-                        filepath,
-                    });
-                }
-            } catch (error) {
-                console.log(`Skipping non-existent file: ${filepath}`);
-                continue;
-            }
-        }
-
-        const author = {
-            name:
-                userInfo?.username ||
-                vscode.workspace
-                    .getConfiguration("codex-project-manager")
-                    .get<string>("userName") ||
-                "Unknown",
-            email:
-                userInfo?.email ||
-                vscode.workspace
-                    .getConfiguration("codex-project-manager")
-                    .get<string>("userEmail") ||
-                "unknown",
-        };
-
-        // Create commit with staged changes
-        await git.commit({
-            fs,
-            dir: workspaceFolder,
-            message: commitMessage,
-            author,
-        });
-        let remoteHasSynced = false;
-        // Check if remote exists
-        try {
-            const remotes = await git.listRemotes({ fs, dir: workspaceFolder });
-            const hasOrigin = remotes.some((remote) => remote.remote === "origin");
-
-            if (hasOrigin) {
-                // Pull latest changes from remote
-                await git.pull({
-                    fs,
-                    http,
-                    dir: workspaceFolder,
-                    ref: "main",
-                    singleBranch: true,
-                });
-
-                // Push changes to remote
-                await git.push({
-                    fs,
-                    http,
-                    dir: workspaceFolder,
-                    remote: "origin",
-                    ref: "main",
-                });
-                remoteHasSynced = true;
-            }
-        } catch (error) {
-            console.log("No remote configured, skipping pull/push", error);
-        }
-
-        if (remoteHasSynced) {
-            vscode.window.showInformationMessage("Changes committed and synced successfully");
-        } else {
-            vscode.window.showInformationMessage("Changes committed successfully");
-        }
+        await vscode.commands.executeCommand("frontier.syncChanges");
     } catch (error) {
         console.error("Failed to commit and sync changes:", error);
         vscode.window.showErrorMessage(

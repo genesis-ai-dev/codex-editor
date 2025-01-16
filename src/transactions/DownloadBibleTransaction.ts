@@ -15,6 +15,7 @@ import {
     getNotebookMetadataManager,
 } from "../utils/notebookMetadataManager";
 import { getWorkSpaceUri } from "../utils";
+import path from "path";
 
 export interface DownloadBibleTransactionState extends TransactionState {
     metadata: {
@@ -353,6 +354,7 @@ export class DownloadBibleTransaction extends BaseTransaction {
                             type: CodexCellTypes.TEXT,
                             id: verse.vref,
                             data: {},
+                            cellLabel: verse.vref.split(":")?.[1],
                         },
                     })),
                     // @ts-expect-error - will be populated shortly
@@ -370,6 +372,7 @@ export class DownloadBibleTransaction extends BaseTransaction {
                             type: CodexCellTypes.TEXT,
                             id: verse.vref,
                             data: {},
+                            cellLabel: verse.vref.split(":")?.[1],
                         },
                     })),
                     // @ts-expect-error - will be populated shortly
@@ -443,10 +446,7 @@ export class DownloadBibleTransaction extends BaseTransaction {
                                         workspaceUri,
                                         ".project",
                                         "sourceTexts",
-                                        `${codexUri.path
-                                            .split("/")
-                                            .pop()
-                                            ?.replace(".codex", ".source")}`
+                                        `${path.basename(codexUri.fsPath, ".codex")}.source`
                                     );
 
                                     // Read both files in parallel

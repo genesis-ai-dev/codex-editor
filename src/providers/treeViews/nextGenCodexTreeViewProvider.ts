@@ -84,7 +84,7 @@ export class NextGenCodexTreeViewProvider implements vscode.TreeDataProvider<Nex
                     const codexItemsWithMetadata = await Promise.all(
                         codexUris.map(async (uri, index) => {
                             progress.report({
-                                message: `Reading ${uri.fsPath.split("/").pop()}...`,
+                                message: `Reading ${path.basename(uri.fsPath, ".codex")}...`,
                                 increment: 30 / codexUris.length,
                             });
                             return this.makeCodexItemWithMetadata(uri);
@@ -121,11 +121,11 @@ export class NextGenCodexTreeViewProvider implements vscode.TreeDataProvider<Nex
             );
 
             const metadata = notebookData.metadata as CodexMetadata;
-            const fileName = uri.fsPath.split("/").pop() || "";
+            const fileName = path.basename(uri.fsPath, ".codex");
 
             return {
                 uri,
-                label: fileName.replace(".codex", " Codex"),
+                label: `${fileName} Codex`,
                 type: "codexDocument",
                 corpusMarker: metadata?.corpusMarker,
             };
@@ -167,20 +167,19 @@ export class NextGenCodexTreeViewProvider implements vscode.TreeDataProvider<Nex
 
     // Utility to build one item node
     private makeCodexItem(uri: vscode.Uri): NextGenCodexItem {
-        const fileName = path.basename(uri.fsPath);
-        // Add your own logic to detect OT/NT or do corpus grouping here
+        const fileName = path.basename(uri.fsPath, ".codex");
         return {
             uri,
-            label: fileName.replace(".codex", " Codex"),
+            label: `${fileName} Codex`,
             type: "codexDocument",
         };
     }
 
     private makeDictionaryItem(uri: vscode.Uri): NextGenCodexItem {
-        const fileName = path.basename(uri.fsPath);
+        const fileName = path.basename(uri.fsPath, ".dictionary");
         return {
             uri,
-            label: fileName.replace(".dictionary", " Dictionary"),
+            label: `${fileName} Dictionary`,
             type: "dictionary",
         };
     }

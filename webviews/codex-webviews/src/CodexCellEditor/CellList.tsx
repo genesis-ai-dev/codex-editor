@@ -10,7 +10,7 @@ import { WebviewApi } from "vscode-webview";
 interface CellListProps {
     translationUnits: QuillCellContent[];
     contentBeingUpdated: EditorCellContent;
-    setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorCellContent>>;
+    setContentBeingUpdated: (content: EditorCellContent) => void;
     handleCloseEditor: () => void;
     handleSaveHtml: () => void;
     vscode: WebviewApi<unknown>;
@@ -21,6 +21,13 @@ interface CellListProps {
     headerHeight: number;
     spellCheckResponse: SpellCheckResponse | null;
     alertColorCodes: { [cellId: string]: number };
+}
+
+const DEBUG_ENABLED = false;
+function debug(message: string, ...args: any[]): void {
+    if (DEBUG_ENABLED) {
+        console.log(`[CellList] ${message}`, ...args);
+    }
 }
 
 const CellList: React.FC<CellListProps> = ({
@@ -86,7 +93,7 @@ const CellList: React.FC<CellListProps> = ({
                                     cellContent={cellContent}
                                     cellIndex={startIndex + index}
                                     cellType={cellType}
-                                    cellLabel={cellLabel}
+                                    cellLabel={cellLabel || (startIndex + index).toString()}
                                     setContentBeingUpdated={setContentBeingUpdated}
                                     vscode={vscode}
                                     textDirection={textDirection}
@@ -160,7 +167,7 @@ const CellList: React.FC<CellListProps> = ({
                             cellContent={cellContent}
                             cellIndex={i}
                             cellType={cellType}
-                            cellLabel={cellLabel}
+                            cellLabel={cellLabel || i.toString()}
                             cellTimestamps={timestamps}
                             contentBeingUpdated={contentBeingUpdated}
                             setContentBeingUpdated={setContentBeingUpdated}
@@ -181,7 +188,7 @@ const CellList: React.FC<CellListProps> = ({
                     <EmptyCellDisplay
                         key={cellMarkers.join(" ")}
                         cellMarkers={cellMarkers}
-                        cellLabel={cellLabel}
+                        cellLabel={cellLabel || i.toString()}
                         setContentBeingUpdated={setContentBeingUpdated}
                         textDirection={textDirection}
                         vscode={vscode}
@@ -216,6 +223,7 @@ const CellList: React.FC<CellListProps> = ({
             const cellToOpen = translationUnits.find((unit) => unit.cellMarkers[0] === cellId);
 
             if (cellToOpen) {
+                debug("openCellById", { cellToOpen, text });
                 setContentBeingUpdated({
                     cellMarkers: cellToOpen.cellMarkers,
                     cellContent: text,

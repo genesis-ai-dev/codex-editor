@@ -33,7 +33,7 @@ interface CellEditorProps {
     cellType: CodexCellTypes;
     spellCheckResponse: SpellCheckResponse | null;
     contentBeingUpdated: EditorCellContent;
-    setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorCellContent>>;
+    setContentBeingUpdated: (content: EditorCellContent) => void;
     handleCloseEditor: () => void;
     handleSaveHtml: () => void;
     textDirection: "ltr" | "rtl";
@@ -41,6 +41,13 @@ interface CellEditorProps {
     cellTimestamps: Timestamps | undefined;
     cellIsChild: boolean;
     openCellById: (cellId: string, text: string) => void;
+}
+
+const DEBUG_ENABLED = false;
+function debug(message: string, ...args: any[]): void {
+    if (DEBUG_ENABLED) {
+        console.log(`[TextCellEditor] ${message}`, ...args);
+    }
 }
 
 const CellEditor: React.FC<CellEditorProps> = ({
@@ -72,16 +79,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [editedBacktranslation, setEditedBacktranslation] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<"source" | "backtranslation">("source");
 
-    const unsavedChangesState = !!(
-        contentBeingUpdated.cellContent &&
-        getCleanedHtml(contentBeingUpdated.cellContent) &&
-        getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !==
-            cellContent.replace(/\s/g, "")
-    );
+    // const unsavedChangesState = !!(
+    //     contentBeingUpdated.cellContent &&
+    //     getCleanedHtml(contentBeingUpdated.cellContent) &&
+    //     getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !==
+    //         cellContent.replace(/\s/g, "")
+    // );
 
-    useEffect(() => {
-        setUnsavedChanges(unsavedChangesState);
-    }, [unsavedChangesState, setUnsavedChanges]);
+    // useEffect(() => {
+    //     setUnsavedChanges(unsavedChangesState);
+    // }, [unsavedChangesState, setUnsavedChanges]);
 
     useEffect(() => {
         if (showFlashingBorder && cellEditorRef.current) {
@@ -128,10 +135,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
         window.vscodeApi.postMessage(messageContent);
 
         // Update local state
-        setContentBeingUpdated((prev) => ({
-            ...prev,
+        setContentBeingUpdated({
+            cellMarkers,
+            cellContent: contentBeingUpdated.cellContent,
+            cellChanged: contentBeingUpdated.cellChanged,
             cellLabel: editableLabel,
-        }));
+        });
     };
 
     const handleLabelSave = () => {
@@ -248,10 +257,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
         getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !== "";
 
     const handleContentUpdate = (newContent: string) => {
-        setContentBeingUpdated((prev) => ({
-            ...prev,
+        setContentBeingUpdated({
+            cellMarkers,
             cellContent: newContent,
-        }));
+            cellChanged: true,
+            cellLabel: editableLabel,
+        });
         setEditorContent(newContent);
     };
 
@@ -353,11 +364,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
             openCellById(cellId, text);
 
             // Update the local state with the new content
-            setContentBeingUpdated((prev) => ({
-                ...prev,
+            setContentBeingUpdated({
+                cellMarkers,
                 cellContent: text,
                 cellChanged: true,
-            }));
+                cellLabel: editableLabel,
+            });
 
             // Update the editor content
             setEditorContent(text);
@@ -482,12 +494,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     onChange={({ html }) => {
                         setEditorContent(html);
 
-                        // Calculate unsaved changes state here
-                        const hasUnsavedChanges = !!(
-                            html &&
-                            getCleanedHtml(html).replace(/\s/g, "") !==
-                                cellContent.replace(/\s/g, "")
-                        );
+                        debug("html", { html, cellMarkers, editableLabel });
 
                         setContentBeingUpdated({
                             cellMarkers,

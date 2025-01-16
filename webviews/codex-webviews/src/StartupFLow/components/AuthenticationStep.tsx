@@ -5,7 +5,7 @@ import {
     VSCodeProgressRing,
 } from "@vscode/webview-ui-toolkit/react";
 import { AuthState } from "../types";
-import { MessagesToStartupFlowProvider, SourceUploadPostMessages } from "../../../../../types";
+import { MessagesToStartupFlowProvider, SourceUploadPostMessages } from "types";
 
 interface AuthenticationStepProps {
     authState: AuthState;

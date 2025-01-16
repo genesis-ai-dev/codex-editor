@@ -490,6 +490,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
                 referenceCellId: codexSubtitleContent.cells[0].metadata.id,
                 cellType: CodexCellTypes.PARATEXT,
                 data: {},
+                cellLabel: childCellId.split(":")?.[1],
             },
         });
         await new Promise((resolve) => setTimeout(resolve, 10));
@@ -628,7 +629,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             assert.ok(commitCommandCalled, "Git commit command should be called on save");
             assert.strictEqual(
                 commitMessage,
-                `changes to ${document.uri.path.split("/").pop()}`,
+                `changes to ${vscode.workspace.asRelativePath(document.uri).split(/[/\\]/).pop()}`,
                 "Commit message should contain the filename"
             );
 
@@ -646,7 +647,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             assert.ok(commitCommandCalled, "Git commit command should be called on saveAs");
             assert.strictEqual(
                 commitMessage,
-                `changes to ${document.uri.path.split("/").pop()}`,
+                `changes to ${vscode.workspace.asRelativePath(document.uri).split(/[/\\]/).pop()}`,
                 "Commit message should contain the filename"
             );
 
@@ -662,7 +663,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
             assert.ok(commitCommandCalled, "Git commit command should be called on revert");
             assert.strictEqual(
                 commitMessage,
-                `changes to ${document.uri.path.split("/").pop()}`,
+                `changes to ${vscode.workspace.asRelativePath(document.uri).split(/[/\\]/).pop()}`,
                 "Commit message should contain the filename"
             );
         } finally {

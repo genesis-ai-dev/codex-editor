@@ -1,6 +1,7 @@
 import { createPopper } from "@popperjs/core";
 import { QuillSpellChecker } from ".";
 import { MatchesEntity } from "./types";
+import { EditorPostMessages } from "../../../../../types";
 
 /**
  * Manager for popups.
@@ -80,31 +81,52 @@ export default class PopupManager {
 
         // Only add replacement suggestions if they exist
         match.replacements?.slice(0, 5).forEach((replacement, index) => {
-            const button = this.createActionButton(replacement.value, () =>
+            const button = this.createActionButton(this.formatReplacementLabel(replacement), () =>
                 this.applySuggestion(match, replacement.value, index)
             );
             actionsDiv.appendChild(button);
         });
 
         // Add "Add to dictionary" button only if the match is not a special phrase
-        if (match.color !== "purple") {
+        if (match.color !== "purple" && match.color !== "blue") {
             const addToDictionaryButton = this.createActionButton(`${match.text} → 📖`, () =>
                 this.addWordToDictionary(match.text)
             );
             actionsDiv.appendChild(addToDictionaryButton);
         }
 
-        popupContent.appendChild(actionsDiv);
-        if (match.color === "purple") {
-            // Add reason/label for smart edits
-            const reasonLabel = document.createElement("div");
-            reasonLabel.className = "quill-spck-match-popup-reason";
-            reasonLabel.textContent = "From edits made on similar texts";
-            popupContent.appendChild(reasonLabel);
+        // Add reject button for smart edits (purple) and ice edits (blue)
+        if (match.color === "purple" || match.color === "blue") {
+            const rejectButton = document.createElement("button");
+            rejectButton.className = "quill-spck-match-popup-action reject-action";
+            rejectButton.innerHTML = '<i class="codicon codicon-thumbsdown"></i>';
+            rejectButton.title = "Reject this suggestion";
+            rejectButton.addEventListener("click", () => {
+                this.rejectSuggestion({ match, suggestion });
+                this.closePopup();
+            });
+            actionsDiv.appendChild(rejectButton);
         }
 
-        popup.appendChild(popupContent);
+        popupContent.appendChild(actionsDiv);
 
+        // Add source and confidence information
+        const reasonLabel = document.createElement("div");
+        reasonLabel.className = "quill-spck-match-popup-reason";
+
+        if (match.color === "purple") {
+            reasonLabel.innerHTML =
+                '<i class="codicon codicon-sparkle"></i> AI suggestion based on similar texts';
+        } else if (match.color === "blue") {
+            const firstReplacement = match.replacements?.[0];
+            const confidence = firstReplacement?.confidence || "low";
+            const frequency = firstReplacement?.frequency || 1;
+            reasonLabel.innerHTML = `<i class="codicon codicon-sparkle"></i> From your previous edits (${confidence} confidence) <span class="quill-spck-match-popup-frequency">${frequency}×</span>`;
+        }
+
+        popupContent.appendChild(reasonLabel);
+
+        popup.appendChild(popupContent);
         document.body.appendChild(popup);
 
         createPopper(suggestion, popup, {
@@ -113,6 +135,25 @@ export default class PopupManager {
         });
 
         this.openPopup = popup;
+    }
+
+    private formatReplacementLabel(
+        replacement: NonNullable<MatchesEntity["replacements"]>[number]
+    ): string {
+        if (!replacement) return "";
+
+        let label = replacement.value;
+
+        // Add confidence indicator for ICE suggestions
+        if (replacement.source === "ice") {
+            if (replacement.confidence === "high") {
+                label += " ✓✓"; // Double check for high confidence
+            } else {
+                label += " ✓"; // Single check for low confidence
+            }
+        }
+
+        return label;
     }
 
     private createActionButton(label: string, onClick: () => void): HTMLElement {
@@ -153,5 +194,47 @@ export default class PopupManager {
             element = element.parentElement;
         }
         return element;
+    }
+
+    private rejectSuggestion({
+        match,
+        suggestion,
+    }: {
+        match: MatchesEntity;
+        suggestion: HTMLElement;
+    }) {
+        const getCurrentEditingCellId = (window as any).getCurrentEditingCellId;
+        const currentCellId = getCurrentEditingCellId?.();
+
+        if (!currentCellId) {
+            console.error("No cell ID found for current edit");
+            return;
+        }
+
+        const content = {
+            source: match.replacements?.[0]?.source || "llm",
+            cellId: currentCellId,
+            oldString: match.text,
+            newString: match.replacements?.[0]?.value || "",
+            leftToken: match.leftToken || "",
+            rightToken: match.rightToken || "",
+        };
+
+        console.log("[RYDER*]", { content, match, suggestion });
+        // FIXME: how did we lose the leftToken and rightToken? check ./index.ts
+
+        const message: EditorPostMessages = {
+            command: "rejectEditSuggestion",
+            content: content,
+        };
+
+        window.vscodeApi?.postMessage(message);
+
+        // Close popup and hide diagnostic
+        this.closePopup();
+        this.hideDiagnostic();
+
+        // Force a new spell check immediately
+        this.parent.forceCheckSpelling();
     }
 }

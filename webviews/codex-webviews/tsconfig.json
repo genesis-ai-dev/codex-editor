@@ -11,7 +11,7 @@
         "moduleResolution": "bundler",
         "allowImportingTsExtensions": true,
         "resolveJsonModule": true,
-        "isolatedModules": false,
+        "isolatedModules": true,
         "noEmit": true,
         "jsx": "react-jsx",
 
@@ -23,9 +23,14 @@
         "noImplicitAny": true,
         "resolvePackageJsonExports": false,
         "noEmitOnError": true,
-        "typeRoots": ["./node_modules/@types", "../../types", "./types", "../../src/types"]
+
+        "baseUrl": ".",
+        "paths": {
+            "types": ["../../types/index.d.ts"],
+            "types/*": ["../../types/*"],
+            "webviews/*": ["./src/*"]
+        }
     },
-    "exclude": ["build"],
-    "include": ["src/**/*", "../../types/**/*"],
-    "references": [{ "path": "./tsconfig.node.json" }]
+    "include": ["src/**/*", "../../types/index.d.ts"],
+    "exclude": ["node_modules", "build", "dist", "../../src/**/*"]
 }

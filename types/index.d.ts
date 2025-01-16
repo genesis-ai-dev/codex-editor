@@ -118,13 +118,17 @@ interface SmartEditContext {
 interface SmartSuggestion {
     oldString: string;
     newString: string;
+    confidence?: "high" | "low";
+    source?: "llm" | "ice";
+    frequency?: number;
 }
 
-interface SavedSuggestions {
+export interface SavedSuggestions {
     cellId: string;
     lastCellValue: string;
     suggestions: SmartSuggestion[];
     lastUpdatedDate: string;
+    rejectedSuggestions?: { oldString: string; newString: string }[];
 }
 
 interface SmartEdit {
@@ -394,8 +398,12 @@ export type MessagesFromStartupFlowProvider =
       }
     | {
           command: "metadata.checkResponse";
-          exists: boolean;
+          data: {
+              exists: boolean;
+              hasCriticalData: boolean;
+          };
       }
+    | { command: "setupIncompleteCriticalDataMissing" }
     | { command: "setupComplete" };
 type DictionaryPostMessages =
     | {
@@ -605,6 +613,17 @@ export type EditorPostMessages =
               originalText: string;
               userBacktranslation: string;
           };
+      }
+    | {
+          command: "rejectEditSuggestion";
+          content: {
+              source: "ice" | "llm";
+              cellId?: string;
+              oldString: string;
+              newString: string;
+              leftToken: string;
+              rightToken: string;
+          };
       };
 type EditorReceiveMessages =
     | {
@@ -678,6 +697,7 @@ type CustomCellMetaData = {
             type: string;
         };
     };
+    cellLabel?: string;
 };
 
 type CustomNotebookCellData = vscode.NotebookCellData & {
@@ -749,6 +769,7 @@ type SpellCheckResult = SpellCheckResponse[];
 /* This is the project overview that populates the project manager webview */
 interface ProjectOverview extends Project {
     projectName: string;
+    projectId: string;
     abbreviation: string;
     sourceLanguage: LanguageMetadata;
     targetLanguage: LanguageMetadata;

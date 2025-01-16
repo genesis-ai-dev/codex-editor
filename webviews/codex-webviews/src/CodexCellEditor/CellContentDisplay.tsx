@@ -12,13 +12,20 @@ interface CellContentDisplayProps {
     cellIndex: number;
     cellType: CodexCellTypes;
     cellLabel?: string;
-    setContentBeingUpdated: React.Dispatch<React.SetStateAction<EditorCellContent>>;
+    setContentBeingUpdated: (content: EditorCellContent) => void;
     vscode: WebviewApi<unknown>;
     textDirection: "ltr" | "rtl";
     isSourceText: boolean;
     hasDuplicateId: boolean;
     timestamps: Timestamps | undefined;
     alertColorCode: number | undefined;
+}
+
+const DEBUG_ENABLED = false;
+function debug(message: string, ...args: any[]): void {
+    if (DEBUG_ENABLED) {
+        console.log(`[CellContentDisplay] ${message}`, ...args);
+    }
 }
 
 const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
@@ -55,6 +62,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             toggleFlashingBorder();
             return;
         }
+        debug("handleVerseClick", { cellIds, cellContent, cellLabel, timestamps });
         setContentBeingUpdated({
             cellMarkers: cellIds,
             cellContent,

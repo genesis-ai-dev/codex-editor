@@ -11,7 +11,8 @@ export async function llmCompletion(
     currentNotebookReader: CodexNotebookReader,
     currentCellId: string,
     completionConfig: CompletionConfig,
-    token: vscode.CancellationToken
+    token: vscode.CancellationToken,
+    returnHTML: boolean = true
 ): Promise<string> {
     const { contextSize, numberOfFewShotExamples, debugMode, chatSystemMessage } = completionConfig;
 
@@ -134,9 +135,7 @@ export async function llmCompletion(
                 // then we don't want to use the cell content
                 // as it has not yet been verified by the user
 
-                const result = `${cellIds.join(
-                    ", "
-                )}: ${combinedSourceContent} -> ${cellContentWithoutHTMLTags}`;
+                const result = `${combinedSourceContent} -> ${cellContentWithoutHTMLTags}`;
                 return result;
             })
         );
@@ -154,7 +153,7 @@ export async function llmCompletion(
                 .slice(0, numberOfFewShotExamples)
                 .map(
                     (pair) =>
-                        `${pair.cellId}: ${pair.sourceCell.content} -> ${pair.targetCell.content}`
+                        `${pair.sourceCell.content} -> ${pair.targetCell?.content?.replace(/<[^>]*?>/g, "").trim()}` // remove HTML tags
                 )
                 .join("\n");
 
@@ -180,7 +179,7 @@ export async function llmCompletion(
                 fewShotExamples,
                 "## Current Context",
                 precedingTranslationPairs.filter(Boolean).join("\n"),
-                `${currentCellId}: ${currentCellSourceContent} ->`,
+                `${currentCellSourceContent} ->`,
             ].join("\n\n");
 
             const messages = [
@@ -195,6 +194,9 @@ export async function llmCompletion(
                 await logDebugMessages(messages, completion);
             }
 
+            if (returnHTML) {
+                return `<span>${completion}</span>`;
+            }
             return completion;
         } catch (error) {
             console.error("Error in llmCompletion:", error);

@@ -1,23 +1,32 @@
-import React, { useEffect } from "react";
-import { useMachine } from "@xstate/react";
-import {
-    StartupFlowEvents,
-    startupFlowMachine,
-    StartupFlowStates,
-} from "./machines/startupFlowMachine";
+import React, { useEffect, useState } from "react";
+import { useActor } from "@xstate/react";
 import { LoginRegisterStep } from "./components/LoginRegisterStep";
 import { WorkspaceStep } from "./components/WorkspaceStep";
 import { ProjectSetupStep } from "./components/ProjectSetupStep";
 import { VSCodeButton, VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
 import "./StartupFlowView.css";
 import { AuthState } from "./types";
-import { MessagesToStartupFlowProvider, ProjectWithSyncStatus } from "../../../../types";
+import {
+    MessagesFromStartupFlowProvider,
+    MessagesToStartupFlowProvider,
+    ProjectWithSyncStatus,
+} from "types";
+import { createActor } from "xstate";
+import { InputCriticalProjectInfo } from "./components/InputCriticalProjectInfo";
+
+enum StartupFlowStates {
+    LOGIN_REGISTER = "loginRegister",
+    OPEN_OR_CREATE_PROJECT = "createNewProject",
+    PROMPT_USER_TO_INITIALIZE_PROJECT = "promptUserToInitializeProject",
+    PROMPT_USER_TO_ADD_CRITICAL_DATA = "promptUserToAddCriticalData",
+    ALREADY_WORKING = "alreadyWorking",
+}
+
 
 const vscode = acquireVsCodeApi();
 
 export const StartupFlowView: React.FC = () => {
-    const [state, send, service] = useMachine(startupFlowMachine);
-
+    const [value, setValue] = useState<StartupFlowStates | null>(null);
     useEffect(() => {
         // Notify the extension that the webview is ready
         vscode.postMessage({ command: "webview.ready" });
@@ -27,48 +36,53 @@ export const StartupFlowView: React.FC = () => {
         vscode.postMessage({ command: "workspace.status" });
 
         // Listen for messages from the extension
-        const messageHandler = (event: MessageEvent) => {
+        const messageHandler = (event: MessageEvent</* MessagesFromStartupFlowProvider */ any>) => {
             const message = event.data;
+            console.log({ message }, "message in startup flow");
             switch (message.command) {
+                case "state.update": {
+                    setValue(message.state.value);
+                    break;
+                }
                 case "updateAuthState": {
-                    console.log("updateAuthState", message);
+                    console.log("updateAuthState", JSON.stringify(message, null, 2));
                     const authState: AuthState = message.authState;
                     if (!authState.isAuthExtensionInstalled) {
-                        send({
-                            type: StartupFlowEvents.NO_AUTH_EXTENSION,
-                            data: {
-                                isAuthenticated: false,
-                                isAuthExtensionInstalled: false,
-                                isLoading: false,
-                                error: undefined,
-                                gitlabInfo: undefined,
-                                workspaceState: authState.workspaceState,
-                            },
-                        });
+                        // send({
+                        //     type: StartupFlowEvents.NO_AUTH_EXTENSION,
+                        //     data: {
+                        //         isAuthenticated: false,
+                        //         isAuthExtensionInstalled: false,
+                        //         isLoading: false,
+                        //         error: undefined,
+                        //         gitlabInfo: undefined,
+                        //         workspaceState: authState.workspaceState,
+                        //     },
+                        // });
                     } else if (authState.isAuthenticated) {
-                        send({
-                            type: StartupFlowEvents.AUTH_LOGGED_IN,
-                            data: {
-                                isAuthenticated: authState.isAuthenticated,
-                                isAuthExtensionInstalled: true,
-                                isLoading: false,
-                                error: authState.error,
-                                gitlabInfo: authState.gitlabInfo,
-                                workspaceState: authState.workspaceState,
-                            },
-                        });
+                        // send({
+                        //     type: StartupFlowEvents.AUTH_LOGGED_IN,
+                        //     data: {
+                        //         isAuthenticated: authState.isAuthenticated,
+                        //         isAuthExtensionInstalled: true,
+                        //         isLoading: false,
+                        //         error: authState.error,
+                        //         gitlabInfo: authState.gitlabInfo,
+                        //         workspaceState: authState.workspaceState,
+                        //     },
+                        // });
                     } else {
-                        send({
-                            type: StartupFlowEvents.UPDATE_AUTH_STATE,
-                            data: {
-                                isAuthenticated: false,
-                                isAuthExtensionInstalled: true,
-                                isLoading: false,
-                                error: authState.error,
-                                gitlabInfo: undefined,
-                                workspaceState: authState.workspaceState,
-                            },
-                        });
+                        // send({
+                        //     type: StartupFlowEvents.UPDATE_AUTH_STATE,
+                        //     data: {
+                        //         isAuthenticated: false,
+                        //         isAuthExtensionInstalled: true,
+                        //         isLoading: false,
+                        //         error: authState.error,
+                        //         gitlabInfo: undefined,
+                        //         workspaceState: authState.workspaceState,
+                        //     },
+                        // });
                     }
                     break;
                 }
@@ -79,52 +93,46 @@ export const StartupFlowView: React.FC = () => {
                         } as MessagesToStartupFlowProvider);
                     } else {
                         console.log("workspace.statusResponse workspace not open");
-                        send({
-                            type: StartupFlowEvents.NO_AUTH_EXTENSION,
-                            data: {
-                                isAuthenticated: false,
-                                isAuthExtensionInstalled: false,
-                                isLoading: false,
-                                error: undefined,
-                                gitlabInfo: undefined,
-                                workspaceState: {
-                                    isWorkspaceOpen: false,
-                                    isProjectInitialized: false,
-                                },
-                            },
-                        });
+                        // send({
+                        //     type: StartupFlowEvents.NO_AUTH_EXTENSION,
+                        //     data: {
+                        //         isAuthenticated: false,
+                        //         isAuthExtensionInstalled: false,
+                        //         isLoading: false,
+                        //         error: undefined,
+                        //         gitlabInfo: undefined,
+                        //         workspaceState: {
+                        //             isWorkspaceOpen: false,
+                        //             isProjectInitialized: false,
+                        //         },
+                        //     },
+                        // });
                     }
                     break;
                 }
-                case "workspace.opened":
-                    vscode.postMessage({
-                        command: "metadata.check",
-                    } as MessagesToStartupFlowProvider);
-                    break;
                 case "metadata.checkResponse":
-                    send({
-                        type: StartupFlowEvents.NO_AUTH_EXTENSION,
-                        data: {
-                            isAuthenticated: false,
-                            isAuthExtensionInstalled: false,
-                            isLoading: false,
-                            error: undefined,
-                            gitlabInfo: undefined,
-                            workspaceState: {
-                                isWorkspaceOpen: true,
-                                isProjectInitialized: message.exists,
-                            },
-                        },
-                    });
-                    if (message.exists) {
-                        send({ type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN });
+                    console.log("metadata.checkResponse", JSON.stringify(message, null, 2));
+                    if (message.data.exists) {
+                        if (message.data.hasCriticalData) {
+                            // send({ type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN });
+                        } else {
+                            // send({ type: StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA });
+                        }
                     } else {
-                        send({ type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT });
+                        // send({ type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT });
                     }
                     break;
+                case "setupIncompleteCriticalDataMissing": {
+                    // console.log("setupIncompleteCriticalDataMissing called", {
+                    //     state,
+                    // });
+                    // send({ type: StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA });
+                    break;
+                }
                 case "setupComplete": {
-                    console.log("setupComplete called");
-                    send({ type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN }); // fixme: this should be a generic. ex "projectSet", "workspaceOpen"
+                    // console.log("setupComplete called");
+                    // send({ type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN });
+                    break;
                 }
             }
         };
@@ -132,9 +140,8 @@ export const StartupFlowView: React.FC = () => {
         window.addEventListener("message", messageHandler);
         return () => {
             window.removeEventListener("message", messageHandler);
-            service.stop(); // Clean up the state machine
         };
-    }, [send]);
+    }, []);
 
     const handleLogin = (username: string, password: string) => {
         vscode.postMessage({
@@ -158,19 +165,10 @@ export const StartupFlowView: React.FC = () => {
     };
 
     const handleSkipAuth = () => {
-        send({ type: StartupFlowEvents.SKIP_AUTH });
+        // send({ type: StartupFlowEvents.SKIP_AUTH });
     };
 
-    // const handleOpenWorkspace = () => {
-    //     vscode.postMessage({ command: "workspace.open" });
-    // };
-
-    // const handleCreateNew = () => {
-    //     vscode.postMessage({ command: "workspace.create" });
-    // };
-
     const handleCreateEmpty = () => {
-        // send({ type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT });
         vscode.postMessage({ command: "project.createEmpty" } as MessagesToStartupFlowProvider);
     };
 
@@ -190,17 +188,23 @@ export const StartupFlowView: React.FC = () => {
             } as MessagesToStartupFlowProvider);
         }
     };
-    useEffect(() => {
-        if (state.matches(StartupFlowStates.ALREADY_WORKING)) {
-            vscode.postMessage({ command: "workspace.continue" } as MessagesToStartupFlowProvider);
-        }
-    }, [state.value]);
+
+    // useEffect(() => {
+    //     if (state.matches(StartupFlowStates.ALREADY_WORKING)) {
+    //         vscode.postMessage({ command: "workspace.continue" } as MessagesToStartupFlowProvider);
+    //     }
+    // }, [state.value]);
+
+    console.log(
+        { value, doesThisWork: value === StartupFlowStates.OPEN_OR_CREATE_PROJECT },
+        "value in startup flow"
+    );
 
     return (
         <div className="startup-flow-container">
-            {state.matches(StartupFlowStates.LOGIN_REGISTER) && (
+            {value === StartupFlowStates.LOGIN_REGISTER && (
                 <LoginRegisterStep
-                    authState={state.context.authState}
+                    // authState={value.context.authState}
                     onLogin={handleLogin}
                     onRegister={handleRegister}
                     onLogout={handleLogout}
@@ -208,21 +212,20 @@ export const StartupFlowView: React.FC = () => {
                 />
             )}
 
-            {state.matches(StartupFlowStates.OPEN_OR_CREATE_PROJECT) && (
+            {value === StartupFlowStates.OPEN_OR_CREATE_PROJECT && (
                 <ProjectSetupStep
                     onCreateEmpty={handleCreateEmpty}
                     onCloneRepo={handleCloneRepo}
                     onOpenProject={handleOpenProject}
                     vscode={vscode}
-                    state={state}
-                    send={send}
+                    // state={state}
+                    // send={send}
                 />
             )}
-            {state.matches(StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT) && (
+            {value === StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT && (
                 <div
                     style={{
                         display: "flex",
-
                         gap: "10px",
                         width: "100%",
                         height: "100vh",
@@ -246,7 +249,7 @@ export const StartupFlowView: React.FC = () => {
                         ></i>
                         <VSCodeButton
                             onClick={() => {
-                                send({ type: StartupFlowEvents.INITIALIZE_PROJECT });
+                                // send({ type: StartupFlowEvents.INITIALIZE_PROJECT });
                                 vscode.postMessage({
                                     command: "project.initialize",
                                 } as MessagesToStartupFlowProvider);
@@ -256,6 +259,10 @@ export const StartupFlowView: React.FC = () => {
                         </VSCodeButton>
                     </div>
                 </div>
+            )}
+
+            {value === StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA && (
+                <InputCriticalProjectInfo vscode={vscode} />
             )}
         </div>
     );
