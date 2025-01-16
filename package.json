@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.1.9",
+    "version": "0.1.10",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -35,7 +35,7 @@
         "viewsWelcome": [
             {
                 "view": "codexNotebookTreeView",
-                "contents": "Welcome to the Codex Translation Editor! When you load some texts to translate, you can find your them here."
+                "contents": "Welcome to the Codex Translation Editor! When you bookmark cells in your Codex notebook, you will see navigation shortcuts here."
             }
         ],
         "notebookEditorDecorations": [
@@ -447,10 +447,6 @@
                 "title": "JOSH_COMMAND"
             },
             {
-                "command": "codex-smart-edits.testIceEdit",
-                "title": "Test ICE Edit"
-            },
-            {
                 "command": "codex-editor-extension.triggerInlineCompletion",
                 "title": "Autocomplete",
                 "group": "translators-copilot",
@@ -551,6 +547,11 @@
                 "category": "Translators Copilot"
             },
             {
+                "command": "translators-copilot.getZeroDraftContentOptions",
+                "title": "Get Zero Draft Content Options for Vref",
+                "category": "Translators Copilot"
+            },
+            {
                 "command": "translators-copilot.insertZeroDraftsIntoNotebooks",
                 "title": "Insert Zero Drafts into Notebooks",
                 "category": "Translators Copilot"
@@ -641,11 +642,19 @@
             },
             {
                 "command": "translators-copilot.getTranslationPairsFromSourceCellQuery",
-                "title": "Get Translation Pairs from Source Cell Query"
+                "title": "Search Source Cells"
             },
             {
                 "command": "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
                 "title": "Get Source Cell by Cell ID"
+            },
+            {
+                "command": "translators-copilot.getTranslationPairFromProject",
+                "title": "Get Translation Pair from Project"
+            },
+            {
+                "command": "translators-copilot.getTranslationPairsFromSourceCellQuery",
+                "title": "Get Translation Pairs from Source Cell Query"
             },
             {
                 "command": "translators-copilot.getTargetCellByCellId",
@@ -1188,8 +1197,7 @@
         "vscode-languageclient": "^9.0.1",
         "vscode-uri": "^3.0.8",
         "webvtt-parser": "^2.2.0",
-        "xml2js": "^0.6.2",
-        "xstate": "^5.19.1"
+        "xml2js": "^0.6.2"
     },
     "overrides": {
         "minimatch": "5.1.2"
