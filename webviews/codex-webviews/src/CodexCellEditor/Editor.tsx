@@ -128,6 +128,13 @@ export default function Editor(props: EditorProps) {
                     '<i class="codicon codicon-chevron-right" style="color: var(--vscode-editor-foreground)"></i>';
             }
 
+            // Add a custom quill clipboard handler for pasting in
+            quill.clipboard.addMatcher(Node.ELEMENT_NODE, (node: Node, delta) => {
+                setUnsavedChanges(true);
+                return delta;
+            });
+            
+
             quillRef.current = quill;
 
             if (props.initialValue) {
