@@ -793,6 +793,7 @@ type ProjectMetadata = {
             softwareName: string;
             softwareVersion: string;
             userName: string;
+            userEmail?: string;
         };
         defaultLocale: string;
         dateCreated: string;
