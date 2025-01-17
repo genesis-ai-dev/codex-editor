@@ -11,6 +11,9 @@ import { diffWords } from "diff";
 import { ICEEdits } from "./iceEdits";
 import { tokenizeText } from "@/utils/nlpUtils";
 
+const DEBUG = false;
+const debug = DEBUG ? console.log : () => {};
+
 interface IceSuggestion {
     text: string;
     replacement: string;
@@ -224,7 +227,7 @@ export class SmartEdits {
 
             const cellEdits = savedEdits[cellId];
 
-            console.log("[RYDER] Rejecting smart suggestion for cellId:", cellId, {
+            debug("[RYDER] Rejecting smart suggestion for cellId:", cellId, {
                 oldString,
                 newString,
                 cellEdits,
@@ -255,10 +258,10 @@ export class SmartEdits {
                 this.lastSuggestions = this.lastSuggestions.filter(
                     (s) => !(s.oldString === oldString && s.newString === newString)
                 );
-                console.log("[RYDER] Updated in-memory suggestions:", this.lastSuggestions);
+                debug("[RYDER] Updated in-memory suggestions:", this.lastSuggestions);
             }
 
-            console.log("[RYDER] Rejected suggestion:", { oldString, newString });
+            debug("[RYDER] Rejected suggestion:", { oldString, newString });
 
             savedEdits[cellId] = cellEdits;
             await vscode.workspace.fs.writeFile(
@@ -285,7 +288,7 @@ export class SmartEdits {
                 const fileString = fileContent.toString();
                 savedEdits = fileString ? JSON.parse(fileString) : {};
             } catch (error) {
-                console.log("No existing saved edits found, starting with empty object");
+                debug("No existing saved edits found, starting with empty object");
             }
 
             savedEdits[cellId] = {
@@ -359,13 +362,13 @@ export class SmartEdits {
                         };
                         similarTexts.push(context);
                     } else {
-                        console.log(`Cell not found for cellId: ${entry.cellId}`);
+                        debug(`Cell not found for cellId: ${entry.cellId}`);
                     }
                 } catch (error) {
                     console.error(`Error reading file for cellId ${entry.cellId}:`, error);
                 }
             } else {
-                console.log(`No valid URI found for cellId: ${entry.cellId}`);
+                debug(`No valid URI found for cellId: ${entry.cellId}`);
             }
         }
         return similarTexts;
@@ -463,14 +466,14 @@ export class SmartEdits {
     }
 
     async getIceEdits(text: string): Promise<IceSuggestion[]> {
-        console.log("[ICE] Starting getIceEdits with text:", text);
+        debug("[ICE] Starting getIceEdits with text:", text);
         // First tokenize by whitespace
         const tokens = tokenizeText({ method: "whitespace", text });
-        console.log("[ICE] Initial tokens:", tokens);
+        debug("[ICE] Initial tokens:", tokens);
 
         // Then clean each token of punctuation
         const cleanTokens = tokens.map((token) => token.replace(/[.,!?;:]$/, ""));
-        console.log("[ICE] Cleaned tokens:", cleanTokens);
+        debug("[ICE] Cleaned tokens:", cleanTokens);
 
         const iceSuggestions: IceSuggestion[] = [];
 
@@ -480,14 +483,14 @@ export class SmartEdits {
             const rightToken = i < cleanTokens.length - 1 ? cleanTokens[i + 1] : "";
             const currentToken = cleanTokens[i];
             const originalToken = tokens[i]; // Keep original for replacement
-            console.log("[ICE] Processing token:", { currentToken, leftToken, rightToken });
+            debug("[ICE] Processing token:", { currentToken, leftToken, rightToken });
 
             const suggestions = await this.iceEdits.calculateSuggestions(
                 currentToken,
                 leftToken,
                 rightToken
             );
-            console.log("[ICE] Got suggestions:", suggestions);
+            debug("[ICE] Got suggestions:", suggestions);
 
             suggestions.forEach((suggestion) => {
                 // Preserve the original punctuation when creating the suggestion
@@ -503,7 +506,7 @@ export class SmartEdits {
             });
         }
 
-        console.log("[ICE] Final suggestions:", iceSuggestions);
+        debug("[ICE] Final suggestions:", iceSuggestions);
         return iceSuggestions;
     }
 }

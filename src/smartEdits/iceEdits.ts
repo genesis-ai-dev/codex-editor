@@ -2,6 +2,9 @@ import * as vscode from "vscode";
 import { diffWords } from "diff";
 import { tokenizeText } from "@/utils/nlpUtils";
 
+const DEBUG = false;
+const debug = DEBUG ? console.log : () => {};
+
 interface ICEEditRecord {
     original: string;
     replacement: string;
@@ -233,14 +236,14 @@ export class ICEEdits {
         leftToken: string,
         rightToken: string
     ): Promise<Array<{ replacement: string; confidence: string; frequency: number }>> {
-        console.log("[RYDER] Calculating suggestions for:", {
+        debug("[RYDER] Calculating suggestions for:", {
             currentToken,
             leftToken,
             rightToken,
         });
 
         const allRecords = await this.loadEditRecords();
-        console.log("[RYDER] allRecords details:", allRecords);
+        debug("[RYDER] allRecords details:", allRecords);
 
         const suggestions: Array<{ replacement: string; confidence: string; frequency: number }> =
             [];
@@ -248,11 +251,11 @@ export class ICEEdits {
         for (const [key, record] of Object.entries(allRecords || {})) {
             // Skip rejected records
             if (record.rejected) {
-                console.log("[RYDER] Skipping rejected record:", { key, record });
+                debug("[RYDER] Skipping rejected record:", { key, record });
                 continue;
             }
 
-            console.log("[RYDER] Comparing record:", {
+            debug("[RYDER] Comparing record:", {
                 key,
                 recordOriginal: record.original,
                 recordReplacement: record.replacement,
@@ -279,7 +282,7 @@ export class ICEEdits {
                 recordRightToken === rightToken &&
                 !recordRejected // Double-check rejection status
             ) {
-                console.log("[RYDER] found matching record", { key, record });
+                debug("[RYDER] found matching record", { key, record });
                 suggestions.push({
                     replacement: record.replacement,
                     confidence: "high",
@@ -288,7 +291,7 @@ export class ICEEdits {
             }
         }
 
-        console.log("[RYDER] Final suggestions:", suggestions);
+        debug("[RYDER] Final suggestions:", suggestions);
         return suggestions;
     }
 
@@ -301,7 +304,7 @@ export class ICEEdits {
         leftToken: string,
         rightToken: string
     ): Promise<void> {
-        console.log("[RYDER] rejectEdit called from ICEEdits class", {
+        debug("[RYDER] rejectEdit called from ICEEdits class", {
             original,
             replacement,
             leftToken,
@@ -315,14 +318,14 @@ export class ICEEdits {
         const allRecords: Record<string, ICEEditRecord> = fileString ? JSON.parse(fileString) : {};
 
         // Log all record keys to help debug
-        console.log("[RYDER] allRecords details:", JSON.stringify(allRecords, null, 2));
+        debug("[RYDER] allRecords details:", JSON.stringify(allRecords, null, 2));
 
         // Find the record by matching fields directly
         const entries = Object.entries(allRecords);
 
         // Debug each comparison
         entries.forEach(([key, record]) => {
-            console.log("[RYDER] Comparing record:", {
+            debug("[RYDER] Comparing record:", {
                 key,
                 recordOriginal: record.original,
                 recordReplacement: record.replacement,
@@ -363,30 +366,30 @@ export class ICEEdits {
             );
         });
 
-        console.log(matchingEntry);
+        debug(matchingEntry);
 
         if (matchingEntry) {
             const [key, record] = matchingEntry;
-            console.log("[RYDER] found matching record", { key, record });
+            debug("[RYDER] found matching record", { key, record });
 
             // Create the updated record and verify it has the rejected flag
             const updatedRecord = { ...record, rejected: true };
-            console.log("[RYDER] updated record", { updatedRecord });
+            debug("[RYDER] updated record", { updatedRecord });
 
             allRecords[key] = updatedRecord;
-            console.log("[RYDER] allRecords after rejection", JSON.stringify(allRecords, null, 2));
+            debug("[RYDER] allRecords after rejection", JSON.stringify(allRecords, null, 2));
 
             await vscode.workspace.fs.writeFile(
                 this.iceEditsPath,
                 Buffer.from(JSON.stringify(allRecords, null, 2))
             );
-            console.log("[RYDER] Successfully wrote to file");
+            debug("[RYDER] Successfully wrote to file");
 
             // Update in-memory records
             this.editRecords.delete(key);
         } else {
             // Log why we didn't find a match
-            console.log("[RYDER] Did not find matching record for:", {
+            debug("[RYDER] Did not find matching record for:", {
                 original,
                 replacement,
                 availableRecords: entries.map(([key, record]) => ({

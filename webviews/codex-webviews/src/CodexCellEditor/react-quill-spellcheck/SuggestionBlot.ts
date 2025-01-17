@@ -18,7 +18,6 @@ export default function createSuggestionBlotForQuillInstance(Quill: any) {
         static create(match?: MatchesEntity) {
             const node: HTMLElement = super.create();
             if (match) {
-                console.log("[RYDER] SuggestionBlot create called", { match });
                 Object.entries({
                     "data-offset": match.offset,
                     "data-length": match.length,

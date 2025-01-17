@@ -357,9 +357,6 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
                 leftToken: string;
                 rightToken: string;
             }) => {
-                console.log(
-                    "[RYDER] rejectEditSuggestion called from registerSmartEditCommands.ts"
-                );
                 try {
                     if (source === "ice") {
                         if (!leftToken && !rightToken) {
