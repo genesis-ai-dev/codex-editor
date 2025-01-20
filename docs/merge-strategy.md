@@ -67,7 +67,7 @@ This document outlines the strategy for resolving merge conflicts in Codex proje
     5. Complete the merge and sync the entire project.
     6. This approach will trigger the merge conflict view of the codex cell editor. The user will be forced to resolve the cell-level conflicts manually when they open the file.
 
-Note: we also need to just ignore some files, like `complete_drafts.txt` and `ice_edits.json`, as they are auto-generated and not meant to be merged.
+Note: we also need to just ignore some files, like `complete_drafts.txt`, as they are auto-generated and not meant to be merged.
 
 ## Implementation Steps
 
