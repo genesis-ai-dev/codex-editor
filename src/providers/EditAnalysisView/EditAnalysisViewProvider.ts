@@ -243,9 +243,11 @@ export class EditAnalysisProvider implements vscode.Disposable {
                     </svg>
                 </div>
 
-                <div style="margin-top: 30px;">
-                    <h2>Raw Edit Data</h2>
-                    <pre style="background: var(--vscode-editor-inactiveSelectionBackground); padding: 15px; border-radius: 6px; overflow: auto;">
+                <details style="margin-top: 30px;">
+                    <summary style="cursor: pointer; padding: 10px; background: var(--vscode-editor-inactiveSelectionBackground); border-radius: 6px;">
+                        <h2 style="display: inline-block; margin: 0;">Raw Edit Data</h2>
+                    </summary>
+                    <pre style="background: var(--vscode-editor-inactiveSelectionBackground); padding: 15px; border-radius: 6px; overflow: auto; margin-top: 10px;">
 ${dataPoints
     .map(
         (d) => `Edit #${d.x}:
@@ -256,7 +258,7 @@ ${dataPoints
     )
     .join("\n")}
                     </pre>
-                </div>
+                </details>
             </div>
             <script>
                 const tooltip = document.getElementById('tooltip');
