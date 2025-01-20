@@ -512,6 +512,10 @@
                 "icon": "$(refresh)"
             },
             {
+                "command": "codex-editor-extension.analyzeEdits",
+                "title": "Analyze Edits"
+            },
+            {
                 "command": "codexNotebookTreeView.openSection",
                 "title": "Open",
                 "icon": "$(arrow-right)"

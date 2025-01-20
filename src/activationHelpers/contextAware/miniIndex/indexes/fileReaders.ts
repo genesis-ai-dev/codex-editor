@@ -14,6 +14,11 @@ export interface FileData {
         metadata?: {
             type?: string;
             id?: string;
+            edits?: Array<{
+                cellValue: string;
+                timestamp: number;
+                type: string;
+            }>;
         };
         value: string;
     }>;
@@ -94,6 +99,7 @@ async function readFile(
         metadata: {
             type: cell.metadata?.type,
             id: cell.metadata?.id,
+            edits: cell.metadata?.edits,
         },
         value: cell.value,
     }));
@@ -106,4 +112,30 @@ async function readFile(
 
     debug(`File ${uri.toString()} has ${fileData.cells.length} cells`);
     return fileData;
+}
+
+export async function getTargetFilesContent(): Promise<FileData[]> {
+    const workspaceFolder = getWorkSpaceUri();
+    if (!workspaceFolder) {
+        throw new Error("Workspace folder not found");
+    }
+
+    const targetPattern = new vscode.RelativePattern(workspaceFolder, "files/target/*.codex");
+    const targetUris = await vscode.workspace.findFiles(targetPattern);
+
+    debug(
+        "Target File URIs:",
+        targetUris.map((uri) => uri.fsPath)
+    );
+
+    const metadataManager = getNotebookMetadataManager();
+    await metadataManager.initialize();
+    await metadataManager.loadMetadata();
+
+    const serializer = new CodexContentSerializer();
+    const targetFiles = await Promise.all(
+        targetUris.map((uri) => readFile(uri, metadataManager, serializer))
+    );
+
+    return targetFiles;
 }
