@@ -178,6 +178,7 @@ export const generateProjectId = () => {
 export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
     // Initialize a new project with the given details and return the project object
     const newProject: Partial<ProjectWithId> = {
+        // Fixme: remove Partial when codex-types library is updated
         format: "scripture burrito",
         projectName:
             details.projectName ||
