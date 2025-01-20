@@ -781,6 +781,9 @@ interface ProjectOverview extends Project {
     targetFont: string;
     primarySourceText?: vscode.Uri;
     isAuthenticated: boolean;
+    meta: Omit<Project["meta"], "generator"> & {
+        generator: Project["meta"]["generator"] & { userEmail?: string };
+    };
 }
 
 /* This is the project metadata that is saved in the metadata.json file */

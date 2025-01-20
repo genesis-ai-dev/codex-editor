@@ -167,7 +167,7 @@ export function generateProjectScope(
     return projectScope;
 }
 
-export type ProjectWithId = Project & { projectId: string };
+export type ProjectWithId = ProjectOverview & { projectId: string };
 
 export const generateProjectId = () => {
     return (
@@ -177,7 +177,7 @@ export const generateProjectId = () => {
 
 export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
     // Initialize a new project with the given details and return the project object
-    const newProject: ProjectWithId = {
+    const newProject: Partial<ProjectWithId> = {
         format: "scripture burrito",
         projectName:
             details.projectName ||
@@ -241,10 +241,10 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
         },
     };
 
-    if (details.sourceLanguage) {
+    if (details.sourceLanguage && newProject.languages) {
         newProject.languages.push(details.sourceLanguage);
     }
-    if (details.targetLanguage) {
+    if (details.targetLanguage && newProject.languages) {
         newProject.languages.push(details.targetLanguage);
     }
 
