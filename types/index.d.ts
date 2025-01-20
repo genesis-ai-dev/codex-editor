@@ -1011,7 +1011,8 @@ type ProjectManagerMessageFromWebview =
     | { command: "openBible"; data: { path: string } }
     | { command: "checkPublishStatus" }
     | { command: "publishProject" }
-    | { command: "syncProject" };
+    | { command: "syncProject" }
+    | { command: "openEditAnalysis" };
 
 interface ProjectManagerState {
     projectOverview: ProjectOverview | null;

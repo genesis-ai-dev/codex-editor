@@ -377,6 +377,11 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                             // Send a response back to the webview
                             this._view?.webview.postMessage({ command: "actionCompleted" });
                             break;
+                        case "openEditAnalysis":
+                            await vscode.commands.executeCommand(
+                                "codex-editor-extension.analyzeEdits"
+                            );
+                            break;
                         case "initializeProject":
                             console.log("initializeProject");
                             await createNewProject();
