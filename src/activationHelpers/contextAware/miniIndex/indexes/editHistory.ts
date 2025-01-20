@@ -101,7 +101,7 @@ export async function analyzeEditHistory(): Promise<{
     }>;
 }> {
     const targetFiles = await getTargetFilesContent();
-    const editPairs: EditPair[] = [];
+    const editPairs: (EditPair & { timestamp: number })[] = [];
     let globalSequence = 0;
 
     // Extract all edit pairs (llm-generation followed by user-edit)
@@ -116,14 +116,20 @@ export async function analyzeEditHistory(): Promise<{
                         llmGeneration: edits[i].cellValue,
                         userEdit: edits[i + 1].cellValue,
                         sequenceNumber: globalSequence++,
+                        timestamp: edits[i + 1].timestamp,
                     });
                 }
             }
         }
     }
 
-    // Sort by sequence number to ensure chronological order
-    editPairs.sort((a, b) => a.sequenceNumber - b.sequenceNumber);
+    // Sort by timestamp to get chronological order of edits
+    editPairs.sort((a, b) => a.timestamp - b.timestamp);
+
+    // Reassign sequence numbers after sorting by timestamp
+    editPairs.forEach((pair, index) => {
+        pair.sequenceNumber = index;
+    });
 
     // Calculate edit distances and create raw distances array
     const rawDistances = editPairs.map((pair) => ({
@@ -131,6 +137,7 @@ export async function analyzeEditHistory(): Promise<{
         distance: calculateLevenshteinDistance(pair.llmGeneration, pair.userEdit),
         llmText: pair.llmGeneration,
         userText: pair.userEdit,
+        timestamp: pair.timestamp,
     }));
 
     // Calculate edit distances for each pair (keep this for backward compatibility)
