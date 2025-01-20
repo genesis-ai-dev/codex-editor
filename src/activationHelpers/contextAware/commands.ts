@@ -34,8 +34,58 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         async () => {
             try {
                 const analysis = await analyzeEditHistory();
-                const message = `Analysis complete:\nAverage edit distance: ${analysis.averageEditDistance.toFixed(2)}\nTotal edit pairs analyzed: ${analysis.editDistances.length}`;
-                await vscode.window.showInformationMessage(message);
+
+                // Format the sequence snapshots
+                const snapshotMessages = analysis.timeSnapshots
+                    .map((snapshot) => {
+                        return `${snapshot.period} (edits ${snapshot.timeRange.start} - ${snapshot.timeRange.end}):
+• Average edit distance: ${snapshot.averageDistance.toFixed(2)}
+• Number of edits: ${snapshot.numberOfEdits}`;
+                    })
+                    .join("\n\n");
+
+                // Create trend analysis
+                let trend = "No clear trend detected";
+                if (analysis.timeSnapshots.length >= 3) {
+                    const [first, second, third] = analysis.timeSnapshots;
+                    if (
+                        first.averageDistance > second.averageDistance &&
+                        second.averageDistance > third.averageDistance
+                    ) {
+                        trend =
+                            "📉 Edit distances are decreasing - LLM is successfully learning from user corrections";
+                    } else if (
+                        first.averageDistance < second.averageDistance &&
+                        second.averageDistance < third.averageDistance
+                    ) {
+                        trend =
+                            "📈 Edit distances are increasing - LLM may need additional training or adjustment";
+                    }
+                }
+
+                const message = `Edit History Analysis
+
+Assembly Line Performance:
+This analysis treats the editing process as an assembly line, measuring how well the LLM learns from user corrections over time.
+
+Overall Statistics:
+• Total edit pairs analyzed: ${analysis.editDistances.length}
+• Overall average edit distance: ${analysis.averageEditDistance.toFixed(2)}
+
+Sequential Analysis:
+${snapshotMessages}
+
+Learning Curve Analysis:
+${trend}
+
+Note: Lower edit distances indicate better LLM performance (less user correction needed)`;
+
+                // Show the analysis in a new editor
+                const doc = await vscode.workspace.openTextDocument({
+                    content: message,
+                    language: "markdown",
+                });
+                await vscode.window.showTextDocument(doc, { preview: false });
             } catch (error) {
                 console.error("Failed to analyze edits:", error);
                 await vscode.window.showErrorMessage("Failed to analyze edit history");

@@ -14,6 +14,13 @@ interface EditPair {
     sequenceNumber: number;
 }
 
+interface TimeSnapshot {
+    period: string;
+    averageDistance: number;
+    numberOfEdits: number;
+    timeRange: { start: number; end: number };
+}
+
 function calculateLevenshteinDistance(str1: string, str2: string): number {
     const m = str1.length;
     const n = str2.length;
@@ -47,9 +54,39 @@ function calculateLevenshteinDistance(str1: string, str2: string): number {
     return dp[m][n];
 }
 
+/**
+ * Analyzes the edit history to measure LLM adaptation to user preferences over sequential edits.
+ *
+ * This analysis treats the editing process as an assembly line where:
+ * 1. The LLM makes predictions (generates translations)
+ * 2. The user post-edits these predictions
+ * 3. Each edit pair (LLM prediction + user edit) represents one unit in the assembly line
+ *
+ * The key insight is that the LLM should learn from user corrections over time:
+ * - Early in the sequence: We expect larger edit distances as the LLM hasn't adapted
+ * - Later in the sequence: We expect smaller edit distances as the LLM learns from previous corrections
+ *
+ * The analysis divides all edit pairs into three sequential groups (not time-based):
+ * - First third: Initial phase where LLM is learning user preferences
+ * - Middle third: Transition phase showing adaptation progress
+ * - Final third: Latest phase showing current LLM performance
+ *
+ * A decreasing trend in edit distances across these phases indicates the LLM is successfully
+ * learning from user corrections, leading to predictions that require less post-editing.
+ *
+ * Note: This is sequence-based, not time-based. The order of edits matters, not when they occurred.
+ * This better reflects the LLM's learning curve regardless of gaps in editing sessions.
+ *
+ * @returns {Promise<{
+ *   editDistances: Array<{ sequenceNumber: number; distance: number }>;
+ *   averageEditDistance: number;
+ *   timeSnapshots: TimeSnapshot[];
+ * }>} Analysis results showing edit distances and their progression over the sequence
+ */
 export async function analyzeEditHistory(): Promise<{
     editDistances: Array<{ sequenceNumber: number; distance: number }>;
     averageEditDistance: number;
+    timeSnapshots: TimeSnapshot[];
 }> {
     const targetFiles = await getTargetFilesContent();
     const editPairs: EditPair[] = [];
@@ -73,6 +110,9 @@ export async function analyzeEditHistory(): Promise<{
         }
     }
 
+    // Sort by sequence number to ensure chronological order
+    editPairs.sort((a, b) => a.sequenceNumber - b.sequenceNumber);
+
     // Calculate edit distances for each pair
     const editDistances = editPairs.map((pair) => ({
         sequenceNumber: pair.sequenceNumber,
@@ -85,8 +125,44 @@ export async function analyzeEditHistory(): Promise<{
             ? editDistances.reduce((sum, curr) => sum + curr.distance, 0) / editDistances.length
             : 0;
 
+    // Create sequence-based snapshots (not time-based)
+    if (editPairs.length === 0) {
+        return { editDistances, averageEditDistance, timeSnapshots: [] };
+    }
+
+    const totalEdits = editPairs.length;
+    const segmentSize = Math.ceil(totalEdits / 3);
+
+    const segments = [
+        editPairs.slice(0, segmentSize),
+        editPairs.slice(segmentSize, segmentSize * 2),
+        editPairs.slice(segmentSize * 2),
+    ];
+
+    const timeSnapshots: TimeSnapshot[] = segments.map((segment, index) => {
+        const distances = segment.map((pair) =>
+            calculateLevenshteinDistance(pair.llmGeneration, pair.userEdit)
+        );
+
+        const averageDistance =
+            distances.length > 0
+                ? distances.reduce((sum, dist) => sum + dist, 0) / distances.length
+                : 0;
+
+        return {
+            period: `Sequence ${index + 1}`,
+            averageDistance,
+            numberOfEdits: distances.length,
+            timeRange: {
+                start: segment[0]?.sequenceNumber ?? 0,
+                end: segment[segment.length - 1]?.sequenceNumber ?? 0,
+            },
+        };
+    });
+
     return {
         editDistances,
         averageEditDistance,
+        timeSnapshots,
     };
 }
