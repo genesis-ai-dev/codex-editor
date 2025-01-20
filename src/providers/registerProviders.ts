@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { CodexCellEditorProvider } from "./codexCellEditorProvider/codexCellEditorProvider";
 import { NextGenCodexTreeViewProvider } from "./treeViews/nextGenCodexTreeViewProvider";
 import { openCodexFile } from "./treeViews/nextGenCodexTreeViewProvider";
+import { createEditAnalysisProvider } from "./EditAnalysisView/EditAnalysisViewProvider";
 
 export function registerProviders(context: vscode.ExtensionContext) {
     const disposables: vscode.Disposable[] = [];
@@ -36,7 +37,8 @@ export function registerProviders(context: vscode.ExtensionContext) {
         ),
         vscode.commands.registerCommand("codexNotebookTreeView.refresh", () =>
             nextGenCodexTreeViewProvider.refresh()
-        )
+        ),
+        createEditAnalysisProvider(context.extensionUri)
     );
 
     // Add all disposables to the context subscriptions

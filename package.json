@@ -92,6 +92,11 @@
                     "id": "codex-project-manager.welcomeView",
                     "name": "Codex Project Manager",
                     "when": "workbenchState == empty"
+                },
+                {
+                    "type": "webview",
+                    "id": "codex-editor.editAnalysis",
+                    "name": "Edit Analysis"
                 }
             ],
             "genesis-translator-sidebar-view": [

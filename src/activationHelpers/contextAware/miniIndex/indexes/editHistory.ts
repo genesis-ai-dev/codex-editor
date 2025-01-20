@@ -81,12 +81,24 @@ function calculateLevenshteinDistance(str1: string, str2: string): number {
  *   editDistances: Array<{ sequenceNumber: number; distance: number }>;
  *   averageEditDistance: number;
  *   timeSnapshots: TimeSnapshot[];
+ *   rawDistances: Array<{
+ *     sequenceNumber: number;
+ *     distance: number;
+ *     llmText: string;
+ *     userText: string;
+ *   }>;
  * }>} Analysis results showing edit distances and their progression over the sequence
  */
 export async function analyzeEditHistory(): Promise<{
     editDistances: Array<{ sequenceNumber: number; distance: number }>;
     averageEditDistance: number;
     timeSnapshots: TimeSnapshot[];
+    rawDistances: Array<{
+        sequenceNumber: number;
+        distance: number;
+        llmText: string;
+        userText: string;
+    }>;
 }> {
     const targetFiles = await getTargetFilesContent();
     const editPairs: EditPair[] = [];
@@ -113,10 +125,18 @@ export async function analyzeEditHistory(): Promise<{
     // Sort by sequence number to ensure chronological order
     editPairs.sort((a, b) => a.sequenceNumber - b.sequenceNumber);
 
-    // Calculate edit distances for each pair
-    const editDistances = editPairs.map((pair) => ({
+    // Calculate edit distances and create raw distances array
+    const rawDistances = editPairs.map((pair) => ({
         sequenceNumber: pair.sequenceNumber,
         distance: calculateLevenshteinDistance(pair.llmGeneration, pair.userEdit),
+        llmText: pair.llmGeneration,
+        userText: pair.userEdit,
+    }));
+
+    // Calculate edit distances for each pair (keep this for backward compatibility)
+    const editDistances = rawDistances.map(({ sequenceNumber, distance }) => ({
+        sequenceNumber,
+        distance,
     }));
 
     // Calculate average edit distance
@@ -127,7 +147,7 @@ export async function analyzeEditHistory(): Promise<{
 
     // Create sequence-based snapshots (not time-based)
     if (editPairs.length === 0) {
-        return { editDistances, averageEditDistance, timeSnapshots: [] };
+        return { editDistances, averageEditDistance, timeSnapshots: [], rawDistances: [] };
     }
 
     const totalEdits = editPairs.length;
@@ -164,5 +184,6 @@ export async function analyzeEditHistory(): Promise<{
         editDistances,
         averageEditDistance,
         timeSnapshots,
+        rawDistances,
     };
 }
