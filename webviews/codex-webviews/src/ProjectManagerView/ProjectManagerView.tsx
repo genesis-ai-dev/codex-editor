@@ -338,6 +338,7 @@ function ProjectManagerView() {
                             <div
                                 style={{
                                     display: "flex",
+                                    flexDirection: "column",
                                     gap: "1rem",
                                     flexWrap: "wrap",
                                     marginTop: "1rem",
@@ -346,7 +347,30 @@ function ProjectManagerView() {
                                 <VSCodeButton
                                     onClick={() => handleAction({ command: "openAISettings" })}
                                 >
-                                    <i className="codicon codicon-settings"></i> Copilot Settings
+                                    <div
+                                        style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: "0.5rem",
+                                        }}
+                                    >
+                                        <i className="codicon codicon-settings"></i> Copilot
+                                        Settings
+                                    </div>
+                                </VSCodeButton>
+
+                                <VSCodeButton
+                                    onClick={() => handleAction({ command: "openEditAnalysis" })}
+                                >
+                                    <div
+                                        style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: "0.5rem",
+                                        }}
+                                    >
+                                        <i className="codicon codicon-graph"></i> AI Metrics
+                                    </div>
                                 </VSCodeButton>
 
                                 <VSCodeButton
@@ -354,27 +378,59 @@ function ProjectManagerView() {
                                         handleAction({ command: "exportProjectAsPlaintext" })
                                     }
                                 >
-                                    <i className="codicon codicon-export"></i> Export Project
+                                    <div
+                                        style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: "0.5rem",
+                                        }}
+                                    >
+                                        <i className="codicon codicon-export"></i> Export Project
+                                    </div>
                                 </VSCodeButton>
                                 {!state.repoHasRemote && (
                                     <VSCodeButton
                                         onClick={() => handleAction({ command: "publishProject" })}
                                     >
-                                        <i className="codicon codicon-cloud-upload"></i> Publish
-                                        Project
+                                        <div
+                                            style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: "0.5rem",
+                                            }}
+                                        >
+                                            <i className="codicon codicon-cloud-upload"></i> Publish
+                                            Project
+                                        </div>
                                     </VSCodeButton>
                                 )}
                                 {state.repoHasRemote && (
                                     <VSCodeButton
                                         onClick={() => handleAction({ command: "syncProject" })}
                                     >
-                                        <i className="codicon codicon-sync"></i> Sync Project
+                                        <div
+                                            style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: "0.5rem",
+                                            }}
+                                        >
+                                            <i className="codicon codicon-sync"></i> Sync Project
+                                        </div>
                                     </VSCodeButton>
                                 )}
                                 <VSCodeButton
                                     onClick={() => handleAction({ command: "closeProject" })}
                                 >
-                                    <i className="codicon codicon-close"></i> Close Project
+                                    <div
+                                        style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: "0.5rem",
+                                        }}
+                                    >
+                                        <i className="codicon codicon-close"></i> Close Project
+                                    </div>
                                 </VSCodeButton>
                             </div>
                         </div>
