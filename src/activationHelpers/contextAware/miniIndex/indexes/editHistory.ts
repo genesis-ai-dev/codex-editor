@@ -104,50 +104,82 @@ export async function analyzeEditHistory(): Promise<{
     const editPairs: (EditPair & { timestamp: number })[] = [];
     let globalSequence = 0;
 
-    // Extract all edit pairs (llm-generation followed by user-edit)
+    // First, collect all user edits with their cell IDs and timestamps
+    const allEdits: Array<{
+        cellId: string;
+        edit: Edit;
+        llmGeneration: string | null;
+    }> = [];
+
+    // Collect all user edits and their context
     for (const file of targetFiles) {
         for (const cell of file.cells) {
-            if (!cell.metadata?.edits) continue;
+            if (!cell.metadata?.edits || !cell.metadata?.id) continue;
 
-            const edits = cell.metadata.edits as Edit[];
-            let currentLLMGeneration: { value: string; index: number } | null = null;
-            let latestUserEdit: { value: string; timestamp: number } | null = null;
-
-            // Find LLM generation and its latest corresponding user edit
-            for (let i = 0; i < edits.length; i++) {
-                const edit = edits[i];
+            let currentLLM: string | null = null;
+            for (const edit of cell.metadata.edits as Edit[]) {
                 if (edit.type === "llm-generation") {
-                    // If we have a previous pair, add it
-                    if (currentLLMGeneration && latestUserEdit) {
-                        editPairs.push({
-                            llmGeneration: currentLLMGeneration.value,
-                            userEdit: latestUserEdit.value,
-                            sequenceNumber: globalSequence++,
-                            timestamp: latestUserEdit.timestamp,
-                        });
-                    }
-                    // Start new pair
-                    currentLLMGeneration = { value: edit.cellValue, index: i };
-                    latestUserEdit = null;
-                } else if (
-                    edit.type === "user-edit" &&
-                    currentLLMGeneration &&
-                    i > currentLLMGeneration.index
-                ) {
-                    // Update to the latest user edit for the current LLM generation
-                    latestUserEdit = { value: edit.cellValue, timestamp: edit.timestamp };
+                    currentLLM = edit.cellValue;
+                    continue;
+                }
+                if (edit.type === "user-edit") {
+                    allEdits.push({
+                        cellId: cell.metadata.id,
+                        edit: edit as Edit,
+                        llmGeneration: currentLLM,
+                    });
                 }
             }
+        }
+    }
 
-            // Add the final pair if we have one
-            if (currentLLMGeneration && latestUserEdit) {
+    // Sort all user edits chronologically
+    allEdits.sort((a, b) => a.edit.timestamp - b.edit.timestamp);
+
+    // Track the last edit for each cell ID
+    let currentCellId: string | null = null;
+    let currentEdits: Array<{
+        userEdit: string;
+        llmText: string;
+        timestamp: number;
+    }> = [];
+
+    // Process edits in chronological order
+    for (let i = 0; i < allEdits.length; i++) {
+        const current = allEdits[i];
+        if (!current.llmGeneration) continue;
+
+        // If we're switching to a new cell
+        if (currentCellId !== null && currentCellId !== current.cellId) {
+            // Add the last edit from the previous cell
+            if (currentEdits.length > 0) {
                 editPairs.push({
-                    llmGeneration: currentLLMGeneration.value,
-                    userEdit: latestUserEdit.value,
+                    llmGeneration: currentEdits[currentEdits.length - 1].llmText,
+                    userEdit: currentEdits[currentEdits.length - 1].userEdit,
                     sequenceNumber: globalSequence++,
-                    timestamp: latestUserEdit.timestamp,
+                    timestamp: currentEdits[currentEdits.length - 1].timestamp,
                 });
             }
+            // Reset current edits since we're moving to a new cell
+            currentEdits = [];
+        }
+
+        // Update current cell tracking
+        currentCellId = current.cellId;
+        currentEdits.push({
+            userEdit: current.edit.cellValue,
+            llmText: current.llmGeneration,
+            timestamp: current.edit.timestamp,
+        });
+
+        // If this is the last edit overall, add it
+        if (i === allEdits.length - 1 && currentEdits.length > 0) {
+            editPairs.push({
+                llmGeneration: currentEdits[currentEdits.length - 1].llmText,
+                userEdit: currentEdits[currentEdits.length - 1].userEdit,
+                sequenceNumber: globalSequence++,
+                timestamp: currentEdits[currentEdits.length - 1].timestamp,
+            });
         }
     }
 

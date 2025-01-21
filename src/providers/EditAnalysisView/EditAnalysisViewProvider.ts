@@ -20,7 +20,7 @@ export class EditAnalysisProvider implements vscode.Disposable {
 
         this._panel = vscode.window.createWebviewPanel(
             EditAnalysisProvider.viewType,
-            "Edit Analysis",
+            "AI Metrics",
             vscode.ViewColumn.One,
             {
                 enableScripts: true,
@@ -250,7 +250,7 @@ export class EditAnalysisProvider implements vscode.Disposable {
                     <pre style="background: var(--vscode-editor-inactiveSelectionBackground); padding: 15px; border-radius: 6px; overflow: auto; margin-top: 10px;">
 ${dataPoints
     .map(
-        (d) => `Edit #${d.x}:
+        (d) => `Edit #${d.x + 1}:
 • Distance: ${d.y}
 • LLM Text: "${d.llmText}"
 • User Edit: "${d.userText}"
@@ -272,7 +272,7 @@ ${dataPoints
                         const user = e.target.dataset.user;
                         
                         tooltip.innerHTML = \`
-                            <strong>Edit #\${seq}</strong><br>
+                            <strong>Edit #\${Number(seq) + 1}</strong><br>
                             Distance: \${dist}<br>
                             LLM: \${llm}<br>
                             User: \${user}

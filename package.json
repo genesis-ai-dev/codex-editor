@@ -96,7 +96,7 @@
                 {
                     "type": "webview",
                     "id": "codex-editor.editAnalysis",
-                    "name": "Edit Analysis"
+                    "name": "AI Metrics"
                 }
             ],
             "genesis-translator-sidebar-view": [
