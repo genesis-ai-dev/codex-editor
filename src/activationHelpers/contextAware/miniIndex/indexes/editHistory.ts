@@ -110,15 +110,43 @@ export async function analyzeEditHistory(): Promise<{
             if (!cell.metadata?.edits) continue;
 
             const edits = cell.metadata.edits as Edit[];
-            for (let i = 0; i < edits.length - 1; i++) {
-                if (edits[i].type === "llm-generation" && edits[i + 1].type === "user-edit") {
-                    editPairs.push({
-                        llmGeneration: edits[i].cellValue,
-                        userEdit: edits[i + 1].cellValue,
-                        sequenceNumber: globalSequence++,
-                        timestamp: edits[i + 1].timestamp,
-                    });
+            let currentLLMGeneration: { value: string; index: number } | null = null;
+            let latestUserEdit: { value: string; timestamp: number } | null = null;
+
+            // Find LLM generation and its latest corresponding user edit
+            for (let i = 0; i < edits.length; i++) {
+                const edit = edits[i];
+                if (edit.type === "llm-generation") {
+                    // If we have a previous pair, add it
+                    if (currentLLMGeneration && latestUserEdit) {
+                        editPairs.push({
+                            llmGeneration: currentLLMGeneration.value,
+                            userEdit: latestUserEdit.value,
+                            sequenceNumber: globalSequence++,
+                            timestamp: latestUserEdit.timestamp,
+                        });
+                    }
+                    // Start new pair
+                    currentLLMGeneration = { value: edit.cellValue, index: i };
+                    latestUserEdit = null;
+                } else if (
+                    edit.type === "user-edit" &&
+                    currentLLMGeneration &&
+                    i > currentLLMGeneration.index
+                ) {
+                    // Update to the latest user edit for the current LLM generation
+                    latestUserEdit = { value: edit.cellValue, timestamp: edit.timestamp };
                 }
+            }
+
+            // Add the final pair if we have one
+            if (currentLLMGeneration && latestUserEdit) {
+                editPairs.push({
+                    llmGeneration: currentLLMGeneration.value,
+                    userEdit: latestUserEdit.value,
+                    sequenceNumber: globalSequence++,
+                    timestamp: latestUserEdit.timestamp,
+                });
             }
         }
     }
