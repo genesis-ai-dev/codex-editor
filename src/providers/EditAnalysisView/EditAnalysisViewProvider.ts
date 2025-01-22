@@ -60,7 +60,10 @@ export class EditAnalysisProvider implements vscode.Disposable {
         // Create points for the line graph
         const points = dataPoints
             .map((d) => {
-                const x = (d.x / maxX) * (width - 2 * padding) + padding;
+                const x =
+                    dataPoints.length === 1
+                        ? padding // Place the point on the y-axis if it's the only one
+                        : (d.x / maxX) * (width - 2 * padding) + padding;
                 const y = height - ((d.y / maxY) * (height - 2 * padding) + padding);
                 return `${x},${y}`;
             })
@@ -228,7 +231,10 @@ export class EditAnalysisProvider implements vscode.Disposable {
                         <polyline class="graph-line" points="${points}"/>
                         ${dataPoints
                             .map((d) => {
-                                const x = (d.x / maxX) * (width - 2 * padding) + padding;
+                                const x =
+                                    dataPoints.length === 1
+                                        ? padding // Place the point on the y-axis if it's the only one
+                                        : (d.x / maxX) * (width - 2 * padding) + padding;
                                 const y =
                                     height - ((d.y / maxY) * (height - 2 * padding) + padding);
                                 return `<circle class="graph-point" 
@@ -245,18 +251,22 @@ export class EditAnalysisProvider implements vscode.Disposable {
 
                 <details style="margin-top: 30px;">
                     <summary style="cursor: pointer; padding: 10px; background: var(--vscode-editor-inactiveSelectionBackground); border-radius: 6px;">
-                        <h2 style="display: inline-block; margin: 0;">Raw Edit Data</h2>
+                        <h2 style="display: inline-block; margin: 0;">${dataPoints.length === 0 ? "No Data to Display" : "Raw Edit Data"}</h2>
                     </summary>
                     <pre style="background: var(--vscode-editor-inactiveSelectionBackground); padding: 15px; border-radius: 6px; overflow: auto; margin-top: 10px;">
-${dataPoints
-    .map(
-        (d) => `Edit #${d.x + 1}:
+${
+    dataPoints.length === 0
+        ? "No Data to Display"
+        : dataPoints
+              .map(
+                  (d) => `Edit #${d.x + 1}:
 • Distance: ${d.y}
 • LLM Text: "${d.llmText}"
 • User Edit: "${d.userText}"
 `
-    )
-    .join("\n")}
+              )
+              .join("\n")
+}
                     </pre>
                 </details>
             </div>

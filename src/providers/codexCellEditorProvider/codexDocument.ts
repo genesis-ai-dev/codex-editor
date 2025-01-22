@@ -107,6 +107,24 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
 
+        // Normalize content by removing HTML entities and tags for comparison
+        const normalizeContent = (content: string) => {
+            return content
+                .replace(/<[^>]*>/g, "") // Remove HTML tags
+                .replace(/&nbsp;|&amp;|&lt;|&gt;|&quot;|&#39;/g, "") // Remove common HTML entities
+                .replace(/&#\d+;/g, "") // Remove numeric HTML entities
+                .replace(/&[a-zA-Z]+;/g, "") // Remove other named HTML entities
+                .trim();
+        };
+
+        // For user edits, only add the edit if content has actually changed
+        if (
+            editType === EditType.USER_EDIT &&
+            normalizeContent(cellToUpdate.value) === normalizeContent(newContent)
+        ) {
+            return; // Skip adding edit if normalized content hasn't changed
+        }
+
         // Update cell content and metadata in memory
         cellToUpdate.value = newContent;
         if (!cellToUpdate.metadata.edits) {
