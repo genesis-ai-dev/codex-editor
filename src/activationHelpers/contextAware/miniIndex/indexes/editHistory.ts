@@ -12,6 +12,7 @@ interface EditPair {
     llmGeneration: string;
     userEdit: string;
     sequenceNumber: number;
+    llmTimestamp: number;
 }
 
 interface TimeSnapshot {
@@ -101,7 +102,7 @@ export async function analyzeEditHistory(): Promise<{
     }>;
 }> {
     const targetFiles = await getTargetFilesContent();
-    const editPairs: (EditPair & { timestamp: number })[] = [];
+    const editPairs: EditPair[] = [];
     let globalSequence = 0;
 
     // First, collect all user edits with their cell IDs and timestamps
@@ -109,6 +110,7 @@ export async function analyzeEditHistory(): Promise<{
         cellId: string;
         edit: Edit;
         llmGeneration: string | null;
+        llmTimestamp: number | null;
     }> = [];
 
     // Collect all user edits and their context
@@ -117,9 +119,12 @@ export async function analyzeEditHistory(): Promise<{
             if (!cell.metadata?.edits || !cell.metadata?.id) continue;
 
             let currentLLM: string | null = null;
+            let currentLLMTimestamp: number | null = null;
+            
             for (const edit of cell.metadata.edits as Edit[]) {
                 if (edit.type === "llm-generation") {
                     currentLLM = edit.cellValue;
+                    currentLLMTimestamp = edit.timestamp;
                     continue;
                 }
                 if (edit.type === "user-edit") {
@@ -127,27 +132,28 @@ export async function analyzeEditHistory(): Promise<{
                         cellId: cell.metadata.id,
                         edit: edit as Edit,
                         llmGeneration: currentLLM,
+                        llmTimestamp: currentLLMTimestamp
                     });
                 }
             }
         }
     }
 
-    // Sort all user edits chronologically
-    allEdits.sort((a, b) => a.edit.timestamp - b.edit.timestamp);
+    // Sort all user edits chronologically by LLM generation time
+    allEdits.sort((a, b) => (a.llmTimestamp ?? 0) - (b.llmTimestamp ?? 0));
 
     // Track the last edit for each cell ID
     let currentCellId: string | null = null;
     let currentEdits: Array<{
         userEdit: string;
         llmText: string;
-        timestamp: number;
+        llmTimestamp: number;
     }> = [];
 
     // Process edits in chronological order
     for (let i = 0; i < allEdits.length; i++) {
         const current = allEdits[i];
-        if (!current.llmGeneration) continue;
+        if (!current.llmGeneration || !current.llmTimestamp) continue;
 
         // If we're switching to a new cell
         if (currentCellId !== null && currentCellId !== current.cellId) {
@@ -157,7 +163,7 @@ export async function analyzeEditHistory(): Promise<{
                     llmGeneration: currentEdits[currentEdits.length - 1].llmText,
                     userEdit: currentEdits[currentEdits.length - 1].userEdit,
                     sequenceNumber: globalSequence++,
-                    timestamp: currentEdits[currentEdits.length - 1].timestamp,
+                    llmTimestamp: currentEdits[currentEdits.length - 1].llmTimestamp,
                 });
             }
             // Reset current edits since we're moving to a new cell
@@ -169,7 +175,7 @@ export async function analyzeEditHistory(): Promise<{
         currentEdits.push({
             userEdit: current.edit.cellValue,
             llmText: current.llmGeneration,
-            timestamp: current.edit.timestamp,
+            llmTimestamp: current.llmTimestamp
         });
 
         // If this is the last edit overall, add it
@@ -178,15 +184,15 @@ export async function analyzeEditHistory(): Promise<{
                 llmGeneration: currentEdits[currentEdits.length - 1].llmText,
                 userEdit: currentEdits[currentEdits.length - 1].userEdit,
                 sequenceNumber: globalSequence++,
-                timestamp: currentEdits[currentEdits.length - 1].timestamp,
+                llmTimestamp: currentEdits[currentEdits.length - 1].llmTimestamp,
             });
         }
     }
 
-    // Sort by timestamp to get chronological order of edits
-    editPairs.sort((a, b) => a.timestamp - b.timestamp);
+    // Sort by LLM generation timestamp to get chronological order of generations
+    editPairs.sort((a, b) => a.llmTimestamp - b.llmTimestamp);
 
-    // Reassign sequence numbers after sorting by timestamp
+    // Reassign sequence numbers after sorting by LLM timestamp
     editPairs.forEach((pair, index) => {
         pair.sequenceNumber = index;
     });
@@ -197,7 +203,7 @@ export async function analyzeEditHistory(): Promise<{
         distance: calculateLevenshteinDistance(pair.llmGeneration, pair.userEdit),
         llmText: pair.llmGeneration,
         userText: pair.userEdit,
-        timestamp: pair.timestamp,
+        timestamp: pair.llmTimestamp,
     }));
 
     // Calculate edit distances for each pair (keep this for backward compatibility)
