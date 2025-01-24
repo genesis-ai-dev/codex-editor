@@ -1,3 +1,4 @@
+import { FrontierAPI } from "./../../../webviews/codex-webviews/src/StartupFLow/types";
 import { LanguageCodes } from "../../utils/languageUtils";
 import { nonCanonicalBookRefs } from "../../utils/verseRefUtils/verseData";
 import { LanguageMetadata, LanguageProjectStatus, Project } from "codex-types";
@@ -12,6 +13,7 @@ import git from "isomorphic-git";
 import fs from "fs";
 import http from "isomorphic-git/http/web";
 import { getAuthApi } from "../../extension";
+import { stageAndCommitAllAndSync, mergeAndResolveConflicts } from "./merge";
 
 export interface ProjectDetails {
     projectName?: string;
@@ -313,7 +315,7 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
                 // Create .gitignore file
                 const gitignorePath = vscode.Uri.joinPath(WORKSPACE_FOLDER.uri, ".gitignore");
                 const gitignoreContent = Buffer.from(
-                    ".project/dictionary.sqlite\n.DS_Store\n.project/complete_drafts.txt\n",
+                    ".project/dictionary.sqlite\n.DS_Store\n.project/complete_drafts.txt\ncopilot-messages.log\n",
                     "utf8"
                 );
                 await vscode.workspace.fs.writeFile(gitignorePath, gitignoreContent);
@@ -802,29 +804,4 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
     return projects;
 }
 
-export async function stageAndCommitAllAndSync(commitMessage: string): Promise<void> {
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspaceFolder) {
-        vscode.window.showErrorMessage("No workspace folder found");
-        return;
-    }
-    try {
-        try {
-            const remotes = await git.listRemotes({ fs, dir: workspaceFolder });
-            if (remotes.length === 0) {
-                console.log("No remotes found");
-                return;
-            }
-        } catch (error) {
-            vscode.window.showErrorMessage("No git repository found in this project");
-            return;
-        }
-        await vscode.commands.executeCommand("frontier.syncChanges");
-    } catch (error) {
-        console.error("Failed to commit and sync changes:", error);
-        vscode.window.showErrorMessage(
-            `Failed to commit and sync changes: ${error instanceof Error ? error.message : String(error)}`
-        );
-        throw error;
-    }
-}
+export { stageAndCommitAllAndSync, mergeAndResolveConflicts };

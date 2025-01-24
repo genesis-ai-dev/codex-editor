@@ -39,7 +39,7 @@ import { registerStartupFlowCommands } from "./providers/StartupFlow/registerCom
 import { registerPreflightCommand } from "./providers/StartupFlow/preflight";
 import { NotebookMetadataManager } from "./utils/notebookMetadataManager";
 import { stageAndCommitAllAndSync } from "./projectManager/utils/projectUtils";
-import { FrontierAPI } from "../webviews/codex-webviews/src/StartupFlow/types";
+import { FrontierAPI } from "../webviews/codex-webviews/src/StartupFLow/types";
 import { waitForExtensionActivation } from "./utils/vscode";
 
 interface ActivationTiming {
