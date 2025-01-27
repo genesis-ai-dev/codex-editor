@@ -41,7 +41,7 @@ export class ICEEdits {
         // Remove HTML tags
         let strippedText = text.replace(/<[^>]*>/g, "");
         // Remove common HTML entities
-        strippedText = strippedText.replace(/&nbsp;/g, " ");
+        strippedText = strippedText.replace(/&nbsp; ?/g, " ");
         // Keep apostrophe or typographic apostrophe
         strippedText = strippedText.replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&#34;/g, "");
         // Remove other numeric HTML entities

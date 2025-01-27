@@ -134,7 +134,6 @@ export default function Editor(props: EditorProps) {
                 return delta;
             });
 
-            
             quillRef.current = quill;
 
             if (props.initialValue) {
@@ -178,7 +177,7 @@ export default function Editor(props: EditorProps) {
                                 .replace(/<p><\/p>(\s*<p><\/p>)+/g, "<p></p>") // Remove consecutive empty paragraphs
                                 .replace(/^(\s*<p><\/p>)+/, "") // Remove leading empty paragraphs
                                 .replace(/(\s*<p><\/p>)+$/, "") // Remove trailing empty paragraphs
-                                .replace(/&nbsp; ?/g, "");
+                                .replace(/&nbsp; ?/g, " ");
                         };
 
                         const trimmedContent = removeExcessiveEmptyTags(cleanedContents);
