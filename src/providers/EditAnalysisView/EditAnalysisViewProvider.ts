@@ -224,7 +224,7 @@ export class EditAnalysisProvider implements vscode.Disposable {
                         <line class="axis" x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}"/>
                         
                         <!-- Axis labels -->
-                        <text class="axis-label" x="${width / 2}" y="${height - 10}" text-anchor="middle">Edit Sequence</text>
+                        <text class="axis-label" x="${width / 2}" y="${height - 10}" text-anchor="middle">LLM Generation Sequence</text>
                         <text class="axis-label" x="15" y="${height / 2}" text-anchor="middle" transform="rotate(-90, 15, ${height / 2})">Edit Distance</text>
                         
                         <!-- Data points and line -->

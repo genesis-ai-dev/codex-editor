@@ -9,3 +9,4 @@ webviews/editable-react-table/node_modules
 /webviews/commentsWebview
 .DS_Store
 package-lock.json
+.project/complete_drafts.txt

@@ -69,7 +69,7 @@ const VideoTimelineEditor: React.FC<VideoTimelineEditorProps> = ({
         return text
             .replace(/<[^>]*>?/g, "")
             .replace(/\n/g, " ")
-            .replace(/&nbsp;/g, " ");
+            .replace(/&nbsp; ?/g, " ");
     };
 
     const data: TimeBlock[] = translationUnitsForSection.map((unit) => ({
