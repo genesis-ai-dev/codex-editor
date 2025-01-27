@@ -72,6 +72,7 @@ export async function resolveConflictFile(
             case ConflictResolutionStrategy.CODEX_CUSTOM_MERGE: {
                 debug("Resolving codex custom merge for:", conflict.filepath);
                 resolvedContent = await resolveCodexCustomMerge(conflict.ours, conflict.theirs);
+                debug("Successfully merged codex content");
                 break;
             }
 
@@ -81,9 +82,9 @@ export async function resolveConflictFile(
 
         // Write resolved content back to the actual file
         const targetPath = vscode.Uri.file(path.join(workspaceDir, conflict.filepath));
+        debug("Writing resolved content to:", targetPath.fsPath);
         await vscode.workspace.fs.writeFile(targetPath, Buffer.from(resolvedContent));
-
-        debug("Resolved conflict for:", conflict.filepath);
+        debug("Successfully wrote content for:", conflict.filepath);
 
         return conflict.filepath;
     } catch (e) {
@@ -237,45 +238,58 @@ async function resolveSmartEditsConflict(
     ourContent: string,
     theirContent: string
 ): Promise<string> {
-    const ourEdits = JSON.parse(ourContent);
-    const theirEdits = JSON.parse(theirContent);
+    // Handle empty content cases
+    if (!ourContent.trim()) {
+        return theirContent.trim() || "{}";
+    }
+    if (!theirContent.trim()) {
+        return ourContent.trim() || "{}";
+    }
 
-    // Merge the edits, preferring newer versions for same cellIds
-    const mergedEdits: Record<string, SmartEdit> = {};
+    try {
+        const ourEdits = JSON.parse(ourContent);
+        const theirEdits = JSON.parse(theirContent);
 
-    // Process our edits
-    Object.entries(ourEdits).forEach(([cellId, edit]) => {
-        mergedEdits[cellId] = edit as SmartEdit;
-    });
+        // Merge the edits, preferring newer versions for same cellIds
+        const mergedEdits: Record<string, SmartEdit> = {};
 
-    // Process their edits, comparing timestamps for conflicts
-    Object.entries(theirEdits).forEach(([cellId, theirEdit]) => {
-        if (!mergedEdits[cellId]) {
-            mergedEdits[cellId] = theirEdit as SmartEdit;
-        } else {
-            const ourDate = new Date(mergedEdits[cellId].lastUpdatedDate);
-            const theirDate = new Date((theirEdit as SmartEdit).lastUpdatedDate);
+        // Process our edits
+        Object.entries(ourEdits).forEach(([cellId, edit]) => {
+            mergedEdits[cellId] = edit as SmartEdit;
+        });
 
-            if (theirDate > ourDate) {
+        // Process their edits, comparing timestamps for conflicts
+        Object.entries(theirEdits).forEach(([cellId, theirEdit]) => {
+            if (!mergedEdits[cellId]) {
                 mergedEdits[cellId] = theirEdit as SmartEdit;
+            } else {
+                const ourDate = new Date(mergedEdits[cellId].lastUpdatedDate);
+                const theirDate = new Date((theirEdit as SmartEdit).lastUpdatedDate);
+
+                if (theirDate > ourDate) {
+                    mergedEdits[cellId] = theirEdit as SmartEdit;
+                }
+
+                // Merge suggestions arrays and deduplicate
+                const allSuggestions = [
+                    ...mergedEdits[cellId].suggestions,
+                    ...(theirEdit as SmartEdit).suggestions,
+                ];
+
+                // Deduplicate suggestions based on oldString+newString combination
+                mergedEdits[cellId].suggestions = Array.from(
+                    new Map(
+                        allSuggestions.map((sugg) => [`${sugg.oldString}:${sugg.newString}`, sugg])
+                    ).values()
+                );
             }
+        });
 
-            // Merge suggestions arrays and deduplicate
-            const allSuggestions = [
-                ...mergedEdits[cellId].suggestions,
-                ...(theirEdit as SmartEdit).suggestions,
-            ];
-
-            // Deduplicate suggestions based on oldString+newString combination
-            mergedEdits[cellId].suggestions = Array.from(
-                new Map(
-                    allSuggestions.map((sugg) => [`${sugg.oldString}:${sugg.newString}`, sugg])
-                ).values()
-            );
-        }
-    });
-
-    return JSON.stringify(mergedEdits, null, 2);
+        return JSON.stringify(mergedEdits, null, 2);
+    } catch (error) {
+        console.error("Error resolving smart_edits.json conflict:", error);
+        return "{}"; // Return empty object if parsing fails
+    }
 }
 
 /**

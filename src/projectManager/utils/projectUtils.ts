@@ -13,7 +13,7 @@ import git from "isomorphic-git";
 import fs from "fs";
 import http from "isomorphic-git/http/web";
 import { getAuthApi } from "../../extension";
-import { stageAndCommitAllAndSync, mergeAndResolveConflicts } from "./merge";
+import { stageAndCommitAllAndSync } from "./merge";
 
 export interface ProjectDetails {
     projectName?: string;
@@ -804,4 +804,4 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
     return projects;
 }
 
-export { stageAndCommitAllAndSync, mergeAndResolveConflicts };
+export { stageAndCommitAllAndSync };
