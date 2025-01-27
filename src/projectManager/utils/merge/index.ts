@@ -68,14 +68,22 @@ export async function stageAndCommitAllAndSync(commitMessage: string): Promise<v
         // Now try the sync
         const syncResult = await authApi.syncChanges();
         if (syncResult?.hasConflicts) {
-            vscode.window.showInformationMessage("Attempting to resolve conflicts...");
-            const resolvedFiles = await resolveConflictFiles(
-                syncResult.conflicts || [],
-                workspaceFolder
-            );
-            if (resolvedFiles.length > 0) {
-                await authApi.completeMerge(resolvedFiles);
-            }
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: "Resolving conflicts...",
+                cancellable: false
+            }, async (progress) => {
+                progress.report({ increment: 0 });
+                const resolvedFiles = await resolveConflictFiles(
+                    syncResult.conflicts || [],
+                    workspaceFolder
+                );
+                progress.report({ increment: 50 });
+                if (resolvedFiles.length > 0) {
+                    await authApi.completeMerge(resolvedFiles);
+                }
+                progress.report({ increment: 100 });
+            });
         }
     } catch (error) {
         console.error("Failed to commit and sync changes:", error);
