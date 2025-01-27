@@ -32,21 +32,42 @@ export const filePatternsToResolve: Record<ConflictResolutionStrategy, string[]>
 };
 
 export function determineStrategy(filePath: string): ConflictResolutionStrategy {
+    // Normalize the path to handle different path separators
+    const normalizedPath = filePath.replace(/\\/g, "/");
+
     for (const [strategy, patterns] of Object.entries(filePatternsToResolve)) {
         for (const pattern of patterns) {
-            // Simple wildcard matching for now
+            const normalizedPattern = pattern.replace(/\\/g, "/");
+
+            // Exact match for files that should be ignored
+            if (strategy === ConflictResolutionStrategy.IGNORE) {
+                if (
+                    normalizedPath.endsWith("/" + normalizedPattern) ||
+                    normalizedPath === normalizedPattern
+                ) {
+                    console.log(`File ${filePath} matched IGNORE pattern ${pattern}`);
+                    return ConflictResolutionStrategy.IGNORE;
+                }
+                continue;
+            }
+
+            // For other strategies, use the existing wildcard matching
             if (pattern.includes("*")) {
                 const regex = new RegExp(pattern.replace("*", ".*"));
-                if (regex.test(filePath)) return strategy as ConflictResolutionStrategy;
-            } else if (filePath.endsWith(pattern)) {
+                if (regex.test(normalizedPath)) return strategy as ConflictResolutionStrategy;
+            } else if (
+                normalizedPath.endsWith("/" + normalizedPattern) ||
+                normalizedPath === normalizedPattern
+            ) {
                 return strategy as ConflictResolutionStrategy;
             }
         }
     }
+
     console.warn(
         "No merge strategy found for file:",
         filePath,
         "defaulting to OVERRIDE (take the newest version)"
     );
-    return ConflictResolutionStrategy.OVERRIDE; // Default to override
+    return ConflictResolutionStrategy.OVERRIDE;
 }

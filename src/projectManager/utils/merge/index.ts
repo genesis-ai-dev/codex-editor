@@ -33,6 +33,7 @@ export async function stageAndCommitAllAndSync(commitMessage: string): Promise<v
     }
 
     try {
+        // First check if we have a valid git repo
         try {
             const remotes = await git.listRemotes({ fs, dir: workspaceFolder });
             if (remotes.length === 0) {
@@ -44,14 +45,37 @@ export async function stageAndCommitAllAndSync(commitMessage: string): Promise<v
             return;
         }
 
-        const conflicts = await authApi.syncChanges();
-        if (conflicts?.hasConflicts) {
-            vscode.window.showInformationMessage("Attempting to resolve conflicts manually...");
+        // Get the status before syncing to check for unmerged paths
+        const status = await git.statusMatrix({ fs, dir: workspaceFolder });
+        const hasUnmergedPaths = status.some(([_filepath, _head, _workdir, stage]) => stage === 2);
+
+        if (hasUnmergedPaths) {
+            console.log("Detected unmerged paths, attempting to resolve...");
+            // Try to resolve any existing conflicts first
+            const conflicts = await authApi.syncChanges();
+            if (conflicts?.hasConflicts) {
+                console.log("Resolving conflicts...");
+                const resolvedFiles = await resolveConflictFiles(
+                    conflicts.conflicts || [],
+                    workspaceFolder
+                );
+                if (resolvedFiles.length > 0) {
+                    await authApi.completeMerge(resolvedFiles);
+                }
+            }
+        }
+
+        // Now try the sync
+        const syncResult = await authApi.syncChanges();
+        if (syncResult?.hasConflicts) {
+            vscode.window.showInformationMessage("Attempting to resolve conflicts...");
             const resolvedFiles = await resolveConflictFiles(
-                conflicts?.conflicts || [],
+                syncResult.conflicts || [],
                 workspaceFolder
             );
-            await authApi.completeMerge(resolvedFiles);
+            if (resolvedFiles.length > 0) {
+                await authApi.completeMerge(resolvedFiles);
+            }
         }
     } catch (error) {
         console.error("Failed to commit and sync changes:", error);
@@ -61,50 +85,6 @@ export async function stageAndCommitAllAndSync(commitMessage: string): Promise<v
         throw error;
     }
 }
-
-// async function mergeAndResolveConflicts(oursBranch: string, theirsBranch: string) {
-//     const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-//     if (!workspaceFolder) {
-//         vscode.window.showErrorMessage("No workspace folder found");
-//         return;
-//     }
-
-//     const authApi = getAuthApi();
-//     if (!authApi) {
-//         vscode.window.showErrorMessage("No auth API found");
-//         return;
-//     }
-
-//     try {
-//         await git
-//             .merge({
-//                 fs,
-//                 dir: workspaceFolder,
-//                 ours: oursBranch,
-//                 theirs: theirsBranch,
-//                 abortOnConflict: false,
-//             })
-//             .catch(async (error) => {
-//                 if (error?.name === "MergeConflictError") {
-//                     vscode.window.showInformationMessage(
-//                         "Merge conflict detected, applying custom resolution..."
-//                     );
-//                     const resolvedFiles = await resolveConflictFiles(
-//                         error.data as ConflictFile[],
-//                         workspaceFolder
-//                     );
-
-//                     // Alert the FrontierAPI that we've resolved conflicts manually, so it can create the merge commit
-//                     console.log("Resolved files:", resolvedFiles);
-//                     await authApi.completeMerge(resolvedFiles);
-//                 } else {
-//                     throw error;
-//                 }
-//             });
-//     } catch (error) {
-//         vscode.window.showErrorMessage(`Merge failed: ${String(error)}`);
-//     }
-// }
 
 // Re-export types and functions that should be available to consumers
 export * from "./types";
