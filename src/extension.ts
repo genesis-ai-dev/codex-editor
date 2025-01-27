@@ -438,6 +438,8 @@ async function executeCommandsAfter() {
     vscode.commands.executeCommand("codexNotebookTreeView.refresh");
     vscode.commands.executeCommand("codexNotebookTreeView.focus");
     vscode.commands.executeCommand("codex-editor-extension.setEditorFontToTargetLanguage");
+    // turn on auto-save
+    vscode.commands.executeCommand("workbench.action.autoSave.enable");
 }
 
 export function deactivate() {
