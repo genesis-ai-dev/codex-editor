@@ -321,6 +321,15 @@ export async function resolveConflictFiles(
             continue;
         }
 
+        // Check if file exists before trying to resolve
+        const filePath = vscode.Uri.joinPath(vscode.Uri.file(workspaceDir), conflict.filepath);
+        try {
+            await vscode.workspace.fs.stat(filePath);
+        } catch {
+            console.log(`Skipping conflict resolution for deleted file: ${conflict.filepath}`);
+            continue;
+        }
+
         const resolvedFile = await resolveConflictFile(conflict, workspaceDir);
         if (resolvedFile) {
             resolvedFiles.push(resolvedFile);
