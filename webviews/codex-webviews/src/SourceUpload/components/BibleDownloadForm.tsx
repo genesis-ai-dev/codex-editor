@@ -17,6 +17,7 @@ interface BibleDownloadFormProps {
     onCancel: () => void;
     error?: string;
     onRetry?: () => void;
+    initialLanguage?: string;
 }
 
 interface BibleInfo {
@@ -26,9 +27,21 @@ interface BibleInfo {
     year: string;
 }
 
-export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({ onDownload, onCancel, error, onRetry }) => {
-    const [selectedLanguage, setSelectedLanguage] = useState<string>("");
-    const [languageFilter, setLanguageFilter] = useState<string>("");
+export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({
+    onDownload,
+    onCancel,
+    error,
+    onRetry,
+    initialLanguage
+}) => {
+    const [selectedLanguage, setSelectedLanguage] = useState<string>(initialLanguage || "");
+    const [languageFilter, setLanguageFilter] = useState<string>(() => {
+        if (initialLanguage) {
+            const language = getAvailableLanguages().find(l => l.code === initialLanguage);
+            return language ? language.name : "";
+        }
+        return "";
+    });
     const [selectedBible, setSelectedBible] = useState<string>("");
     const [bibleFilter, setBibleFilter] = useState<string>("");
     const [asTranslationOnly, setAsTranslationOnly] = useState(false);
