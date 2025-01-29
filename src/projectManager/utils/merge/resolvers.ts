@@ -144,15 +144,33 @@ async function resolveCodexCustomMerge(ourContent: string, theirContent: string)
                 uniqueEdits.reverse().find((edit) => edit.type === EditType.USER_EDIT) ||
                 uniqueEdits[uniqueEdits.length - 1];
 
+            // Ensure the latest edit is in the history
+            const finalValue = latestEdit?.cellValue ?? ourCell.value; // Nullish coalescing to keep empty strings from being overwritten
+            const finalEdits = [...uniqueEdits];
+
+            // If the latest edit doesn't match our final value, add it to the history
+            if (
+                latestEdit &&
+                finalEdits.length > 0 &&
+                finalEdits[finalEdits.length - 1].cellValue !== finalValue
+            ) {
+                finalEdits.push({
+                    ...latestEdit,
+                    timestamp: Date.now(),
+                    cellValue: finalValue,
+                    author: latestEdit?.author || "unknown",
+                });
+            }
+
             // Create merged cell with combined history
             const mergedCell: CodexCell = {
                 ...ourCell,
-                value: latestEdit?.cellValue || ourCell.value,
+                value: finalValue,
                 metadata: {
                     ...ourCell.metadata,
-                    id: cellId, // We already checked cellId exists above
-                    edits: uniqueEdits,
-                    type: ourCell.metadata?.type || CodexCellTypes.TEXT, // Fix type error by ensuring type is set
+                    id: cellId,
+                    edits: finalEdits,
+                    type: ourCell.metadata?.type || CodexCellTypes.TEXT,
                 },
             };
 
