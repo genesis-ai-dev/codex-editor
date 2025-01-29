@@ -1,11 +1,13 @@
 import React from "react";
 import { ImportType } from "../types";
+import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 
 interface ImportTypeSelectorProps {
     onSelect: (type: ImportType) => void;
+    onCancel: () => void;
 }
 
-export const ImportTypeSelector: React.FC<ImportTypeSelectorProps> = ({ onSelect }) => {
+export const ImportTypeSelector: React.FC<ImportTypeSelectorProps> = ({ onSelect, onCancel }) => {
     return (
         <div style={{ padding: "1.5rem", textAlign: "center" }}>
             <h2 style={{ marginBottom: "1.5rem" }}>What would you like to import?</h2>
@@ -15,7 +17,8 @@ export const ImportTypeSelector: React.FC<ImportTypeSelectorProps> = ({ onSelect
                     display: "flex",
                     gap: "1.5rem",
                     justifyContent: "center",
-                    flexWrap: "wrap"
+                    flexWrap: "wrap",
+                    marginBottom: "2rem"
                 }}
             >
                 <div
@@ -110,6 +113,12 @@ export const ImportTypeSelector: React.FC<ImportTypeSelectorProps> = ({ onSelect
                         Download a Bible translation from online sources
                     </p>
                 </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "center" }}>
+                <VSCodeButton appearance="secondary" onClick={onCancel}>
+                    Cancel
+                </VSCodeButton>
             </div>
         </div>
     );

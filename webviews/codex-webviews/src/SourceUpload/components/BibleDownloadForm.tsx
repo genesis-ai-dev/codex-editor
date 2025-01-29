@@ -15,6 +15,8 @@ import {
 interface BibleDownloadFormProps {
     onDownload: (metadata: ExtendedMetadata, asTranslationOnly: boolean) => void;
     onCancel: () => void;
+    error?: string;
+    onRetry?: () => void;
 }
 
 interface BibleInfo {
@@ -24,7 +26,7 @@ interface BibleInfo {
     year: string;
 }
 
-export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({ onDownload, onCancel }) => {
+export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({ onDownload, onCancel, error, onRetry }) => {
     const [selectedLanguage, setSelectedLanguage] = useState<string>("");
     const [languageFilter, setLanguageFilter] = useState<string>("");
     const [selectedBible, setSelectedBible] = useState<string>("");
@@ -32,8 +34,17 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({ onDownload
     const [asTranslationOnly, setAsTranslationOnly] = useState(false);
     const [isLanguageDropdownOpen, setIsLanguageDropdownOpen] = useState(false);
     const [isBibleDropdownOpen, setIsBibleDropdownOpen] = useState(false);
+    const [previousLanguage, setPreviousLanguage] = useState<{code: string, name: string} | null>(null);
+    const [previousBible, setPreviousBible] = useState<BibleInfo | null>(null);
+    const [isLanguageEditing, setIsLanguageEditing] = useState(false);
+    const [isBibleEditing, setIsBibleEditing] = useState(false);
+    const [highlightedLanguageIndex, setHighlightedLanguageIndex] = useState(-1);
+    const [highlightedBibleIndex, setHighlightedBibleIndex] = useState(-1);
+    
     const languageDropdownRef = useRef<HTMLDivElement>(null);
     const bibleDropdownRef = useRef<HTMLDivElement>(null);
+    const languageListRef = useRef<HTMLDivElement>(null);
+    const bibleListRef = useRef<HTMLDivElement>(null);
 
     const availableLanguages = useMemo(() => getAvailableLanguages(), []);
 
@@ -93,7 +104,6 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({ onDownload
         );
     }, [availableBibles, bibleFilter]);
 
-    // Close dropdowns when clicking outside
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (
@@ -101,31 +111,52 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({ onDownload
                 !languageDropdownRef.current.contains(event.target as Node)
             ) {
                 setIsLanguageDropdownOpen(false);
+                if (isLanguageEditing && !selectedLanguage && previousLanguage) {
+                    setSelectedLanguage(previousLanguage.code);
+                    setLanguageFilter(previousLanguage.name);
+                }
+                setIsLanguageEditing(false);
             }
             if (
                 bibleDropdownRef.current &&
                 !bibleDropdownRef.current.contains(event.target as Node)
             ) {
                 setIsBibleDropdownOpen(false);
+                if (isBibleEditing && !selectedBible && previousBible) {
+                    setSelectedBible(previousBible.id);
+                    setBibleFilter(`${previousBible.displayTitle} ${previousBible.year} - ${previousBible.coverage}`);
+                }
+                setIsBibleEditing(false);
             }
         };
 
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, []);
+    }, [isLanguageEditing, isBibleEditing, previousLanguage, previousBible, selectedLanguage, selectedBible]);
 
     const handleLanguageSelect = (code: string, name: string) => {
+        // If selecting the same language as before, preserve Bible selection
+        const isSameLanguage = code === previousLanguage?.code;
+        setPreviousLanguage({ code, name });
         setSelectedLanguage(code);
         setLanguageFilter(name);
         setIsLanguageDropdownOpen(false);
-        setSelectedBible(""); // Reset bible selection when language changes
-        setBibleFilter(""); // Reset bible filter when language changes
+        setIsLanguageEditing(false);
+        
+        // Only reset Bible selection if selecting a different language
+        if (!isSameLanguage) {
+            setSelectedBible("");
+            setBibleFilter("");
+            setPreviousBible(null);
+        }
     };
 
     const handleBibleSelect = (bible: BibleInfo) => {
+        setPreviousBible(bible);
         setSelectedBible(bible.id);
         setBibleFilter(`${bible.displayTitle} ${bible.year} - ${bible.coverage}`);
         setIsBibleDropdownOpen(false);
+        setIsBibleEditing(false);
     };
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -138,6 +169,68 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({ onDownload
             }
         }
     };
+
+    const handleKeyDown = (
+        e: React.KeyboardEvent,
+        items: any[],
+        highlightedIndex: number,
+        setHighlightedIndex: (index: number) => void,
+        handleSelect: Function,
+        listRef: React.RefObject<HTMLDivElement>
+    ) => {
+        switch (e.key) {
+            case "ArrowDown":
+                e.preventDefault();
+                setHighlightedIndex(Math.min(highlightedIndex + 1, items.length - 1));
+                scrollIntoView(highlightedIndex + 1, listRef);
+                break;
+            case "ArrowUp":
+                e.preventDefault();
+                setHighlightedIndex(Math.max(highlightedIndex - 1, 0));
+                scrollIntoView(highlightedIndex - 1, listRef);
+                break;
+            case "Enter":
+                e.preventDefault();
+                if (highlightedIndex >= 0 && highlightedIndex < items.length) {
+                    const item = items[highlightedIndex];
+                    if ('code' in item) {
+                        handleSelect(item.code, item.name);
+                    } else {
+                        handleSelect(item);
+                    }
+                }
+                break;
+            case "Escape":
+                e.preventDefault();
+                if ('code' in items[0]) {
+                    setIsLanguageDropdownOpen(false);
+                } else {
+                    setIsBibleDropdownOpen(false);
+                }
+                break;
+        }
+    };
+
+    const scrollIntoView = (index: number, listRef: React.RefObject<HTMLDivElement>) => {
+        if (listRef.current) {
+            const element = listRef.current.children[index] as HTMLElement;
+            if (element) {
+                element.scrollIntoView({
+                    block: "nearest",
+                    behavior: "smooth"
+                });
+            }
+        }
+    };
+
+    // Reset highlighted indices when filter changes
+    useEffect(() => {
+        setHighlightedLanguageIndex(-1);
+    }, [languageFilter]);
+
+    useEffect(() => {
+        setHighlightedBibleIndex(-1);
+    }, [bibleFilter]);
 
     return (
         <form
@@ -171,7 +264,26 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({ onDownload
                             setLanguageFilter(e.target.value);
                             setIsLanguageDropdownOpen(true);
                         }}
-                        onFocus={() => setIsLanguageDropdownOpen(true)}
+                        onFocus={(e) => {
+                            setIsLanguageEditing(true);
+                            if (selectedLanguage) {
+                                setLanguageFilter("");
+                                setSelectedLanguage("");
+                            }
+                            setIsLanguageDropdownOpen(true);
+                        }}
+                        onKeyDown={(e) => {
+                            if (isLanguageDropdownOpen && filteredLanguages.length > 0) {
+                                handleKeyDown(
+                                    e,
+                                    filteredLanguages,
+                                    highlightedLanguageIndex,
+                                    setHighlightedLanguageIndex,
+                                    handleLanguageSelect,
+                                    languageListRef
+                                );
+                            }
+                        }}
                         style={{
                             width: "100%",
                             padding: "5px 8px",
@@ -184,6 +296,7 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({ onDownload
                     />
                     {isLanguageDropdownOpen && filteredLanguages.length > 0 && (
                         <div
+                            ref={languageListRef}
                             style={{
                                 position: "absolute",
                                 top: "100%",
@@ -197,33 +310,29 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({ onDownload
                                 zIndex: 1000,
                             }}
                         >
-                            {filteredLanguages.map((language) => (
+                            {filteredLanguages.map((language, index) => (
                                 <div
                                     key={language.code}
-                                    onClick={() =>
-                                        handleLanguageSelect(language.code, language.name)
-                                    }
+                                    onClick={() => handleLanguageSelect(language.code, language.name)}
                                     style={{
                                         padding: "5px 8px",
                                         cursor: "pointer",
                                         backgroundColor:
-                                            selectedLanguage === language.code
+                                            index === highlightedLanguageIndex
                                                 ? "var(--vscode-list-activeSelectionBackground)"
+                                                : selectedLanguage === language.code
+                                                ? "var(--vscode-list-inactiveSelectionBackground)"
                                                 : "transparent",
                                         color:
-                                            selectedLanguage === language.code
+                                            index === highlightedLanguageIndex
                                                 ? "var(--vscode-list-activeSelectionForeground)"
                                                 : "var(--vscode-dropdown-foreground)",
                                     }}
-                                    onMouseEnter={(e) => {
-                                        e.currentTarget.style.backgroundColor =
-                                            "var(--vscode-list-hoverBackground)";
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        e.currentTarget.style.backgroundColor =
-                                            selectedLanguage === language.code
-                                                ? "var(--vscode-list-activeSelectionBackground)"
-                                                : "transparent";
+                                    onMouseEnter={() => setHighlightedLanguageIndex(index)}
+                                    onMouseLeave={(e: React.MouseEvent<HTMLDivElement>) => {
+                                        if ((e.relatedTarget as HTMLElement)?.parentElement !== languageListRef.current) {
+                                            setHighlightedLanguageIndex(-1);
+                                        }
                                     }}
                                 >
                                     {language.name} ({language.code})
@@ -253,7 +362,26 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({ onDownload
                                 setBibleFilter(e.target.value);
                                 setIsBibleDropdownOpen(true);
                             }}
-                            onFocus={() => setIsBibleDropdownOpen(true)}
+                            onFocus={(e) => {
+                                setIsBibleEditing(true);
+                                if (selectedBible) {
+                                    setBibleFilter("");
+                                    setSelectedBible("");
+                                }
+                                setIsBibleDropdownOpen(true);
+                            }}
+                            onKeyDown={(e) => {
+                                if (isBibleDropdownOpen && filteredBibles.length > 0) {
+                                    handleKeyDown(
+                                        e,
+                                        filteredBibles,
+                                        highlightedBibleIndex,
+                                        setHighlightedBibleIndex,
+                                        handleBibleSelect,
+                                        bibleListRef
+                                    );
+                                }
+                            }}
                             style={{
                                 width: "100%",
                                 padding: "5px 8px",
@@ -266,6 +394,7 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({ onDownload
                         />
                         {isBibleDropdownOpen && filteredBibles.length > 0 && (
                             <div
+                                ref={bibleListRef}
                                 style={{
                                     position: "absolute",
                                     top: "100%",
@@ -279,7 +408,7 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({ onDownload
                                     zIndex: 1000,
                                 }}
                             >
-                                {filteredBibles.map((bible) => (
+                                {filteredBibles.map((bible, index) => (
                                     <div
                                         key={bible.id}
                                         onClick={() => handleBibleSelect(bible)}
@@ -287,23 +416,21 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({ onDownload
                                             padding: "5px 8px",
                                             cursor: "pointer",
                                             backgroundColor:
-                                                selectedBible === bible.id
+                                                index === highlightedBibleIndex
                                                     ? "var(--vscode-list-activeSelectionBackground)"
+                                                    : selectedBible === bible.id
+                                                    ? "var(--vscode-list-inactiveSelectionBackground)"
                                                     : "transparent",
                                             color:
-                                                selectedBible === bible.id
+                                                index === highlightedBibleIndex
                                                     ? "var(--vscode-list-activeSelectionForeground)"
                                                     : "var(--vscode-dropdown-foreground)",
                                         }}
-                                        onMouseEnter={(e) => {
-                                            e.currentTarget.style.backgroundColor =
-                                                "var(--vscode-list-hoverBackground)";
-                                        }}
-                                        onMouseLeave={(e) => {
-                                            e.currentTarget.style.backgroundColor =
-                                                selectedBible === bible.id
-                                                    ? "var(--vscode-list-activeSelectionBackground)"
-                                                    : "transparent";
+                                        onMouseEnter={() => setHighlightedBibleIndex(index)}
+                                        onMouseLeave={(e: React.MouseEvent<HTMLDivElement>) => {
+                                            if ((e.relatedTarget as HTMLElement)?.parentElement !== bibleListRef.current) {
+                                                setHighlightedBibleIndex(-1);
+                                            }
                                         }}
                                     >
                                         {bible.displayTitle} {bible.year} - {bible.coverage}
