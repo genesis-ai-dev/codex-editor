@@ -18,6 +18,7 @@ export interface FileData {
                 cellValue: string;
                 timestamp: number;
                 type: string;
+                author?: string;
             }>;
         };
         value: string;

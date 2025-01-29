@@ -12,6 +12,7 @@ import {
     CustomNotebookMetadata,
 } from "../../../types";
 import { CodexCellTypes, EditType } from "../../../types/enums";
+import { getAuthApi } from "@/extension";
 
 export class CodexCellDocument implements vscode.CustomDocument {
     uri: vscode.Uri;
@@ -96,7 +97,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     // Methods to manipulate the document data
-    public updateCellContent(cellId: string, newContent: string, editType: EditType) {
+    public async updateCellContent(cellId: string, newContent: string, editType: EditType) {
         const indexOfCellToUpdate = this._documentData.cells.findIndex(
             (cell) => cell.metadata?.id === cellId
         );
@@ -131,10 +132,16 @@ export class CodexCellDocument implements vscode.CustomDocument {
         if (!cellToUpdate.metadata.edits) {
             cellToUpdate.metadata.edits = [];
         }
+
+        const authApi = await getAuthApi();
+        const userInfo = await authApi?.getUserInfo();
+        const author = userInfo?.username || "anonymous";
+
         cellToUpdate.metadata.edits.push({
             cellValue: newContent,
             timestamp: Date.now(),
             type: editType,
+            author,
         });
 
         // Record the edit
