@@ -105,6 +105,7 @@ interface EditHistoryItem {
     cellValue: string;
     timestamp: number;
     type: import("./enums").EditType;
+    author?: string;
 }
 
 // Relating to Smart Edits
@@ -546,6 +547,7 @@ interface EditHistoryEntry {
     before: string;
     after: string;
     timestamp: number;
+    author?: string;
 }
 
 export type EditorPostMessages =
@@ -677,6 +679,7 @@ type AlertCodesServerResponse = {
 type GetAlertCodes = { text: string; cellId: string }[];
 
 type EditHistory = {
+    author: string;
     cellValue: string;
     timestamp: number;
     type: import("./enums").EditType;

@@ -1,11 +1,12 @@
 import * as vscode from "vscode";
 import { FileData } from "./fileReaders";
 import { getTargetFilesContent } from "./fileReaders";
-
+import { EditType } from "../../../../../types/enums";
 interface Edit {
     cellValue: string;
     timestamp: number;
-    type: "llm-generation" | "user-edit";
+    type: EditType;
+    author?: string;
 }
 
 interface EditPair {
@@ -120,7 +121,7 @@ export async function analyzeEditHistory(): Promise<{
 
             let currentLLM: string | null = null;
             let currentLLMTimestamp: number | null = null;
-            
+
             for (const edit of cell.metadata.edits as Edit[]) {
                 if (edit.type === "llm-generation") {
                     currentLLM = edit.cellValue;
@@ -132,7 +133,7 @@ export async function analyzeEditHistory(): Promise<{
                         cellId: cell.metadata.id,
                         edit: edit as Edit,
                         llmGeneration: currentLLM,
-                        llmTimestamp: currentLLMTimestamp
+                        llmTimestamp: currentLLMTimestamp,
                     });
                 }
             }
@@ -175,7 +176,7 @@ export async function analyzeEditHistory(): Promise<{
         currentEdits.push({
             userEdit: current.edit.cellValue,
             llmText: current.llmGeneration,
-            llmTimestamp: current.llmTimestamp
+            llmTimestamp: current.llmTimestamp,
         });
 
         // If this is the last edit overall, add it

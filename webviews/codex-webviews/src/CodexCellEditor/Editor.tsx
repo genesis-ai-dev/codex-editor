@@ -5,6 +5,8 @@ import registerQuillSpellChecker, { getCleanedHtml } from "./react-quill-spellch
 import { EditorPostMessages, SpellCheckResponse } from "../../../../types";
 import "./TextEditor.css"; // Override the default Quill styles so spans flow
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
+import React from "react";
+import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 
 const icons: any = Quill.import("ui/icons");
 // Assuming you have access to the VSCode API here
@@ -78,6 +80,10 @@ export default function Editor(props: EditorProps) {
     const { setUnsavedChanges } = useContext(UnsavedChangesContext);
     const quillRef = useRef<Quill | null>(null);
     const editorRef = useRef<HTMLDivElement>(null);
+
+    const [currentAuthor, setCurrentAuthor] = useState<string>(
+        (window as any).initialData?.userInfo?.username || "anonymous"
+    );
 
     // Initialize Quill editor
     useEffect(() => {
@@ -223,6 +229,7 @@ export default function Editor(props: EditorProps) {
                                 before: initialContentRef.current,
                                 after: finalContent,
                                 timestamp: Date.now(),
+                                author: currentAuthor,
                             };
                             return [...prev, newEntry];
                         });
@@ -407,4 +414,5 @@ interface EditHistoryEntry {
     before: string;
     after: string;
     timestamp: number;
+    author?: string;
 }
