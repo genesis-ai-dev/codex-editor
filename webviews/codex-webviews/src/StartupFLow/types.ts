@@ -1,6 +1,8 @@
+import { syncUtils } from "./../../../../src/activationHelpers/contextAware/syncUtils";
 import { BiblePreviewData, PreviewContent } from "../../../../types";
 import { DownloadBibleTransaction } from "../../../../src/transactions/DownloadBibleTransaction";
 import * as vscode from "vscode";
+import { ConflictFile } from "../../../../src/projectManager/utils/merge/types";
 
 // Add ImportType type
 export type ImportType = "source" | "translation" | "bible-download";
@@ -216,4 +218,9 @@ export interface FrontierAPI {
         username: string;
     }>;
     getLlmEndpoint: () => Promise<string | undefined>;
+    syncChanges: () => Promise<{
+        hasConflicts: boolean;
+        conflicts?: Array<ConflictFile>;
+    }>;
+    completeMerge: (resolvedFiles: string[]) => Promise<void>;
 }

@@ -402,7 +402,9 @@ export class SmartEdits {
         // Remove HTML tags
         let strippedText = text.replace(/<[^>]*>/g, "");
         // Remove common HTML entities
-        strippedText = strippedText.replace(/&nbsp;|&amp;|&lt;|&gt;|&quot;|&#39;/g, "");
+        strippedText = strippedText.replace(/&amp;|&lt;|&gt;|&quot;|&#39;/g, "");
+        // remove and replace &nbsp; entities
+        strippedText = strippedText.replace(/&nbsp; ?/g, " ");
         // Remove other numeric HTML entities
         strippedText = strippedText.replace(/&#\d+;/g, "");
         // Remove any remaining & entities

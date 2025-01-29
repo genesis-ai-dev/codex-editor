@@ -18,7 +18,7 @@ import {
     openProject,
     createNewProject,
 } from "../utils/projectCreationUtils/projectCreationUtils";
-import { FrontierAPI } from "webviews/codex-webviews/src/StartupFlow/types";
+import { FrontierAPI } from "webviews/codex-webviews/src/StartupFLow/types";
 import { waitForExtensionActivation } from "../utils/vscode";
 import git from "isomorphic-git";
 import * as fs from "fs";
@@ -376,6 +376,11 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                             // FIXME: sometimes this refreshes before the command is finished. Need to return values on all of them
                             // Send a response back to the webview
                             this._view?.webview.postMessage({ command: "actionCompleted" });
+                            break;
+                        case "openEditAnalysis":
+                            await vscode.commands.executeCommand(
+                                "codex-editor-extension.analyzeEdits"
+                            );
                             break;
                         case "initializeProject":
                             console.log("initializeProject");

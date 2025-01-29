@@ -39,7 +39,7 @@ import { registerStartupFlowCommands } from "./providers/StartupFlow/registerCom
 import { registerPreflightCommand } from "./providers/StartupFlow/preflight";
 import { NotebookMetadataManager } from "./utils/notebookMetadataManager";
 import { stageAndCommitAllAndSync } from "./projectManager/utils/projectUtils";
-import { FrontierAPI } from "../webviews/codex-webviews/src/StartupFlow/types";
+import { FrontierAPI } from "../webviews/codex-webviews/src/StartupFLow/types";
 import { waitForExtensionActivation } from "./utils/vscode";
 
 interface ActivationTiming {
@@ -438,6 +438,8 @@ async function executeCommandsAfter() {
     vscode.commands.executeCommand("codexNotebookTreeView.refresh");
     vscode.commands.executeCommand("codexNotebookTreeView.focus");
     vscode.commands.executeCommand("codex-editor-extension.setEditorFontToTargetLanguage");
+    // turn on auto-save
+    vscode.commands.executeCommand("workbench.action.autoSave.enable");
 }
 
 export function deactivate() {

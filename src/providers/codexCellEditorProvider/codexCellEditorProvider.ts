@@ -14,6 +14,7 @@ import {
 import { CodexCellDocument } from "./codexDocument";
 import { CodexCellEditorMessageHandling } from "./codexCellEditorMessagehandling";
 import { GlobalProvider } from "../../globalProvider";
+import { getAuthApi } from "@/extension";
 
 function getNonce(): string {
     let text = "";
@@ -28,6 +29,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private messageHandler: CodexCellEditorMessageHandling;
     public currentDocument: CodexCellDocument | undefined;
     private webviewPanel: vscode.WebviewPanel | undefined;
+    private userInfo: { username: string; email: string } | undefined;
 
     public static register(context: vscode.ExtensionContext): vscode.Disposable {
         const provider = new CodexCellEditorProvider(context);
@@ -106,6 +108,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Initial setup
         this.webviewPanel = webviewPanel;
         this.currentDocument = document;
+        const authApi = await getAuthApi();
+        this.userInfo = await authApi?.getUserInfo();
 
         // Enable scripts in the webview
         webviewPanel.webview.options = {
@@ -348,7 +352,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         isSourceText: ${isSourceText},
                         videoUrl: ${videoUri ? `"${videoUri}"` : "null"},
                         sourceCellMap: ${JSON.stringify(document._sourceCellMap)},
-                        metadata: ${JSON.stringify(notebookData.metadata)}
+                        metadata: ${JSON.stringify(notebookData.metadata)},
+                        userInfo: ${JSON.stringify(this.userInfo)}
                     };
                 </script>
             </head>

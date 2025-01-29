@@ -253,7 +253,8 @@ export class SmartPassages {
                               .map((edit, index) => {
                                   const plainText = edit.cellValue
                                       .replace(/<[^>]*>/g, "")
-                                      .replace(/&nbsp;|&amp;|&lt;|&gt;|&quot;|&#39;/g, "")
+                                      .replace(/&amp;|&lt;|&gt;|&quot;|&#39;/g, "")
+                                      .replace(/&nbsp; ?/g, " ")
                                       .replace(/&#\d+;/g, "")
                                       .replace(/&[a-zA-Z]+;/g, "");
 

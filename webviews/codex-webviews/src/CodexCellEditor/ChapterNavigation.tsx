@@ -14,7 +14,7 @@ interface ChapterNavigationProps {
     chapterNumber: number;
     setChapterNumber: React.Dispatch<React.SetStateAction<number>>;
     unsavedChanges: boolean;
-    onAutocompleteChapter: () => void;
+    onAutocompleteChapter: (numberOfCells: number) => void;
     onSetTextDirection: (direction: "ltr" | "rtl") => void;
     textDirection: "ltr" | "rtl";
     onSetCellDisplayMode: (mode: CELL_DISPLAY_MODES) => void;
@@ -60,7 +60,10 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     handleExportVtt: onExportVtt,
 }) => {
     const [showConfirm, setShowConfirm] = useState(false);
-    const [numberOfCellsToAutocomplete, setNumberOfCellsToAutocomplete] = useState(5);
+    const defaultCustomValue = Math.min(5, totalCellsToAutocomplete);
+    const [numberOfCellsToAutocomplete, setNumberOfCellsToAutocomplete] =
+        useState(defaultCustomValue);
+    const [customValue, setCustomValue] = useState(defaultCustomValue);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState(false);
 
     const handleAutocompleteClick = () => {
@@ -68,7 +71,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     };
 
     const handleConfirmAutocomplete = () => {
-        onAutocompleteChapter();
+        onAutocompleteChapter(numberOfCellsToAutocomplete);
         setShowConfirm(false);
     };
 
@@ -126,16 +129,92 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                         </VSCodeButton>
                         {showConfirm ? (
                             <div className="autocomplete-confirm-container">
-                                <VSCodeTag>Autocomplete {numberOfCellsToAutocomplete}</VSCodeTag>
+                                <VSCodeTag>
+                                    Autocomplete {numberOfCellsToAutocomplete || 0} Cells
+                                </VSCodeTag>
                                 <VSCodeRadioGroup
-                                    value={numberOfCellsToAutocomplete.toString()}
+                                    value={
+                                        numberOfCellsToAutocomplete === totalCellsToAutocomplete
+                                            ? totalCellsToAutocomplete.toString()
+                                            : "custom"
+                                    }
                                     onChange={(e) => {
                                         const target = e.target as HTMLInputElement;
-                                        setNumberOfCellsToAutocomplete(parseInt(target.value));
+                                        if (target.value === "custom") {
+                                            if (totalCellsToAutocomplete === 0) {
+                                                setCustomValue(0);
+                                                setNumberOfCellsToAutocomplete(0);
+                                            } else if (!customValue) {
+                                                const defaultValue = Math.min(
+                                                    5,
+                                                    totalCellsToAutocomplete
+                                                );
+                                                setCustomValue(defaultValue);
+                                                setNumberOfCellsToAutocomplete(defaultValue);
+                                            } else {
+                                                setNumberOfCellsToAutocomplete(customValue);
+                                            }
+                                        } else if (
+                                            target.value === totalCellsToAutocomplete.toString()
+                                        ) {
+                                            setNumberOfCellsToAutocomplete(
+                                                totalCellsToAutocomplete
+                                            );
+                                        }
                                     }}
                                 >
                                     <label slot="label">Autocomplete</label>
-                                    <VSCodeRadio value="5">5</VSCodeRadio>
+                                    <VSCodeRadio value="custom">
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            max={Math.min(5, totalCellsToAutocomplete)}
+                                            value={customValue === 0 ? "0" : customValue}
+                                            onFocus={(e) => {
+                                                const defaultValue = Math.min(
+                                                    5,
+                                                    totalCellsToAutocomplete
+                                                );
+                                                if (!customValue) {
+                                                    setCustomValue(defaultValue);
+                                                }
+                                                setNumberOfCellsToAutocomplete(
+                                                    customValue || defaultValue
+                                                );
+
+                                                // Select the custom radio button
+                                                const radioGroup =
+                                                    e.currentTarget.closest("vscode-radio-group");
+                                                if (radioGroup) {
+                                                    const event = new Event("change", {
+                                                        bubbles: true,
+                                                    });
+                                                    Object.defineProperty(event, "target", {
+                                                        value: { value: "custom" },
+                                                        enumerable: true,
+                                                    });
+                                                    radioGroup.dispatchEvent(event);
+                                                }
+                                            }}
+                                            onChange={(e) => {
+                                                const inputValue = e.target.value;
+                                                if (inputValue === "") {
+                                                    setCustomValue(0);
+                                                    setNumberOfCellsToAutocomplete(0);
+                                                    return;
+                                                }
+                                                const value = Math.min(
+                                                    parseInt(inputValue),
+                                                    Math.min(5, totalCellsToAutocomplete)
+                                                );
+                                                if (!isNaN(value)) {
+                                                    setCustomValue(value);
+                                                    setNumberOfCellsToAutocomplete(value);
+                                                }
+                                            }}
+                                            style={{ width: "60px", marginLeft: "8px" }}
+                                        />
+                                    </VSCodeRadio>
                                     <VSCodeRadio value={totalCellsToAutocomplete.toString()}>
                                         All ({totalCellsToAutocomplete})
                                     </VSCodeRadio>
@@ -143,7 +222,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                                 <VSCodeButton
                                     appearance="secondary"
                                     onClick={handleConfirmAutocomplete}
-                                    disabled={unsavedChanges}
+                                    disabled={unsavedChanges || numberOfCellsToAutocomplete === 0}
                                 >
                                     <i className="codicon codicon-check"></i>
                                 </VSCodeButton>

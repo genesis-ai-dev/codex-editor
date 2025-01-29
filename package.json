@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.1.11",
+    "version": "0.1.16",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -92,6 +92,11 @@
                     "id": "codex-project-manager.welcomeView",
                     "name": "Codex Project Manager",
                     "when": "workbenchState == empty"
+                },
+                {
+                    "type": "webview",
+                    "id": "codex-editor.editAnalysis",
+                    "name": "AI Metrics"
                 }
             ],
             "genesis-translator-sidebar-view": [
@@ -510,6 +515,10 @@
                 "command": "codexNotebookTreeView.refresh",
                 "title": "Refresh",
                 "icon": "$(refresh)"
+            },
+            {
+                "command": "codex-editor-extension.analyzeEdits",
+                "title": "Analyze Edits"
             },
             {
                 "command": "codexNotebookTreeView.openSection",
@@ -1204,7 +1213,6 @@
         "minimatch": "5.1.2"
     },
     "extensionDependencies": [
-        "project-accelerate.shared-state-store",
-        "vscode.git"
+        "project-accelerate.shared-state-store"
     ]
 }

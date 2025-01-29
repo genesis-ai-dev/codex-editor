@@ -105,6 +105,7 @@ interface EditHistoryItem {
     cellValue: string;
     timestamp: number;
     type: import("./enums").EditType;
+    author?: string;
 }
 
 // Relating to Smart Edits
@@ -546,6 +547,7 @@ interface EditHistoryEntry {
     before: string;
     after: string;
     timestamp: number;
+    author?: string;
 }
 
 export type EditorPostMessages =
@@ -677,6 +679,7 @@ type AlertCodesServerResponse = {
 type GetAlertCodes = { text: string; cellId: string }[];
 
 type EditHistory = {
+    author: string;
     cellValue: string;
     timestamp: number;
     type: import("./enums").EditType;
@@ -781,6 +784,9 @@ interface ProjectOverview extends Project {
     targetFont: string;
     primarySourceText?: vscode.Uri;
     isAuthenticated: boolean;
+    meta: Omit<Project["meta"], "generator"> & {
+        generator: Project["meta"]["generator"] & { userEmail?: string };
+    };
 }
 
 /* This is the project metadata that is saved in the metadata.json file */
@@ -793,6 +799,7 @@ type ProjectMetadata = {
             softwareName: string;
             softwareVersion: string;
             userName: string;
+            userEmail?: string;
         };
         defaultLocale: string;
         dateCreated: string;
@@ -1007,7 +1014,8 @@ type ProjectManagerMessageFromWebview =
     | { command: "openBible"; data: { path: string } }
     | { command: "checkPublishStatus" }
     | { command: "publishProject" }
-    | { command: "syncProject" };
+    | { command: "syncProject" }
+    | { command: "openEditAnalysis" };
 
 interface ProjectManagerState {
     projectOverview: ProjectOverview | null;

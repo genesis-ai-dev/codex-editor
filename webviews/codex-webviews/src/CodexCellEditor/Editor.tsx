@@ -5,6 +5,8 @@ import registerQuillSpellChecker, { getCleanedHtml } from "./react-quill-spellch
 import { EditorPostMessages, SpellCheckResponse } from "../../../../types";
 import "./TextEditor.css"; // Override the default Quill styles so spans flow
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
+import React from "react";
+import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 
 const icons: any = Quill.import("ui/icons");
 // Assuming you have access to the VSCode API here
@@ -79,6 +81,10 @@ export default function Editor(props: EditorProps) {
     const quillRef = useRef<Quill | null>(null);
     const editorRef = useRef<HTMLDivElement>(null);
 
+    const [currentAuthor, setCurrentAuthor] = useState<string>(
+        (window as any).initialData?.userInfo?.username || "anonymous"
+    );
+
     // Initialize Quill editor
     useEffect(() => {
         if (editorRef.current && !quillRef.current) {
@@ -133,7 +139,6 @@ export default function Editor(props: EditorProps) {
                 setUnsavedChanges(true);
                 return delta;
             });
-            
 
             quillRef.current = quill;
 
@@ -171,13 +176,14 @@ export default function Editor(props: EditorProps) {
                     if (props.onChange) {
                         const cleanedContents = getCleanedHtml(content);
 
-                        // New function to remove excessive empty paragraphs and line breaks
+                        // New function to remove excessive empty paragraphs and line breaks and &nbsp; (of both kinds) which appear inconsistently
                         const removeExcessiveEmptyTags = (html: string) => {
                             return html
                                 .replace(/<p><br><\/p>/g, "<p></p>") // Replace <p><br></p> with <p></p>
                                 .replace(/<p><\/p>(\s*<p><\/p>)+/g, "<p></p>") // Remove consecutive empty paragraphs
                                 .replace(/^(\s*<p><\/p>)+/, "") // Remove leading empty paragraphs
-                                .replace(/(\s*<p><\/p>)+$/, ""); // Remove trailing empty paragraphs
+                                .replace(/(\s*<p><\/p>)+$/, "") // Remove trailing empty paragraphs
+                                .replace(/&nbsp; ?/g, " ");
                         };
 
                         const trimmedContent = removeExcessiveEmptyTags(cleanedContents);
@@ -223,6 +229,7 @@ export default function Editor(props: EditorProps) {
                                 before: initialContentRef.current,
                                 after: finalContent,
                                 timestamp: Date.now(),
+                                author: currentAuthor,
                             };
                             return [...prev, newEntry];
                         });
@@ -407,4 +414,5 @@ interface EditHistoryEntry {
     before: string;
     after: string;
     timestamp: number;
+    author?: string;
 }

@@ -21,6 +21,8 @@ import {
 import { exportCodexContent } from "../../commands/exportHandler";
 import { DownloadBibleTransaction } from "../../transactions/DownloadBibleTransaction";
 import { getExtendedEbibleMetadataByLanguageNameOrCode } from "../../utils/ebible/ebibleCorpusUtils";
+import { analyzeEditHistory } from "./miniIndex/indexes/editHistory";
+import { createEditAnalysisProvider } from "../../providers/EditAnalysisView/EditAnalysisViewProvider";
 
 export async function registerCommands(context: vscode.ExtensionContext) {
     const indexVrefsCommand = vscode.commands.registerCommand(
@@ -28,6 +30,18 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         indexVerseRefsInSourceText
     );
 
+    const analyzeEditsCommand = vscode.commands.registerCommand(
+        "codex-editor-extension.analyzeEdits",
+        async () => {
+            try {
+                const provider = createEditAnalysisProvider(context.extensionUri);
+                await provider.show();
+            } catch (error) {
+                console.error("Failed to analyze edits:", error);
+                await vscode.window.showErrorMessage("Failed to analyze edit history");
+            }
+        }
+    );
     const searchIndexCommand = vscode.commands.registerCommand(
         "codex-editor-extension.searchIndex",
         async () => {
@@ -285,6 +299,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         openSourceUploadCommand,
         uploadSourceFolderCommand,
         uploadTranslationFolderCommand,
-        downloadSourceBibleCommand
+        downloadSourceBibleCommand,
+        analyzeEditsCommand
     );
 }
