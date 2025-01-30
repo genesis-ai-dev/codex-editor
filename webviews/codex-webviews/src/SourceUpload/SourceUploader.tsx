@@ -223,13 +223,31 @@ export const SourceUploader: React.FC = () => {
     );
 
     const handleCancel = useCallback(() => {
-        setWorkflow((prev) => ({
-            ...prev,
-            step: "type-select",
-            importType: null,
-            error: null,
-            bibleDownload: undefined,
-        }));
+        setWorkflow((prev) => {
+            // For Bible download, preserve the language selection
+            if (prev.importType === "bible-download" && prev.bibleDownload?.language) {
+                return {
+                    ...prev,
+                    step: "select",
+                    error: undefined,
+                    bibleDownload: {
+                        ...prev.bibleDownload,
+                        status: "idle",
+                        translationId: ""
+                    },
+                    currentTransaction: undefined,
+                    preview: undefined
+                };
+            }
+            // For other cases, reset to initial state
+            return {
+                ...prev,
+                step: "type-select",
+                importType: null,
+                error: undefined,
+                bibleDownload: undefined
+            };
+        });
     }, [setWorkflow]);
 
     const handleFileDrop = useCallback(
@@ -401,9 +419,21 @@ export const SourceUploader: React.FC = () => {
                     onCancel={() => {
                         vscode.postMessage({
                             command: "cancelBibleDownload",
-                            transaction: workflow.currentTransaction,
+                            transaction: workflow.currentTransaction
                         } as SourceUploadPostMessages);
-                        handleCancel();
+                        setWorkflow((prev) => ({
+                            ...prev,
+                            step: "select",
+                            importType: "bible-download",
+                            error: undefined,
+                            bibleDownload: prev.bibleDownload ? {
+                                ...prev.bibleDownload,
+                                status: "idle",
+                                translationId: ""
+                            } : undefined,
+                            currentTransaction: undefined,
+                            preview: undefined
+                        }));
                     }}
                 />
             );
@@ -563,12 +593,23 @@ export const SourceUploader: React.FC = () => {
                                 }
                             }}
                             onCancel={() => {
-                                if (workflow.currentTransaction) {
-                                    vscode.postMessage({
-                                        command: "cancelBibleDownload",
-                                        transaction: workflow.currentTransaction,
-                                    });
-                                }
+                                vscode.postMessage({
+                                    command: "cancelBibleDownload",
+                                    transaction: workflow.currentTransaction
+                                } as SourceUploadPostMessages);
+                                setWorkflow((prev) => ({
+                                    ...prev,
+                                    step: "select",
+                                    importType: "bible-download",
+                                    error: undefined,
+                                    bibleDownload: prev.bibleDownload ? {
+                                        ...prev.bibleDownload,
+                                        status: "idle",
+                                        translationId: ""
+                                    } : undefined,
+                                    currentTransaction: undefined,
+                                    preview: undefined
+                                }));
                             }}
                         />
                     );

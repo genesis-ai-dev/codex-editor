@@ -352,8 +352,10 @@ export class SourceUploadProvider
                         break;
                     case "cancelBibleDownload":
                         try {
-                            const transaction = message.transaction as DownloadBibleTransaction;
-                            await transaction.rollback();
+                            if (this.currentDownloadBibleTransaction) {
+                                await this.currentDownloadBibleTransaction.rollback();
+                                this.currentDownloadBibleTransaction = null;
+                            }
                             webviewPanel.webview.postMessage({
                                 command: "bibleDownloadCancelled",
                             } as SourceUploadResponseMessages);
