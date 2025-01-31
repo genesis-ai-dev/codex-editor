@@ -223,13 +223,31 @@ export const SourceUploader: React.FC = () => {
     );
 
     const handleCancel = useCallback(() => {
-        setWorkflow((prev) => ({
-            ...prev,
-            step: "type-select",
-            importType: null,
-            error: null,
-            bibleDownload: undefined,
-        }));
+        setWorkflow((prev) => {
+            // For Bible download, preserve the language selection
+            if (prev.importType === "bible-download" && prev.bibleDownload?.language) {
+                return {
+                    ...prev,
+                    step: "select",
+                    error: undefined,
+                    bibleDownload: {
+                        ...prev.bibleDownload,
+                        status: "idle",
+                        translationId: ""
+                    },
+                    currentTransaction: undefined,
+                    preview: undefined
+                };
+            }
+            // For other cases, reset to initial state
+            return {
+                ...prev,
+                step: "type-select",
+                importType: null,
+                error: undefined,
+                bibleDownload: undefined
+            };
+        });
     }, [setWorkflow]);
 
     const handleFileDrop = useCallback(
@@ -401,9 +419,21 @@ export const SourceUploader: React.FC = () => {
                     onCancel={() => {
                         vscode.postMessage({
                             command: "cancelBibleDownload",
-                            transaction: workflow.currentTransaction,
+                            transaction: workflow.currentTransaction
                         } as SourceUploadPostMessages);
-                        handleCancel();
+                        setWorkflow((prev) => ({
+                            ...prev,
+                            step: "select",
+                            importType: "bible-download",
+                            error: undefined,
+                            bibleDownload: prev.bibleDownload ? {
+                                ...prev.bibleDownload,
+                                status: "idle",
+                                translationId: ""
+                            } : undefined,
+                            currentTransaction: undefined,
+                            preview: undefined
+                        }));
                     }}
                 />
             );
@@ -437,7 +467,10 @@ export const SourceUploader: React.FC = () => {
     const renderWorkflowStep = () => {
         switch (workflow.step) {
             case "type-select":
-                return <ImportTypeSelector onSelect={handleImportTypeSelect} />;
+                return <ImportTypeSelector 
+                    onSelect={handleImportTypeSelect}
+                    onCancel={handleCancel}
+                />;
 
             case "select":
                 if (workflow.importType === "bible-download") {
@@ -445,6 +478,7 @@ export const SourceUploader: React.FC = () => {
                         <BibleDownloadForm
                             onDownload={handleBibleDownload}
                             onCancel={handleCancel}
+                            initialLanguage={workflow.bibleDownload?.language}
                         />
                     );
                 }
@@ -559,12 +593,23 @@ export const SourceUploader: React.FC = () => {
                                 }
                             }}
                             onCancel={() => {
-                                if (workflow.currentTransaction) {
-                                    vscode.postMessage({
-                                        command: "cancelBibleDownload",
-                                        transaction: workflow.currentTransaction,
-                                    });
-                                }
+                                vscode.postMessage({
+                                    command: "cancelBibleDownload",
+                                    transaction: workflow.currentTransaction
+                                } as SourceUploadPostMessages);
+                                setWorkflow((prev) => ({
+                                    ...prev,
+                                    step: "select",
+                                    importType: "bible-download",
+                                    error: undefined,
+                                    bibleDownload: prev.bibleDownload ? {
+                                        ...prev.bibleDownload,
+                                        status: "idle",
+                                        translationId: ""
+                                    } : undefined,
+                                    currentTransaction: undefined,
+                                    preview: undefined
+                                }));
                             }}
                         />
                     );
@@ -601,22 +646,56 @@ export const SourceUploader: React.FC = () => {
                     />
                 );
 
-            // case "processing":
-            //     return (
-            //         <div style={{ padding: "2rem" }}>
-            //             <ProcessingStages
-            //                 stages={workflow.processingStages}
-            //                 importType={workflow.importType || "source"}
-            //             />
-            //             {workflow.progress && (
-            //                 <ProgressDisplay
-            //                     progress={workflow.progress}
-            //                     stages={workflow.processingStages}
-            //                     importType={workflow.importType || "source"}
-            //                 />
-            //             )}
-            //         </div>
-            //     );
+            case "processing":
+                return (
+                    <div style={{ padding: "2rem" }}>
+                        {workflow.error && workflow.error.includes("404 Not Found") ? (
+                            <div
+                                style={{
+                                    padding: "1rem",
+                                    marginBottom: "1rem",
+                                    backgroundColor: "var(--vscode-inputValidation-errorBackground)",
+                                    border: "1px solid var(--vscode-inputValidation-errorBorder)",
+                                    color: "var(--vscode-inputValidation-errorForeground)",
+                                    borderRadius: "4px",
+                                }}
+                            >
+                                <div style={{ marginBottom: "1rem" }}>
+                                    {workflow.error}
+                                </div>
+                                <VSCodeButton onClick={() => {
+                                    setWorkflow(prev => ({
+                                        ...prev,
+                                        step: "select",
+                                        error: undefined,
+                                        // Preserve the language selection if it exists
+                                        bibleDownload: prev.bibleDownload ? {
+                                            ...prev.bibleDownload,
+                                            status: "idle",
+                                            translationId: ""
+                                        } : undefined
+                                    }));
+                                }}>
+                                    Go Back and Try Another Translation
+                                </VSCodeButton>
+                            </div>
+                        ) : (
+                            <>
+                                <ProcessingStages
+                                    stages={workflow.processingStages}
+                                    importType={workflow.importType || "source"}
+                                />
+                                {workflow.progress && (
+                                    <ProgressDisplay
+                                        progress={workflow.progress}
+                                        stages={workflow.processingStages}
+                                        importType={workflow.importType || "source"}
+                                    />
+                                )}
+                            </>
+                        )}
+                    </div>
+                );
 
             case "complete":
                 return (
@@ -736,7 +815,7 @@ export const SourceUploader: React.FC = () => {
                         steps={["type-select", "select", "preview", "processing", "complete"]}
                         onStepClick={handleStepClick}
                     />
-                    {workflow.error && (
+                    {workflow.error && !workflow.error.includes("404 Not Found") && (
                         <div
                             style={{
                                 padding: "1rem",
