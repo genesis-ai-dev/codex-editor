@@ -52,7 +52,7 @@ export async function stageAndCommitAllAndSync(commitMessage: string): Promise<v
         if (hasUnmergedPaths) {
             console.log("Detected unmerged paths, attempting to resolve...");
             // Try to resolve any existing conflicts first
-            const conflicts = await authApi.syncChanges();
+            const conflicts = await authApi.syncChanges(); // FIXME: why does this assume every file is a completely new file / conflict??
             if (conflicts?.hasConflicts) {
                 console.log("Resolving conflicts...");
                 const resolvedFiles = await resolveConflictFiles(
@@ -68,22 +68,25 @@ export async function stageAndCommitAllAndSync(commitMessage: string): Promise<v
         // Now try the sync
         const syncResult = await authApi.syncChanges();
         if (syncResult?.hasConflicts) {
-            await vscode.window.withProgress({
-                location: vscode.ProgressLocation.Notification,
-                title: "Resolving conflicts...",
-                cancellable: false
-            }, async (progress) => {
-                progress.report({ increment: 0 });
-                const resolvedFiles = await resolveConflictFiles(
-                    syncResult.conflicts || [],
-                    workspaceFolder
-                );
-                progress.report({ increment: 50 });
-                if (resolvedFiles.length > 0) {
-                    await authApi.completeMerge(resolvedFiles);
+            await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: "Resolving conflicts...",
+                    cancellable: false,
+                },
+                async (progress) => {
+                    progress.report({ increment: 0 });
+                    const resolvedFiles = await resolveConflictFiles(
+                        syncResult.conflicts || [],
+                        workspaceFolder
+                    );
+                    progress.report({ increment: 50 });
+                    if (resolvedFiles.length > 0) {
+                        await authApi.completeMerge(resolvedFiles);
+                    }
+                    progress.report({ increment: 100 });
                 }
-                progress.report({ increment: 100 });
-            });
+            );
         }
     } catch (error) {
         console.error("Failed to commit and sync changes:", error);
