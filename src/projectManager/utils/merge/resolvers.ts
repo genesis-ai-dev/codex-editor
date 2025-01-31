@@ -138,10 +138,13 @@ async function resolveCodexCustomMerge(ourContent: string, theirContent: string)
                     )
             );
 
+            // Sort edits by timestamp to ensure most recent is last
+            uniqueEdits.sort((a, b) => a.timestamp - b.timestamp);
+
             // Get the latest user edit's value, or latest edit if no user edits exist
             // i.e., we will take the latest llm generation if there are no user edits
             const latestEdit =
-                uniqueEdits.reverse().find((edit) => edit.type === EditType.USER_EDIT) ||
+                uniqueEdits.filter((edit) => edit.type === EditType.USER_EDIT).pop() ||
                 uniqueEdits[uniqueEdits.length - 1];
 
             // Ensure the latest edit is in the history
@@ -161,6 +164,9 @@ async function resolveCodexCustomMerge(ourContent: string, theirContent: string)
                     author: latestEdit?.author || "unknown",
                 });
             }
+
+            // Sort one final time to ensure the new edit is properly placed
+            finalEdits.sort((a, b) => a.timestamp - b.timestamp);
 
             // Create merged cell with combined history
             const mergedCell: CodexCell = {
