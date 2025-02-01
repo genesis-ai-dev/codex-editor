@@ -7,6 +7,7 @@ interface ColumnMapping {
     targetColumn: string;
     idColumn?: string;
     metadataColumns: string[];
+    hasHeaders: boolean;
 }
 
 interface TranslationPairsState extends ImportTransactionState {
@@ -31,28 +32,6 @@ export class TranslationPairsImportTransaction extends ImportTransaction {
         this.delimiter = sourceFile.path.endsWith(".csv") ? "," : "\t";
     }
 
-    private async createTempDir(): Promise<vscode.Uri> {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
-            throw new Error("No workspace folder found");
-        }
-
-        const tempDir = vscode.Uri.joinPath(workspaceFolder.uri, ".codex-temp");
-        try {
-            await vscode.workspace.fs.createDirectory(tempDir);
-        } catch (error) {
-            // Directory might already exist, which is fine
-            if (error instanceof vscode.FileSystemError && error.code !== "FileExists") {
-                throw error;
-            }
-        }
-        return tempDir;
-    }
-
-    private async getTempDir(): Promise<vscode.Uri> {
-        return this.createTempDir();
-    }
-
     getId(): string {
         return this.state.sourceFile.toString();
     }
@@ -61,7 +40,7 @@ export class TranslationPairsImportTransaction extends ImportTransaction {
         const fileContent = await vscode.workspace.fs.readFile(this.state.sourceFile);
         const content = Buffer.from(fileContent).toString("utf-8");
 
-        // Parse just the first line to get headers
+        // Parse just the first line to get headers/columns
         const firstLine = content.split("\n")[0];
         const parsedHeaders = parse(firstLine, {
             delimiter: this.delimiter,
@@ -70,21 +49,27 @@ export class TranslationPairsImportTransaction extends ImportTransaction {
             to: 1, // Only parse first line
         }) as string[][];
 
-        const headers = parsedHeaders[0];
+        // If no headers, generate column numbers
+        const headers = parsedHeaders[0].map((_, i) => `Column ${i + 1}`);
         this.state.headers = headers;
         return { headers };
     }
 
     async setColumnMapping(mapping: ColumnMapping): Promise<void> {
+        // Validate column indices exist
+        const columnCount = this.state.headers?.length || 0;
+        const sourceIndex = parseInt(mapping.sourceColumn.replace("Column ", "")) - 1;
+        const targetIndex = parseInt(mapping.targetColumn.replace("Column ", "")) - 1;
+        const idIndex = mapping.idColumn
+            ? parseInt(mapping.idColumn.replace("Column ", "")) - 1
+            : -1;
+
         if (
-            !this.state.headers?.includes(mapping.sourceColumn) ||
-            !this.state.headers?.includes(mapping.targetColumn)
+            sourceIndex >= columnCount ||
+            targetIndex >= columnCount ||
+            (idIndex !== -1 && idIndex >= columnCount)
         ) {
             throw new Error("Invalid column mapping");
-        }
-
-        if (mapping.idColumn && !this.state.headers?.includes(mapping.idColumn)) {
-            throw new Error("Invalid ID column specified");
         }
 
         this.state.columnMapping = mapping;
@@ -95,21 +80,27 @@ export class TranslationPairsImportTransaction extends ImportTransaction {
             throw new Error("Column mapping must be set before processing");
         }
 
+        // Create temp directory if it doesn't exist
+        if (!this.tempDir) {
+            await this.createTempDirectory();
+        }
+
         const fileContent = await vscode.workspace.fs.readFile(this.state.sourceFile);
         const content = Buffer.from(fileContent).toString("utf-8");
 
-        // Parse the entire file
+        // Parse the file based on whether it has headers
         const parsedRecords = parse(content, {
             delimiter: this.delimiter,
-            columns: true,
+            columns: this.state.columnMapping.hasHeaders,
             skip_empty_lines: true,
             cast: true,
+            from_line: this.state.columnMapping.hasHeaders ? 1 : 0,
         }) as Record<string, string>[];
 
         this.state.records = parsedRecords;
 
-        // Create source and codex files in temp directory
-        const tempDir = await this.getTempDir();
+        // Get temp directory (will throw if not created)
+        const tempDir = this.getTempDir();
         const baseName = this.state.sourceFile.path.split("/").pop()?.split(".")[0] || "untitled";
 
         const sourceUri = vscode.Uri.joinPath(tempDir, `${baseName}.source`);
@@ -118,17 +109,54 @@ export class TranslationPairsImportTransaction extends ImportTransaction {
         const { sourceColumn, targetColumn, idColumn, metadataColumns } = this.state.columnMapping;
 
         // Transform records into source and codex format
-        const cells = parsedRecords.map((record: Record<string, string>, index: number) => ({
-            id: idColumn && record[idColumn] ? record[idColumn] : `cell-${index}`,
-            content: record[sourceColumn],
-            metadata: Object.fromEntries(metadataColumns.map((col) => [col, record[col]])),
-        }));
+        const cells = parsedRecords.map((record: Record<string, string>, index: number) => {
+            // If no headers, use column indices
+            const sourceContent = this.state.columnMapping?.hasHeaders
+                ? record[sourceColumn]
+                : record[`Column ${parseInt(sourceColumn.replace("Column ", ""))}`];
 
-        const translations = parsedRecords.map((record: Record<string, string>, index: number) => ({
-            id: idColumn && record[idColumn] ? record[idColumn] : `cell-${index}`,
-            content: record[targetColumn],
-            metadata: {},
-        }));
+            const id =
+                idColumn && this.state.columnMapping?.hasHeaders
+                    ? record[idColumn]
+                    : idColumn
+                      ? record[`Column ${parseInt(idColumn.replace("Column ", ""))}`]
+                      : `cell-${index}`;
+
+            const metadata = Object.fromEntries(
+                metadataColumns.map((col) => [
+                    col,
+                    this.state.columnMapping?.hasHeaders
+                        ? record[col]
+                        : record[`Column ${parseInt(col.replace("Column ", ""))}`],
+                ])
+            );
+
+            return {
+                id: id || `cell-${index}`,
+                content: sourceContent,
+                metadata,
+            };
+        });
+
+        const translations = parsedRecords.map((record: Record<string, string>, index: number) => {
+            // If no headers, use column indices
+            const targetContent = this.state.columnMapping?.hasHeaders
+                ? record[targetColumn]
+                : record[`Column ${parseInt(targetColumn.replace("Column ", ""))}`];
+
+            const id =
+                idColumn && this.state.columnMapping?.hasHeaders
+                    ? record[idColumn]
+                    : idColumn
+                      ? record[`Column ${parseInt(idColumn.replace("Column ", ""))}`]
+                      : `cell-${index}`;
+
+            return {
+                id: id || `cell-${index}`,
+                content: targetContent,
+                metadata: {},
+            };
+        });
 
         // Write the files
         await vscode.workspace.fs.writeFile(
@@ -154,6 +182,7 @@ export class TranslationPairsImportTransaction extends ImportTransaction {
             columnMapping: this.state.columnMapping,
             totalPairs: this.state.records.length,
             importDate: new Date().toISOString(),
+            hasHeaders: this.state.columnMapping.hasHeaders,
         };
 
         // Add metadata to the notebook using addOrUpdateMetadata

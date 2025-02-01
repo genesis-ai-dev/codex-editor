@@ -8,6 +8,7 @@ interface TranslationPairsFormProps {
         targetColumn: string;
         idColumn?: string;
         metadataColumns: string[];
+        hasHeaders: boolean;
     }) => void;
     onCancel: () => void;
 }
@@ -21,10 +22,13 @@ export const TranslationPairsForm: React.FC<TranslationPairsFormProps> = ({
     const [targetColumn, setTargetColumn] = useState<string>("");
     const [idColumn, setIdColumn] = useState<string>("");
     const [metadataColumns, setMetadataColumns] = useState<string[]>([]);
+    const [hasHeaders, setHasHeaders] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     // Try to auto-detect columns
     useEffect(() => {
+        if (!hasHeaders) return;
+
         const sourceMatches = headers.filter(
             (h) =>
                 h.toLowerCase().includes("source") ||
@@ -44,7 +48,7 @@ export const TranslationPairsForm: React.FC<TranslationPairsFormProps> = ({
         if (sourceMatches.length === 1) setSourceColumn(sourceMatches[0]);
         if (targetMatches.length === 1) setTargetColumn(targetMatches[0]);
         if (idMatches.length === 1) setIdColumn(idMatches[0]);
-    }, [headers]);
+    }, [headers, hasHeaders]);
 
     const handleSubmit = () => {
         if (!sourceColumn || !targetColumn) {
@@ -56,6 +60,7 @@ export const TranslationPairsForm: React.FC<TranslationPairsFormProps> = ({
             targetColumn,
             ...(idColumn ? { idColumn } : {}),
             metadataColumns,
+            hasHeaders,
         });
     };
 
@@ -67,6 +72,22 @@ export const TranslationPairsForm: React.FC<TranslationPairsFormProps> = ({
             </p>
 
             <div className="form-group">
+                <label className="checkbox-label">
+                    <input
+                        type="checkbox"
+                        checked={hasHeaders}
+                        onChange={(e) => setHasHeaders(e.target.checked)}
+                    />
+                    File has headers
+                </label>
+                <p className="help-text">
+                    {hasHeaders
+                        ? "The first row contains column names"
+                        : "The first row contains data"}
+                </p>
+            </div>
+
+            <div className="form-group">
                 <label>Source Text Column *</label>
                 <VSCodeDropdown
                     value={sourceColumn}
@@ -76,9 +97,9 @@ export const TranslationPairsForm: React.FC<TranslationPairsFormProps> = ({
                     }}
                 >
                     <VSCodeOption value="">Select a column</VSCodeOption>
-                    {headers.map((header) => (
+                    {headers.map((header, index) => (
                         <VSCodeOption key={header} value={header}>
-                            {header}
+                            {hasHeaders ? header : `Column ${index + 1}`}
                         </VSCodeOption>
                     ))}
                 </VSCodeDropdown>
@@ -94,9 +115,9 @@ export const TranslationPairsForm: React.FC<TranslationPairsFormProps> = ({
                     }}
                 >
                     <VSCodeOption value="">Select a column</VSCodeOption>
-                    {headers.map((header) => (
+                    {headers.map((header, index) => (
                         <VSCodeOption key={header} value={header}>
-                            {header}
+                            {hasHeaders ? header : `Column ${index + 1}`}
                         </VSCodeOption>
                     ))}
                 </VSCodeDropdown>
@@ -112,9 +133,9 @@ export const TranslationPairsForm: React.FC<TranslationPairsFormProps> = ({
                     }}
                 >
                     <VSCodeOption value="">None</VSCodeOption>
-                    {headers.map((header) => (
+                    {headers.map((header, index) => (
                         <VSCodeOption key={header} value={header}>
-                            {header}
+                            {hasHeaders ? header : `Column ${index + 1}`}
                         </VSCodeOption>
                     ))}
                 </VSCodeDropdown>
@@ -125,7 +146,7 @@ export const TranslationPairsForm: React.FC<TranslationPairsFormProps> = ({
                 <div className="metadata-columns">
                     {headers
                         .filter((h) => h !== sourceColumn && h !== targetColumn && h !== idColumn)
-                        .map((header) => (
+                        .map((header, index) => (
                             <label key={header}>
                                 <input
                                     type="checkbox"
@@ -140,7 +161,7 @@ export const TranslationPairsForm: React.FC<TranslationPairsFormProps> = ({
                                         }
                                     }}
                                 />
-                                {header}
+                                {hasHeaders ? header : `${header} (Value in Column ${index + 1})`}
                             </label>
                         ))}
                 </div>
@@ -165,6 +186,16 @@ export const TranslationPairsForm: React.FC<TranslationPairsFormProps> = ({
                 .form-group label {
                     display: block;
                     margin-bottom: 0.5rem;
+                }
+                .checkbox-label {
+                    display: flex !important;
+                    align-items: center;
+                    gap: 0.5rem;
+                }
+                .help-text {
+                    font-size: 0.9em;
+                    opacity: 0.8;
+                    margin-top: 0.25rem;
                 }
                 .metadata-columns {
                     display: grid;
