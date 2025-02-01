@@ -1,6 +1,6 @@
 import React from "react";
 import { VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
-import { ImportType, ProcessingStatus } from "../../../../../types";
+import { ImportType, ProcessingStatus, WorkflowStep } from "../types";
 import { BibleDownloadStages } from "../types";
 
 interface ProcessingStagesProps {
@@ -13,6 +13,11 @@ interface ProcessingStagesProps {
         }
     >;
     importType: ImportType;
+    progress?: {
+        message: string;
+        increment: number;
+    };
+    step: WorkflowStep;
 }
 
 const getBibleDownloadStages = (): BibleDownloadStages => ({
@@ -48,7 +53,7 @@ const getBibleDownloadStages = (): BibleDownloadStages => ({
     },
 });
 
-export const ProcessingStages: React.FC<ProcessingStagesProps> = ({ stages, importType }) => {
+export const ProcessingStages: React.FC<ProcessingStagesProps> = ({ stages, importType, progress, step }) => {
     const currentStages = React.useMemo(() => {
         if (importType === "bible-download") {
             // Start with Bible download stages
@@ -68,103 +73,113 @@ export const ProcessingStages: React.FC<ProcessingStagesProps> = ({ stages, impo
         return stages;
     }, [stages, importType]);
 
-    const getImportTypeTitle = () => {
-        switch (importType) {
-            case "source":
-                return "Processing Source Text";
-            case "translation":
-                return "Processing Translation";
-            case "bible-download":
-                return "Downloading Bible";
-            default:
-                return "Processing";
-        }
-    };
-
-    const getImportTypeDescription = () => {
-        switch (importType) {
-            case "source":
-                return "Creating source notebooks and preparing translation templates";
-            case "translation":
-                return "Processing translation file and linking with source text";
-            case "bible-download":
-                return "Downloading and processing Bible content";
-            default:
-                return "Processing content";
-        }
+    const title = {
+        heading: step === "preview-download" ? "Downloading Preview Content" : "Downloading Bible",
+        subheading: step === "preview-download" ? undefined : "Downloading and processing Bible content"
     };
 
     return (
-        <div
-            style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "1rem",
-                padding: "1rem",
-            }}
-        >
-            <div style={{ marginBottom: "1rem" }}>
-                <h3>{getImportTypeTitle()}</h3>
-                <p
-                    style={{
-                        color: "var(--vscode-descriptionForeground)",
+        <div style={{ marginBottom: "2rem" }}>
+            <h2 style={{ marginBottom: "0.5rem" }}>{title.heading}</h2>
+            {title.subheading && (
+                <p style={{ marginBottom: "1rem", opacity: 0.8 }}>{title.subheading}</p>
+            )}
+            
+            {/* Progress bar */}
+            {progress && (
+                <div style={{ marginBottom: "1.5rem" }}>
+                    <div style={{
+                        position: "relative",
+                        width: "100%",
+                        height: "4px",
+                        backgroundColor: "var(--vscode-progressBar-background)",
+                        borderRadius: "2px"
+                    }}>
+                        <div style={{
+                            position: "absolute",
+                            left: 0,
+                            top: 0,
+                            width: `${progress.increment}%`,
+                            height: "100%",
+                            backgroundColor: "var(--vscode-progressBar-foreground)",
+                            borderRadius: "2px",
+                            transition: "width 0.3s ease-in-out"
+                        }} />
+                    </div>
+                    <div style={{ 
                         fontSize: "0.9em",
                         marginTop: "0.5rem",
-                    }}
-                >
-                    {getImportTypeDescription()}
-                </p>
-            </div>
-
-            {Object.entries(currentStages).map(([key, stage]) => (
-                <div
-                    key={key}
-                    style={{
-                        display: "flex",
-                        alignItems: "flex-start",
-                        gap: "1rem",
-                        padding: "1rem",
-                        background: "var(--vscode-editor-background)",
-                        borderRadius: "4px",
-                    }}
-                >
-                    <div
-                        style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "0.5rem",
-                            minWidth: "24px",
-                            justifyContent: "center",
-                        }}
-                    >
-                        {stage.status === "active" && <VSCodeProgressRing />}
-                        {stage.status === "complete" && (
-                            <i
-                                className="codicon codicon-check"
-                                style={{ color: "var(--vscode-testing-iconPassed)" }}
-                            />
-                        )}
-                        {stage.status === "error" && (
-                            <i
-                                className="codicon codicon-error"
-                                style={{ color: "var(--vscode-testing-iconFailed)" }}
-                            />
-                        )}
-                        {stage.status === "pending" && (
-                            <i
-                                className="codicon codicon-circle-outline"
-                                style={{ color: "var(--vscode-descriptionForeground)" }}
-                            />
-                        )}
-                    </div>
-                    <div style={{ flex: 1 }}>
-                        <h3 style={{ marginBottom: "0.5rem" }}>{stage.label}</h3>
-                        <p style={{ color: "var(--vscode-descriptionForeground)" }}>
-                            {stage.description}
-                        </p>
+                        opacity: 0.8 
+                    }}>
+                        {progress.message}
                     </div>
                 </div>
-            ))}
+            )}
+
+            {/* Stages list - only show if not in preview-download step */}
+            {step !== "preview-download" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                    {Object.entries(currentStages).map(([key, stage]) => (
+                        <div
+                            key={key}
+                            style={{
+                                display: "flex",
+                                alignItems: "flex-start",
+                                gap: "0.75rem",
+                                opacity: stage.status === "pending" ? 0.5 : 1,
+                            }}
+                        >
+                            <div style={{ 
+                                width: "20px",
+                                height: "20px",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                marginTop: "2px"
+                            }}>
+                                {stage.status === "complete" ? (
+                                    <i 
+                                        className="codicon codicon-check"
+                                        style={{ 
+                                            color: "var(--vscode-testing-iconPassed)",
+                                            fontSize: "16px"
+                                        }}
+                                    />
+                                ) : stage.status === "active" ? (
+                                    <VSCodeProgressRing style={{ width: "16px", height: "16px" }} />
+                                ) : (
+                                    <span
+                                        style={{
+                                            width: "8px",
+                                            height: "8px",
+                                            borderRadius: "50%",
+                                            backgroundColor: "var(--vscode-foreground)",
+                                            opacity: 0.5
+                                        }}
+                                    />
+                                )}
+                            </div>
+                            <div>
+                                <div style={{ 
+                                    fontWeight: stage.status === "active" ? "600" : "normal",
+                                    color: "var(--vscode-foreground)"
+                                }}>
+                                    {stage.label}
+                                </div>
+                                {stage.description && (
+                                    <div style={{ 
+                                        fontSize: "0.9em",
+                                        opacity: 0.8,
+                                        marginTop: "0.25rem" 
+                                    }}>
+                                        {stage.description}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
         </div>
     );
 };

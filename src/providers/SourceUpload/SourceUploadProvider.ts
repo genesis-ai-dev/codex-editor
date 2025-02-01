@@ -995,24 +995,18 @@ export class SourceUploadProvider
                     cancellable: true,
                 },
                 async (progress, token) => {
-                    const progressCallback = (update: { message?: string; increment?: number }) => {
-                        const { message, increment } = update;
+                    const progressCallback = (update: { message?: string; increment?: number; status?: Record<string, string> }) => {
+                        const { message, increment, status } = update;
                         progress.report({ message, increment });
 
-                        // Map progress to stages
-                        const status: Record<string, "pending" | "active" | "complete" | "error"> =
-                            {};
-                        if (message?.includes("download")) status.download = "active";
-                        if (message?.includes("transform")) status.notebooks = "active";
-                        if (message?.includes("commit")) status.commit = "active";
-
+                        // Send progress update to webview
                         webviewPanel.webview.postMessage({
                             command: "bibleDownloadProgress",
                             progress: {
                                 message: message || "",
                                 increment: increment || 0,
-                                status,
-                            },
+                                status: status || {}
+                            }
                         } as SourceUploadResponseMessages);
                     };
 
