@@ -236,6 +236,15 @@ export type SourceUploadPostMessages =
               sourceId: string;
           }>;
       }
+    | {
+          command: "setColumnMapping";
+          mapping: {
+              sourceColumn: string;
+              targetColumn: string;
+              idColumn?: string;
+              metadataColumns: string[];
+          };
+      }
     | { command: "error"; errorMessage: string }
     | { command: "getAvailableCodexFiles" }
     | { command: "selectSourceFile" }
@@ -300,6 +309,8 @@ export type SourceUploadResponseMessages =
           preview: BiblePreviewData;
           transaction: DownloadBibleTransaction;
       }
+    | { command: "fileHeaders"; headers: string[] }
+    | { command: "preview"; preview: PreviewContent }
     | { command: "bibleDownloadCancelled" }
     | { command: "auth.statusResponse"; isAuthenticated: boolean; error?: string }
     | { command: "project.response"; success: boolean; projectPath?: string; error?: string }
@@ -1236,4 +1247,4 @@ export interface ProcessingStage {
     status: ProcessingStatus;
 }
 
-export type ImportType = "source" | "translation" | "bible-download";
+export type ImportType = "source" | "translation" | "bible-download" | "translation-pairs";

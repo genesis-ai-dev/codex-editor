@@ -13,7 +13,8 @@ import {
     ValidationResult,
     FileTypeMap,
     CustomNotebookMetadata,
-} from "../../../types/index";
+    PreviewContent,
+} from "../../../types/index.d";
 import path from "path";
 import { SourceFileValidator } from "../../validation/sourceFileValidator";
 import { SourceImportTransaction } from "../../transactions/SourceImportTransaction";
@@ -25,6 +26,7 @@ import { ProgressManager } from "../../utils/progressManager";
 import { ExtendedMetadata } from "../../utils/ebible/ebibleCorpusUtils";
 import { UsfmSourceImportTransaction } from "../../transactions/UsfmSourceImportTransaction";
 import { UsfmTranslationImportTransaction } from "../../transactions/UsfmTranslationImportTransaction";
+import { TranslationPairsImportTransaction } from "../../transactions/TranslationPairsImportTransaction";
 
 export const fileTypeMap: FileTypeMap = {
     vtt: "subtitles",
@@ -143,10 +145,12 @@ export class SourceUploadProvider
     private currentSourceTransaction: SourceImportTransaction | null = null;
     private currentTranslationTransaction: TranslationImportTransaction | null = null;
     private currentDownloadBibleTransaction: DownloadBibleTransaction | null = null;
+    private currentTranslationPairsTransaction: TranslationPairsImportTransaction | null = null;
     public availableCodexFiles: vscode.Uri[] = [];
 
     constructor(private readonly context: vscode.ExtensionContext) {
         registerScmCommands(context);
+        this.currentTranslationPairsTransaction = null;
     }
 
     public async resolveCustomDocument(
@@ -190,60 +194,88 @@ export class SourceUploadProvider
                     case "uploadSourceText": {
                         try {
                             if (Array.isArray(message.files)) {
-                                await this.handleMultipleSourceImports(
-                                    webviewPanel,
-                                    message.files,
-                                    _token
-                                );
-                            } else {
-                                // const tempUri = await this.saveUploadedFile(
-                                //     message.files[0].content,
-                                //     message.files[0].name
-                                // );
+                                // For translation pairs, we need to handle the file differently
+                                if (message.files[0].name.match(/\.(csv|tsv|tab)$/i)) {
+                                    const tempUri = await this.saveUploadedFile(
+                                        message.files[0].content,
+                                        message.files[0].name
+                                    );
 
-                                // const transaction = new SourceImportTransaction(
-                                //     tempUri,
-                                //     this.context
-                                // );
-                                // this.currentSourceTransaction = transaction;
+                                    // Create a new TranslationPairsImportTransaction
+                                    const transaction = new TranslationPairsImportTransaction(
+                                        tempUri
+                                    );
 
-                                // // Get the raw preview from transaction
-                                // const rawPreview = await transaction.prepare();
+                                    // Get headers for column mapping
+                                    const { headers } = await transaction.prepare();
 
-                                // // Transform it into our PreviewState format
-                                // const preview: PreviewState = {
-                                //     type: "source",
-                                //     preview: {
-                                //         original: {
-                                //             preview: rawPreview.originalContent.preview,
-                                //             validationResults:
-                                //                 rawPreview.originalContent.validationResults,
-                                //         },
-                                //         transformed: {
-                                //             sourceNotebooks:
-                                //                 rawPreview.transformedContent.sourceNotebooks,
-                                //             codexNotebooks:
-                                //                 rawPreview.transformedContent.codexNotebooks,
-                                //             validationResults:
-                                //                 rawPreview.transformedContent.validationResults,
-                                //         },
-                                //     },
-                                // };
+                                    // Send headers back to webview for column mapping
+                                    webviewPanel.webview.postMessage({
+                                        command: "fileHeaders",
+                                        headers,
+                                    } as SourceUploadResponseMessages);
 
-                                // // Store the preview
-                                // this.currentPreview = preview;
-
-                                // // Send preview to webview
-                                // webviewPanel.webview.postMessage({
-                                //     command: "sourcePreview",
-                                //     preview,
-                                // } as SourceUploadResponseMessages);
-                                vscode.window.showInformationMessage(
-                                    `Received upload request for single file: ${message.files[0]}`
-                                );
+                                    // Store the transaction
+                                    this.currentTranslationPairsTransaction = transaction;
+                                } else {
+                                    await this.handleMultipleSourceImports(
+                                        webviewPanel,
+                                        message.files,
+                                        _token
+                                    );
+                                }
                             }
                         } catch (error) {
                             console.error("Error preparing source import:", error);
+                            webviewPanel.webview.postMessage({
+                                command: "error",
+                                message:
+                                    error instanceof Error
+                                        ? error.message
+                                        : "Unknown error occurred",
+                            } as SourceUploadResponseMessages);
+                        }
+                        break;
+                    }
+                    case "setColumnMapping": {
+                        try {
+                            if (!this.currentTranslationPairsTransaction) {
+                                throw new Error("No active translation pairs transaction");
+                            }
+
+                            const mapping = message.mapping;
+                            await this.currentTranslationPairsTransaction.setColumnMapping(mapping);
+
+                            // Process the files with the mapping
+                            await this.currentTranslationPairsTransaction.processFiles();
+
+                            // Get preview
+                            const preview: PreviewContent = {
+                                type: "translation-pairs",
+                                preview: {
+                                    original: {
+                                        preview:
+                                            "CSV/TSV content will be processed according to the following mapping:\n" +
+                                            `Source: ${mapping.sourceColumn}\n` +
+                                            `Target: ${mapping.targetColumn}\n` +
+                                            (mapping.idColumn ? `ID: ${mapping.idColumn}\n` : "") +
+                                            `Metadata: ${mapping.metadataColumns.join(", ")}`,
+                                        validationResults: [],
+                                    },
+                                    transformed: {
+                                        sourceNotebooks: [],
+                                        codexNotebooks: [],
+                                        validationResults: [],
+                                    },
+                                },
+                            };
+
+                            webviewPanel.webview.postMessage({
+                                command: "preview",
+                                preview,
+                            } as SourceUploadResponseMessages);
+                        } catch (error) {
+                            console.error("Error setting column mapping:", error);
                             webviewPanel.webview.postMessage({
                                 command: "error",
                                 message:

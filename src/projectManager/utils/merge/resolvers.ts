@@ -3,8 +3,8 @@ import * as path from "path";
 import { ConflictResolutionStrategy, ConflictFile, SmartEdit } from "./types";
 import { determineStrategy } from "./strategies";
 import { getAuthApi } from "../../../extension";
-import { NotebookCommentThread } from "../../../../types/index";
-import { NotebookComment } from "../../../../types/index";
+import { NotebookCommentThread } from "../../../../types/index.d";
+import { NotebookComment } from "../../../../types/index.d";
 import { CodexCell } from "@/utils/codexNotebookUtils";
 import { CodexCellTypes, EditType } from "../../../../types/enums";
 
