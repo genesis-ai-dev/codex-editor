@@ -649,7 +649,7 @@ export const SourceUploader: React.FC = () => {
             case "processing":
                 return (
                     <div style={{ padding: "2rem" }}>
-                        {workflow.error && workflow.error.includes("404 Not Found") ? (
+                        {workflow.error && (workflow.error.includes("404 Not Found") || workflow.error.includes("Failed to fetch Bible text")) ? (
                             <div
                                 style={{
                                     padding: "1rem",
@@ -815,7 +815,9 @@ export const SourceUploader: React.FC = () => {
                         steps={["type-select", "select", "preview", "processing", "complete"]}
                         onStepClick={handleStepClick}
                     />
-                    {workflow.error && !workflow.error.includes("404 Not Found") && (
+                    {workflow.error && 
+                        !workflow.error.includes("404 Not Found") && 
+                        !workflow.error.includes("Failed to fetch Bible text") && (
                         <div
                             style={{
                                 padding: "1rem",
