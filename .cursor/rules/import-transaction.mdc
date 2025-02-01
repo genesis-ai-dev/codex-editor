@@ -1,0 +1,26 @@
+---
+description: Implementing a safe transaction for importing a new kind of file into codex
+globs: 
+---
+
+# Import Transactions in Codex
+
+First, implement a [BaseTransaction.ts](mdc:src/transactions/BaseTransaction.ts) or, if importing a file more specifically, an [ImportTransaction.ts](mdc:src/transactions/ImportTransaction.ts). 
+
+Second, be clear about *what* you are importing, and *why*.
+
+- Are you importing a file that needs to be translated? Then you are importing a *source* file. You may want to consult [SourceImportTransaction.ts](mdc:src/transactions/SourceImportTransaction.ts)
+- Are you importing a file that contains the already-populated translations for a source file you already have (e.g., the Hindi translation of English subtitles you have already imported)? Then you are importing a *translation* file. You might want to use or look at the [TranslationImportTransaction.ts](mdc:src/transactions/TranslationImportTransaction.ts)
+- Are you importing a file that has both source and target (e.g., a TSV with columns like `source`, `target`, and optionally `id` - though be careful to handle empty fields)? Then you should implement a TranslationPairsTransaction (not yet implemented), which would import *one* file and generate/populate *both* a new [newfilename].source and corresponding [newfilename].codex file.
+
+# Where to expose the transaction to users
+
+You will need to give the user a way to initiate, preview, cancel, or confirm the transaction. This will generally happen in the [SourceUploader.tsx](mdc:webviews/codex-webviews/src/SourceUpload/SourceUploader.tsx) (provided by [SourceUploadProvider.ts](mdc:src/providers/SourceUpload/SourceUploadProvider.ts)).
+
+Ideally, you can plug into the [WorkflowProgress.tsx](mdc:webviews/codex-webviews/src/SourceUpload/components/WorkflowProgress.tsx) and [ProgressDisplay.tsx](mdc:webviews/codex-webviews/src/SourceUpload/components/ProgressDisplay.tsx) to show a unified progress display to orient users.
+
+You should also create a top-level button to select what sort of import transaction the user is initiating. If it first within the Source Import functionality, then you should simply implement a new type of file transformer (see [sourceTransformer.ts](mdc:src/validation/sourceTransformer.ts)), and instantiate the existing SourceImportTransaction. For instance, an UnstructuredTextImportTransation may involve custom file-chunking logic (perhaps controllable by the user), but it still amounts to creating and populating a .source file with this new chunked content comprising the cells, and an unpopulated .codex file to match. 
+
+You may also wish to make new source or translation import transaction classes designed for specific files. If in doubt about what the files will be used for in the Codex App, always ask clarifying questions from the user before proceeding. If it is clear from the user's instructions, then proceed.
+
+
