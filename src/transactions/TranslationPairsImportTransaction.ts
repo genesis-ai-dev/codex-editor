@@ -109,7 +109,7 @@ export class TranslationPairsImportTransaction extends ImportTransaction {
         this.state.records = parsedRecords;
 
         // Create source and codex files in temp directory
-        const tempDir = this.getTempDir();
+        const tempDir = await this.getTempDir();
         const baseName = this.state.sourceFile.path.split("/").pop()?.split(".")[0] || "untitled";
 
         const sourceUri = vscode.Uri.joinPath(tempDir, `${baseName}.source`);

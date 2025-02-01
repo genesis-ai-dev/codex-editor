@@ -2,7 +2,7 @@ import { BiblePreviewData, PreviewContent } from "../../../../types";
 import { DownloadBibleTransaction } from "../../../../src/transactions/DownloadBibleTransaction";
 
 // Add ImportType type
-export type ImportType = "source" | "translation" | "bible-download";
+export type ImportType = "source" | "translation" | "bible-download" | "translation-pairs";
 
 // Update WorkflowStep to include the new initial step
 export type WorkflowStep = "type-select" | "select" | "preview" | "processing" | "complete";
@@ -32,7 +32,7 @@ export interface BibleDownloadStages extends ProcessingStages {
 // Add Bible download specific state
 export interface BibleDownloadState {
     language: string;
-    translationId: string;
+    translationId?: string;
     status: "idle" | "downloading" | "complete" | "error";
     progress?: {
         stage: keyof BibleDownloadStages;
@@ -67,20 +67,31 @@ export interface WorkflowState {
     importType: ImportType | null;
     selectedFiles: string[];
     fileObjects: File[];
-    selectedSourceId?: string;
-    preview?: PreviewContent | BiblePreviewData;
-    error?: string | null;
-    processingStages: ProcessingStages | BibleDownloadStages;
+    fileHeaders?: string[]; // Add this for CSV/TSV headers
+    translationAssociations: Array<{ file: File; codexId: string }>;
+    previews: Array<{
+        id: string;
+        fileName: string;
+        fileSize: number;
+        preview: any;
+        isRejected?: boolean;
+    }>;
+    processingStages: ProcessingStages;
+    error?: string;
     progress?: {
         message: string;
         increment: number;
     };
-    availableCodexFiles?: CodexFile[];
+    preview?: any;
+    currentTransaction?: any;
     bibleDownload?: BibleDownloadState;
-    currentTransaction?: DownloadBibleTransaction;
-    previews: MultiPreviewItem[];
-    selectedPreviewId?: string;
-    translationAssociations: TranslationAssociation[];
+    availableCodexFiles?: Array<{ id: string; name: string; path: string }>;
+    columnMapping?: {
+        sourceColumn: string;
+        targetColumn: string;
+        idColumn?: string;
+        metadataColumns: string[];
+    };
 }
 
 export interface ImportProgress {

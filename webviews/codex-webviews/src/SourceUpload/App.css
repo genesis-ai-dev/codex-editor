@@ -42,6 +42,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    color: var(--vscode-foreground);
 }
 
 .progress-step.active .step-indicator {
@@ -53,11 +54,16 @@
 .progress-step.complete .step-indicator {
     background: var(--vscode-button-background);
     border-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
 }
 
 .progress-step.complete .step-indicator::after {
     content: "✓";
     color: var(--vscode-button-foreground);
+}
+
+.dropzone-container {
+    margin-top: 1rem;
 }
 
 .dropzone {
@@ -89,14 +95,18 @@
     font-size: 0.9em;
 }
 
+.selected-files {
+    margin-top: 1rem;
+}
+
 .selected-file {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    justify-content: space-between;
     padding: 0.5rem;
     background: var(--vscode-editor-background);
     border-radius: 4px;
-    margin-top: 1rem;
+    margin-bottom: 0.5rem;
 }
 
 .processing-status {
@@ -131,10 +141,90 @@
 .workflow-navigation {
     margin-top: 2rem;
     display: flex;
-    justify-content: flex-end;
+    justify-content: space-between;
 }
 
 .button-group {
     display: flex;
     gap: 1rem;
+}
+
+/* Preview Components */
+.preview-container {
+    padding: 2rem;
+}
+
+.preview-section {
+    margin-bottom: 2rem;
+}
+
+.preview-header {
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.preview-content {
+    background: var(--vscode-editor-background);
+    padding: 1rem;
+    border-radius: 4px;
+}
+
+.preview-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 2rem;
+}
+
+.preview-accordion {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.preview-item {
+    background: var(--vscode-editor-background);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.preview-item.rejected {
+    opacity: 0.7;
+}
+
+/* Statistics */
+.statistics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin: 1rem 0;
+}
+
+.alignment-preview {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+/* Action Buttons */
+.action-buttons {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1rem;
+    justify-content: flex-end;
+}
+
+/* Error States */
+.error-message {
+    padding: 1rem;
+    margin-bottom: 1rem;
+    background-color: var(--vscode-inputValidation-errorBackground);
+    border: 1px solid var(--vscode-inputValidation-errorBorder);
+    color: var(--vscode-inputValidation-errorForeground);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
 }
