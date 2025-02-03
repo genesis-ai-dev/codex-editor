@@ -49,15 +49,10 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     const { contentToScrollTo } = useContext(ScrollToContentContext);
 
     useEffect(() => {
-        if (
-            contentToScrollTo &&
-            contentToScrollTo === cellIds[0] &&
-            cellRef.current &&
-            !unsavedChanges
-        ) {
+        if (highlightedCellId === cellIds[0] && cellRef.current && isSourceText) {
             cellRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
         }
-    }, [contentToScrollTo]);
+    }, [highlightedCellId]);
 
     const handleVerseClick = () => {
         if (unsavedChanges || isSourceText) {

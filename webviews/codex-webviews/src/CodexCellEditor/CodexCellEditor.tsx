@@ -25,6 +25,7 @@ import VideoTimelineEditor from "./VideoTimelineEditor";
 import { generateVttData } from "./utils/vttUtils";
 import { useQuillTextExtractor } from "./hooks/useQuillTextExtractor";
 import { initializeStateStore } from "../../../../src/stateStore";
+import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
 
@@ -48,6 +49,7 @@ const CodexCellEditor: React.FC = () => {
     }>({});
     const [highlightedCellId, setHighlightedCellId] = useState<string | null>(null);
     const [isWebviewReady, setIsWebviewReady] = useState(false);
+    const { setContentToScrollTo } = useContext(ScrollToContentContext);
 
     // Initialize state store after webview is ready
     useEffect(() => {
@@ -68,7 +70,6 @@ const CodexCellEditor: React.FC = () => {
                 setHighlightedCellId(message.cellId);
             }
         };
-
         window.addEventListener("message", handleMessage);
         return () => window.removeEventListener("message", handleMessage);
     }, []);
