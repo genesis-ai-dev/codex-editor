@@ -167,7 +167,9 @@ export class CodexCellEditorMessageHandling {
                 return;
             case "setCurrentIdToGlobalState":
                 try {
-                    const uri = event.content.uri || document.uri.toString();
+                    const uri = 'uri' in event.content 
+                        ? event.content.uri 
+                        : document.uri.toString();
                     this.provider.updateCellIdState(event.content.currentLineId, uri);
                 } catch (error) {
                     console.error("Error setting current ID to global state:", error);
@@ -183,7 +185,7 @@ export class CodexCellEditorMessageHandling {
                     this.provider.postMessageToWebview(webviewPanel, {
                         type: "providerSendsLLMCompletionResponse",
                         content: {
-                            completion: completionResult,
+                            completion: completionResult || "",
                         },
                     });
                 } catch (error) {

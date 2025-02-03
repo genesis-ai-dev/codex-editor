@@ -244,7 +244,10 @@ export class SourceUploadProvider
                             }
 
                             const mapping = message.mapping;
-                            await this.currentTranslationPairsTransaction.setColumnMapping(mapping);
+                            await this.currentTranslationPairsTransaction.setColumnMapping({
+                                ...mapping,
+                                hasHeaders: true,
+                            });
 
                             // Process the files with the mapping
                             await this.currentTranslationPairsTransaction.processFiles();
@@ -1027,7 +1030,11 @@ export class SourceUploadProvider
                     cancellable: true,
                 },
                 async (progress, token) => {
-                    const progressCallback = (update: { message?: string; increment?: number; status?: Record<string, string> }) => {
+                    const progressCallback = (update: {
+                        message?: string;
+                        increment?: number;
+                        status?: Record<string, string>;
+                    }) => {
                         const { message, increment, status } = update;
                         progress.report({ message, increment });
 
@@ -1037,8 +1044,8 @@ export class SourceUploadProvider
                             progress: {
                                 message: message || "",
                                 increment: increment || 0,
-                                status: status || {}
-                            }
+                                status: status || {},
+                            },
                         } as SourceUploadResponseMessages);
                     };
 
