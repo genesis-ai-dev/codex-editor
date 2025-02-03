@@ -140,6 +140,7 @@ interface SmartEdit {
 interface CellIdGlobalState {
     cellId: string;
     uri: string;
+    timestamp?: string;
 }
 interface ScriptureContent extends vscode.NotebookData {
     metadata: {
@@ -236,6 +237,18 @@ export type SourceUploadPostMessages =
               sourceId: string;
           }>;
       }
+<<<<<<< HEAD
+=======
+    | {
+          command: "setColumnMapping";
+          mapping: {
+              sourceColumn: string;
+              targetColumn: string;
+              idColumn?: string;
+              metadataColumns: string[];
+          };
+      }
+>>>>>>> main
     | { command: "error"; errorMessage: string }
     | { command: "getAvailableCodexFiles" }
     | { command: "selectSourceFile" }
@@ -300,6 +313,11 @@ export type SourceUploadResponseMessages =
           preview: BiblePreviewData;
           transaction: DownloadBibleTransaction;
       }
+<<<<<<< HEAD
+=======
+    | { command: "fileHeaders"; headers: string[] }
+    | { command: "preview"; preview: PreviewContent }
+>>>>>>> main
     | { command: "bibleDownloadCancelled" }
     | { command: "auth.statusResponse"; isAuthenticated: boolean; error?: string }
     | { command: "project.response"; success: boolean; projectPath?: string; error?: string }
@@ -541,6 +559,10 @@ type EditorCellContent = {
     cellContent: string;
     cellChanged: boolean;
     cellLabel?: string;
+<<<<<<< HEAD
+=======
+    uri?: string;
+>>>>>>> main
 };
 
 interface EditHistoryEntry {
@@ -551,6 +573,12 @@ interface EditHistoryEntry {
 }
 
 export type EditorPostMessages =
+<<<<<<< HEAD
+=======
+    | { command: "webviewReady" }
+    | { command: "getContent" }
+    | { command: "setCurrentIdToGlobalState"; content: { currentLineId: string; uri: string } }
+>>>>>>> main
     | { command: "webviewFocused"; content: { uri: string } }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string } }
     | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata }
@@ -1236,4 +1264,8 @@ export interface ProcessingStage {
     status: ProcessingStatus;
 }
 
+<<<<<<< HEAD
 export type ImportType = "source" | "translation" | "bible-download";
+=======
+export type ImportType = "source" | "translation" | "bible-download" | "translation-pairs";
+>>>>>>> main

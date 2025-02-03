@@ -1,6 +1,13 @@
 import React from "react";
+<<<<<<< HEAD
 import { ImportType } from "../types";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+=======
+import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { ImportType } from "../types";
+
+const FEATURE_FLAG_TRANSLATION_PAIRS = false;
+>>>>>>> main
 
 interface ImportTypeSelectorProps {
     onSelect: (type: ImportType) => void;
@@ -83,6 +90,42 @@ export const ImportTypeSelector: React.FC<ImportTypeSelectorProps> = ({ onSelect
                     </p>
                 </div>
 
+<<<<<<< HEAD
+=======
+                {FEATURE_FLAG_TRANSLATION_PAIRS && (
+                    <div
+                        className="import-option"
+                        onClick={() => onSelect("translation-pairs")}
+                        style={{
+                        padding: "1.5rem",
+                        border: "2px solid var(--vscode-button-background)",
+                        borderRadius: "6px",
+                        cursor: "pointer",
+                        width: "180px",
+                        transition: "background-color 0.2s",
+                    }}
+                >
+                    <i
+                        className="codicon codicon-split-horizontal"
+                        style={{
+                            fontSize: "1.5rem",
+                            marginBottom: "0.5rem",
+                            display: "block",
+                        }}
+                    />
+                    <h3 style={{ marginBottom: "0.5rem" }}>Translation Pairs</h3>
+                    <p
+                        style={{
+                            color: "var(--vscode-descriptionForeground)",
+                            fontSize: "0.9em",
+                        }}
+                    >
+                            Import CSV/TSV with source and target columns
+                        </p>
+                    </div>
+                )}
+
+>>>>>>> main
                 <div
                     className="import-option"
                     onClick={() => onSelect("bible-download")}

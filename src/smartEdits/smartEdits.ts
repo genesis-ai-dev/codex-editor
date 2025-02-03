@@ -331,6 +331,7 @@ export class SmartEdits {
                     const pathSegments = uri.path.split("/").filter(Boolean);
 
                     // Create new path segments array with modifications
+<<<<<<< HEAD
                     const newPathSegments = pathSegments
                         .map((segment) => {
                             if (segment === ".source") return ".codex";
@@ -346,6 +347,28 @@ export class SmartEdits {
 
                     // Create new URI with modified path
                     const fileUri = uri.with({ path: "/" + newPathSegments.join("/") });
+=======
+                    const newPathSegments = pathSegments.map((segment) => {
+                        if (segment === ".source") return ".codex";
+                        if (segment === "sourceTexts") return "target";
+                        return segment;
+                    });
+
+                    // Ensure we have the correct path structure
+                    const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+                    if (!workspaceUri) {
+                        console.error("No workspace folder found");
+                        continue;
+                    }
+
+                    // Create the target file URI by joining with workspace
+                    const fileUri = vscode.Uri.joinPath(
+                        workspaceUri,
+                        "files",
+                        "target",
+                        pathSegments[pathSegments.length - 1].replace(".source", ".codex")
+                    );
+>>>>>>> main
 
                     const fileContent = await vscode.workspace.fs.readFile(fileUri);
                     const fileString = fileContent.toString();

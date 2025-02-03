@@ -22,6 +22,10 @@ interface FileDropzoneProps {
     type: ImportType | null;
     availableCodexFiles?: CodexFile[];
     onAssociationChange?: (associations: Array<{ file: File; codexId: string }>) => void;
+<<<<<<< HEAD
+=======
+    accept?: string;
+>>>>>>> main
 }
 
 function calculateStringSimilarity(str1: string, str2: string): number {
@@ -84,6 +88,10 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
     type,
     availableCodexFiles = [],
     onAssociationChange,
+<<<<<<< HEAD
+=======
+    accept,
+>>>>>>> main
 }) => {
     const [associations, setAssociations] = useState<TranslationFileAssociation[]>([]);
 

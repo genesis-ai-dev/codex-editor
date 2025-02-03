@@ -44,6 +44,13 @@ export class CodexCellEditorMessageHandling {
         updateWebview: () => void
     ) => {
         switch (event.command) {
+<<<<<<< HEAD
+=======
+            case "webviewReady":
+                // The webview is ready to receive messages
+                console.log("Webview is ready");
+                return;
+>>>>>>> main
             case "addWord": {
                 try {
                     const result = await vscode.commands.executeCommand(
@@ -125,6 +132,19 @@ export class CodexCellEditorMessageHandling {
             }
             case "saveHtml":
                 try {
+<<<<<<< HEAD
+=======
+                    // Only allow updates to the document that sent the message
+                    if (
+                        document.uri.toString() !== (event.content.uri || document.uri.toString())
+                    ) {
+                        console.warn(
+                            "Attempted to update content in a different file. This operation is not allowed."
+                        );
+                        return;
+                    }
+
+>>>>>>> main
                     const oldContent = document.getCellContent(event.content.cellMarkers[0]);
                     const oldText = oldContent?.cellContent || "";
                     const newText = event.content.cellContent || "";
@@ -153,6 +173,7 @@ export class CodexCellEditorMessageHandling {
                 return;
             case "setCurrentIdToGlobalState":
                 try {
+<<<<<<< HEAD
                     await initializeStateStore().then(({ updateStoreState }) => {
                         updateStoreState({
                             key: "cellId",
@@ -162,6 +183,12 @@ export class CodexCellEditorMessageHandling {
                             },
                         });
                     });
+=======
+                    const uri = 'uri' in event.content 
+                        ? event.content.uri 
+                        : document.uri.toString();
+                    this.provider.updateCellIdState(event.content.currentLineId, uri);
+>>>>>>> main
                 } catch (error) {
                     console.error("Error setting current ID to global state:", error);
                     vscode.window.showErrorMessage("Failed to set current ID in global state.");
@@ -176,7 +203,11 @@ export class CodexCellEditorMessageHandling {
                     this.provider.postMessageToWebview(webviewPanel, {
                         type: "providerSendsLLMCompletionResponse",
                         content: {
+<<<<<<< HEAD
                             completion: completionResult,
+=======
+                            completion: completionResult || "",
+>>>>>>> main
                         },
                     });
                 } catch (error) {

@@ -2,10 +2,17 @@ import { BiblePreviewData, PreviewContent } from "../../../../types";
 import { DownloadBibleTransaction } from "../../../../src/transactions/DownloadBibleTransaction";
 
 // Add ImportType type
+<<<<<<< HEAD
 export type ImportType = "source" | "translation" | "bible-download";
 
 // Update WorkflowStep to include the new initial step
 export type WorkflowStep = "type-select" | "select" | "preview" | "processing" | "complete";
+=======
+export type ImportType = "source" | "translation" | "bible-download" | "translation-pairs";
+
+// Update WorkflowStep to include the new initial step
+export type WorkflowStep = "type-select" | "select" | "preview-download" | "preview" | "processing" | "complete";
+>>>>>>> main
 
 export type ProcessingStatus = "pending" | "active" | "complete" | "error";
 
@@ -32,7 +39,11 @@ export interface BibleDownloadStages extends ProcessingStages {
 // Add Bible download specific state
 export interface BibleDownloadState {
     language: string;
+<<<<<<< HEAD
     translationId: string;
+=======
+    translationId?: string;
+>>>>>>> main
     status: "idle" | "downloading" | "complete" | "error";
     progress?: {
         stage: keyof BibleDownloadStages;
@@ -67,20 +78,47 @@ export interface WorkflowState {
     importType: ImportType | null;
     selectedFiles: string[];
     fileObjects: File[];
+<<<<<<< HEAD
     selectedSourceId?: string;
     preview?: PreviewContent | BiblePreviewData;
     error?: string | null;
     processingStages: ProcessingStages | BibleDownloadStages;
+=======
+    fileHeaders?: string[]; // Add this for CSV/TSV headers
+    translationAssociations: Array<{ file: File; codexId: string }>;
+    previews: Array<{
+        id: string;
+        fileName: string;
+        fileSize: number;
+        preview: any;
+        isRejected?: boolean;
+    }>;
+    processingStages: ProcessingStages;
+    error?: string;
+>>>>>>> main
     progress?: {
         message: string;
         increment: number;
     };
+<<<<<<< HEAD
     availableCodexFiles?: CodexFile[];
     bibleDownload?: BibleDownloadState;
     currentTransaction?: DownloadBibleTransaction;
     previews: MultiPreviewItem[];
     selectedPreviewId?: string;
     translationAssociations: TranslationAssociation[];
+=======
+    preview?: any;
+    currentTransaction?: any;
+    bibleDownload?: BibleDownloadState;
+    availableCodexFiles?: Array<{ id: string; name: string; path: string }>;
+    columnMapping?: {
+        sourceColumn: string;
+        targetColumn: string;
+        idColumn?: string;
+        metadataColumns: string[];
+    };
+>>>>>>> main
 }
 
 export interface ImportProgress {

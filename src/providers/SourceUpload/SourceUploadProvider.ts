@@ -13,7 +13,12 @@ import {
     ValidationResult,
     FileTypeMap,
     CustomNotebookMetadata,
+<<<<<<< HEAD
 } from "../../../types/index";
+=======
+    PreviewContent,
+} from "../../../types/index.d";
+>>>>>>> main
 import path from "path";
 import { SourceFileValidator } from "../../validation/sourceFileValidator";
 import { SourceImportTransaction } from "../../transactions/SourceImportTransaction";
@@ -25,6 +30,10 @@ import { ProgressManager } from "../../utils/progressManager";
 import { ExtendedMetadata } from "../../utils/ebible/ebibleCorpusUtils";
 import { UsfmSourceImportTransaction } from "../../transactions/UsfmSourceImportTransaction";
 import { UsfmTranslationImportTransaction } from "../../transactions/UsfmTranslationImportTransaction";
+<<<<<<< HEAD
+=======
+import { TranslationPairsImportTransaction } from "../../transactions/TranslationPairsImportTransaction";
+>>>>>>> main
 
 export const fileTypeMap: FileTypeMap = {
     vtt: "subtitles",
@@ -143,10 +152,18 @@ export class SourceUploadProvider
     private currentSourceTransaction: SourceImportTransaction | null = null;
     private currentTranslationTransaction: TranslationImportTransaction | null = null;
     private currentDownloadBibleTransaction: DownloadBibleTransaction | null = null;
+<<<<<<< HEAD
+=======
+    private currentTranslationPairsTransaction: TranslationPairsImportTransaction | null = null;
+>>>>>>> main
     public availableCodexFiles: vscode.Uri[] = [];
 
     constructor(private readonly context: vscode.ExtensionContext) {
         registerScmCommands(context);
+<<<<<<< HEAD
+=======
+        this.currentTranslationPairsTransaction = null;
+>>>>>>> main
     }
 
     public async resolveCustomDocument(
@@ -190,6 +207,7 @@ export class SourceUploadProvider
                     case "uploadSourceText": {
                         try {
                             if (Array.isArray(message.files)) {
+<<<<<<< HEAD
                                 await this.handleMultipleSourceImports(
                                     webviewPanel,
                                     message.files,
@@ -241,6 +259,38 @@ export class SourceUploadProvider
                                 vscode.window.showInformationMessage(
                                     `Received upload request for single file: ${message.files[0]}`
                                 );
+=======
+                                // For translation pairs, we need to handle the file differently
+                                if (message.files[0].name.match(/\.(csv|tsv|tab)$/i)) {
+                                    const tempUri = await this.saveUploadedFile(
+                                        message.files[0].content,
+                                        message.files[0].name
+                                    );
+
+                                    // Create a new TranslationPairsImportTransaction
+                                    const transaction = new TranslationPairsImportTransaction(
+                                        tempUri
+                                    );
+
+                                    // Get headers for column mapping
+                                    const { headers } = await transaction.prepare();
+
+                                    // Send headers back to webview for column mapping
+                                    webviewPanel.webview.postMessage({
+                                        command: "fileHeaders",
+                                        headers,
+                                    } as SourceUploadResponseMessages);
+
+                                    // Store the transaction
+                                    this.currentTranslationPairsTransaction = transaction;
+                                } else {
+                                    await this.handleMultipleSourceImports(
+                                        webviewPanel,
+                                        message.files,
+                                        _token
+                                    );
+                                }
+>>>>>>> main
                             }
                         } catch (error) {
                             console.error("Error preparing source import:", error);
@@ -254,6 +304,61 @@ export class SourceUploadProvider
                         }
                         break;
                     }
+<<<<<<< HEAD
+=======
+                    case "setColumnMapping": {
+                        try {
+                            if (!this.currentTranslationPairsTransaction) {
+                                throw new Error("No active translation pairs transaction");
+                            }
+
+                            const mapping = message.mapping;
+                            await this.currentTranslationPairsTransaction.setColumnMapping({
+                                ...mapping,
+                                hasHeaders: true,
+                            });
+
+                            // Process the files with the mapping
+                            await this.currentTranslationPairsTransaction.processFiles();
+
+                            // Get preview
+                            const preview: PreviewContent = {
+                                type: "translation-pairs",
+                                preview: {
+                                    original: {
+                                        preview:
+                                            "CSV/TSV content will be processed according to the following mapping:\n" +
+                                            `Source: ${mapping.sourceColumn}\n` +
+                                            `Target: ${mapping.targetColumn}\n` +
+                                            (mapping.idColumn ? `ID: ${mapping.idColumn}\n` : "") +
+                                            `Metadata: ${mapping.metadataColumns.join(", ")}`,
+                                        validationResults: [],
+                                    },
+                                    transformed: {
+                                        sourceNotebooks: [],
+                                        codexNotebooks: [],
+                                        validationResults: [],
+                                    },
+                                },
+                            };
+
+                            webviewPanel.webview.postMessage({
+                                command: "preview",
+                                preview,
+                            } as SourceUploadResponseMessages);
+                        } catch (error) {
+                            console.error("Error setting column mapping:", error);
+                            webviewPanel.webview.postMessage({
+                                command: "error",
+                                message:
+                                    error instanceof Error
+                                        ? error.message
+                                        : "Unknown error occurred",
+                            } as SourceUploadResponseMessages);
+                        }
+                        break;
+                    }
+>>>>>>> main
                     case "uploadTranslation":
                         await this.handleMultipleTranslationImports(
                             webviewPanel,
@@ -995,6 +1100,7 @@ export class SourceUploadProvider
                     cancellable: true,
                 },
                 async (progress, token) => {
+<<<<<<< HEAD
                     const progressCallback = (update: { message?: string; increment?: number }) => {
                         const { message, increment } = update;
                         progress.report({ message, increment });
@@ -1006,12 +1112,27 @@ export class SourceUploadProvider
                         if (message?.includes("transform")) status.notebooks = "active";
                         if (message?.includes("commit")) status.commit = "active";
 
+=======
+                    const progressCallback = (update: {
+                        message?: string;
+                        increment?: number;
+                        status?: Record<string, string>;
+                    }) => {
+                        const { message, increment, status } = update;
+                        progress.report({ message, increment });
+
+                        // Send progress update to webview
+>>>>>>> main
                         webviewPanel.webview.postMessage({
                             command: "bibleDownloadProgress",
                             progress: {
                                 message: message || "",
                                 increment: increment || 0,
+<<<<<<< HEAD
                                 status,
+=======
+                                status: status || {},
+>>>>>>> main
                             },
                         } as SourceUploadResponseMessages);
                     };

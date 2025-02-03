@@ -1,0 +1,5 @@
+---
+description: Any time types from the VS Code client-side extension are needed
+globs: **/*.tsx, **/*.ts
+---
+Virtually all of our client-side (as opposed to webview-specific) types are in [index.d.ts](mdc:types/index.d.ts). Please check here first before creating new types files.

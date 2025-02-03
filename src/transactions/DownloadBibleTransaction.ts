@@ -135,7 +135,11 @@ export class DownloadBibleTransaction extends BaseTransaction {
             this.state.progress?.report({
                 message: "Validating Bible content",
                 increment: 10,
+<<<<<<< HEAD
                 status: { validation: "active" },
+=======
+                status: { validation: "active" }
+>>>>>>> main
             });
 
             // Download and validate content
@@ -144,6 +148,19 @@ export class DownloadBibleTransaction extends BaseTransaction {
                 this.downloadVerseContent(),
             ]);
 
+<<<<<<< HEAD
+=======
+            // Mark validation as complete and start download
+            this.state.progress?.report({
+                message: "Downloading Bible content",
+                increment: 20,
+                status: { 
+                    validation: "complete",
+                    download: "active"
+                }
+            });
+
+>>>>>>> main
             // Trim verses array to match allORGBibleVerseRefs length
             const trimmedVerses = verses.slice(0, vrefs.length);
 
@@ -152,6 +169,20 @@ export class DownloadBibleTransaction extends BaseTransaction {
                 text,
             }));
 
+<<<<<<< HEAD
+=======
+            // Mark download as complete and start splitting
+            this.state.progress?.report({
+                message: "Splitting content",
+                increment: 40,
+                status: { 
+                    validation: "complete",
+                    download: "complete",
+                    splitting: "active"
+                }
+            });
+
+>>>>>>> main
             // Validate content
             const validationResult = await this.validateBibleContent();
             if (!validationResult.isValid) {
@@ -162,6 +193,7 @@ export class DownloadBibleTransaction extends BaseTransaction {
                 );
             }
 
+<<<<<<< HEAD
             // Transform content into notebooks
             this.state.progress?.report({
                 message: "Transforming Bible content",
@@ -174,6 +206,34 @@ export class DownloadBibleTransaction extends BaseTransaction {
                 message: "Creating preview",
                 increment: 20,
                 status: { validation: "complete", transform: "active" },
+=======
+            // Mark splitting complete and start notebooks
+            this.state.progress?.report({
+                message: "Creating notebooks",
+                increment: 60,
+                status: { 
+                    validation: "complete",
+                    download: "complete",
+                    splitting: "complete",
+                    notebooks: "active"
+                }
+            });
+
+            // Transform content into notebooks
+            await this.transformToNotebooks();
+
+            // Mark notebooks complete and start metadata
+            this.state.progress?.report({
+                message: "Setting up metadata",
+                increment: 80,
+                status: { 
+                    validation: "complete",
+                    download: "complete",
+                    splitting: "complete",
+                    notebooks: "complete",
+                    metadata: "active"
+                }
+>>>>>>> main
             });
 
             // Create preview notebook
@@ -181,10 +241,24 @@ export class DownloadBibleTransaction extends BaseTransaction {
 
             this.state.status = "prepared";
 
+<<<<<<< HEAD
             this.state.progress?.report({
                 message: "Preview ready",
                 increment: 30,
                 status: { transform: "complete" },
+=======
+            // Mark metadata complete
+            this.state.progress?.report({
+                message: "Preview ready",
+                increment: 90,
+                status: { 
+                    validation: "complete",
+                    download: "complete",
+                    splitting: "complete",
+                    notebooks: "complete",
+                    metadata: "complete"
+                }
+>>>>>>> main
             });
         } catch (error) {
             await this.rollback();
@@ -209,6 +283,7 @@ export class DownloadBibleTransaction extends BaseTransaction {
         try {
             this.state.status = "executing";
 
+<<<<<<< HEAD
             // Save notebooks
             progress?.report({
                 message: "Saving notebooks",
@@ -230,6 +305,37 @@ export class DownloadBibleTransaction extends BaseTransaction {
                 message: "Bible import complete",
                 increment: 100,
                 status: { commit: "complete" },
+=======
+            // Start commit process
+            this.state.progress?.report({
+                message: "Committing changes",
+                increment: 85,
+                status: { 
+                    validation: "complete",
+                    download: "complete",
+                    splitting: "complete",
+                    notebooks: "complete",
+                    metadata: "complete",
+                    commit: "active"
+                }
+            });
+
+            // Save notebooks
+            await this.saveNotebooks();
+
+            // Complete
+            this.state.progress?.report({
+                message: "Bible import complete",
+                increment: 100,
+                status: { 
+                    validation: "complete",
+                    download: "complete",
+                    splitting: "complete",
+                    notebooks: "complete",
+                    metadata: "complete",
+                    commit: "complete"
+                }
+>>>>>>> main
             });
             this.state.status = "committed";
         } catch (error) {

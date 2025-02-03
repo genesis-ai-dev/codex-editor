@@ -7,20 +7,34 @@ import "@vscode/codicons/dist/codicon.css";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 import { WebviewApi } from "vscode-webview";
 
+<<<<<<< HEAD
 interface CellListProps {
+=======
+export interface CellListProps {
+    spellCheckResponse: SpellCheckResponse | null;
+>>>>>>> main
     translationUnits: QuillCellContent[];
     contentBeingUpdated: EditorCellContent;
     setContentBeingUpdated: (content: EditorCellContent) => void;
     handleCloseEditor: () => void;
     handleSaveHtml: () => void;
+<<<<<<< HEAD
     vscode: WebviewApi<unknown>;
+=======
+    vscode: any;
+>>>>>>> main
     textDirection: "ltr" | "rtl";
     cellDisplayMode: CELL_DISPLAY_MODES;
     isSourceText: boolean;
     windowHeight: number;
     headerHeight: number;
+<<<<<<< HEAD
     spellCheckResponse: SpellCheckResponse | null;
     alertColorCodes: { [cellId: string]: number };
+=======
+    alertColorCodes: { [cellId: string]: number };
+    highlightedCellId: string | null;
+>>>>>>> main
 }
 
 const DEBUG_ENABLED = false;
@@ -44,6 +58,10 @@ const CellList: React.FC<CellListProps> = ({
     headerHeight,
     spellCheckResponse,
     alertColorCodes,
+<<<<<<< HEAD
+=======
+    highlightedCellId,
+>>>>>>> main
 }) => {
     const duplicateCellIds = useMemo(() => {
         const idCounts = new Map<string, number>();
@@ -105,6 +123,10 @@ const CellList: React.FC<CellListProps> = ({
                                             ? -1
                                             : alertColorCodes[cellId]
                                     }
+<<<<<<< HEAD
+=======
+                                    highlightedCellId={highlightedCellId}
+>>>>>>> main
                                 />
                             </span>
                         );
@@ -119,6 +141,10 @@ const CellList: React.FC<CellListProps> = ({
             vscode,
             isSourceText,
             duplicateCellIds,
+<<<<<<< HEAD
+=======
+            highlightedCellId,
+>>>>>>> main
         ]
     );
 
@@ -216,6 +242,11 @@ const CellList: React.FC<CellListProps> = ({
         setContentBeingUpdated,
         textDirection,
         vscode,
+<<<<<<< HEAD
+=======
+        spellCheckResponse,
+        highlightedCellId,
+>>>>>>> main
     ]);
 
     const openCellById = useCallback(

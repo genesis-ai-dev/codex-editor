@@ -19,6 +19,10 @@ interface CellContentDisplayProps {
     hasDuplicateId: boolean;
     timestamps: Timestamps | undefined;
     alertColorCode: number | undefined;
+<<<<<<< HEAD
+=======
+    highlightedCellId?: string | null;
+>>>>>>> main
 }
 
 const DEBUG_ENABLED = false;
@@ -40,6 +44,10 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     hasDuplicateId,
     timestamps,
     alertColorCode,
+<<<<<<< HEAD
+=======
+    highlightedCellId,
+>>>>>>> main
 }) => {
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
 
@@ -47,6 +55,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     const { contentToScrollTo } = useContext(ScrollToContentContext);
 
     useEffect(() => {
+<<<<<<< HEAD
         if (
             contentToScrollTo &&
             contentToScrollTo === cellIds[0] &&
@@ -56,23 +65,50 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             cellRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
         }
     }, [contentToScrollTo]);
+=======
+        if (highlightedCellId === cellIds[0] && cellRef.current && isSourceText) {
+            cellRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+    }, [highlightedCellId]);
+>>>>>>> main
 
     const handleVerseClick = () => {
         if (unsavedChanges || isSourceText) {
             toggleFlashingBorder();
             return;
         }
+<<<<<<< HEAD
         debug("handleVerseClick", { cellIds, cellContent, cellLabel, timestamps });
+=======
+
+        const documentUri =
+            (vscode.getState() as any)?.documentUri || window.location.search.substring(1);
+
+        // First update the content
+>>>>>>> main
         setContentBeingUpdated({
             cellMarkers: cellIds,
             cellContent,
             cellChanged: unsavedChanges,
             cellLabel,
             timestamps,
+<<<<<<< HEAD
         } as EditorCellContent);
         vscode.postMessage({
             command: "setCurrentIdToGlobalState",
             content: { currentLineId: cellIds[0] },
+=======
+            uri: documentUri,
+        } as EditorCellContent);
+
+        // Then notify the extension about the current cell and document
+        vscode.postMessage({
+            command: "setCurrentIdToGlobalState",
+            content: {
+                currentLineId: cellIds[0],
+                uri: documentUri,
+            },
+>>>>>>> main
         } as EditorPostMessages);
     };
 
@@ -114,6 +150,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         );
     };
 
+<<<<<<< HEAD
     return (
         <span
             ref={cellRef}
@@ -122,6 +159,28 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             } cell-content ${hasDuplicateId ? "duplicate-id" : ""}`}
             onClick={handleVerseClick}
             style={{ direction: textDirection, backgroundColor: "transparent" }}
+=======
+    const getBackgroundColor = () => {
+        if (highlightedCellId === cellIds[0]) {
+            return "rgba(255, 255, 255, 0.1)";
+        }
+        return "transparent";
+    };
+
+    return (
+        <div
+            ref={cellRef}
+            className={`cell-content ${hasDuplicateId ? "duplicate-cell" : ""} ${
+                highlightedCellId === cellIds[0] ? "highlighted-cell" : ""
+            }`}
+            onClick={handleVerseClick}
+            style={{
+                direction: textDirection,
+                textAlign: textDirection === "rtl" ? "right" : "left",
+                backgroundColor: getBackgroundColor(),
+                cursor: isSourceText ? "default" : "pointer",
+            }}
+>>>>>>> main
         >
             {hasDuplicateId && (
                 <span className="duplicate-id-alert">
@@ -143,7 +202,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                     __html: HACKY_removeContiguousSpans(cellContent),
                 }}
             />
+<<<<<<< HEAD
         </span>
+=======
+        </div>
+>>>>>>> main
     );
 };
 
