@@ -2,6 +2,8 @@ import React from "react";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { ImportType } from "../types";
 
+const FEATURE_FLAG_TRANSLATION_PAIRS = false;
+
 interface ImportTypeSelectorProps {
     onSelect: (type: ImportType) => void;
     onCancel: () => void;
@@ -83,10 +85,11 @@ export const ImportTypeSelector: React.FC<ImportTypeSelectorProps> = ({ onSelect
                     </p>
                 </div>
 
-                <div
-                    className="import-option"
-                    onClick={() => onSelect("translation-pairs")}
-                    style={{
+                {FEATURE_FLAG_TRANSLATION_PAIRS && (
+                    <div
+                        className="import-option"
+                        onClick={() => onSelect("translation-pairs")}
+                        style={{
                         padding: "1.5rem",
                         border: "2px solid var(--vscode-button-background)",
                         borderRadius: "6px",
@@ -112,7 +115,7 @@ export const ImportTypeSelector: React.FC<ImportTypeSelectorProps> = ({ onSelect
                     >
                         Import CSV/TSV with source and target columns
                     </p>
-                </div>
+                </div>}
 
                 <div
                     className="import-option"
