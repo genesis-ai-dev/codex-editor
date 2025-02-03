@@ -5,7 +5,7 @@ import { DownloadBibleTransaction } from "../../../../src/transactions/DownloadB
 export type ImportType = "source" | "translation" | "bible-download" | "translation-pairs";
 
 // Update WorkflowStep to include the new initial step
-export type WorkflowStep = "type-select" | "select" | "preview" | "processing" | "complete";
+export type WorkflowStep = "type-select" | "select" | "preview-download" | "preview" | "processing" | "complete";
 
 export type ProcessingStatus = "pending" | "active" | "complete" | "error";
 

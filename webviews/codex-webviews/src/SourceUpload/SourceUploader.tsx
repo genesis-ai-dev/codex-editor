@@ -214,13 +214,16 @@ export const SourceUploader: React.FC = () => {
         (metadata: ExtendedMetadata, asTranslationOnly: boolean) => {
             setWorkflow((prev) => ({
                 ...prev,
-                step: "processing",
-                processingStages: getBibleProcessingStages(),
+                step: "preview-download",
                 bibleDownload: {
                     language: metadata.languageCode,
                     status: "downloading",
                     translationId: metadata.translationId || "",
                 },
+                progress: {
+                    message: "Downloading preview content...",
+                    increment: 20
+                }
             }));
 
             vscode.postMessage({
@@ -566,6 +569,24 @@ export const SourceUploader: React.FC = () => {
                     </div>
                 );
 
+            case "preview-download":
+                return (
+                    <div style={{ padding: "2rem" }}>
+                        <ProcessingStages
+                            stages={{
+                                preview: {
+                                    label: "Downloading Preview",
+                                    description: "Preparing Bible content preview",
+                                    status: "active"
+                                }
+                            }}
+                            importType={workflow.importType || "source"}
+                            progress={workflow.progress}
+                            step={workflow.step}
+                        />
+                    </div>
+                );
+
             case "preview":
                 if (workflow.importType === "bible-download" && workflow.preview) {
                     return (
@@ -598,6 +619,10 @@ export const SourceUploader: React.FC = () => {
                                         command: "confirmBibleDownload",
                                         transaction: workflow.currentTransaction,
                                     });
+                                    setWorkflow((prev) => ({
+                                        ...prev,
+                                        step: "processing",
+                                    }));
                                 }
                             }}
                             onCancel={() => {
@@ -662,7 +687,7 @@ export const SourceUploader: React.FC = () => {
             case "processing":
                 return (
                     <div style={{ padding: "2rem" }}>
-                        {workflow.error && workflow.error.includes("404 Not Found") ? (
+                        {workflow.error && (workflow.error.includes("404 Not Found") || workflow.error.includes("Failed to fetch Bible text")) ? (
                             <div
                                 style={{
                                     padding: "1rem",
@@ -696,19 +721,12 @@ export const SourceUploader: React.FC = () => {
                                 </VSCodeButton>
                             </div>
                         ) : (
-                            <>
-                                <ProcessingStages
-                                    stages={workflow.processingStages}
-                                    importType={workflow.importType || "source"}
-                                />
-                                {workflow.progress && (
-                                    <ProgressDisplay
-                                        progress={workflow.progress}
-                                        stages={workflow.processingStages}
-                                        importType={workflow.importType || "source"}
-                                    />
-                                )}
-                            </>
+                            <ProcessingStages
+                                stages={workflow.processingStages}
+                                importType={workflow.importType || "source"}
+                                progress={workflow.progress}
+                                step={workflow.step}
+                            />
                         )}
                     </div>
                 );
@@ -778,7 +796,10 @@ export const SourceUploader: React.FC = () => {
                             Object.entries(message.progress?.status || {}).forEach(
                                 ([key, status]) => {
                                     if (key in updatedStages) {
-                                        updatedStages[key].status = status as ProcessingStatus;
+                                        updatedStages[key] = {
+                                            ...updatedStages[key],
+                                            status: status as ProcessingStatus
+                                        };
                                     }
                                 }
                             );
@@ -839,11 +860,20 @@ export const SourceUploader: React.FC = () => {
                 <div className="workflow-container">
                     <WorkflowProgress
                         currentStep={workflow.step}
-                        importType={workflow.importType || "source"}
-                        steps={["type-select", "select", "preview", "processing", "complete"]}
+                        importType="bible-download"
+                        steps={[
+                            "type-select",
+                            "select",
+                            "preview-download",
+                            "preview",
+                            "processing",
+                            "complete"
+                        ]}
                         onStepClick={handleStepClick}
                     />
-                    {workflow.error && !workflow.error.includes("404 Not Found") && (
+                    {workflow.error && 
+                        !workflow.error.includes("404 Not Found") && 
+                        !workflow.error.includes("Failed to fetch Bible text") && (
                         <div
                             style={{
                                 padding: "1rem",
