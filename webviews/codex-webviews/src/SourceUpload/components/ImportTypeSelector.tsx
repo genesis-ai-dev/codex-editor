@@ -113,9 +113,10 @@ export const ImportTypeSelector: React.FC<ImportTypeSelectorProps> = ({ onSelect
                             fontSize: "0.9em",
                         }}
                     >
-                        Import CSV/TSV with source and target columns
-                    </p>
-                </div>}
+                            Import CSV/TSV with source and target columns
+                        </p>
+                    </div>
+                )}
 
                 <div
                     className="import-option"
