@@ -92,6 +92,7 @@
 .verse-display {
     display: inline;
     padding: 0.25rem 0;
+    transition: background-color 0.2s ease;
 }
 
 .verse-display:hover,
@@ -584,4 +585,9 @@ li {
     margin-top: 2rem;
     display: flex;
     justify-content: flex-end;
+}
+
+.highlighted-cell {
+    background-color: var(--vscode-editor-selectionBackground) !important;
+    border: 1px solid var(--vscode-editor-selectionHighlightBorder);
 }

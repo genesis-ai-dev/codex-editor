@@ -19,6 +19,7 @@ interface CellContentDisplayProps {
     hasDuplicateId: boolean;
     timestamps: Timestamps | undefined;
     alertColorCode: number | undefined;
+    highlightedCellId?: string | null;
 }
 
 const DEBUG_ENABLED = false;
@@ -40,6 +41,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     hasDuplicateId,
     timestamps,
     alertColorCode,
+    highlightedCellId,
 }) => {
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
 
@@ -62,17 +64,27 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             toggleFlashingBorder();
             return;
         }
-        debug("handleVerseClick", { cellIds, cellContent, cellLabel, timestamps });
+
+        const documentUri =
+            (vscode.getState() as any)?.documentUri || window.location.search.substring(1);
+
+        // First update the content
         setContentBeingUpdated({
             cellMarkers: cellIds,
             cellContent,
             cellChanged: unsavedChanges,
             cellLabel,
             timestamps,
+            uri: documentUri,
         } as EditorCellContent);
+
+        // Then notify the extension about the current cell and document
         vscode.postMessage({
             command: "setCurrentIdToGlobalState",
-            content: { currentLineId: cellIds[0] },
+            content: {
+                currentLineId: cellIds[0],
+                uri: documentUri,
+            },
         } as EditorPostMessages);
     };
 
@@ -114,14 +126,26 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         );
     };
 
+    const getBackgroundColor = () => {
+        if (highlightedCellId === cellIds[0]) {
+            return "rgba(255, 255, 255, 0.1)";
+        }
+        return "transparent";
+    };
+
     return (
-        <span
+        <div
             ref={cellRef}
-            className={`verse-display ${
-                cellType === CodexCellTypes.TEXT ? "canonical-display" : "paratext-display"
-            } cell-content ${hasDuplicateId ? "duplicate-id" : ""}`}
+            className={`cell-content ${hasDuplicateId ? "duplicate-cell" : ""} ${
+                highlightedCellId === cellIds[0] ? "highlighted-cell" : ""
+            }`}
             onClick={handleVerseClick}
-            style={{ direction: textDirection, backgroundColor: "transparent" }}
+            style={{
+                direction: textDirection,
+                textAlign: textDirection === "rtl" ? "right" : "left",
+                backgroundColor: getBackgroundColor(),
+                cursor: isSourceText ? "default" : "pointer",
+            }}
         >
             {hasDuplicateId && (
                 <span className="duplicate-id-alert">
@@ -143,7 +167,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                     __html: HACKY_removeContiguousSpans(cellContent),
                 }}
             />
-        </span>
+        </div>
     );
 };
 

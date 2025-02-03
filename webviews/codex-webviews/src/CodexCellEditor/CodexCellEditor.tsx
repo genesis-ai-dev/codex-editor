@@ -8,6 +8,7 @@ import {
     SpellCheckResponse,
     CustomNotebookMetadata,
     EditorReceiveMessages,
+    CellIdGlobalState,
 } from "../../../../types";
 import ChapterNavigation from "./ChapterNavigation";
 import CellList from "./CellList";
@@ -23,6 +24,7 @@ import TimelineEditor from "./TimelineEditor";
 import VideoTimelineEditor from "./VideoTimelineEditor";
 import { generateVttData } from "./utils/vttUtils";
 import { useQuillTextExtractor } from "./hooks/useQuillTextExtractor";
+import { initializeStateStore } from "../../../../src/stateStore";
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
 
@@ -44,6 +46,32 @@ const CodexCellEditor: React.FC = () => {
     const [alertColorCodes, setAlertColorCodes] = useState<{
         [cellId: string]: number;
     }>({});
+    const [highlightedCellId, setHighlightedCellId] = useState<string | null>(null);
+    const [isWebviewReady, setIsWebviewReady] = useState(false);
+
+    // Initialize state store after webview is ready
+    useEffect(() => {
+        const handleWebviewReady = (event: MessageEvent) => {
+            if (event.data.type === "webviewReady") {
+                setIsWebviewReady(true);
+            }
+        };
+        window.addEventListener("message", handleWebviewReady);
+        return () => window.removeEventListener("message", handleWebviewReady);
+    }, []);
+
+    // Listen for highlight messages from the extension
+    useEffect(() => {
+        const handleMessage = (event: MessageEvent) => {
+            const message = event.data;
+            if (message.type === "highlightCell" && message.cellId) {
+                setHighlightedCellId(message.cellId);
+            }
+        };
+
+        window.addEventListener("message", handleMessage);
+        return () => window.removeEventListener("message", handleMessage);
+    }, []);
 
     const checkAlertCodes = () => {
         const cellContentAndId = translationUnits.map((unit) => ({
@@ -450,6 +478,7 @@ const CodexCellEditor: React.FC = () => {
                         windowHeight={windowHeight}
                         headerHeight={headerHeight}
                         alertColorCodes={alertColorCodes}
+                        highlightedCellId={highlightedCellId}
                     />
                 </div>
             </div>

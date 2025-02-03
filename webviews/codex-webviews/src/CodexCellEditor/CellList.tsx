@@ -7,20 +7,21 @@ import "@vscode/codicons/dist/codicon.css";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 import { WebviewApi } from "vscode-webview";
 
-interface CellListProps {
+export interface CellListProps {
+    spellCheckResponse: SpellCheckResponse | null;
     translationUnits: QuillCellContent[];
     contentBeingUpdated: EditorCellContent;
     setContentBeingUpdated: (content: EditorCellContent) => void;
     handleCloseEditor: () => void;
     handleSaveHtml: () => void;
-    vscode: WebviewApi<unknown>;
+    vscode: any;
     textDirection: "ltr" | "rtl";
     cellDisplayMode: CELL_DISPLAY_MODES;
     isSourceText: boolean;
     windowHeight: number;
     headerHeight: number;
-    spellCheckResponse: SpellCheckResponse | null;
     alertColorCodes: { [cellId: string]: number };
+    highlightedCellId: string | null;
 }
 
 const DEBUG_ENABLED = false;
@@ -44,6 +45,7 @@ const CellList: React.FC<CellListProps> = ({
     headerHeight,
     spellCheckResponse,
     alertColorCodes,
+    highlightedCellId,
 }) => {
     const duplicateCellIds = useMemo(() => {
         const idCounts = new Map<string, number>();
@@ -105,6 +107,7 @@ const CellList: React.FC<CellListProps> = ({
                                             ? -1
                                             : alertColorCodes[cellId]
                                     }
+                                    highlightedCellId={highlightedCellId}
                                 />
                             </span>
                         );
@@ -119,6 +122,7 @@ const CellList: React.FC<CellListProps> = ({
             vscode,
             isSourceText,
             duplicateCellIds,
+            highlightedCellId,
         ]
     );
 
@@ -216,6 +220,8 @@ const CellList: React.FC<CellListProps> = ({
         setContentBeingUpdated,
         textDirection,
         vscode,
+        spellCheckResponse,
+        highlightedCellId,
     ]);
 
     const openCellById = useCallback(

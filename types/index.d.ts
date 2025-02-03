@@ -140,6 +140,7 @@ interface SmartEdit {
 interface CellIdGlobalState {
     cellId: string;
     uri: string;
+    timestamp?: string;
 }
 interface ScriptureContent extends vscode.NotebookData {
     metadata: {
@@ -552,6 +553,7 @@ type EditorCellContent = {
     cellContent: string;
     cellChanged: boolean;
     cellLabel?: string;
+    uri?: string;
 };
 
 interface EditHistoryEntry {
@@ -562,6 +564,9 @@ interface EditHistoryEntry {
 }
 
 export type EditorPostMessages =
+    | { command: "webviewReady" }
+    | { command: "getContent" }
+    | { command: "setCurrentIdToGlobalState"; content: { currentLineId: string; uri: string } }
     | { command: "webviewFocused"; content: { uri: string } }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string } }
     | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata }
