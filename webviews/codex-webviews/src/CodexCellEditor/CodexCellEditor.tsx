@@ -8,10 +8,7 @@ import {
     SpellCheckResponse,
     CustomNotebookMetadata,
     EditorReceiveMessages,
-<<<<<<< HEAD
-=======
     CellIdGlobalState,
->>>>>>> main
 } from "../../../../types";
 import ChapterNavigation from "./ChapterNavigation";
 import CellList from "./CellList";
@@ -27,11 +24,8 @@ import TimelineEditor from "./TimelineEditor";
 import VideoTimelineEditor from "./VideoTimelineEditor";
 import { generateVttData } from "./utils/vttUtils";
 import { useQuillTextExtractor } from "./hooks/useQuillTextExtractor";
-<<<<<<< HEAD
-=======
 import { initializeStateStore } from "../../../../src/stateStore";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
->>>>>>> main
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
 
@@ -53,8 +47,6 @@ const CodexCellEditor: React.FC = () => {
     const [alertColorCodes, setAlertColorCodes] = useState<{
         [cellId: string]: number;
     }>({});
-<<<<<<< HEAD
-=======
     const [highlightedCellId, setHighlightedCellId] = useState<string | null>(null);
     const [isWebviewReady, setIsWebviewReady] = useState(false);
     const { setContentToScrollTo } = useContext(ScrollToContentContext);
@@ -81,7 +73,6 @@ const CodexCellEditor: React.FC = () => {
         window.addEventListener("message", handleMessage);
         return () => window.removeEventListener("message", handleMessage);
     }, []);
->>>>>>> main
 
     const checkAlertCodes = () => {
         const cellContentAndId = translationUnits.map((unit) => ({
@@ -488,10 +479,7 @@ const CodexCellEditor: React.FC = () => {
                         windowHeight={windowHeight}
                         headerHeight={headerHeight}
                         alertColorCodes={alertColorCodes}
-<<<<<<< HEAD
-=======
                         highlightedCellId={highlightedCellId}
->>>>>>> main
                     />
                 </div>
             </div>

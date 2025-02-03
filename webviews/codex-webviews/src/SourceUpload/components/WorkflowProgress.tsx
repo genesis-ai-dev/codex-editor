@@ -18,17 +18,6 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
         if (importType === "bible-download") {
             switch (step) {
                 case "type-select":
-<<<<<<< HEAD
-                    return "Select Type";
-                case "select":
-                    return "Choose Bible";
-                case "preview":
-                    return "Preview Content";
-                case "processing":
-                    return "Download";
-                case "complete":
-                    return "Complete";
-=======
                     return "1. Select Type";
                 case "select":
                     return "2. Choose Bible";
@@ -40,7 +29,6 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
                     return "5. Download";
                 case "complete":
                     return "6. Complete";
->>>>>>> main
                 default:
                     return step;
             }
@@ -49,17 +37,6 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
         // Default labels for other import types
         switch (step) {
             case "type-select":
-<<<<<<< HEAD
-                return "Select Type";
-            case "select":
-                return "Choose File";
-            case "preview":
-                return "Preview";
-            case "processing":
-                return "Processing";
-            case "complete":
-                return "Complete";
-=======
                 return "1. Select Type";
             case "select":
                 return "2. Choose Bible";
@@ -71,7 +48,6 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
                 return "5. Download";
             case "complete":
                 return "6. Complete";
->>>>>>> main
             default:
                 return step;
         }
@@ -84,15 +60,10 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
                     return "Choose import type";
                 case "select":
                     return "Select Bible translation";
-<<<<<<< HEAD
-                case "preview":
-                    return "Review Bible content";
-=======
                 case "preview-download":
                     return "Downloading content for preview";
                 case "preview":
                     return "Preview Bible content";
->>>>>>> main
                 case "processing":
                     return "Download and process";
                 case "complete":
@@ -107,13 +78,6 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
             case "type-select":
                 return "Choose import type";
             case "select":
-<<<<<<< HEAD
-                return "Select source file";
-            case "preview":
-                return "Review content";
-            case "processing":
-                return "Process content";
-=======
                 return "Select Bible translation";
             case "preview-download":
                 return "Downloading content for preview";
@@ -121,7 +85,6 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
                 return "Preview Bible content";
             case "processing":
                 return "Download and process";
->>>>>>> main
             case "complete":
                 return "Import complete";
             default:
@@ -154,14 +117,10 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
                     display: "flex",
                     justifyContent: "space-between",
                     position: "relative",
-<<<<<<< HEAD
-                    padding: "1rem 0",
-=======
                     padding: "2rem 0",
                     maxWidth: "800px",
                     margin: "0 auto",
                     width: "100%"
->>>>>>> main
                 }}
             >
                 {/* Progress line */}
@@ -169,13 +128,8 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
                     style={{
                         position: "absolute",
                         top: "50%",
-<<<<<<< HEAD
-                        left: "0",
-                        right: "0",
-=======
                         left: "2rem",
                         right: "2rem",
->>>>>>> main
                         height: "2px",
                         background: "var(--vscode-widget-border)",
                         zIndex: 0,
@@ -187,85 +141,15 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
                     style={{
                         position: "absolute",
                         top: "50%",
-<<<<<<< HEAD
-                        left: "0",
-                        height: "2px",
-                        background: "var(--vscode-button-background)",
-                        width: `${(steps.indexOf(currentStep) / (steps.length - 1)) * 100}%`,
-=======
                         left: "2rem",
                         height: "2px",
                         background: "var(--vscode-button-background)",
                         width: `${(steps.indexOf(currentStep) / (steps.length - 1)) * (100 - (4 * 100 / steps.length))}%`,
->>>>>>> main
                         transition: "width 0.3s ease-in-out",
                         zIndex: 0,
                     }}
                 />
 
-<<<<<<< HEAD
-                {steps.map((step, index) => {
-                    const isActive = step === currentStep;
-                    const complete = isStepComplete(step);
-                    const clickable = isStepClickable(step);
-
-                    return (
-                        <div
-                            key={step}
-                            onClick={() => clickable && onStepClick(step)}
-                            style={{
-                                display: "flex",
-                                flexDirection: "column",
-                                alignItems: "center",
-                                gap: "0.5rem",
-                                position: "relative",
-                                zIndex: 1,
-                                cursor: clickable ? "pointer" : "default",
-                                opacity: currentStep === "processing" && !isActive ? 0.7 : 1,
-                                transition: "opacity 0.3s ease",
-                            }}
-                        >
-                            <div
-                                style={{
-                                    width: "2rem",
-                                    height: "2rem",
-                                    borderRadius: "50%",
-                                    background:
-                                        isActive || complete
-                                            ? "var(--vscode-button-background)"
-                                            : "var(--vscode-editor-background)",
-                                    border: "2px solid var(--vscode-button-background)",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    color:
-                                        isActive || complete
-                                            ? "var(--vscode-button-foreground)"
-                                            : "var(--vscode-foreground)",
-                                    transition: "all 0.3s ease",
-                                }}
-                            >
-                                {complete ? (
-                                    <i className="codicon codicon-check" />
-                                ) : isActive && step === "processing" ? (
-                                    <i className="codicon codicon-sync codicon-modifier-spin" />
-                                ) : (
-                                    index + 1
-                                )}
-                            </div>
-                            <span
-                                style={{
-                                    color: isActive
-                                        ? "var(--vscode-button-background)"
-                                        : "var(--vscode-foreground)",
-                                }}
-                            >
-                                {getStepLabel(step)}
-                            </span>
-                        </div>
-                    );
-                })}
-=======
                 <div style={{ 
                     display: "flex", 
                     justifyContent: "space-between", 
@@ -336,16 +220,12 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
                         );
                     })}
                 </div>
->>>>>>> main
             </div>
             <p
                 style={{
                     color: "var(--vscode-descriptionForeground)",
                     fontSize: "0.9em",
-<<<<<<< HEAD
-=======
                     textAlign: "center"
->>>>>>> main
                 }}
             >
                 {getStepDescription(currentStep)}

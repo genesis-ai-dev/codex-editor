@@ -331,23 +331,6 @@ export class SmartEdits {
                     const pathSegments = uri.path.split("/").filter(Boolean);
 
                     // Create new path segments array with modifications
-<<<<<<< HEAD
-                    const newPathSegments = pathSegments
-                        .map((segment) => {
-                            if (segment === ".source") return ".codex";
-                            if (segment === "sourceTexts") return "target";
-                            return segment;
-                        })
-                        .filter((segment) => segment !== ".project");
-
-                    // Ensure 'files' is in the correct position
-                    if (!newPathSegments.includes("files")) {
-                        newPathSegments.unshift("files");
-                    }
-
-                    // Create new URI with modified path
-                    const fileUri = uri.with({ path: "/" + newPathSegments.join("/") });
-=======
                     const newPathSegments = pathSegments.map((segment) => {
                         if (segment === ".source") return ".codex";
                         if (segment === "sourceTexts") return "target";
@@ -368,7 +351,6 @@ export class SmartEdits {
                         "target",
                         pathSegments[pathSegments.length - 1].replace(".source", ".codex")
                     );
->>>>>>> main
 
                     const fileContent = await vscode.workspace.fs.readFile(fileUri);
                     const fileString = fileContent.toString();

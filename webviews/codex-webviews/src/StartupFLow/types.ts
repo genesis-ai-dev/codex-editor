@@ -13,10 +13,7 @@ export type WorkflowStep =
     | "project-select"
     | "type-select"
     | "select"
-<<<<<<< HEAD
-=======
     | "preview-download"
->>>>>>> main
     | "preview"
     | "processing"
     | "complete";

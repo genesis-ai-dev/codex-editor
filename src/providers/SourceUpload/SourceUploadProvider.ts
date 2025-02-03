@@ -13,12 +13,8 @@ import {
     ValidationResult,
     FileTypeMap,
     CustomNotebookMetadata,
-<<<<<<< HEAD
-} from "../../../types/index";
-=======
     PreviewContent,
 } from "../../../types/index.d";
->>>>>>> main
 import path from "path";
 import { SourceFileValidator } from "../../validation/sourceFileValidator";
 import { SourceImportTransaction } from "../../transactions/SourceImportTransaction";
@@ -30,10 +26,7 @@ import { ProgressManager } from "../../utils/progressManager";
 import { ExtendedMetadata } from "../../utils/ebible/ebibleCorpusUtils";
 import { UsfmSourceImportTransaction } from "../../transactions/UsfmSourceImportTransaction";
 import { UsfmTranslationImportTransaction } from "../../transactions/UsfmTranslationImportTransaction";
-<<<<<<< HEAD
-=======
 import { TranslationPairsImportTransaction } from "../../transactions/TranslationPairsImportTransaction";
->>>>>>> main
 
 export const fileTypeMap: FileTypeMap = {
     vtt: "subtitles",
@@ -152,18 +145,12 @@ export class SourceUploadProvider
     private currentSourceTransaction: SourceImportTransaction | null = null;
     private currentTranslationTransaction: TranslationImportTransaction | null = null;
     private currentDownloadBibleTransaction: DownloadBibleTransaction | null = null;
-<<<<<<< HEAD
-=======
     private currentTranslationPairsTransaction: TranslationPairsImportTransaction | null = null;
->>>>>>> main
     public availableCodexFiles: vscode.Uri[] = [];
 
     constructor(private readonly context: vscode.ExtensionContext) {
         registerScmCommands(context);
-<<<<<<< HEAD
-=======
         this.currentTranslationPairsTransaction = null;
->>>>>>> main
     }
 
     public async resolveCustomDocument(
@@ -207,59 +194,6 @@ export class SourceUploadProvider
                     case "uploadSourceText": {
                         try {
                             if (Array.isArray(message.files)) {
-<<<<<<< HEAD
-                                await this.handleMultipleSourceImports(
-                                    webviewPanel,
-                                    message.files,
-                                    _token
-                                );
-                            } else {
-                                // const tempUri = await this.saveUploadedFile(
-                                //     message.files[0].content,
-                                //     message.files[0].name
-                                // );
-
-                                // const transaction = new SourceImportTransaction(
-                                //     tempUri,
-                                //     this.context
-                                // );
-                                // this.currentSourceTransaction = transaction;
-
-                                // // Get the raw preview from transaction
-                                // const rawPreview = await transaction.prepare();
-
-                                // // Transform it into our PreviewState format
-                                // const preview: PreviewState = {
-                                //     type: "source",
-                                //     preview: {
-                                //         original: {
-                                //             preview: rawPreview.originalContent.preview,
-                                //             validationResults:
-                                //                 rawPreview.originalContent.validationResults,
-                                //         },
-                                //         transformed: {
-                                //             sourceNotebooks:
-                                //                 rawPreview.transformedContent.sourceNotebooks,
-                                //             codexNotebooks:
-                                //                 rawPreview.transformedContent.codexNotebooks,
-                                //             validationResults:
-                                //                 rawPreview.transformedContent.validationResults,
-                                //         },
-                                //     },
-                                // };
-
-                                // // Store the preview
-                                // this.currentPreview = preview;
-
-                                // // Send preview to webview
-                                // webviewPanel.webview.postMessage({
-                                //     command: "sourcePreview",
-                                //     preview,
-                                // } as SourceUploadResponseMessages);
-                                vscode.window.showInformationMessage(
-                                    `Received upload request for single file: ${message.files[0]}`
-                                );
-=======
                                 // For translation pairs, we need to handle the file differently
                                 if (message.files[0].name.match(/\.(csv|tsv|tab)$/i)) {
                                     const tempUri = await this.saveUploadedFile(
@@ -290,7 +224,6 @@ export class SourceUploadProvider
                                         _token
                                     );
                                 }
->>>>>>> main
                             }
                         } catch (error) {
                             console.error("Error preparing source import:", error);
@@ -304,8 +237,6 @@ export class SourceUploadProvider
                         }
                         break;
                     }
-<<<<<<< HEAD
-=======
                     case "setColumnMapping": {
                         try {
                             if (!this.currentTranslationPairsTransaction) {
@@ -358,7 +289,6 @@ export class SourceUploadProvider
                         }
                         break;
                     }
->>>>>>> main
                     case "uploadTranslation":
                         await this.handleMultipleTranslationImports(
                             webviewPanel,
@@ -1100,19 +1030,6 @@ export class SourceUploadProvider
                     cancellable: true,
                 },
                 async (progress, token) => {
-<<<<<<< HEAD
-                    const progressCallback = (update: { message?: string; increment?: number }) => {
-                        const { message, increment } = update;
-                        progress.report({ message, increment });
-
-                        // Map progress to stages
-                        const status: Record<string, "pending" | "active" | "complete" | "error"> =
-                            {};
-                        if (message?.includes("download")) status.download = "active";
-                        if (message?.includes("transform")) status.notebooks = "active";
-                        if (message?.includes("commit")) status.commit = "active";
-
-=======
                     const progressCallback = (update: {
                         message?: string;
                         increment?: number;
@@ -1122,17 +1039,12 @@ export class SourceUploadProvider
                         progress.report({ message, increment });
 
                         // Send progress update to webview
->>>>>>> main
                         webviewPanel.webview.postMessage({
                             command: "bibleDownloadProgress",
                             progress: {
                                 message: message || "",
                                 increment: increment || 0,
-<<<<<<< HEAD
-                                status,
-=======
                                 status: status || {},
->>>>>>> main
                             },
                         } as SourceUploadResponseMessages);
                     };

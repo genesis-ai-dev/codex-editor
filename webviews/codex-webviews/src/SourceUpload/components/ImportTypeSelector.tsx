@@ -1,13 +1,8 @@
 import React from "react";
-<<<<<<< HEAD
-import { ImportType } from "../types";
-import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
-=======
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { ImportType } from "../types";
 
 const FEATURE_FLAG_TRANSLATION_PAIRS = false;
->>>>>>> main
 
 interface ImportTypeSelectorProps {
     onSelect: (type: ImportType) => void;
@@ -90,8 +85,6 @@ export const ImportTypeSelector: React.FC<ImportTypeSelectorProps> = ({ onSelect
                     </p>
                 </div>
 
-<<<<<<< HEAD
-=======
                 {FEATURE_FLAG_TRANSLATION_PAIRS && (
                     <div
                         className="import-option"
@@ -125,7 +118,6 @@ export const ImportTypeSelector: React.FC<ImportTypeSelectorProps> = ({ onSelect
                     </div>
                 )}
 
->>>>>>> main
                 <div
                     className="import-option"
                     onClick={() => onSelect("bible-download")}

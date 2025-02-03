@@ -10,17 +10,12 @@ import {
     EditorReceiveMessages,
     GlobalMessage,
     GlobalContentType,
-<<<<<<< HEAD
-=======
     CellIdGlobalState,
->>>>>>> main
 } from "../../../types";
 import { CodexCellDocument } from "./codexDocument";
 import { CodexCellEditorMessageHandling } from "./codexCellEditorMessagehandling";
 import { GlobalProvider } from "../../globalProvider";
 import { getAuthApi } from "@/extension";
-<<<<<<< HEAD
-=======
 import { initializeStateStore } from "../../stateStore";
 
 interface StateStore {
@@ -30,7 +25,6 @@ interface StateStore {
     ) => () => void;
     updateStoreState: (update: { key: "cellId"; value: CellIdGlobalState }) => void;
 }
->>>>>>> main
 
 function getNonce(): string {
     let text = "";
@@ -44,14 +38,9 @@ function getNonce(): string {
 export class CodexCellEditorProvider implements vscode.CustomEditorProvider<CodexCellDocument> {
     private messageHandler: CodexCellEditorMessageHandling;
     public currentDocument: CodexCellDocument | undefined;
-<<<<<<< HEAD
-    private webviewPanel: vscode.WebviewPanel | undefined;
-    private userInfo: { username: string; email: string } | undefined;
-=======
     private webviewPanels: Map<string, vscode.WebviewPanel> = new Map();
     private userInfo: { username: string; email: string } | undefined;
     private stateStore: StateStore | undefined;
->>>>>>> main
 
     public static register(context: vscode.ExtensionContext): vscode.Disposable {
         const provider = new CodexCellEditorProvider(context);
@@ -73,8 +62,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     constructor(private readonly context: vscode.ExtensionContext) {
         this.messageHandler = new CodexCellEditorMessageHandling(this);
-<<<<<<< HEAD
-=======
         this.initializeStateStore();
     }
 
@@ -104,7 +91,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         } catch (error) {
             console.error("Failed to initialize state store:", error);
         }
->>>>>>> main
     }
 
     private readonly _onDidChangeCustomDocument = new vscode.EventEmitter<
@@ -125,16 +111,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     public async receiveMessage(message: any, updateWebview?: () => void) {
         console.log("Cell Provider rec: ", { message });
-<<<<<<< HEAD
-        if (!this.webviewPanel || !this.currentDocument) {
-            console.warn("WebviewPanel or currentDocument is not initialized");
-=======
 
         // Find the active panel
         const activePanel = Array.from(this.webviewPanels.values()).find((panel) => panel.active);
         if (!activePanel || !this.currentDocument) {
             console.warn("No active panel or currentDocument is not initialized");
->>>>>>> main
             return;
         }
 
@@ -145,11 +126,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
         this.messageHandler.handleMessages(
             message as EditorPostMessages,
-<<<<<<< HEAD
-            this.webviewPanel,
-=======
             activePanel,
->>>>>>> main
             this.currentDocument,
             updateWebview ?? (() => {})
         );
@@ -162,29 +139,18 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     ): Promise<void> {
         console.log("resolveCustomEditor called for:", document.uri.toString());
 
-<<<<<<< HEAD
-=======
         // Store the webview panel with its document URI as the key
         this.webviewPanels.set(document.uri.toString(), webviewPanel);
 
->>>>>>> main
         // Listen for when this editor becomes active
         webviewPanel.onDidChangeViewState((e) => {
             if (e.webviewPanel.active) {
                 // Only update references without refreshing
-<<<<<<< HEAD
-                this.webviewPanel = webviewPanel;
-=======
->>>>>>> main
                 this.currentDocument = document;
             }
         });
 
         // Initial setup
-<<<<<<< HEAD
-        this.webviewPanel = webviewPanel;
-=======
->>>>>>> main
         this.currentDocument = document;
         const authApi = await getAuthApi();
         this.userInfo = await authApi?.getUserInfo();
@@ -273,10 +239,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Clean up on panel close
         webviewPanel.onDidDispose(() => {
-<<<<<<< HEAD
-=======
             this.webviewPanels.delete(document.uri.toString());
->>>>>>> main
             jumpToCellListenerDispose();
             listeners.forEach((l) => l.dispose());
             watcher.dispose();
@@ -320,17 +283,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     }
     public postMessage(message: GlobalMessage) {
         console.log("postMessage", { message });
-<<<<<<< HEAD
-        if (this.webviewPanel) {
-            this.webviewPanel.webview.postMessage(message);
-        } else {
-            console.error("WebviewPanel is not initialized");
-=======
         if (this.webviewPanels.size > 0) {
             this.webviewPanels.forEach((panel) => panel.webview.postMessage(message));
         } else {
             console.error("No active webview panels");
->>>>>>> main
         }
     }
 
@@ -484,8 +440,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     }
 
     public async performLLMCompletion(document: CodexCellDocument, currentCellId: string) {
-<<<<<<< HEAD
-=======
         // Prevent LLM completion on source files
         if (document.uri.fsPath.endsWith(".source")) {
             console.warn(
@@ -494,7 +448,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             return;
         }
 
->>>>>>> main
         try {
             // Fetch completion configuration
             const completionConfig = await fetchCompletionConfig();
@@ -672,8 +625,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
         return null;
     }
-<<<<<<< HEAD
-=======
 
     public updateCellIdState(cellId: string, uri: string) {
         if (!this.stateStore) {
@@ -690,5 +641,4 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             },
         });
     }
->>>>>>> main
 }

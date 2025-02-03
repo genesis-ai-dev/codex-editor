@@ -98,8 +98,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
     // Methods to manipulate the document data
     public async updateCellContent(cellId: string, newContent: string, editType: EditType) {
-<<<<<<< HEAD
-=======
         // Prevent updates to source files
         if (this.uri.fsPath.endsWith(".source")) {
             console.warn(
@@ -108,7 +106,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
             return;
         }
 
->>>>>>> main
         const indexOfCellToUpdate = this._documentData.cells.findIndex(
             (cell) => cell.metadata?.id === cellId
         );

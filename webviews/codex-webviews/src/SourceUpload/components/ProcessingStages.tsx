@@ -1,11 +1,6 @@
 import React from "react";
-<<<<<<< HEAD
-import { VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
-import { ImportType, ProcessingStatus } from "../../../../../types";
-=======
 import { VSCodeProgressRing, VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { ImportType, ProcessingStatus, WorkflowStep } from "../types";
->>>>>>> main
 import { BibleDownloadStages } from "../types";
 
 interface ProcessingStagesProps {
@@ -18,8 +13,6 @@ interface ProcessingStagesProps {
         }
     >;
     importType: ImportType;
-<<<<<<< HEAD
-=======
     progress?: {
         message: string;
         increment: number;
@@ -27,7 +20,6 @@ interface ProcessingStagesProps {
     step: WorkflowStep;
     error?: string;
     onRetry?: () => void;
->>>>>>> main
 }
 
 const getBibleDownloadStages = (): BibleDownloadStages => ({
@@ -63,11 +55,7 @@ const getBibleDownloadStages = (): BibleDownloadStages => ({
     },
 });
 
-<<<<<<< HEAD
-export const ProcessingStages: React.FC<ProcessingStagesProps> = ({ stages, importType }) => {
-=======
 export const ProcessingStages: React.FC<ProcessingStagesProps> = ({ stages, importType, progress, step, error, onRetry }) => {
->>>>>>> main
     const currentStages = React.useMemo(() => {
         if (importType === "bible-download") {
             // Start with Bible download stages
@@ -87,105 +75,6 @@ export const ProcessingStages: React.FC<ProcessingStagesProps> = ({ stages, impo
         return stages;
     }, [stages, importType]);
 
-<<<<<<< HEAD
-    const getImportTypeTitle = () => {
-        switch (importType) {
-            case "source":
-                return "Processing Source Text";
-            case "translation":
-                return "Processing Translation";
-            case "bible-download":
-                return "Downloading Bible";
-            default:
-                return "Processing";
-        }
-    };
-
-    const getImportTypeDescription = () => {
-        switch (importType) {
-            case "source":
-                return "Creating source notebooks and preparing translation templates";
-            case "translation":
-                return "Processing translation file and linking with source text";
-            case "bible-download":
-                return "Downloading and processing Bible content";
-            default:
-                return "Processing content";
-        }
-    };
-
-    return (
-        <div
-            style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "1rem",
-                padding: "1rem",
-            }}
-        >
-            <div style={{ marginBottom: "1rem" }}>
-                <h3>{getImportTypeTitle()}</h3>
-                <p
-                    style={{
-                        color: "var(--vscode-descriptionForeground)",
-                        fontSize: "0.9em",
-                        marginTop: "0.5rem",
-                    }}
-                >
-                    {getImportTypeDescription()}
-                </p>
-            </div>
-
-            {Object.entries(currentStages).map(([key, stage]) => (
-                <div
-                    key={key}
-                    style={{
-                        display: "flex",
-                        alignItems: "flex-start",
-                        gap: "1rem",
-                        padding: "1rem",
-                        background: "var(--vscode-editor-background)",
-                        borderRadius: "4px",
-                    }}
-                >
-                    <div
-                        style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "0.5rem",
-                            minWidth: "24px",
-                            justifyContent: "center",
-                        }}
-                    >
-                        {stage.status === "active" && <VSCodeProgressRing />}
-                        {stage.status === "complete" && (
-                            <i
-                                className="codicon codicon-check"
-                                style={{ color: "var(--vscode-testing-iconPassed)" }}
-                            />
-                        )}
-                        {stage.status === "error" && (
-                            <i
-                                className="codicon codicon-error"
-                                style={{ color: "var(--vscode-testing-iconFailed)" }}
-                            />
-                        )}
-                        {stage.status === "pending" && (
-                            <i
-                                className="codicon codicon-circle-outline"
-                                style={{ color: "var(--vscode-descriptionForeground)" }}
-                            />
-                        )}
-                    </div>
-                    <div style={{ flex: 1 }}>
-                        <h3 style={{ marginBottom: "0.5rem" }}>{stage.label}</h3>
-                        <p style={{ color: "var(--vscode-descriptionForeground)" }}>
-                            {stage.description}
-                        </p>
-                    </div>
-                </div>
-            ))}
-=======
     const title = {
         heading: step === "preview-download" ? "Downloading Preview Content" : "Downloading Bible",
         subheading: step === "preview-download" ? undefined : "Downloading and processing Bible content"
@@ -315,7 +204,6 @@ export const ProcessingStages: React.FC<ProcessingStagesProps> = ({ stages, impo
                     ))}
                 </div>
             )}
->>>>>>> main
         </div>
     );
 };

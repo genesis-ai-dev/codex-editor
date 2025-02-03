@@ -42,10 +42,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-<<<<<<< HEAD
-=======
     color: var(--vscode-foreground);
->>>>>>> main
 }
 
 .progress-step.active .step-indicator {
@@ -57,10 +54,7 @@
 .progress-step.complete .step-indicator {
     background: var(--vscode-button-background);
     border-color: var(--vscode-button-background);
-<<<<<<< HEAD
-=======
     color: var(--vscode-button-foreground);
->>>>>>> main
 }
 
 .progress-step.complete .step-indicator::after {
@@ -68,13 +62,10 @@
     color: var(--vscode-button-foreground);
 }
 
-<<<<<<< HEAD
-=======
 .dropzone-container {
     margin-top: 1rem;
 }
 
->>>>>>> main
 .dropzone {
     border: 2px dashed var(--vscode-widget-border);
     border-radius: 8px;
@@ -104,16 +95,6 @@
     font-size: 0.9em;
 }
 
-<<<<<<< HEAD
-.selected-file {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem;
-    background: var(--vscode-editor-background);
-    border-radius: 4px;
-    margin-top: 1rem;
-=======
 .selected-files {
     margin-top: 1rem;
 }
@@ -126,7 +107,6 @@
     background: var(--vscode-editor-background);
     border-radius: 4px;
     margin-bottom: 0.5rem;
->>>>>>> main
 }
 
 .processing-status {
@@ -161,19 +141,13 @@
 .workflow-navigation {
     margin-top: 2rem;
     display: flex;
-<<<<<<< HEAD
-    justify-content: flex-end;
-=======
     justify-content: space-between;
->>>>>>> main
 }
 
 .button-group {
     display: flex;
     gap: 1rem;
 }
-<<<<<<< HEAD
-=======
 
 /* Preview Components */
 .preview-container {
@@ -254,4 +228,3 @@
     align-items: center;
     gap: 0.5rem;
 }
->>>>>>> main

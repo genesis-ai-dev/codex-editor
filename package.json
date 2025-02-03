@@ -9,11 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-<<<<<<< HEAD
-    "version": "0.1.17",
-=======
     "version": "0.1.18",
->>>>>>> main
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -1172,10 +1168,7 @@
     },
     "dependencies": {
         "@types/better-sqlite3": "^7.6.11",
-<<<<<<< HEAD
-=======
         "@types/csv-parse": "^1.2.5",
->>>>>>> main
         "@types/xml2js": "^0.4.14",
         "@vscode/codicons": "^0.0.36",
         "@vscode/python-extension": "^1.0.5",
@@ -1183,10 +1176,7 @@
         "bible-reference-range": "^1.1.1",
         "codex-types": "^0.0.4",
         "copy-webpack-plugin": "^12.0.2",
-<<<<<<< HEAD
-=======
         "csv-parse": "^5.6.0",
->>>>>>> main
         "date-fns": "^2.30.0",
         "diff": "^7.0.0",
         "events": "^3.3.0",
