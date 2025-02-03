@@ -11,8 +11,12 @@ import { diffWords } from "diff";
 import { ICEEdits } from "./iceEdits";
 import { tokenizeText } from "@/utils/nlpUtils";
 
-const DEBUG = false;
-const debug = DEBUG ? console.log : () => {};
+const DEBUG_ENABLED = false;
+function debug(...args: any[]): void {
+    if (DEBUG_ENABLED) {
+        console.log(`[SmartEdits]`, ...args);
+    }
+}
 
 interface IceSuggestion {
     text: string;
@@ -351,6 +355,12 @@ export class SmartEdits {
                         "target",
                         pathSegments[pathSegments.length - 1].replace(".source", ".codex")
                     );
+
+                    debug({
+                        lastPathSegments: pathSegments[pathSegments.length - 1],
+                        fileUri,
+                        pathSegments,
+                    });
 
                     const fileContent = await vscode.workspace.fs.readFile(fileUri);
                     const fileString = fileContent.toString();

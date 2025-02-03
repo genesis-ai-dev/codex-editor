@@ -13,7 +13,11 @@ import {
     CellIdGlobalState,
 } from "../../../types";
 import { CodexCellDocument } from "./codexDocument";
-import { CodexCellEditorMessageHandling } from "./codexCellEditorMessagehandling";
+import {
+    handleGlobalMessage,
+    handleMessages,
+    performLLMCompletion,
+} from "./codexCellEditorMessagehandling";
 import { GlobalProvider } from "../../globalProvider";
 import { getAuthApi } from "@/extension";
 import { initializeStateStore } from "../../stateStore";
@@ -36,7 +40,6 @@ function getNonce(): string {
 }
 
 export class CodexCellEditorProvider implements vscode.CustomEditorProvider<CodexCellDocument> {
-    private messageHandler: CodexCellEditorMessageHandling;
     public currentDocument: CodexCellDocument | undefined;
     private webviewPanels: Map<string, vscode.WebviewPanel> = new Map();
     private userInfo: { username: string; email: string } | undefined;
@@ -61,7 +64,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private static readonly viewType = "codex.cellEditor";
 
     constructor(private readonly context: vscode.ExtensionContext) {
-        this.messageHandler = new CodexCellEditorMessageHandling(this);
         this.initializeStateStore();
     }
 
@@ -107,29 +109,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         console.log("openCustomDocument called for:", uri.toString());
         const document = await CodexCellDocument.create(uri, openContext.backupId, _token);
         return document;
-    }
-
-    public async receiveMessage(message: any, updateWebview?: () => void) {
-        console.log("Cell Provider rec: ", { message });
-
-        // Find the active panel
-        const activePanel = Array.from(this.webviewPanels.values()).find((panel) => panel.active);
-        if (!activePanel || !this.currentDocument) {
-            console.warn("No active panel or currentDocument is not initialized");
-            return;
-        }
-
-        if ("destination" in message) {
-            console.log("Global message detected");
-            this.messageHandler.handleGlobalMessage(message as GlobalMessage);
-            return;
-        }
-        this.messageHandler.handleMessages(
-            message as EditorPostMessages,
-            activePanel,
-            this.currentDocument,
-            updateWebview ?? (() => {})
-        );
     }
 
     public async resolveCustomEditor(
@@ -250,10 +229,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             if ("destination" in e) {
                 console.log("handling global message", { e });
                 GlobalProvider.getInstance().handleMessage(e);
-                this.messageHandler.handleGlobalMessage(e as GlobalMessage);
+                handleGlobalMessage(this, e as GlobalMessage);
                 return;
             }
-            this.receiveMessage(e, updateWebview);
+            handleMessages(e, webviewPanel, document, updateWebview, this);
         });
 
         // Initial update
@@ -439,40 +418,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         });
     }
 
-    public async performLLMCompletion(document: CodexCellDocument, currentCellId: string) {
-        // Prevent LLM completion on source files
-        if (document.uri.fsPath.endsWith(".source")) {
-            console.warn(
-                "Attempted to perform LLM completion on a source file. This operation is not allowed."
-            );
-            return;
-        }
-
-        try {
-            // Fetch completion configuration
-            const completionConfig = await fetchCompletionConfig();
-            const notebookReader = new CodexNotebookReader(document.uri);
-            console.log("Document URI: ", notebookReader);
-            // Perform LLM completion
-            const result = await llmCompletion(
-                notebookReader,
-                currentCellId,
-                completionConfig,
-                new vscode.CancellationTokenSource().token
-            );
-
-            // Update content and metadata atomically
-            document.updateCellContent(currentCellId, result, EditType.LLM_GENERATION);
-
-            console.log("LLM completion result", { result });
-            return result;
-        } catch (error: any) {
-            console.error("Error in performLLMCompletion:", error);
-            vscode.window.showErrorMessage(`LLM completion failed: ${error.message}`);
-            throw error;
-        }
-    }
-
     public async performAutocompleteChapter(
         document: CodexCellDocument,
         webviewPanel: vscode.WebviewPanel,
@@ -493,7 +438,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             try {
                 // Perform LLM completion for the current cell
                 if (this.currentDocument) {
-                    await this.performLLMCompletion(this.currentDocument, cellId);
+                    await performLLMCompletion(cellId, this.currentDocument);
                 }
 
                 // Send an update to the webview
