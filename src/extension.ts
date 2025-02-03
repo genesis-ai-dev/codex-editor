@@ -438,8 +438,13 @@ async function executeCommandsAfter() {
     vscode.commands.executeCommand("codexNotebookTreeView.refresh");
     vscode.commands.executeCommand("codexNotebookTreeView.focus");
     vscode.commands.executeCommand("codex-editor-extension.setEditorFontToTargetLanguage");
-    // turn on auto-save
-    vscode.commands.executeCommand("workbench.action.autoSave.enable");
+    // Configure auto-save in settings
+    await vscode.workspace
+        .getConfiguration()
+        .update("files.autoSave", "afterDelay", vscode.ConfigurationTarget.Global);
+    await vscode.workspace
+        .getConfiguration()
+        .update("files.autoSaveDelay", 1000, vscode.ConfigurationTarget.Global);
 }
 
 export function deactivate() {
