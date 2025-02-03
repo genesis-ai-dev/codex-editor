@@ -583,6 +583,22 @@ export const SourceUploader: React.FC = () => {
                             importType={workflow.importType || "source"}
                             progress={workflow.progress}
                             step={workflow.step}
+                            error={workflow.error}
+                            onRetry={() => {
+                                setWorkflow((prev) => ({
+                                    ...prev,
+                                    step: "select",
+                                    error: undefined,
+                                    // Preserve the language selection if it exists
+                                    bibleDownload: prev.bibleDownload
+                                        ? {
+                                              ...prev.bibleDownload,
+                                              status: "idle",
+                                              translationId: "",
+                                          }
+                                        : undefined,
+                                }));
+                            }}
                         />
                     </div>
                 );
@@ -726,6 +742,7 @@ export const SourceUploader: React.FC = () => {
                                 importType={workflow.importType || "source"}
                                 progress={workflow.progress}
                                 step={workflow.step}
+                                error={workflow.error}
                             />
                         )}
                     </div>
@@ -784,6 +801,12 @@ export const SourceUploader: React.FC = () => {
                     setWorkflow((prev) => ({
                         ...prev,
                         error: message.message,
+                        // If we're in preview-download step and get a 404 error, stay in that step
+                        step: prev.step === "preview-download" && 
+                              (message.message.includes("404 Not Found") || 
+                               message.message.includes("Failed to fetch Bible text"))
+                            ? "preview-download"
+                            : prev.step
                     }));
                     break;
                 case "bibleDownloadProgress":
@@ -845,7 +868,7 @@ export const SourceUploader: React.FC = () => {
                     }));
                     break;
 
-                // ... existing cases ...
+                // ... rest of the cases ...
             }
         };
 

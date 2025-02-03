@@ -1,5 +1,5 @@
 import React from "react";
-import { VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
+import { VSCodeProgressRing, VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { ImportType, ProcessingStatus, WorkflowStep } from "../types";
 import { BibleDownloadStages } from "../types";
 
@@ -18,6 +18,8 @@ interface ProcessingStagesProps {
         increment: number;
     };
     step: WorkflowStep;
+    error?: string;
+    onRetry?: () => void;
 }
 
 const getBibleDownloadStages = (): BibleDownloadStages => ({
@@ -53,7 +55,7 @@ const getBibleDownloadStages = (): BibleDownloadStages => ({
     },
 });
 
-export const ProcessingStages: React.FC<ProcessingStagesProps> = ({ stages, importType, progress, step }) => {
+export const ProcessingStages: React.FC<ProcessingStagesProps> = ({ stages, importType, progress, step, error, onRetry }) => {
     const currentStages = React.useMemo(() => {
         if (importType === "bible-download") {
             // Start with Bible download stages
@@ -77,6 +79,28 @@ export const ProcessingStages: React.FC<ProcessingStagesProps> = ({ stages, impo
         heading: step === "preview-download" ? "Downloading Preview Content" : "Downloading Bible",
         subheading: step === "preview-download" ? undefined : "Downloading and processing Bible content"
     };
+
+    // If there's an error during preview-download, show error state instead of progress
+    if (step === "preview-download" && error) {
+        return (
+            <div style={{ marginBottom: "2rem" }}>
+                <h2 style={{ marginBottom: "0.5rem" }}>{title.heading}</h2>
+                <div style={{
+                    padding: "1rem",
+                    marginTop: "1rem",
+                    backgroundColor: "var(--vscode-inputValidation-errorBackground)",
+                    border: "1px solid var(--vscode-inputValidation-errorBorder)",
+                    color: "var(--vscode-inputValidation-errorForeground)",
+                    borderRadius: "4px",
+                }}>
+                    <div style={{ marginBottom: "1rem" }}>{error}</div>
+                    <VSCodeButton onClick={onRetry}>
+                        Go Back and Try Another Translation
+                    </VSCodeButton>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div style={{ marginBottom: "2rem" }}>
