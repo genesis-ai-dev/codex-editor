@@ -18,7 +18,7 @@ import { fetchCompletionConfig } from "../translationSuggestions/inlineCompletio
 import { CodexNotebookReader } from "@/serializer";
 import { llmCompletion } from "../translationSuggestions/llmCompletion";
 
-const DEBUG_ENABLED = true;
+const DEBUG_ENABLED = false;
 function debug(...args: any[]): void {
     if (DEBUG_ENABLED) {
         console.log(`[CodexCellEditorMessageHandling]`, ...args);
