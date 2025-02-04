@@ -239,11 +239,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         updateWebview();
 
         // Watch for configuration changes
-        vscode.workspace.onDidChangeConfiguration((e) => {
+        const configListenerDisposable =  vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration("translators-copilot.textDirection")) {
                 this.updateTextDirection(webviewPanel, document);
             }
         });
+        listeners.push(configListenerDisposable);
     }
 
     public async receiveMessage(message: any, updateWebview?: () => void) {
