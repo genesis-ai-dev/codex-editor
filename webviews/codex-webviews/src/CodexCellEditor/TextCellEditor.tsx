@@ -97,12 +97,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     }, [showFlashingBorder]);
 
     useEffect(() => {
-        if (
-            contentToScrollTo &&
-            contentToScrollTo === cellMarkers[0] &&
-            cellEditorRef.current &&
-            !setUnsavedChanges
-        ) {
+        if (contentToScrollTo && contentToScrollTo === cellMarkers[0] && cellEditorRef.current) {
             cellEditorRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
         }
     }, [contentToScrollTo]);

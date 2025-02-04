@@ -217,7 +217,7 @@ export const handleMessages = async (
             return;
         case "setCurrentIdToGlobalState":
             try {
-                const uri = "uri" in event.content ? event.content.uri : document.uri.toString();
+                const uri = document.uri.toString();
                 provider.updateCellIdState(event.content.currentLineId, uri);
             } catch (error) {
                 console.error("Error setting current ID to global state:", error);

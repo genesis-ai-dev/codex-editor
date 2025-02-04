@@ -566,7 +566,7 @@ interface EditHistoryEntry {
 export type EditorPostMessages =
     | { command: "webviewReady" }
     | { command: "getContent" }
-    | { command: "setCurrentIdToGlobalState"; content: { currentLineId: string; uri: string } }
+    | { command: "setCurrentIdToGlobalState"; content: { currentLineId: string } }
     | { command: "webviewFocused"; content: { uri: string } }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string } }
     | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata }

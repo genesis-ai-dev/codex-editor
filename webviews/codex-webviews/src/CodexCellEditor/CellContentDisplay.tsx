@@ -50,7 +50,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
 
     useEffect(() => {
         if (highlightedCellId === cellIds[0] && cellRef.current && isSourceText) {
-            cellRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+            cellRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
         }
     }, [highlightedCellId]);
 
@@ -78,7 +78,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             command: "setCurrentIdToGlobalState",
             content: {
                 currentLineId: cellIds[0],
-                uri: documentUri,
             },
         } as EditorPostMessages);
     };
