@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
-import "@vscode/codicons/dist/codicon.css";
 
 const DeleteButtonWithConfirmation: React.FC<{
     handleDeleteButtonClick: () => void;

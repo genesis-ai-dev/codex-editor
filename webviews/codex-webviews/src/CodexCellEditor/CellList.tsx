@@ -3,7 +3,6 @@ import React, { useMemo, useCallback, useState, useEffect } from "react";
 import CellEditor from "./TextCellEditor";
 import CellContentDisplay from "./CellContentDisplay";
 import EmptyCellDisplay from "./EmptyCellDisplay";
-import "@vscode/codicons/dist/codicon.css";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 import { WebviewApi } from "vscode-webview";
 

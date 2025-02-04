@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import "@vscode/codicons/dist/codicon.css"; // Import codicons
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 
 const CloseButtonWithConfirmation: React.FC<{
