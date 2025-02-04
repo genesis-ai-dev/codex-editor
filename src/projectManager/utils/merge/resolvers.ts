@@ -8,8 +8,12 @@ import { NotebookComment } from "../../../../types/index.d";
 import { CodexCell } from "@/utils/codexNotebookUtils";
 import { CodexCellTypes, EditType } from "../../../../types/enums";
 
-const DEBUG_MODE = true;
-const debug = DEBUG_MODE ? console.log : () => {};
+const DEBUG_MODE = false;
+const debug = function (...args: any[]) {
+    if (DEBUG_MODE) {
+        console.log("[resolveConflictFile]", ...args);
+    }
+};
 
 /**
  * Resolves merge conflicts for a specific file based on its determined strategy
@@ -101,16 +105,23 @@ export async function resolveConflictFile(
  * - we simply take 'our' version of the metadata.
  */
 async function resolveCodexCustomMerge(ourContent: string, theirContent: string): Promise<string> {
+    debug("Starting resolveCodexCustomMerge");
+    debug("Parsing notebook content");
     const ourNotebook = JSON.parse(ourContent);
     const theirNotebook = JSON.parse(theirContent);
     const ourCells: CodexCell[] = ourNotebook.cells;
     const theirCells: CodexCell[] = theirNotebook.cells;
+
+    debug(
+        `Processing ${ourCells.length} cells from our version and ${theirCells.length} cells from their version`
+    );
 
     // Map to track cells by ID for quick lookup
     const theirCellsMap = new Map<string, CodexCell>();
     theirCells.forEach((cell) => {
         if (cell.metadata?.id) {
             theirCellsMap.set(cell.metadata.id, cell);
+            debug(`Mapped their cell with ID: ${cell.metadata.id}`);
         }
     });
 
@@ -119,15 +130,21 @@ async function resolveCodexCustomMerge(ourContent: string, theirContent: string)
     // Process our cells in order
     ourCells.forEach((ourCell) => {
         const cellId = ourCell.metadata?.id;
-        if (!cellId) return;
+        if (!cellId) {
+            debug("Skipping cell without ID");
+            return;
+        }
 
         const theirCell = theirCellsMap.get(cellId);
         if (theirCell) {
+            debug(`Found matching cell ${cellId} - merging content`);
             // Merge edit histories
             const mergedEdits = [
                 ...(ourCell.metadata?.edits || []),
                 ...(theirCell.metadata?.edits || []),
             ].sort((a, b) => a.timestamp - b.timestamp);
+
+            debug(`Combined ${mergedEdits.length} edits for cell ${cellId}`);
 
             // Remove duplicates based on timestamp and cellValue
             const uniqueEdits = mergedEdits.filter(
@@ -138,32 +155,40 @@ async function resolveCodexCustomMerge(ourContent: string, theirContent: string)
                     )
             );
 
+            debug(`Filtered to ${uniqueEdits.length} unique edits for cell ${cellId}`);
+
             // Sort edits by timestamp to ensure most recent is last
             uniqueEdits.sort((a, b) => a.timestamp - b.timestamp);
+            debug({ uniqueEdits });
+            const latestEdit = uniqueEdits[uniqueEdits.length - 1];
 
-            // Get the latest user edit's value, or latest edit if no user edits exist
-            // i.e., we will take the latest llm generation if there are no user edits
-            const latestEdit =
-                uniqueEdits.filter((edit) => edit.type === EditType.USER_EDIT).pop() ||
-                uniqueEdits[uniqueEdits.length - 1];
+            debug({ latestEdit });
+
+            const ourEditsThatMatchCurrentValue = ourCell.metadata?.edits
+                ?.filter((edit) => edit.cellValue === latestEdit?.cellValue)
+                .sort((a, b) => a.timestamp - b.timestamp);
+
+            const editThatBelongsToOurCellValue =
+                ourEditsThatMatchCurrentValue?.[ourEditsThatMatchCurrentValue.length - 1];
+
+            const theirEditsThatMatchCurrentValue = theirCell.metadata?.edits
+                ?.filter((edit) => edit.cellValue === latestEdit?.cellValue)
+                .sort((a, b) => a.timestamp - b.timestamp);
+
+            const editThatBelongsToTheirCellValue =
+                theirEditsThatMatchCurrentValue?.[theirEditsThatMatchCurrentValue.length - 1];
+
+            const mostRecentOfTheirAndOurEdits = [
+                editThatBelongsToTheirCellValue,
+                editThatBelongsToOurCellValue,
+            ].sort((a, b) => (a?.timestamp ?? 0) - (b?.timestamp ?? 0))[1];
+
+            debug({ editThatBelongsToOurCellValue, editThatBelongsToTheirCellValue });
 
             // Ensure the latest edit is in the history
-            const finalValue = latestEdit?.cellValue ?? ourCell.value; // Nullish coalescing to keep empty strings from being overwritten
+            const finalValue = mostRecentOfTheirAndOurEdits?.cellValue ?? ourCell.value; // Nullish coalescing to keep empty strings from being overwritten
             const finalEdits = [...uniqueEdits];
-
-            // If the latest edit doesn't match our final value, add it to the history
-            if (
-                latestEdit &&
-                finalEdits.length > 0 &&
-                finalEdits[finalEdits.length - 1].cellValue !== finalValue
-            ) {
-                finalEdits.push({
-                    ...latestEdit,
-                    timestamp: Date.now(),
-                    cellValue: finalValue,
-                    author: latestEdit?.author || "unknown",
-                });
-            }
+            debug({ finalValue, finalEdits });
 
             // Sort one final time to ensure the new edit is properly placed
             finalEdits.sort((a, b) => a.timestamp - b.timestamp);
@@ -180,18 +205,22 @@ async function resolveCodexCustomMerge(ourContent: string, theirContent: string)
                 },
             };
 
+            debug(`Pushing merged cell ${cellId} to results`);
             resultCells.push(mergedCell);
             theirCellsMap.delete(cellId);
         } else {
-            // No conflict, just add our cell
+            debug(`No conflict for cell ${cellId}, keeping our version`);
             resultCells.push(ourCell);
         }
     });
 
     // Add any new cells from their version
-    theirCellsMap.forEach((cell) => {
+    theirCellsMap.forEach((cell, id) => {
+        debug(`Adding their unique cell ${id} to results`);
         resultCells.push(cell);
     });
+
+    debug(`Merge complete. Final cell count: ${resultCells.length}`);
 
     // Return the full notebook structure with merged cells
     return JSON.stringify(
@@ -323,7 +352,7 @@ export async function resolveConflictFiles(
     conflicts: ConflictFile[],
     workspaceDir: string
 ): Promise<string[]> {
-    console.log("RYDER**** Starting conflict resolution with:", { conflicts, workspaceDir });
+    debug("RYDER**** Starting conflict resolution with:", { conflicts, workspaceDir });
 
     // Validate inputs
     if (!Array.isArray(conflicts)) {
@@ -350,7 +379,7 @@ export async function resolveConflictFiles(
         try {
             await vscode.workspace.fs.stat(filePath);
         } catch {
-            console.log(`Skipping conflict resolution for deleted file: ${conflict.filepath}`);
+            debug(`Skipping conflict resolution for deleted file: ${conflict.filepath}`);
             continue;
         }
 
