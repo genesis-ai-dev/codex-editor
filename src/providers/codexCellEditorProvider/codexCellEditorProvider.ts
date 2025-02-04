@@ -246,6 +246,30 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         });
     }
 
+    public async receiveMessage(message: any, updateWebview?: () => void) {
+        console.log("Cell Provider rec: ", { message });
+        // NOTE: do not use this method to handled messages within the provider. This has access to the global context and can get crossed with other providers
+        // Find the active panel
+        const activePanel = Array.from(this.webviewPanels.values()).find((panel) => panel.active);
+        if (!activePanel || !this.currentDocument) {
+            console.warn("No active panel or currentDocument is not initialized");
+            return;
+        }
+
+        if ("destination" in message) {
+            console.log("Global message detected");
+            handleGlobalMessage(this, message as GlobalMessage);
+            return;
+        }
+        handleMessages(
+            message as EditorPostMessages,
+            activePanel,
+            this.currentDocument,
+            updateWebview ?? (() => {}),
+            this
+        );
+    }
+
     public async saveCustomDocument(
         document: CodexCellDocument,
         cancellation: vscode.CancellationToken
