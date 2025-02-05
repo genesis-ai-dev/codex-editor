@@ -803,6 +803,11 @@
                         "additionalProperties": {
                             "type": "string"
                         }
+                    },
+                    "codex-project-manager.spellcheckIsEnabled": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Enable or disable spellcheck for the project"
                     }
                 }
             },

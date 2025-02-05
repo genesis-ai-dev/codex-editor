@@ -468,6 +468,29 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         openSystemMessageEditor
     );
 
+    const toggleSpellcheckCommand = vscode.commands.registerCommand(
+        "codex-project-manager.toggleSpellcheck",
+        executeWithRedirecting(async () => {
+            const config = vscode.workspace.getConfiguration("codex-project-manager");
+            const currentSpellcheckIsEnabledValue = config.get("spellcheckIsEnabled", false);
+
+            const newSpellcheckIsEnabledValue = !currentSpellcheckIsEnabledValue;
+
+            console.log("currentSpellcheckIsEnabledValue", currentSpellcheckIsEnabledValue);
+            console.log("newSpellcheckIsEnabledValue", newSpellcheckIsEnabledValue);
+
+            await config.update(
+                "spellcheckIsEnabled",
+                newSpellcheckIsEnabledValue,
+                vscode.ConfigurationTarget.Workspace
+            );
+            vscode.commands.executeCommand("codex-project-manager.updateMetadataFile");
+            vscode.window.showInformationMessage(
+                `Spellcheck is now ${newSpellcheckIsEnabledValue ? "enabled" : "disabled"}.`
+            );
+        })
+    );
+
     const importLocalUsfmSourceBibleCommand = vscode.commands.registerCommand(
         "codex-project-manager.importLocalUsfmSourceBible",
         importLocalUsfmSourceBible
@@ -500,7 +523,8 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         openAISettingsCommand,
         importLocalUsfmSourceBibleCommand,
         changeUserEmailCommand,
-        onDidChangeConfigurationListener
+        onDidChangeConfigurationListener,
+        toggleSpellcheckCommand
     );
 
     // Prompt user to install recommended extensions

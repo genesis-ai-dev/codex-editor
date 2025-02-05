@@ -372,6 +372,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                         case "downloadSourceText":
                         case "openAISettings":
                         case "openSourceUpload":
+                        case "toggleSpellcheck":
                             await this.handleProjectChange(message.command);
                             // FIXME: sometimes this refreshes before the command is finished. Need to return values on all of them
                             // Send a response back to the webview

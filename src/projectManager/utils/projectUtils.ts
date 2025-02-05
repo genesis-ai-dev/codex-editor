@@ -405,6 +405,7 @@ export async function updateMetadataFile() {
     project.languages[0] = projectSettings.get("sourceLanguage", "");
     project.languages[1] = projectSettings.get("targetLanguage", "");
     project.meta.abbreviation = projectSettings.get("abbreviation", "");
+    project.spellcheckIsEnabled = projectSettings.get("spellcheckIsEnabled", false);
     // Update other fields as needed
     console.log("Project settings loaded:", { projectSettings, project });
     const updatedProjectFileData = Buffer.from(JSON.stringify(project, null, 4), "utf8");
@@ -535,6 +536,7 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
             targetTexts,
             targetFont: metadata.targetFont || "Default Font",
             isAuthenticated,
+            spellcheckIsEnabled: metadata.spellcheckIsEnabled || false,
         };
     } catch (error) {
         console.error("Failed to read project metadata:", error);
