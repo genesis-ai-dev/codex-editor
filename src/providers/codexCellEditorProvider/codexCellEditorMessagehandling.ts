@@ -139,6 +139,13 @@ export const handleMessages = async (
         }
         case "from-quill-spellcheck-getSpellCheckResponse": {
             try {
+                const config = vscode.workspace.getConfiguration("codex-project-manager");
+                const currentSpellcheckIsEnabledValue = config.get("spellcheckIsEnabled", false);
+                if (!currentSpellcheckIsEnabledValue) {
+                    console.log("Spellcheck is disabled, skipping spell check");
+                    return;
+                }
+
                 const response = await vscode.commands.executeCommand(
                     "translators-copilot.spellCheckText",
                     event.content.cellContent
@@ -156,6 +163,12 @@ export const handleMessages = async (
 
         case "getAlertCodes": {
             try {
+                const config = vscode.workspace.getConfiguration("codex-project-manager");
+                const currentSpellcheckIsEnabledValue = config.get("spellcheckIsEnabled", false);
+                if (!currentSpellcheckIsEnabledValue) {
+                    console.log("Spellcheck is disabled, skipping alert codes");
+                    return;
+                }
                 const result: AlertCodesServerResponse = await vscode.commands.executeCommand(
                     "translators-copilot.alertCodes",
                     event.content
