@@ -2,6 +2,12 @@ import * as vscode from "vscode";
 import { ImportTransaction, ImportTransactionState } from "./ImportTransaction";
 import { parse } from "csv-parse/sync";
 
+const DEBUG = true;
+const debug = function (...args: any[]) {
+    if (DEBUG) {
+        console.log("[TranslationPairsImportTransaction]", ...args);
+    }
+};
 interface ColumnMapping {
     sourceColumn: string;
     targetColumn: string;
@@ -36,7 +42,7 @@ export class TranslationPairsImportTransaction extends ImportTransaction {
         return this.state.sourceFile.toString();
     }
 
-    async prepare(): Promise<{ headers: string[] }> {
+    async prepare(): Promise<{ headers: string[]; headersIndexKey: Record<string, number> }> {
         const fileContent = await vscode.workspace.fs.readFile(this.state.sourceFile);
         const content = Buffer.from(fileContent).toString("utf-8");
 
@@ -48,17 +54,22 @@ export class TranslationPairsImportTransaction extends ImportTransaction {
             columns: false,
             to: 1, // Only parse first line
         }) as string[][];
-
+        debug("parsedHeaders", parsedHeaders);
         // If no headers, generate column numbers
-        const headers = parsedHeaders[0].map((_, i) => `Column ${i + 1}`);
+        const headers = parsedHeaders[0]; /* .map((_, i) => `Column ${i + 1}`); */
+        debug("headers", headers);
         this.state.headers = headers;
-        return { headers };
+        debug("state.headers", this.state.headers);
+        return {
+            headers,
+            headersIndexKey: Object.fromEntries(headers.map((header, index) => [header, index])),
+        };
     }
 
     async setColumnMapping(mapping: ColumnMapping): Promise<void> {
         // Validate column indices exist
         const columnCount = this.state.headers?.length || 0;
-        const sourceIndex = parseInt(mapping.sourceColumn.replace("Column ", "")) - 1;
+        const sourceIndex = parseInt(mapping.sourceColumn.replace("Column ", "")) - 1; // fixme: this is now the column name and will not work
         const targetIndex = parseInt(mapping.targetColumn.replace("Column ", "")) - 1;
         const idIndex = mapping.idColumn
             ? parseInt(mapping.idColumn.replace("Column ", "")) - 1

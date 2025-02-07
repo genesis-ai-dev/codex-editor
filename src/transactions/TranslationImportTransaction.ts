@@ -31,6 +31,13 @@ type CellAligner = (
     importedContent: ImportedContent[]
 ) => Promise<AlignedCell[]>;
 
+const DEBUG = true;
+const debug = function (...args: any[]) {
+    if (DEBUG) {
+        console.log("[TranslationImportTransaction]", ...args);
+    }
+};
+
 export class TranslationImportTransaction extends ImportTransaction {
     protected metadataManager: NotebookMetadataManager;
     private readonly context: vscode.ExtensionContext;
@@ -143,10 +150,11 @@ export class TranslationImportTransaction extends ImportTransaction {
             // Create preview of alignment
             const cellAligner = this.getAlignerForFileType(this.state.sourceFile);
             const alignedCells = await cellAligner(sourceNotebook.cells, this.importedContent);
-
+            debug("Aligned cells:", alignedCells);
             const matchedCells = alignedCells.filter(
                 (cell) => cell.notebookCell && !cell.isParatext
             ).length;
+            debug("Matched cells:", matchedCells);
             const paratextItems = alignedCells.filter((cell) => cell.isParatext).length;
             const unmatchedContent = alignedCells.filter(
                 (cell) => !cell.notebookCell && !cell.isParatext

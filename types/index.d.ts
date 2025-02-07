@@ -251,6 +251,7 @@ export type SourceUploadPostMessages =
     | { command: "selectSourceFile" }
     | { command: "confirmSourceImport" }
     | { command: "confirmTranslationImport" }
+    | { command: "confirmTranslationPairsImport"; headers: string[]; data: PreviewContent }
     | { command: "cancelSourceImport" }
     | { command: "cancelTranslationImport" }
     | { command: "downloadBible"; ebibleMetadata: ExtendedMetadata; asTranslationOnly: boolean }
@@ -307,7 +308,7 @@ export type SourceUploadResponseMessages =
     | { command: "bibleDownloadError"; error: string }
     | {
           command: "biblePreview";
-          preview: BiblePreviewData;
+          preview: BiblePreview;
           transaction: DownloadBibleTransaction;
       }
     | { command: "fileHeaders"; headers: string[] }
@@ -948,7 +949,7 @@ declare function searchParallelCells(
 
 export type SupportedFileExtension = "vtt" | "txt" | "usfm" | "sfm" | "SFM" | "USFM";
 
-export type FileType = "subtitles" | "plaintext" | "usfm" | "usx";
+export type FileType = "subtitles" | "plaintext" | "usfm" | "usx" | "csv" | "tsv";
 
 export interface FileTypeMap {
     vtt: "subtitles";
@@ -1098,6 +1099,37 @@ export interface SourcePreview extends BasePreview {
         validationResults: ValidationResult[];
     };
 }
+//     original: {
+//         preview: string;
+//         validationResults: {
+//             isValid: boolean;
+//             errors: Array<{ message: string }>;
+//         }[];
+//     };
+//     transformed: {
+//         sourceNotebooks: NotebookPreview[];
+//         validationResults: {
+//             isValid: boolean;
+//             errors: Array<{ message: string }>;
+//         }[];
+//     };
+export interface BiblePreview extends BasePreview {
+    type: "bible";
+    original: {
+        preview: string;
+        validationResults: {
+            isValid: boolean;
+            errors: Array<{ message: string }>;
+        }[];
+    };
+    transformed: {
+        sourceNotebooks: NotebookPreview[];
+        validationResults: {
+            isValid: boolean;
+            errors: Array<{ message: string }>;
+        }[];
+    };
+}
 
 interface RawSourcePreview {
     fileName: string;
@@ -1135,8 +1167,41 @@ export interface TranslationPreview extends BasePreview {
         validationResults: ValidationResult[];
     };
 }
+export interface TranslationPairsPreview extends BasePreview {
+    type: "translation-pairs";
+    preview: {
+        original: {
+            preview: string;
+            validationResults: ValidationResult[];
+        };
+        transformed: {
+            sourceNotebook: {
+                name: string;
+                cells: Array<{
+                    value: string;
+                    metadata: { id: string; type: string };
+                }>;
+            };
+            targetNotebook: {
+                name: string;
+                cells: Array<{
+                    value: string;
+                    metadata: { id: string; type: string };
+                }>;
+            };
+            matchedCells: number;
+            unmatchedContent: number;
+            paratextItems: number;
+            validationResults: ValidationResult[];
+        };
+    };
+}
 
-export type PreviewContent = SourcePreview | TranslationPreview | BiblePreview;
+export type PreviewContent =
+    | SourcePreview
+    | TranslationPreview
+    | BiblePreview
+    | TranslationPairsPreview;
 
 // Add new interfaces to support the preview structure
 export interface NotebookPreview {
@@ -1201,23 +1266,23 @@ export interface CustomNotebookPreviewWithMetadata {
     preview: PreviewContent;
 }
 
-export interface BiblePreviewData {
-    type: "bible";
-    original: {
-        preview: string;
-        validationResults: {
-            isValid: boolean;
-            errors: Array<{ message: string }>;
-        }[];
-    };
-    transformed: {
-        sourceNotebooks: NotebookPreview[];
-        validationResults: {
-            isValid: boolean;
-            errors: Array<{ message: string }>;
-        }[];
-    };
-}
+// export interface BiblePreviewData {
+//     type: "bible";
+//     original: {
+//         preview: string;
+//         validationResults: {
+//             isValid: boolean;
+//             errors: Array<{ message: string }>;
+//         }[];
+//     };
+//     transformed: {
+//         sourceNotebooks: NotebookPreview[];
+//         validationResults: {
+//             isValid: boolean;
+//             errors: Array<{ message: string }>;
+//         }[];
+//     };
+// }
 
 export interface WorkflowState {
     step: WorkflowStep;
