@@ -1,11 +1,17 @@
-import { BiblePreviewData, PreviewContent } from "../../../../types";
+import { PreviewContent } from "../../../../types";
 import { DownloadBibleTransaction } from "../../../../src/transactions/DownloadBibleTransaction";
 
 // Add ImportType type
 export type ImportType = "source" | "translation" | "bible-download" | "translation-pairs";
 
 // Update WorkflowStep to include the new initial step
-export type WorkflowStep = "type-select" | "select" | "preview-download" | "preview" | "processing" | "complete";
+export type WorkflowStep =
+    | "type-select"
+    | "select"
+    | "preview-download"
+    | "preview"
+    | "processing"
+    | "complete";
 
 export type ProcessingStatus = "pending" | "active" | "complete" | "error";
 
@@ -47,7 +53,7 @@ export interface MultiPreviewItem {
     fileSize: number;
     isValid: boolean;
     isRejected?: boolean;
-    preview: PreviewContent | BiblePreviewData;
+    preview: PreviewContent;
     sourceId?: string; // Optional sourceId for translation previews
 }
 
@@ -68,12 +74,13 @@ export interface WorkflowState {
     selectedFiles: string[];
     fileObjects: File[];
     fileHeaders?: string[]; // Add this for CSV/TSV headers
+    fileContent?: string;
     translationAssociations: Array<{ file: File; codexId: string }>;
     previews: Array<{
         id: string;
         fileName: string;
         fileSize: number;
-        preview: any;
+        preview: PreviewContent;
         isRejected?: boolean;
     }>;
     processingStages: ProcessingStages;
@@ -82,7 +89,7 @@ export interface WorkflowState {
         message: string;
         increment: number;
     };
-    preview?: any;
+    preview?: PreviewContent;
     currentTransaction?: any;
     bibleDownload?: BibleDownloadState;
     availableCodexFiles?: Array<{ id: string; name: string; path: string }>;

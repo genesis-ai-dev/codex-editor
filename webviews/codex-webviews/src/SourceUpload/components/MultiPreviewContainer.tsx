@@ -6,7 +6,7 @@ import { TranslationPreview } from "./TranslationPreview";
 import { BiblePreview } from "./BiblePreview";
 import { PreviewAccordion } from "./PreviewAccordion";
 import { MultiPreviewItem } from "../types";
-
+import { BiblePreview as IBiblePreview } from "../../../../../types";
 interface MultiPreviewContainerProps {
     previews: MultiPreviewItem[];
     onConfirm: () => void;
@@ -28,9 +28,21 @@ const renderPreview = (preview: PreviewContent) => {
         return <TranslationPreview preview={preview} />;
     }
     if (preview.type === "bible") {
-        return <BiblePreview preview={preview} onConfirm={() => {}} onCancel={() => {}} />; // FIXME: Add onConfirm and onCancel
+        return (
+            <BiblePreview
+                preview={preview as IBiblePreview}
+                onConfirm={() => {}}
+                onCancel={() => {}}
+            />
+        ); // FIXME: Add onConfirm and onCancel
     }
     return null;
+};
+const DEBUG = true;
+const debug = function (...args: any[]) {
+    if (DEBUG) {
+        console.log("[MultiPreviewContainer]", ...args);
+    }
 };
 
 export const MultiPreviewContainer: React.FC<MultiPreviewContainerProps> = ({
@@ -39,6 +51,7 @@ export const MultiPreviewContainer: React.FC<MultiPreviewContainerProps> = ({
     onCancel,
     onRejectPreview,
 }) => {
+    debug({ previews, onConfirm, onCancel, onRejectPreview });
     const validPreviews = previews.filter((p) => !p.isRejected && p.isValid);
     const hasValidPreviews = validPreviews.length > 0;
 

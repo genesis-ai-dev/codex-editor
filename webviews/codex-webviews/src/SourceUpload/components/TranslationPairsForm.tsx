@@ -54,6 +54,13 @@ export const TranslationPairsForm: React.FC<TranslationPairsFormProps> = ({
         if (!sourceColumn || !targetColumn) {
             return;
         }
+        console.log({
+            sourceColumn,
+            targetColumn,
+            ...(idColumn ? { idColumn } : {}),
+            metadataColumns,
+            hasHeaders,
+        });
 
         onSubmit({
             sourceColumn,

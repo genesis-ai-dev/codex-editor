@@ -127,9 +127,9 @@ function getNonce(): string {
     return text;
 }
 
-const DEBUG_MODE = false; // Set to true to enable debug logging
+const DEBUG_MODE = true; // Set to true to enable debug logging
 
-function debugLog(...args: any[]): void {
+function debug(...args: any[]): void {
     if (DEBUG_MODE) {
         console.log("[SourceUploadProvider]", ...args);
     }
@@ -145,12 +145,12 @@ export class SourceUploadProvider
     private currentSourceTransaction: SourceImportTransaction | null = null;
     private currentTranslationTransaction: TranslationImportTransaction | null = null;
     private currentDownloadBibleTransaction: DownloadBibleTransaction | null = null;
-    private currentTranslationPairsTransaction: TranslationPairsImportTransaction | null = null;
+    // private currentTranslationPairsTransaction: TranslationPairsImportTransaction | null = null;
     public availableCodexFiles: vscode.Uri[] = [];
 
     constructor(private readonly context: vscode.ExtensionContext) {
         registerScmCommands(context);
-        this.currentTranslationPairsTransaction = null;
+        // this.currentTranslationPairsTransaction = null;
     }
 
     public async resolveCustomDocument(
@@ -208,6 +208,7 @@ export class SourceUploadProvider
 
                                     // Get headers for column mapping
                                     const { headers } = await transaction.prepare();
+                                    debug("headers", headers);
 
                                     // Send headers back to webview for column mapping
                                     webviewPanel.webview.postMessage({
@@ -216,7 +217,7 @@ export class SourceUploadProvider
                                     } as SourceUploadResponseMessages);
 
                                     // Store the transaction
-                                    this.currentTranslationPairsTransaction = transaction;
+                                    // this.currentTranslationPairsTransaction = transaction;
                                 } else {
                                     await this.handleMultipleSourceImports(
                                         webviewPanel,
@@ -255,6 +256,18 @@ export class SourceUploadProvider
                             // Get preview
                             const preview: PreviewContent = {
                                 type: "translation-pairs",
+                                fileName: "Translation Pairs",
+                                fileSize: 0,
+                                fileType: "csv",
+                                original: {
+                                    preview:
+                                        "CSV/TSV content will be processed according to the following mapping:\n" +
+                                        `Source: ${mapping.sourceColumn}\n` +
+                                        `Target: ${mapping.targetColumn}\n` +
+                                        (mapping.idColumn ? `ID: ${mapping.idColumn}\n` : "") +
+                                        `Metadata: ${mapping.metadataColumns.join(", ")}`,
+                                    validationResults: [],
+                                },
                                 preview: {
                                     original: {
                                         preview:
@@ -266,8 +279,11 @@ export class SourceUploadProvider
                                         validationResults: [],
                                     },
                                     transformed: {
-                                        sourceNotebooks: [],
-                                        codexNotebooks: [],
+                                        sourceNotebook: { name: "Source", cells: [] },
+                                        targetNotebook: { name: "Target", cells: [] },
+                                        matchedCells: 0,
+                                        unmatchedContent: 0,
+                                        paratextItems: 0,
                                         validationResults: [],
                                     },
                                 },
@@ -600,6 +616,64 @@ export class SourceUploadProvider
                         );
                         break;
                     }
+                    case "confirmTranslationPairsImport": {
+                        debug("confirmTranslationPairsImport", { message });
+
+                        // if (!this.currentTranslationPairsTransaction) {
+                        //     throw new Error("No active translation pairs import transaction");
+                        // }
+
+                        await vscode.window.withProgress(
+                            {
+                                location: vscode.ProgressLocation.Notification,
+                                title: "Importing translation pairs",
+                                cancellable: true,
+                            },
+                            async (progress, token) => {
+                                try {
+                                    // const progressCallback = (update: {
+                                    //     message?: string;
+                                    //     increment?: number;
+                                    // }) => {
+                                    //     progress.report(update);
+                                    //     webviewPanel.webview.postMessage({
+                                    //         command: "updateProcessingStatus",
+                                    //         status: {
+                                    //             [update.message || "processing"]: "active",
+                                    //         },
+                                    //         progress: update,
+                                    //     } as SourceUploadResponseMessages);
+                                    // };
+
+                                    // // Execute the transaction which will create the codex file
+                                    // await this.currentTranslationPairsTransaction?.execute(
+                                    //     { report: progressCallback },
+                                    //     token
+                                    // );
+
+                                    // NOTE: create codex files here
+
+                                    webviewPanel.webview.postMessage({
+                                        command: "importComplete",
+                                    } as SourceUploadResponseMessages);
+
+                                    // Trigger reindex after successful import
+                                    await vscode.commands.executeCommand(
+                                        "translators-copilot.forceReindex"
+                                    );
+                                } catch (error) {
+                                    if (this.currentTranslationPairsTransaction) {
+                                        await this.currentTranslationPairsTransaction.rollback();
+                                    }
+                                    throw error;
+                                } finally {
+                                    this.currentTranslationPairsTransaction = null;
+                                }
+                            }
+                        );
+                        break;
+                    }
+
                     case "cancelSourceImport": {
                         if (this.currentSourceTransaction) {
                             await this.currentSourceTransaction.rollback();
@@ -986,6 +1060,9 @@ export class SourceUploadProvider
                 command: "biblePreview",
                 preview: {
                     type: "bible",
+                    fileName: metadata.translationId,
+                    fileSize: 0,
+                    fileType: "usfm", // is this correct?
                     original: {
                         preview: (preview as CodexNotebookAsJSONData).cells
                             .slice(0, 10)
