@@ -12,7 +12,7 @@ interface ImportTypeSelectorProps {
 export const ImportTypeSelector: React.FC<ImportTypeSelectorProps> = ({ onSelect, onCancel }) => {
     return (
         <div style={{ padding: "1.5rem", textAlign: "center" }}>
-            <h2 style={{ marginBottom: "1.5rem" }}>What would you like to import?? </h2>
+            <h2 style={{ marginBottom: "1.5rem" }}>What would you like to import? </h2>
 
             <div
                 style={{
