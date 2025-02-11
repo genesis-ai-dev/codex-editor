@@ -308,83 +308,137 @@ export const SourceUploader: React.FC = () => {
     const handleContinue = useCallback(async () => {
         if (!workflow.fileObjects.length) return;
 
-        try {
-            const filePromises = workflow.fileObjects.map(async (file) => ({
-                content: await readFileAsText(file),
-                name: file.name,
-            }));
+        if (workflow.importType === "translation-pairs") {
+            try {
+                const filePromises = workflow.fileObjects.map(async (file) => ({
+                    content: await readFileAsText(file),
+                    name: file.name,
+                }));
 
-            const files = await Promise.all(filePromises);
-            debug({ files });
+                const files = await Promise.all(filePromises);
+                debug({ files });
 
-            const content = files[0].content;
-            // Parse just the first line to get headers/columns
-            const firstLine = content.split("\n")[0];
-            const delimiter = files[0].name.endsWith(".csv") ? "," : "\t";
-            // const parsedHeaders = parse(firstLine, {
-            //     delimiter,
-            //     skip_empty_lines: true,
-            //     columns: false,
-            //     to: 1, // Only parse first line
-            // });
-            // debug("parsedHeaders", parsedHeaders);
-            readString(content, {
-                // worker: true,
-                header: false,
-                complete: (results: any) => {
+                const content = files[0].content;
+                // Parse just the first line to get headers/columns
+                const firstLine = content.split("\n")[0];
+                const delimiter = files[0].name.endsWith(".csv") ? "," : "\t";
+                // const parsedHeaders = parse(firstLine, {
+                //     delimiter,
+                //     skip_empty_lines: true,
+                //     columns: false,
+                //     to: 1, // Only parse first line
+                // });
+                // debug("parsedHeaders", parsedHeaders);
+
+                const fileIsCSV = files[0].name.endsWith(".csv");
+                const fileIsTSV = files[0].name.endsWith(".tsv");
+                const fileIsTab = files[0].name.endsWith(".tab");
+
+                if (fileIsCSV || fileIsTSV || fileIsTab) {
+                    readString(content, {
+                        // worker: true,
+                        header: false,
+                        complete: (results: any) => {
+                            setWorkflow((prev) => ({
+                                ...prev,
+                                fileHeaders: results.data[0],
+                                fileContent: content,
+                                step: "select", // This will trigger showing the TranslationPairsForm
+                            }));
+                            debug("---------------------------");
+                            debug(results);
+                            debug("---------------------------");
+                        },
+                    });
+                } else {
                     setWorkflow((prev) => ({
                         ...prev,
-                        fileHeaders: results.data[0],
                         fileContent: content,
-                        step: "select", // This will trigger showing the TranslationPairsForm
+                        step: "select",
                     }));
-                    debug("---------------------------");
-                    debug(results);
-                    debug("---------------------------");
-                },
-            });
+                }
 
-            // If no headers, generate column numbers
-            // const headers = parsedHeaders; /* .map((_, i) => `Column ${i + 1}`); */
-            // if (workflow.importType === "translation") {
-            //     // Handle translation files
-            //     const filesWithSourceIds = files.map((file) => {
-            //         const association = workflow.translationAssociations.find(
-            //             (a) => a.file.name === file.name
-            //         );
-            //         return {
-            //             ...file,
-            //             sourceId: association?.codexId || "",
-            //         };
-            //     });
+                // If no headers, generate column numbers
+                // const headers = parsedHeaders; /* .map((_, i) => `Column ${i + 1}`); */
+                // if (workflow.importType === "translation") {
+                //     // Handle translation files
+                //     const filesWithSourceIds = files.map((file) => {
+                //         const association = workflow.translationAssociations.find(
+                //             (a) => a.file.name === file.name
+                //         );
+                //         return {
+                //             ...file,
+                //             sourceId: association?.codexId || "",
+                //         };
+                //     });
 
-            //     vscode.postMessage({
-            //         command: "uploadTranslation",
-            //         files: filesWithSourceIds,
-            //     } as SourceUploadPostMessages);
-            // } else if (workflow.importType === "translation-pairs") {
-            //     // For translation pairs, we just send the file and wait for headers
-            //     vscode.postMessage({
-            //         command: "uploadSourceText",
-            //         files,
-            //     } as SourceUploadPostMessages);
-            //     // fixme: we probably don't need to send the files here, since we're just waiting for headers we can parse the headers out and do the flow in the webview and simply send the codex and source file to the provider when they are ready.
+                //     vscode.postMessage({
+                //         command: "uploadTranslation",
+                //         files: filesWithSourceIds,
+                //     } as SourceUploadPostMessages);
+                // } else if (workflow.importType === "translation-pairs") {
+                //     // For translation pairs, we just send the file and wait for headers
+                //     vscode.postMessage({
+                //         command: "uploadSourceText",
+                //         files,
+                //     } as SourceUploadPostMessages);
+                //     // fixme: we probably don't need to send the files here, since we're just waiting for headers we can parse the headers out and do the flow in the webview and simply send the codex and source file to the provider when they are ready.
 
-            //     // The provider will respond with fileHeaders command, which will trigger
-            //     // the TranslationPairsForm to be shown
-            // } else {
-            //     // Handle source files
-            //     vscode.postMessage({
-            //         command: "uploadSourceText",
-            //         files,
-            //     } as SourceUploadPostMessages);
-            // }
-        } catch (error) {
-            console.error("Error preparing files:", error);
-            setWorkflow((prev) => ({
-                ...prev,
-                error: error instanceof Error ? error.message : "Failed to read files",
-            }));
+                //     // The provider will respond with fileHeaders command, which will trigger
+                //     // the TranslationPairsForm to be shown
+                // } else {
+                //     // Handle source files
+                //     vscode.postMessage({
+                //         command: "uploadSourceText",
+                //         files,
+                //     } as SourceUploadPostMessages);
+                // }
+            } catch (error) {
+                console.error("Error preparing files:", error);
+                setWorkflow((prev) => ({
+                    ...prev,
+                    error: error instanceof Error ? error.message : "Failed to read files",
+                }));
+            }
+        } else {
+            try {
+                const filePromises = workflow.fileObjects.map(async (file) => ({
+                    content: await readFileAsText(file),
+                    name: file.name,
+                }));
+
+                const files = await Promise.all(filePromises);
+
+                if (workflow.importType === "translation") {
+                    // Handle translation files
+                    const filesWithSourceIds = files.map((file) => {
+                        const association = workflow.translationAssociations.find(
+                            (a) => a.file.name === file.name
+                        );
+                        return {
+                            ...file,
+                            sourceId: association?.codexId || "",
+                        };
+                    });
+
+                    vscode.postMessage({
+                        command: "uploadTranslation",
+                        files: filesWithSourceIds,
+                    } as SourceUploadPostMessages);
+                } else {
+                    // Handle source files
+                    vscode.postMessage({
+                        command: "uploadSourceText",
+                        files,
+                    } as SourceUploadPostMessages);
+                }
+            } catch (error) {
+                console.error("Error preparing files:", error);
+                setWorkflow((prev) => ({
+                    ...prev,
+                    error: error instanceof Error ? error.message : "Failed to read files",
+                }));
+            }
         }
     }, [workflow.fileObjects, workflow.importType, workflow.translationAssociations, vscode]);
 
