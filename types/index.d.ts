@@ -1172,6 +1172,8 @@ export interface TranslationPairsPreview extends BasePreview {
                 cells: Array<{
                     value: string;
                     metadata: { id: string; type: string };
+                    kind: 2 | 1;
+                    languageId: "html" | "markdown" | "usj";
                 }>;
             };
             targetNotebook: {
@@ -1179,6 +1181,8 @@ export interface TranslationPairsPreview extends BasePreview {
                 cells: Array<{
                     value: string;
                     metadata: { id: string; type: string };
+                    kind: 2 | 1;
+                    languageId: "html" | "markdown" | "usj";
                 }>;
             };
             matchedCells: number;

@@ -623,11 +623,19 @@ export const SourceUploader: React.FC = () => {
                                                 transformed: {
                                                     sourceNotebook: {
                                                         name: "Source",
-                                                        cells: sourceCells,
+                                                        cells: sourceCells.map((cell) => ({
+                                                            ...cell,
+                                                            kind: 2,
+                                                            languageId: "html",
+                                                        })),
                                                     },
                                                     targetNotebook: {
                                                         name: "Target",
-                                                        cells: targetCells,
+                                                        cells: targetCells.map((cell) => ({
+                                                            ...cell,
+                                                            kind: 2,
+                                                            languageId: "html",
+                                                        })),
                                                     },
                                                     matchedCells: 0,
                                                     unmatchedContent: 0,

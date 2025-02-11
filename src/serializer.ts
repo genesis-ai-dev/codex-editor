@@ -17,6 +17,13 @@ interface RawNotebookData {
     cells: CustomNotebookCellData[];
     metadata?: { [key: string]: any };
 }
+const DEBUG = false;
+
+const debug = (...args: any[]) => {
+    if (DEBUG) {
+        console.log("CodexContentSerializer", ...args);
+    }
+};
 
 export class CodexContentSerializer implements vscode.NotebookSerializer {
     public readonly label: string = "Codex Translation Notebook Serializer";
@@ -25,16 +32,20 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
         data: Uint8Array,
         token: vscode.CancellationToken
     ): Promise<CodexNotebookAsJSONData> {
+        debug("Deserializing notebook data");
         const contents = new TextDecoder().decode(data); // convert to String
         // Read file contents
         let raw: RawNotebookData;
         try {
             raw = <RawNotebookData>JSON.parse(contents);
+            debug("Successfully parsed notebook contents", { cellCount: raw.cells.length });
         } catch {
+            debug("Failed to parse notebook contents, creating empty notebook");
             raw = { cells: [], metadata: {} };
         }
         // Create array of Notebook cells for the VS Code API from file contents
         const cells = raw.cells.map((item) => {
+            debug("Processing cell", { id: item.metadata?.id, kind: item.kind });
             const cell = new vscode.NotebookCellData(
                 item.kind,
                 item.value,
@@ -49,6 +60,7 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
 
         const notebookData = new vscode.NotebookData(cells);
         notebookData.metadata = raw.metadata || {};
+        debug("Notebook deserialization complete", { cellCount: cells.length });
         return notebookData as CodexNotebookAsJSONData;
     }
 
@@ -56,12 +68,14 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
         data: vscode.NotebookData,
         token: vscode.CancellationToken
     ): Promise<Uint8Array> {
+        debug("Serializing notebook data", { cellCount: data.cells.length });
         // Map the Notebook data into the format we want to save the Notebook data as
         const contents: RawNotebookData = {
             cells: [],
             metadata: data.metadata,
         };
         for (const cell of data.cells) {
+            debug("Processing cell for serialization", { id: cell.metadata?.id, kind: cell.kind });
             contents.cells.push({
                 kind: cell.kind,
                 languageId: cell.languageId,
@@ -74,6 +88,7 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
             });
         }
 
+        debug("Notebook serialization complete", { cellCount: contents.cells.length });
         return new TextEncoder().encode(JSON.stringify(contents, null, 4));
     }
 }
