@@ -66,26 +66,6 @@ export class TranslationPairsImportTransaction extends ImportTransaction {
         };
     }
 
-    async setColumnMapping(mapping: ColumnMapping): Promise<void> {
-        // Validate column indices exist
-        const columnCount = this.state.headers?.length || 0;
-        const sourceIndex = parseInt(mapping.sourceColumn.replace("Column ", "")) - 1; // fixme: this is now the column name and will not work
-        const targetIndex = parseInt(mapping.targetColumn.replace("Column ", "")) - 1;
-        const idIndex = mapping.idColumn
-            ? parseInt(mapping.idColumn.replace("Column ", "")) - 1
-            : -1;
-
-        if (
-            sourceIndex >= columnCount ||
-            targetIndex >= columnCount ||
-            (idIndex !== -1 && idIndex >= columnCount)
-        ) {
-            throw new Error("Invalid column mapping");
-        }
-
-        this.state.columnMapping = mapping;
-    }
-
     public async processFiles(): Promise<void> {
         if (!this.state.columnMapping) {
             throw new Error("Column mapping must be set before processing");

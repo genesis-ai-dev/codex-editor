@@ -238,73 +238,6 @@ export class SourceUploadProvider
                         }
                         break;
                     }
-                    case "setColumnMapping": {
-                        try {
-                            if (!this.currentTranslationPairsTransaction) {
-                                throw new Error("No active translation pairs transaction");
-                            }
-
-                            const mapping = message.mapping;
-                            await this.currentTranslationPairsTransaction.setColumnMapping({
-                                ...mapping,
-                                hasHeaders: true,
-                            });
-
-                            // Process the files with the mapping
-                            await this.currentTranslationPairsTransaction.processFiles();
-
-                            // Get preview
-                            const preview: PreviewContent = {
-                                type: "translation-pairs",
-                                fileName: "Translation Pairs",
-                                fileSize: 0,
-                                fileType: "csv",
-                                original: {
-                                    preview:
-                                        "CSV/TSV content will be processed according to the following mapping:\n" +
-                                        `Source: ${mapping.sourceColumn}\n` +
-                                        `Target: ${mapping.targetColumn}\n` +
-                                        (mapping.idColumn ? `ID: ${mapping.idColumn}\n` : "") +
-                                        `Metadata: ${mapping.metadataColumns.join(", ")}`,
-                                    validationResults: [],
-                                },
-                                preview: {
-                                    original: {
-                                        preview:
-                                            "CSV/TSV content will be processed according to the following mapping:\n" +
-                                            `Source: ${mapping.sourceColumn}\n` +
-                                            `Target: ${mapping.targetColumn}\n` +
-                                            (mapping.idColumn ? `ID: ${mapping.idColumn}\n` : "") +
-                                            `Metadata: ${mapping.metadataColumns.join(", ")}`,
-                                        validationResults: [],
-                                    },
-                                    transformed: {
-                                        sourceNotebook: { name: "Source", cells: [] },
-                                        targetNotebook: { name: "Target", cells: [] },
-                                        matchedCells: 0,
-                                        unmatchedContent: 0,
-                                        paratextItems: 0,
-                                        validationResults: [],
-                                    },
-                                },
-                            };
-
-                            webviewPanel.webview.postMessage({
-                                command: "preview",
-                                preview,
-                            } as SourceUploadResponseMessages);
-                        } catch (error) {
-                            console.error("Error setting column mapping:", error);
-                            webviewPanel.webview.postMessage({
-                                command: "error",
-                                message:
-                                    error instanceof Error
-                                        ? error.message
-                                        : "Unknown error occurred",
-                            } as SourceUploadResponseMessages);
-                        }
-                        break;
-                    }
                     case "uploadTranslation":
                         await this.handleMultipleTranslationImports(
                             webviewPanel,
@@ -630,45 +563,124 @@ export class SourceUploadProvider
                                 cancellable: true,
                             },
                             async (progress, token) => {
+                                // const progressManager = new ProgressManager(progress, webviewPanel);
+                                // const progressCallback = (message: string, increment?: number) => {
+                                //     progressManager.report({ message, increment });
+                                //     webviewPanel.webview.postMessage({
+                                //         command: "updateProcessingStatus",
+                                //         status: {
+                                //             fileValidation: true,
+                                //             folderCreation: true,
+                                //             metadataSetup: true,
+                                //             importComplete: false,
+                                //         },
+                                //         progress: { message, increment: increment || 0 },
+                                //     } as SourceUploadResponseMessages);
+                                // };
+
                                 try {
-                                    // const progressCallback = (update: {
-                                    //     message?: string;
-                                    //     increment?: number;
-                                    // }) => {
-                                    //     progress.report(update);
-                                    //     webviewPanel.webview.postMessage({
-                                    //         command: "updateProcessingStatus",
-                                    //         status: {
-                                    //             [update.message || "processing"]: "active",
-                                    //         },
-                                    //         progress: update,
-                                    //     } as SourceUploadResponseMessages);
-                                    // };
-
-                                    // // Execute the transaction which will create the codex file
-                                    // await this.currentTranslationPairsTransaction?.execute(
-                                    //     { report: progressCallback },
-                                    //     token
-                                    // );
-
-                                    // NOTE: create codex files here
-
-                                    webviewPanel.webview.postMessage({
-                                        command: "importComplete",
-                                    } as SourceUploadResponseMessages);
-
-                                    // Trigger reindex after successful import
-                                    await vscode.commands.executeCommand(
-                                        "translators-copilot.forceReindex"
-                                    );
-                                } catch (error) {
-                                    if (this.currentTranslationPairsTransaction) {
-                                        await this.currentTranslationPairsTransaction.rollback();
+                                    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                                    if (!workspaceFolder) {
+                                        throw new Error("No workspace folder found");
                                     }
+
+                                    // progressCallback("Processing translation pairs...", 20);
+
+                                    const { headers, data } = message;
+                                    const baseName = data.fileName.split(".")[0] || "untitled";
+
+                                    // Create source and codex files directly in workspace
+                                    const sourceUri = vscode.Uri.joinPath(
+                                        workspaceFolder.uri,
+                                        ".project",
+                                        "sourceTexts",
+                                        `${baseName}.source`
+                                    );
+                                    const codexUri = vscode.Uri.joinPath(
+                                        workspaceFolder.uri,
+                                        "files",
+                                        "targetTexts",
+                                        `${baseName}.codex`
+                                    );
+
+                                    // progressCallback("Creating source and target files...", 40);
+
+                                    // Transform records into source and codex format
+                                    // const { cells, translations } = message.data;
+
+                                    // Write the files directly to workspace
+                                    await vscode.workspace.fs.writeFile(
+                                        sourceUri,
+                                        Buffer.from(
+                                            JSON.stringify(
+                                                {
+                                                    cells: data.preview.transformed.sourceNotebook
+                                                        .cells,
+                                                },
+                                                null,
+                                                2
+                                            )
+                                        )
+                                    );
+
+                                    await vscode.workspace.fs.writeFile(
+                                        codexUri,
+                                        Buffer.from(
+                                            JSON.stringify(
+                                                {
+                                                    cells: data.preview.transformed.targetNotebook
+                                                        .cells,
+                                                },
+                                                null,
+                                                2
+                                            )
+                                        )
+                                    );
+
+                                    // progressCallback("Updating metadata...", 80);
+
+                                    // Update metadata
+                                    const metadataManager = getNotebookMetadataManager();
+                                    // await metadataManager.addOrUpdateMetadata({
+                                    //     id: sourceUri.toString(),
+                                    //     originalName: data.fileName,
+                                    //     originalFormat: data.fileName.endsWith(".csv") ? "csv" : "tsv",
+                                    //     columnMapping: data.columnMapping,
+                                    //     totalPairs: cells.length,
+                                    //     importDate: new Date().toISOString(),
+                                    //     hasHeaders: data.columnMapping.hasHeaders
+                                    // });
+
+                                    // progressCallback("Import complete", 100);
+                                } catch (error) {
+                                    console.error("Error in translation pairs import:", error);
+                                    webviewPanel.webview.postMessage({
+                                        command: "error",
+                                        message:
+                                            error instanceof Error
+                                                ? error.message
+                                                : "Unknown error occurred",
+                                    } as SourceUploadResponseMessages);
                                     throw error;
-                                } finally {
-                                    this.currentTranslationPairsTransaction = null;
                                 }
+                                // NOTE: create codex files here
+                                // const transaction = new TranslationPairsImportTransaction(
+                                //     message.data,
+                                // );
+
+                                // await transaction.execute(
+                                //     { report: progressCallback },
+                                //     token
+                                // );
+
+                                webviewPanel.webview.postMessage({
+                                    command: "importComplete",
+                                } as SourceUploadResponseMessages);
+
+                                // Trigger reindex after successful import
+                                await vscode.commands.executeCommand(
+                                    "translators-copilot.forceReindex"
+                                );
                             }
                         );
                         break;
