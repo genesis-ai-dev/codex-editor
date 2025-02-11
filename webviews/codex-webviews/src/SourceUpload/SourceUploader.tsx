@@ -571,6 +571,13 @@ export const SourceUploader: React.FC = () => {
                                                 metadata: {
                                                     id: row[mapping.idColumn || ""],
                                                     type: "source",
+                                                    otherFields: mapping.metadataColumns.reduce(
+                                                        (acc, column) => {
+                                                            acc[column] = row[column] || "";
+                                                            return acc;
+                                                        },
+                                                        {} as Record<string, string>
+                                                    ),
                                                 },
                                             }));
 
@@ -584,6 +591,13 @@ export const SourceUploader: React.FC = () => {
                                                 metadata: {
                                                     id: cell.metadata.id,
                                                     type: "target",
+                                                    otherFields: mapping.metadataColumns.reduce(
+                                                        (acc, column) => {
+                                                            acc[column] = targetRow?.[column] || "";
+                                                            return acc;
+                                                        },
+                                                        {} as Record<string, string>
+                                                    ),
                                                 },
                                             };
                                         });
