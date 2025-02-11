@@ -552,10 +552,6 @@ export class SourceUploadProvider
                     case "confirmTranslationPairsImport": {
                         debug("confirmTranslationPairsImport", { message });
 
-                        // if (!this.currentTranslationPairsTransaction) {
-                        //     throw new Error("No active translation pairs import transaction");
-                        // }
-
                         await vscode.window.withProgress(
                             {
                                 location: vscode.ProgressLocation.Notification,
@@ -563,33 +559,15 @@ export class SourceUploadProvider
                                 cancellable: true,
                             },
                             async (progress, token) => {
-                                // const progressManager = new ProgressManager(progress, webviewPanel);
-                                // const progressCallback = (message: string, increment?: number) => {
-                                //     progressManager.report({ message, increment });
-                                //     webviewPanel.webview.postMessage({
-                                //         command: "updateProcessingStatus",
-                                //         status: {
-                                //             fileValidation: true,
-                                //             folderCreation: true,
-                                //             metadataSetup: true,
-                                //             importComplete: false,
-                                //         },
-                                //         progress: { message, increment: increment || 0 },
-                                //     } as SourceUploadResponseMessages);
-                                // };
-
                                 try {
                                     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-                                    if (!workspaceFolder) {
+                                    if (!workspaceFolder)
                                         throw new Error("No workspace folder found");
-                                    }
 
                                     // progressCallback("Processing translation pairs...", 20);
 
                                     const { headers, data } = message;
                                     const baseName = data.fileName.split(".")[0] || "untitled";
-
-                                    // Create source and codex files directly in workspace
                                     const sourceUri = vscode.Uri.joinPath(
                                         workspaceFolder.uri,
                                         ".project",
@@ -599,88 +577,93 @@ export class SourceUploadProvider
                                     const codexUri = vscode.Uri.joinPath(
                                         workspaceFolder.uri,
                                         "files",
-                                        "targetTexts",
+                                        "target",
                                         `${baseName}.codex`
                                     );
 
-                                    // progressCallback("Creating source and target files...", 40);
-
-                                    // Transform records into source and codex format
-                                    // const { cells, translations } = message.data;
-
-                                    // Write the files directly to workspace
-                                    await vscode.workspace.fs.writeFile(
-                                        sourceUri,
-                                        Buffer.from(
-                                            JSON.stringify(
-                                                {
-                                                    cells: data.preview.transformed.sourceNotebook
-                                                        .cells,
-                                                },
-                                                null,
-                                                2
+                                    // Write files
+                                    await Promise.all([
+                                        vscode.workspace.fs.writeFile(
+                                            sourceUri,
+                                            Buffer.from(
+                                                JSON.stringify(
+                                                    {
+                                                        cells: data.preview.transformed
+                                                            .sourceNotebook.cells,
+                                                        metadata: {
+                                                            textDirection: "ltr",
+                                                            navigation: [],
+                                                            videoUrl: "",
+                                                            id: data.fileName,
+                                                            originalName: data.fileName,
+                                                            importDate: new Date().toISOString(),
+                                                            linked: true,
+                                                            corpusMarker: "Translation Pairs",
+                                                            sourceCreatedAt:
+                                                                new Date().toISOString(),
+                                                        },
+                                                    },
+                                                    null,
+                                                    2
+                                                )
                                             )
-                                        )
-                                    );
-
-                                    await vscode.workspace.fs.writeFile(
-                                        codexUri,
-                                        Buffer.from(
-                                            JSON.stringify(
-                                                {
-                                                    cells: data.preview.transformed.targetNotebook
-                                                        .cells,
-                                                },
-                                                null,
-                                                2
+                                        ),
+                                        vscode.workspace.fs.writeFile(
+                                            codexUri,
+                                            Buffer.from(
+                                                JSON.stringify(
+                                                    {
+                                                        cells: data.preview.transformed
+                                                            .targetNotebook.cells,
+                                                        metadata: {
+                                                            textDirection: "ltr",
+                                                            navigation: [],
+                                                            videoUrl: "",
+                                                            id: data.fileName,
+                                                            originalName: data.fileName,
+                                                            importDate: new Date().toISOString(),
+                                                            sourceFsPath: sourceUri.fsPath,
+                                                            linked: true,
+                                                            corpusMarker: "Translation Pairs",
+                                                            sourceCreatedAt:
+                                                                new Date().toISOString(),
+                                                        },
+                                                    },
+                                                    null,
+                                                    2
+                                                )
                                             )
-                                        )
-                                    );
+                                        ),
+                                    ]);
 
-                                    // progressCallback("Updating metadata...", 80);
-
-                                    // Update metadata
+                                    // Add metadata
                                     const metadataManager = getNotebookMetadataManager();
-                                    // await metadataManager.addOrUpdateMetadata({
-                                    //     id: sourceUri.toString(),
-                                    //     originalName: data.fileName,
-                                    //     originalFormat: data.fileName.endsWith(".csv") ? "csv" : "tsv",
-                                    //     columnMapping: data.columnMapping,
-                                    //     totalPairs: cells.length,
-                                    //     importDate: new Date().toISOString(),
-                                    //     hasHeaders: data.columnMapping.hasHeaders
-                                    // });
+                                    await metadataManager.addOrUpdateMetadata({
+                                        id: baseName,
+                                        originalName: data.fileName,
+                                        sourceFsPath: sourceUri.fsPath,
+                                        codexFsPath: codexUri.fsPath,
+                                        // columnMapping: data.,
+                                        // totalPairs: data.preview.transformed.matchedCells,
+                                        // importDate: new Date().toISOString(),
+                                        gitStatus: "uninitialized",
+                                        navigation: [],
+                                        videoUrl: "",
+                                        sourceCreatedAt: new Date().toISOString(),
+                                        codexLastModified: new Date().toISOString(),
+                                        corpusMarker: "Translation Pairs",
+                                    });
 
-                                    // progressCallback("Import complete", 100);
-                                } catch (error) {
-                                    console.error("Error in translation pairs import:", error);
                                     webviewPanel.webview.postMessage({
-                                        command: "error",
-                                        message:
-                                            error instanceof Error
-                                                ? error.message
-                                                : "Unknown error occurred",
-                                    } as SourceUploadResponseMessages);
-                                    throw error;
+                                        command: "importComplete",
+                                    });
+
+                                    await vscode.commands.executeCommand(
+                                        "translators-copilot.forceReindex"
+                                    );
+                                } catch (error) {
+                                    // Error handling
                                 }
-                                // NOTE: create codex files here
-                                // const transaction = new TranslationPairsImportTransaction(
-                                //     message.data,
-                                // );
-
-                                // await transaction.execute(
-                                //     { report: progressCallback },
-                                //     token
-                                // );
-
-                                webviewPanel.webview.postMessage({
-                                    command: "importComplete",
-                                } as SourceUploadResponseMessages);
-
-                                // Trigger reindex after successful import
-                                await vscode.commands.executeCommand(
-                                    "translators-copilot.forceReindex"
-                                );
                             }
                         );
                         break;
