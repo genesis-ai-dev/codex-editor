@@ -237,21 +237,12 @@ export type SourceUploadPostMessages =
               sourceId: string;
           }>;
       }
-    | {
-          command: "setColumnMapping";
-          mapping: {
-              sourceColumn: string;
-              targetColumn: string;
-              idColumn?: string;
-              metadataColumns: string[];
-          };
-      }
     | { command: "error"; errorMessage: string }
     | { command: "getAvailableCodexFiles" }
     | { command: "selectSourceFile" }
     | { command: "confirmSourceImport" }
     | { command: "confirmTranslationImport" }
-    | { command: "confirmTranslationPairsImport"; headers: string[]; data: PreviewContent }
+    | { command: "confirmTranslationPairsImport"; headers: string[]; data: TranslationPairsPreview }
     | { command: "cancelSourceImport" }
     | { command: "cancelTranslationImport" }
     | { command: "downloadBible"; ebibleMetadata: ExtendedMetadata; asTranslationOnly: boolean }

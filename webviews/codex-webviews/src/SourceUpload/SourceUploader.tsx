@@ -17,6 +17,7 @@ import {
     CustomCellMetaData,
     CodexNotebookAsJSONData,
     FileType,
+    TranslationPairsPreview,
 } from "../../../../types";
 import { WorkflowProgress } from "./components/WorkflowProgress";
 import { SourcePreview } from "./components/SourcePreview";
@@ -652,10 +653,6 @@ export const SourceUploader: React.FC = () => {
                                         }));
                                     },
                                 });
-                                // vscode.postMessage({
-                                //     command: "setColumnMapping",
-                                //     mapping,
-                                // } as SourceUploadPostMessages);
                             }}
                             onCancel={handleCancel}
                         />
@@ -858,7 +855,8 @@ export const SourceUploader: React.FC = () => {
                                     message = {
                                         command: "confirmTranslationPairsImport",
                                         headers: workflow.fileHeaders || [],
-                                        data: workflow.previews[0].preview,
+                                        data: workflow.previews[0]
+                                            .preview as TranslationPairsPreview,
                                     };
                                     break;
                             }
