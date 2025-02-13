@@ -282,6 +282,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             `changes to ${vscode.workspace.asRelativePath(document.uri).split(/[/\\]/).pop()}`
         );
     }
+    public postMessage(message: GlobalMessage) {
+        console.log("postMessage", { message });
+        if (this.webviewPanels.size > 0) {
+            this.webviewPanels.forEach((panel) => panel.webview.postMessage(message));
+        } else {
+            console.error("No active webview panels");
+        }
+    }
 
     private scheduleCommit(document: CodexCellDocument) {
         // Clear any existing timer
