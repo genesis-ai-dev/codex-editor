@@ -44,6 +44,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private webviewPanels: Map<string, vscode.WebviewPanel> = new Map();
     private userInfo: { username: string; email: string } | undefined;
     private stateStore: StateStore | undefined;
+    private commitTimer: NodeJS.Timeout | undefined;
+    private readonly COMMIT_DELAY_MS = 5 * 60 * 1000; // 5 minutes in milliseconds
 
     public static register(context: vscode.ExtensionContext): vscode.Disposable {
         const provider = new CodexCellEditorProvider(context);
@@ -218,6 +220,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Clean up on panel close
         webviewPanel.onDidDispose(() => {
+            if (this.commitTimer) {
+                clearTimeout(this.commitTimer);
+            }
             this.webviewPanels.delete(document.uri.toString());
             jumpToCellListenerDispose();
             listeners.forEach((l) => l.dispose());
@@ -239,7 +244,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         updateWebview();
 
         // Watch for configuration changes
-        const configListenerDisposable =  vscode.workspace.onDidChangeConfiguration((e) => {
+        const configListenerDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration("translators-copilot.textDirection")) {
                 this.updateTextDirection(webviewPanel, document);
             }
@@ -271,27 +276,31 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         );
     }
 
-    public async saveCustomDocument(
-        document: CodexCellDocument,
-        cancellation: vscode.CancellationToken
-    ): Promise<void> {
-        await document.save(cancellation);
-        await this.executeGitCommit(document);
-    }
-
     private async executeGitCommit(document: CodexCellDocument): Promise<void> {
         await vscode.commands.executeCommand(
             "extension.manualCommit",
             `changes to ${vscode.workspace.asRelativePath(document.uri).split(/[/\\]/).pop()}`
         );
     }
-    public postMessage(message: GlobalMessage) {
-        console.log("postMessage", { message });
-        if (this.webviewPanels.size > 0) {
-            this.webviewPanels.forEach((panel) => panel.webview.postMessage(message));
-        } else {
-            console.error("No active webview panels");
+
+    private scheduleCommit(document: CodexCellDocument) {
+        // Clear any existing timer
+        if (this.commitTimer) {
+            clearTimeout(this.commitTimer);
         }
+
+        // Set new timer
+        this.commitTimer = setTimeout(async () => {
+            await this.executeGitCommit(document);
+        }, this.COMMIT_DELAY_MS);
+    }
+
+    public async saveCustomDocument(
+        document: CodexCellDocument,
+        cancellation: vscode.CancellationToken
+    ): Promise<void> {
+        await document.save(cancellation);
+        this.scheduleCommit(document); // Schedule commit instead of immediate commit
     }
 
     public async saveCustomDocumentAs(
@@ -300,7 +309,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         cancellation: vscode.CancellationToken
     ): Promise<void> {
         await document.saveAs(destination, cancellation);
-        await this.executeGitCommit(document);
+        this.scheduleCommit(document); // Schedule commit instead of immediate commit
     }
 
     public async revertCustomDocument(
@@ -308,7 +317,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         cancellation: vscode.CancellationToken
     ): Promise<void> {
         await document.revert(cancellation);
-        await this.executeGitCommit(document);
+        this.scheduleCommit(document); // Schedule commit instead of immediate commit
     }
 
     public async backupCustomDocument(
