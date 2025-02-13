@@ -41,7 +41,7 @@ function getNonce(): string {
     return text;
 }
 
-const DEBUG_MODE = true;
+const DEBUG_MODE = false;
 
 const debug = function (...args: any[]) {
     if (DEBUG_MODE) {
@@ -54,6 +54,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private webviewPanels: Map<string, vscode.WebviewPanel> = new Map();
     private userInfo: { username: string; email: string } | undefined;
     private stateStore: StateStore | undefined;
+    private stateStoreListener: (() => void) | undefined;
     private commitTimer: NodeJS.Timeout | undefined;
     private readonly COMMIT_DELAY_MS = 5 * 60 * 1000; // 5 minutes in milliseconds
 
@@ -70,9 +71,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 },
             }
         );
-        GlobalProvider.getInstance().registerProvider("codex-cell-editor", provider);
+        const globalProviderRegistration = GlobalProvider.getInstance().registerProvider(
+            "codex-cell-editor",
+            provider
+        );
         debug("Provider registered successfully");
-        return providerRegistration;
+
+        return new vscode.Disposable(() => {
+            providerRegistration.dispose();
+            globalProviderRegistration.dispose();
+        });
     }
 
     private static readonly viewType = "codex.cellEditor";
@@ -88,27 +96,30 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             const { storeListener, updateStoreState } = await initializeStateStore();
             this.stateStore = { storeListener, updateStoreState };
 
-            // Set up listener for cell ID changes
-            this.stateStore.storeListener("cellId", (value: CellIdGlobalState | undefined) => {
-                debug("Cell ID change detected:", value);
-                if (value?.cellId && value?.uri) {
-                    // Only send highlight messages to source files when a codex file is active
-                    const valueIsCodexFile = value.uri.endsWith(".codex");
-                    if (valueIsCodexFile) {
-                        debug("Processing codex file highlight");
-                        for (const [panelUri, panel] of this.webviewPanels.entries()) {
-                            const isSourceFile = panelUri.endsWith(".source");
-                            if (isSourceFile) {
-                                debug("Sending highlight message to source file:", panelUri);
-                                panel.webview.postMessage({
-                                    type: "highlightCell",
-                                    cellId: value.cellId,
-                                });
+            // Store the dispose function when setting up the listener
+            this.stateStoreListener = this.stateStore.storeListener(
+                "cellId",
+                (value: CellIdGlobalState | undefined) => {
+                    debug("Cell ID change detected:", value);
+                    if (value?.cellId && value?.uri) {
+                        // Only send highlight messages to source files when a codex file is active
+                        const valueIsCodexFile = value.uri.endsWith(".codex");
+                        if (valueIsCodexFile) {
+                            debug("Processing codex file highlight");
+                            for (const [panelUri, panel] of this.webviewPanels.entries()) {
+                                const isSourceFile = panelUri.endsWith(".source");
+                                if (isSourceFile) {
+                                    debug("Sending highlight message to source file:", panelUri);
+                                    panel.webview.postMessage({
+                                        type: "highlightCell",
+                                        cellId: value.cellId,
+                                    });
+                                }
                             }
                         }
                     }
                 }
-            });
+            );
             debug("State store initialized successfully");
         } catch (error) {
             console.error("Failed to initialize state store:", error);
@@ -252,6 +263,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             debug("Webview panel disposed");
             if (this.commitTimer) {
                 clearTimeout(this.commitTimer);
+            }
+            // Dispose of the state store listener
+            if (this.stateStoreListener) {
+                this.stateStoreListener();
+                this.stateStoreListener = undefined;
             }
             this.webviewPanels.delete(document.uri.toString());
             jumpToCellListenerDispose();
