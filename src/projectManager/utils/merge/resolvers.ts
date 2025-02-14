@@ -367,27 +367,58 @@ export async function resolveConflictFiles(
 
     const resolvedFiles: string[] = [];
 
-    for (const conflict of conflicts) {
-        // Validate conflict object structure
-        if (!isValidConflict(conflict)) {
-            console.error("Invalid conflict object:", conflict);
-            continue;
-        }
+    await vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: "Resolving conflicts...",
+            cancellable: false,
+        },
+        async (progress) => {
+            const totalConflicts = conflicts.length;
+            let processedConflicts = 0;
 
-        // Check if file exists before trying to resolve
-        const filePath = vscode.Uri.joinPath(vscode.Uri.file(workspaceDir), conflict.filepath);
-        try {
-            await vscode.workspace.fs.stat(filePath);
-        } catch {
-            debug(`Skipping conflict resolution for deleted file: ${conflict.filepath}`);
-            continue;
-        }
+            for (const conflict of conflicts) {
+                console.log("conflict", { conflict });
+                // Validate conflict object structure
+                if (!isValidConflict(conflict)) {
+                    console.error("Invalid conflict object:", conflict);
+                    processedConflicts++;
+                    progress.report({
+                        increment: (1 / totalConflicts) * 100,
+                        message: `Processing file ${processedConflicts}/${totalConflicts}`,
+                    });
+                    continue;
+                }
 
-        const resolvedFile = await resolveConflictFile(conflict, workspaceDir);
-        if (resolvedFile) {
-            resolvedFiles.push(resolvedFile);
+                // Check if file exists before trying to resolve
+                const filePath = vscode.Uri.joinPath(
+                    vscode.Uri.file(workspaceDir),
+                    conflict.filepath
+                );
+                try {
+                    await vscode.workspace.fs.stat(filePath);
+                } catch {
+                    debug(`Skipping conflict resolution for deleted file: ${conflict.filepath}`);
+                    processedConflicts++;
+                    progress.report({
+                        increment: (1 / totalConflicts) * 100,
+                        message: `Processing file ${processedConflicts}/${totalConflicts}`,
+                    });
+                    continue;
+                }
+
+                const resolvedFile = await resolveConflictFile(conflict, workspaceDir);
+                if (resolvedFile) {
+                    resolvedFiles.push(resolvedFile);
+                }
+                processedConflicts++;
+                progress.report({
+                    increment: (1 / totalConflicts) * 100,
+                    message: `Processing file ${processedConflicts}/${totalConflicts}`,
+                });
+            }
         }
-    }
+    );
 
     // Only call completeMerge if we actually resolved something
     const authApi = getAuthApi();
