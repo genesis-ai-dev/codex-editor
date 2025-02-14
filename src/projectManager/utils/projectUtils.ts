@@ -479,10 +479,12 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
             console.error("Error reading target text Bibles:", error);
         }
 
+        const currentWorkspaceFolderName = workspaceFolder.name;
+
         const userInfo = await authApi?.getUserInfo();
         return {
             format: metadata.format || "Unknown Format",
-            projectName: metadata.projectName || "Unnamed Project",
+            projectName: metadata.projectName || currentWorkspaceFolderName || "Unnamed Project",
             projectId: metadata.projectId || "Unknown Project ID",
             projectStatus: metadata.projectStatus || "Unknown Status",
             category: metadata.meta?.category || "Uncategorized",
