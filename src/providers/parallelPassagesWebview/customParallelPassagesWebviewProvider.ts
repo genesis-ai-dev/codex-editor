@@ -171,11 +171,28 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
     webviewView.webview.html = html;
 };
 
+export function registerParallelViewWebviewProvider(context: vscode.ExtensionContext) {
+    const provider = new CustomWebviewProvider(context);
+
+    // Create a composite disposable for both registrations
+    const disposables = [
+        vscode.window.registerWebviewViewProvider("parallel-passages-sidebar", provider),
+        GlobalProvider.getInstance().registerProvider("parallel-passages-sidebar", provider),
+        vscode.commands.registerCommand("parallelPassages.pinCellById", async (cellId: string) => {
+            await provider.pinCellById(cellId);
+        }),
+    ];
+
+    // Add all disposables to the context subscriptions
+    context.subscriptions.push(...disposables);
+}
+
 export class CustomWebviewProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
 
     constructor(private readonly _context: vscode.ExtensionContext) {
-        GlobalProvider.getInstance().registerProvider("parallel-passages-sidebar", this);
+        // Remove the direct registration here since it's now handled in registerParallelViewWebviewProvider
+        // and returns a proper disposable
     }
 
     public async pinCellById(cellId: string, retryCount = 0) {
@@ -385,15 +402,4 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 console.log(`Unknown command: ${message.command}`);
         }
     }
-}
-
-export function registerParallelViewWebviewProvider(context: vscode.ExtensionContext) {
-    const provider = new CustomWebviewProvider(context);
-
-    context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider("parallel-passages-sidebar", provider),
-        vscode.commands.registerCommand("parallelPassages.pinCellById", async (cellId: string) => {
-            await provider.pinCellById(cellId);
-        })
-    );
 }
