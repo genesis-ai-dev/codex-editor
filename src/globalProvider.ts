@@ -21,9 +21,14 @@ export class GlobalProvider {
     public registerProvider(
         key: string,
         provider: CodexCellEditorProvider | CustomWebviewProvider
-    ): void {
+    ): vscode.Disposable {
         console.log("registering provider: ", { key, provider });
         this.providers.set(key, provider);
+
+        // Return a disposable that removes the provider from the map
+        return new vscode.Disposable(() => {
+            this.providers.delete(key);
+        });
     }
     public handleMessage(message: any) {
         if ("destination" in message) {
