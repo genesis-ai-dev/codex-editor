@@ -47,14 +47,22 @@ export async function stageAndCommitAllAndSync(commitMessage: string): Promise<v
 
         // Get the status before syncing to check for unmerged paths
         const status = await git.statusMatrix({ fs, dir: workspaceFolder });
-        const hasUnmergedPaths = status.some(([_filepath, _head, _workdir, stage]) => stage === 2);
 
-        if (hasUnmergedPaths) {
-            console.log("Detected unmerged paths, attempting to resolve...");
+        // Check for any files that are:
+        // 1. Modified but not staged (WorkDir different from Stage)
+        // 2. Staged but different from HEAD (Stage different from HEAD)
+        // 3. Unmerged paths (stage === 2)
+        const hasUncommittedChanges = status.some(([_filepath, head, workdir, stage]) => {
+            const isModifiedNotStaged = workdir !== stage;
+            const isStagedDifferentFromHead = stage !== head;
+            const isUnmerged = stage === 2;
+            return isModifiedNotStaged || isStagedDifferentFromHead || isUnmerged;
+        });
+
+        if (hasUncommittedChanges) {
             // Try to resolve any existing conflicts first
             const conflicts = await authApi.syncChanges();
             if (conflicts?.hasConflicts) {
-                console.log("Resolving conflicts...");
                 const resolvedFiles = await resolveConflictFiles(
                     conflicts.conflicts || [],
                     workspaceFolder
@@ -63,27 +71,8 @@ export async function stageAndCommitAllAndSync(commitMessage: string): Promise<v
                     await authApi.completeMerge(resolvedFiles);
                 }
             }
-        }
-
-        // Now try the sync
-        const syncResult = await authApi.syncChanges();
-        if (syncResult?.hasConflicts) {
-            await vscode.window.withProgress({
-                location: vscode.ProgressLocation.Notification,
-                title: "Resolving conflicts...",
-                cancellable: false
-            }, async (progress) => {
-                progress.report({ increment: 0 });
-                const resolvedFiles = await resolveConflictFiles(
-                    syncResult.conflicts || [],
-                    workspaceFolder
-                );
-                progress.report({ increment: 50 });
-                if (resolvedFiles.length > 0) {
-                    await authApi.completeMerge(resolvedFiles);
-                }
-                progress.report({ increment: 100 });
-            });
+        } else {
+            vscode.window.showInformationMessage("Project is fully synced.");
         }
     } catch (error) {
         console.error("Failed to commit and sync changes:", error);
