@@ -806,7 +806,7 @@
                     },
                     "codex-project-manager.spellcheckIsEnabled": {
                         "type": "boolean",
-                        "default": false,
+                        "default": true,
                         "description": "Enable or disable spellcheck for the project"
                     }
                 }
