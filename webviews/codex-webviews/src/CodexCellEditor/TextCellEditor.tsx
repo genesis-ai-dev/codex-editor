@@ -435,7 +435,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 appearance="primary"
                                 className="save-button"
                             >
-                                <i className="codicon codicon-save"></i>
+                                <i className="codicon codicon-check"></i>
                             </VSCodeButton>
                             <CloseButtonWithConfirmation
                                 handleDeleteButtonClick={handleCloseEditor}
