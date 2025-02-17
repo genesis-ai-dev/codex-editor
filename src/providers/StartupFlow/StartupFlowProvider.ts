@@ -942,10 +942,19 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         return { uri, dispose: () => {} };
     }
 
-    private async handleProjectChange(command: string) {
+    private async handleProjectChange(command: string, data?: any) {
         try {
-            await vscode.commands.executeCommand(`codex-project-manager.${command}`);
-            // await this.refreshState();
+            if (command === "changeSourceLanguage" || command === "changeTargetLanguage") {
+                const config = vscode.workspace.getConfiguration("codex-project-manager");
+                const configKey = command === "changeSourceLanguage" ? "sourceLanguage" : "targetLanguage";
+                await config.update(configKey, data.language, vscode.ConfigurationTarget.Workspace);
+                await vscode.commands.executeCommand("codex-project-manager.updateMetadataFile");
+                vscode.window.showInformationMessage(
+                    `${command === "changeSourceLanguage" ? "Source" : "Target"} language updated to ${data.language.refName}.`
+                );
+            } else {
+                await vscode.commands.executeCommand(`codex-project-manager.${command}`);
+            }
         } catch (error) {
             console.error(`Error handling ${command}:`, error);
             throw error;
@@ -1008,7 +1017,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 case "downloadSourceText":
                 case "openAISettings":
                 case "openSourceUpload":
-                    await this.handleProjectChange(message.command);
+                    await this.handleProjectChange(message.command, message);
                     // FIXME: sometimes this refreshes before the command is finished. Need to return values on all of them
                     // Send a response back to the webview
                     this.webviewPanel?.webview.postMessage({ command: "actionCompleted" });

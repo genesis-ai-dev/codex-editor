@@ -1013,8 +1013,8 @@ type ProjectManagerMessageFromWebview =
     | { command: "refreshState" }
     | { command: "initializeProject" }
     | { command: "renameProject" }
-    | { command: "changeSourceLanguage" }
-    | { command: "changeTargetLanguage" }
+    | { command: "changeSourceLanguage"; language: LanguageMetadata }
+    | { command: "changeTargetLanguage"; language: LanguageMetadata }
     | { command: "editAbbreviation" }
     | { command: "selectCategory" }
     | { command: "openSourceUpload" }

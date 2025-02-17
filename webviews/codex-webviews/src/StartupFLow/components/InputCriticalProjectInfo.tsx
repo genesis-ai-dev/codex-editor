@@ -1,6 +1,8 @@
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { useState } from "react";
 import { MessagesToStartupFlowProvider } from "types";
+import { LanguagePicker } from "../../shared/components/LanguagePicker";
+import { LanguageMetadata } from "codex-types";
 
 export const InputCriticalProjectInfo = ({
     vscode,
@@ -11,14 +13,12 @@ export const InputCriticalProjectInfo = ({
         "source"
     );
 
-    const handleStepComplete = (
-        command: string,
-        nextStep: "source" | "target" | "complete"
-    ) => {
+    const handleLanguageSelect = (language: LanguageMetadata) => {
         vscode.postMessage({
-            command: command,
+            command: language.projectStatus === "source" ? "changeSourceLanguage" : "changeTargetLanguage",
+            language,
         });
-        setCurrentStep(nextStep);
+        setCurrentStep(language.projectStatus === "source" ? "target" : "complete");
     };
 
     return (
@@ -40,44 +40,44 @@ export const InputCriticalProjectInfo = ({
                     alignItems: "center",
                     justifyContent: "center",
                     flexDirection: "column",
+                    width: "300px",
                 }}
             >
                 {currentStep === "source" && (
-                    <i className="codicon codicon-source-control" style={{ fontSize: "72px" }}></i>
-                )}
-                {currentStep === "target" && (
-                    <i className="codicon codicon-globe" style={{ fontSize: "72px" }}></i>
-                )}
-                {currentStep === "complete" && (
-                    <i className="codicon codicon-symbol-variable" style={{ fontSize: "72px" }}></i>
-                )}
-
-                {currentStep === "source" && (
-                    <VSCodeButton
-                        onClick={() => handleStepComplete("changeSourceLanguage", "target")}
-                    >
-                        Source Language
-                    </VSCodeButton>
+                    <>
+                        <i className="codicon codicon-source-control" style={{ fontSize: "72px" }}></i>
+                        <LanguagePicker
+                            onLanguageSelect={handleLanguageSelect}
+                            projectStatus="source"
+                            label="Select Source Language"
+                        />
+                    </>
                 )}
 
                 {currentStep === "target" && (
-                    <VSCodeButton
-                        onClick={() => handleStepComplete("changeTargetLanguage", "complete")}
-                    >
-                        Target Language
-                    </VSCodeButton>
+                    <>
+                        <i className="codicon codicon-globe" style={{ fontSize: "72px" }}></i>
+                        <LanguagePicker
+                            onLanguageSelect={handleLanguageSelect}
+                            projectStatus="target"
+                            label="Select Target Language"
+                        />
+                    </>
                 )}
 
                 {currentStep === "complete" && (
-                    <VSCodeButton
-                        onClick={() =>
-                            vscode.postMessage({
-                                command: "workspace.continue",
-                            } as MessagesToStartupFlowProvider)
-                        }
-                    >
-                        Start Project
-                    </VSCodeButton>
+                    <>
+                        <i className="codicon codicon-symbol-variable" style={{ fontSize: "72px" }}></i>
+                        <VSCodeButton
+                            onClick={() =>
+                                vscode.postMessage({
+                                    command: "workspace.continue",
+                                } as MessagesToStartupFlowProvider)
+                            }
+                        >
+                            Start Project
+                        </VSCodeButton>
+                    </>
                 )}
             </div>
         </div>
