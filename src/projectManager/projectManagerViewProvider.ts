@@ -417,7 +417,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
 
                                 if (answer === "Yes") {
                                     await vscode.commands.executeCommand(
-                                        "workbench.action.closeWindow"
+                                        "workbench.action.closeFolder"
                                     );
                                 }
                             } catch (error) {
