@@ -143,4 +143,4 @@ export class WordsViewProvider implements vscode.Disposable {
         </body>
         </html>`;
     }
-} 
+}

@@ -30,12 +30,14 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
 }) => {
     const [projectsList, setProjectsList] = useState<ProjectWithSyncStatus[]>([]);
     const [syncStatus, setSyncStatus] = useState<Record<string, "synced" | "cloud" | "error">>({});
+    const [isLoading, setIsLoading] = useState(true);
     // const [state, send, service] = useMachine(startupFlowMachine);
 
     const fetchProjectList = () => {
         vscode.postMessage({
             command: "getProjectsListFromGitLab",
         } as MessagesToStartupFlowProvider);
+        setIsLoading(true);
     };
 
     useEffect(() => {
@@ -49,6 +51,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
             if (message.command === "projectsListFromGitLab") {
                 console.log(message.projects, "message in ProjectSetupStep");
                 setProjectsList(message.projects);
+                setIsLoading(false);
             }
         };
 
@@ -101,6 +104,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
             </div>
 
             <GitLabProjectsList
+                isLoading={isLoading}
                 onOpenProject={onOpenProject}
                 projects={projectsList}
                 onCloneProject={(project) =>

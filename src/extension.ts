@@ -282,9 +282,12 @@ export async function activate(context: vscode.ExtensionContext) {
         // Register Words View Provider
         wordsViewProvider = new WordsViewProvider(context.extensionUri);
 
-        const showWordsViewCommand = vscode.commands.registerCommand("frontier.showWordsView", () => {
-            wordsViewProvider?.show();
-        });
+        const showWordsViewCommand = vscode.commands.registerCommand(
+            "frontier.showWordsView",
+            () => {
+                wordsViewProvider?.show();
+            }
+        );
 
         context.subscriptions.push(showWordsViewCommand);
     } catch (error) {
