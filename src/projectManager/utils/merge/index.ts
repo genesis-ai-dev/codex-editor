@@ -69,6 +69,7 @@ export async function stageAndCommitAllAndSync(commitMessage: string): Promise<v
                 );
                 if (resolvedFiles.length > 0) {
                     await authApi.completeMerge(resolvedFiles);
+                    vscode.window.showInformationMessage("Project is fully synced.");
                 }
             }
         } else {
