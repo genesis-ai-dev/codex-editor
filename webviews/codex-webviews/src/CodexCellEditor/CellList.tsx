@@ -21,6 +21,7 @@ export interface CellListProps {
     headerHeight: number;
     alertColorCodes: { [cellId: string]: number };
     highlightedCellId: string | null;
+    scrollSyncEnabled: boolean;
 }
 
 const DEBUG_ENABLED = false;
@@ -45,6 +46,7 @@ const CellList: React.FC<CellListProps> = ({
     spellCheckResponse,
     alertColorCodes,
     highlightedCellId,
+    scrollSyncEnabled,
 }) => {
     const duplicateCellIds = useMemo(() => {
         const idCounts = new Map<string, number>();
@@ -107,6 +109,7 @@ const CellList: React.FC<CellListProps> = ({
                                             : alertColorCodes[cellId]
                                     }
                                     highlightedCellId={highlightedCellId}
+                                    scrollSyncEnabled={scrollSyncEnabled}
                                 />
                             </span>
                         );
