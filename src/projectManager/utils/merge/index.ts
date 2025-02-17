@@ -26,6 +26,9 @@ export async function stageAndCommitAllAndSync(commitMessage: string): Promise<v
         return;
     }
 
+    // Save all files before syncing
+    await vscode.workspace.saveAll();
+
     const authApi = getAuthApi();
     if (!authApi) {
         vscode.window.showErrorMessage("No auth API found");
