@@ -41,6 +41,7 @@ import { NotebookMetadataManager } from "./utils/notebookMetadataManager";
 import { stageAndCommitAllAndSync } from "./projectManager/utils/projectUtils";
 import { FrontierAPI } from "../webviews/codex-webviews/src/StartupFLow/types";
 import { waitForExtensionActivation } from "./utils/vscode";
+import { WordsViewProvider } from "./providers/WordsView/WordsViewProvider";
 
 interface ActivationTiming {
     step: string;
@@ -70,6 +71,7 @@ let commitTimeout: any;
 const COMMIT_DELAY = 5000; // Delay in milliseconds
 let notebookMetadataManager: NotebookMetadataManager;
 let authApi: FrontierAPI | undefined;
+let wordsViewProvider: WordsViewProvider | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
     const activationStart = globalThis.performance.now();
@@ -276,6 +278,15 @@ export async function activate(context: vscode.ExtensionContext) {
         //             channel.show();
         //         }
         //     });
+
+        // Register Words View Provider
+        wordsViewProvider = new WordsViewProvider(context.extensionUri);
+
+        const showWordsViewCommand = vscode.commands.registerCommand("frontier.showWordsView", () => {
+            wordsViewProvider?.show();
+        });
+
+        context.subscriptions.push(showWordsViewCommand);
     } catch (error) {
         console.error("Error during extension activation:", error);
         vscode.window.showErrorMessage(`Failed to activate Codex Editor: ${error}`);
