@@ -75,6 +75,14 @@ const CodexCellEditor: React.FC = () => {
         return () => window.removeEventListener("message", handleMessage);
     }, []);
 
+    useEffect(() => {
+        if (highlightedCellId && scrollSyncEnabled) {
+            const cellId = highlightedCellId;
+            const chapter = cellId?.split(" ")[1]?.split(":")[0];
+            setChapterNumber(parseInt(chapter) || 1);
+        }
+    }, [highlightedCellId]);
+
     const checkAlertCodes = () => {
         const cellContentAndId = translationUnits.map((unit) => ({
             text: removeHtmlTags(unit.cellContent),
