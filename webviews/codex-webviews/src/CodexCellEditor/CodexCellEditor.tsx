@@ -50,6 +50,7 @@ const CodexCellEditor: React.FC = () => {
     const [highlightedCellId, setHighlightedCellId] = useState<string | null>(null);
     const [isWebviewReady, setIsWebviewReady] = useState(false);
     const { setContentToScrollTo } = useContext(ScrollToContentContext);
+    const [scrollSyncEnabled, setScrollSyncEnabled] = useState(true);
 
     // Initialize state store after webview is ready
     useEffect(() => {
@@ -441,6 +442,8 @@ const CodexCellEditor: React.FC = () => {
                         onPickFile={handlePickFile}
                         onUpdateVideoUrl={handleUpdateVideoUrl}
                         handleExportVtt={handleExportVtt}
+                        toggleScrollSync={() => setScrollSyncEnabled(!scrollSyncEnabled)}
+                        scrollSyncEnabled={scrollSyncEnabled}
                     />
                 </div>
                 {shouldShowVideoPlayer && videoUrl && (
@@ -489,6 +492,7 @@ const CodexCellEditor: React.FC = () => {
                         headerHeight={headerHeight}
                         alertColorCodes={alertColorCodes}
                         highlightedCellId={highlightedCellId}
+                        scrollSyncEnabled={scrollSyncEnabled}
                     />
                 </div>
             </div>
