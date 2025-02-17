@@ -50,6 +50,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
 
     useEffect(() => {
         if (highlightedCellId === cellIds[0] && cellRef.current && isSourceText) {
+            debug("Scrolling to content highlightedCellId", {
+                highlightedCellId,
+                cellIds,
+                isSourceText,
+            });
             cellRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
         }
     }, [highlightedCellId]);

@@ -130,6 +130,8 @@ const CellList: React.FC<CellListProps> = ({
         let currentGroup = [];
         let groupStartIndex = 0;
 
+        debug("translationUnits", { translationUnits });
+
         for (let i = 0; i < translationUnits.length; i++) {
             const { cellMarkers, cellContent, cellType, cellLabel, timestamps } =
                 translationUnits[i];

@@ -564,6 +564,7 @@ interface EditHistoryEntry {
 }
 
 export type EditorPostMessages =
+    | { command: "updateCachedChapter"; content: number }
     | { command: "webviewReady" }
     | { command: "getContent" }
     | { command: "setCurrentIdToGlobalState"; content: { currentLineId: string } }

@@ -393,6 +393,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         return document.backup(context.destination, cancellation);
     }
 
+    public getCachedChapter(uri: string): number {
+        const key = `chapter-cache-${uri}`;
+        return this.context.workspaceState.get(key, 1); // Default to chapter 1
+    }
+
+    public async updateCachedChapter(uri: string, chapter: number) {
+        const key = `chapter-cache-${uri}`;
+        await this.context.workspaceState.update(key, chapter);
+    }
+
     private getHtmlForWebview(
         webview: vscode.Webview,
         document: CodexCellDocument,
@@ -453,6 +463,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         const nonce = getNonce();
 
+        const cachedChapter = this.getCachedChapter(document.uri.toString());
+
         return /*html*/ `
             <!DOCTYPE html>
             <html lang="en">
@@ -479,7 +491,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         videoUrl: ${videoUri ? `"${videoUri}"` : "null"},
                         sourceCellMap: ${JSON.stringify(document._sourceCellMap)},
                         metadata: ${JSON.stringify(notebookData.metadata)},
-                        userInfo: ${JSON.stringify(this.userInfo)}
+                        userInfo: ${JSON.stringify(this.userInfo)},
+                        cachedChapter: ${cachedChapter}
                     };
                 </script>
             </head>

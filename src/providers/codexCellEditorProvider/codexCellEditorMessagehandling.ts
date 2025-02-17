@@ -614,5 +614,9 @@ export const handleMessages = async (
             }
             return;
         }
+        case "updateCachedChapter": {
+            await provider.updateCachedChapter(document.uri.toString(), event.content);
+            return;
+        }
     }
 };
