@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { ProjectWithSyncStatus, ProjectSyncStatus } from "types";
 import {
     VSCodeButton,
@@ -192,6 +192,11 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
         );
     };
 
+    const { hierarchy, ungroupedProjects } = useMemo(
+        () => groupProjectsByHierarchy(projects || []),
+        [projects]
+    );
+
     const renderProjectCard = (project: ProjectWithSyncStatus) => {
         if (!project) return null;
         const { cleanName, displayUrl, uniqueId } = parseProjectUrl(project.gitOriginUrl);
@@ -248,27 +253,38 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     const renderGroupSection = (group: ProjectGroup, depth: number = 0) => {
         if (!group || typeof group !== "object") return null;
 
+        const filteredProjects = filterProjects(group.projects || []);
+        const hasSubgroupsWithProjects = Object.values(group.subgroups).some((subgroup) => {
+            if (!subgroup) return false;
+            const filteredSubgroupProjects = filterProjects(subgroup.projects || []);
+            return filteredSubgroupProjects.length > 0;
+        });
+
+        // Hide empty groups when searching
+        if (searchQuery && filteredProjects.length === 0 && !hasSubgroupsWithProjects) {
+            return null;
+        }
+
         return (
             <div className="group-section" key={group.name}>
-                <div className="group-header" style={{ paddingLeft: `${depth * 20}px` }}>
+                <div className="group-header">
                     <i className="codicon codicon-folder" />
                     <h2 className="group-name">{(group.name || "").replace(/_/g, " ")}</h2>
-                    <VSCodeBadge>{group.projects.length}</VSCodeBadge>
+                    <VSCodeBadge>{filteredProjects.length}</VSCodeBadge>
                 </div>
-                <div className="projects-grid">
-                    {Array.isArray(group.projects) &&
-                        filterProjects(group.projects).map((project) => renderProjectCard(project))}
-                </div>
-                {group.subgroups &&
-                    Object.entries(group.subgroups).map(([subgroupName, subgroup]) =>
-                        subgroup ? renderGroupSection(subgroup, depth + 1) : null
-                    )}
-                <VSCodeDivider />
+                {filteredProjects.length > 0 && (
+                    <div className="projects-grid">
+                        {filteredProjects.map((project) => renderProjectCard(project))}
+                    </div>
+                )}
+                {Object.entries(group.subgroups || {}).map(([subgroupName, subgroup]) =>
+                    subgroup ? renderGroupSection(subgroup, depth + 1) : null
+                )}
             </div>
         );
     };
 
-    const { hierarchy, ungroupedProjects } = groupProjectsByHierarchy(projects);
+    const filteredUngroupedProjects = filterProjects(ungroupedProjects || []);
 
     return (
         <div className="gitlab-projects-list">
@@ -280,6 +296,16 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                 >
                     <i slot="start" className="codicon codicon-search"></i>
                 </VSCodeTextField>
+                {searchQuery && (
+                    <VSCodeButton
+                        appearance="icon"
+                        onClick={() => setSearchQuery("")}
+                        className="search-clear-button"
+                        title="Clear search"
+                    >
+                        <i className="codicon codicon-close"></i>
+                    </VSCodeButton>
+                )}
             </div>
             {isLoading ? (
                 <div className="loading-container">
@@ -290,14 +316,18 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                     {Object.entries(hierarchy || {}).map(([groupName, group]) =>
                         group ? renderGroupSection(group, 0) : null
                     )}
-                    {Array.isArray(ungroupedProjects) && ungroupedProjects.length > 0 && (
-                        <div className="ungrouped-section">
+                    {filteredUngroupedProjects.length > 0 && (
+                        <div className="group-section">
+                            <div className="group-header">
+                                <i className="codicon codicon-folder" />
+                                <h2 className="group-name">Ungrouped Projects</h2>
+                                <VSCodeBadge>{filteredUngroupedProjects.length}</VSCodeBadge>
+                            </div>
                             <div className="projects-grid">
-                                {filterProjects(ungroupedProjects).map((project) =>
+                                {filteredUngroupedProjects.map((project) =>
                                     renderProjectCard(project)
                                 )}
                             </div>
-                            <VSCodeDivider />
                         </div>
                     )}
                 </div>

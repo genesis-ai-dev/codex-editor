@@ -140,12 +140,6 @@
     color: var(--vscode-descriptionForeground);
 }
 
-.gitlab-projects-list {
-    margin: 1rem 0;
-    border: 1px solid var(--vscode-widget-border);
-    border-radius: 4px;
-}
-
 .project-row {
     display: flex;
     justify-content: space-between;
