@@ -53,6 +53,11 @@ const debug = function (...args: any[]) {
     }
 };
 
+const generateCellId = (fileName: string, chapterIndex: number, cellIndex: number) => {
+    const fileId = fileName.replace(/\.[^/.]+$/, "");
+    return `${fileId} ${chapterIndex}:${cellIndex}`;
+};
+
 const initialWorkflowState: WorkflowState = {
     step: "type-select",
     importType: null,
@@ -609,21 +614,42 @@ export const SourceUploader: React.FC = () => {
                             onSubmit={async (mapping) => {
                                 debug({ mapping });
                                 readString(workflow.fileContent || "", {
-                                    header: true,
+                                    header: mapping.hasHeaders,
                                     complete: (results: ParseResult<{ [key: string]: string }>) => {
                                         debug({ results });
+                                        const defaultIdColumn = "id";
+                                        mapping.idColumn = mapping.idColumn || defaultIdColumn;
+                                        const rowsWithIds = results.data.map((row, index) => {
+                                            return {
+                                                ...row,
+                                                [mapping.idColumn || defaultIdColumn]:
+                                                    row[mapping.idColumn || defaultIdColumn] ||
+                                                    generateCellId(
+                                                        workflow.fileObjects[0].name,
+                                                        1,
+                                                        index + 1
+                                                    ),
+                                            };
+                                        });
+                                        debug("rowsWithIds", { rowsWithIds });
 
-                                        const sourceCells = results.data
+                                        const sourceCells = rowsWithIds
                                             .filter(
                                                 (row) =>
                                                     row[mapping.sourceColumn] &&
                                                     row[mapping.targetColumn] &&
                                                     !(row[mapping.idColumn || ""] === "")
                                             )
-                                            .map((row) => ({
+                                            .map((row, index) => ({
                                                 value: row[mapping.sourceColumn],
                                                 metadata: {
-                                                    id: row[mapping.idColumn || ""],
+                                                    id:
+                                                        row[mapping.idColumn || ""] ||
+                                                        generateCellId(
+                                                            workflow.fileObjects[0].name,
+                                                            1,
+                                                            index + 1
+                                                        ),
                                                     type: "source",
                                                     otherFields: mapping.metadataColumns.reduce(
                                                         (acc, column) => {
@@ -636,10 +662,17 @@ export const SourceUploader: React.FC = () => {
                                             }));
 
                                         const targetCells = sourceCells.map((cell) => {
-                                            const targetRow = results.data.find(
+                                            const targetRow = rowsWithIds.find(
                                                 (row) =>
                                                     row[mapping.idColumn || ""] === cell.metadata.id
                                             );
+                                            debug("targetRow", {
+                                                rowsWithIds,
+                                                targetRow,
+                                                cell,
+                                                mapping,
+                                                results,
+                                            });
                                             return {
                                                 value: targetRow?.[mapping.targetColumn] || "",
                                                 metadata: {
