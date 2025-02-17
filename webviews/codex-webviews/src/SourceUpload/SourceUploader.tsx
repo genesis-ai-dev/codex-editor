@@ -877,7 +877,7 @@ export const SourceUploader: React.FC = () => {
     }, [setWorkflow]);
 
     return (
-        <VSCodePanels>
+        <VSCodePanels style={{height: "100vh" }}>
             <VSCodePanelTab id="setup">Project Setup</VSCodePanelTab>
             <VSCodePanelView id="setup-view">
                 <div className="workflow-container">

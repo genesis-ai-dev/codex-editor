@@ -7,13 +7,13 @@ export const InputCriticalProjectInfo = ({
 }: {
     vscode: { postMessage: (message: any) => void };
 }) => {
-    const [currentStep, setCurrentStep] = useState<"name" | "source" | "target" | "complete">(
-        "name"
+    const [currentStep, setCurrentStep] = useState<"source" | "target" | "complete">(
+        "source"
     );
 
     const handleStepComplete = (
         command: string,
-        nextStep: "name" | "source" | "target" | "complete"
+        nextStep: "source" | "target" | "complete"
     ) => {
         vscode.postMessage({
             command: command,
@@ -42,9 +42,6 @@ export const InputCriticalProjectInfo = ({
                     flexDirection: "column",
                 }}
             >
-                {currentStep === "name" && (
-                    <i className="codicon codicon-pencil" style={{ fontSize: "72px" }}></i>
-                )}
                 {currentStep === "source" && (
                     <i className="codicon codicon-source-control" style={{ fontSize: "72px" }}></i>
                 )}
@@ -53,12 +50,6 @@ export const InputCriticalProjectInfo = ({
                 )}
                 {currentStep === "complete" && (
                     <i className="codicon codicon-symbol-variable" style={{ fontSize: "72px" }}></i>
-                )}
-
-                {currentStep === "name" && (
-                    <VSCodeButton onClick={() => handleStepComplete("renameProject", "source")}>
-                        Name Project
-                    </VSCodeButton>
                 )}
 
                 {currentStep === "source" && (
