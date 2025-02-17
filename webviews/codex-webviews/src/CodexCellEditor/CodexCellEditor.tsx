@@ -94,7 +94,9 @@ const CodexCellEditor: React.FC = () => {
     const [contentBeingUpdated, setContentBeingUpdated] = useState<EditorCellContent>(
         {} as EditorCellContent
     );
-    const [chapterNumber, setChapterNumber] = useState<number>(1);
+    const [chapterNumber, setChapterNumber] = useState<number>(
+        (window as any).initialData?.cachedChapter || 1
+    );
     const [autocompletionProgress, setAutocompletionProgress] = useState<number | null>(null);
     const [textDirection, setTextDirection] = useState<"ltr" | "rtl">(
         (window as any).initialData?.metadata?.textDirection || "ltr"
@@ -376,6 +378,13 @@ const CodexCellEditor: React.FC = () => {
 
         return () => window.removeEventListener("resize", handleResize);
     }, [shouldShowVideoPlayer]); // Add shouldShowVideoPlayer as a dependency
+
+    useEffect(() => {
+        vscode.postMessage({
+            command: "updateCachedChapter",
+            content: chapterNumber,
+        } as EditorPostMessages);
+    }, [chapterNumber]);
 
     const checkForDuplicateCells = (translationUnitsToCheck: QuillCellContent[]) => {
         const listOfCellIds = translationUnitsToCheck.map((unit) => unit.cellMarkers[0]);
