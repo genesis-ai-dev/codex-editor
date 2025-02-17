@@ -37,7 +37,7 @@ export const useVSCodeMessageHandler = ({
             const message = event.data;
             switch (message.type) {
                 case "providerSendsInitialContent":
-                    console.log("providerSendsInitialContent", { message });
+                    // console.log("providerSendsInitialContent", { message });
                     setContent(message.content, message.isSourceText, message.sourceCellMap);
                     break;
                 case "providerSendsSpellCheckResponse":
