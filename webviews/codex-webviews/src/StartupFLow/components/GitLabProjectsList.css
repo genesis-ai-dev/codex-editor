@@ -1,0 +1,122 @@
+.gitlab-projects-list {
+    padding: 1rem;
+    min-height: 200px;
+    max-height: calc(100vh - 300px);
+    overflow-y: auto;
+}
+
+.search-container {
+    margin-bottom: 1rem;
+}
+
+.loading-container {
+    display: flex;
+    justify-content: center;
+    padding: 2rem;
+}
+
+.projects-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.group-section {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.group-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+    color: var(--vscode-foreground);
+}
+
+.projects-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1rem;
+    padding: 0.5rem;
+}
+
+.project-card {
+    background: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-widget-border);
+    border-radius: 6px;
+    padding: 1rem;
+    transition: box-shadow 0.2s ease;
+}
+
+.project-card:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 0.5rem;
+}
+
+.status-and-name {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.project-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.project-title .name {
+    font-weight: 600;
+    font-size: 1.1em;
+}
+
+.card-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.description {
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.9em;
+}
+
+.url-container {
+    font-size: 0.9em;
+    color: var(--vscode-textLink-foreground);
+}
+
+.unique-id {
+    font-size: 0.8em;
+    margin-left: 0.5rem;
+    opacity: 0.7;
+    color: var(--vscode-descriptionForeground);
+}
+
+.status-icon {
+    font-size: 1.1em;
+}
+
+.status-icon.synced {
+    color: var(--vscode-testing-iconPassed);
+}
+
+.status-icon.error {
+    color: var(--vscode-testing-iconFailed);
+}
+
+.status-icon.cloud {
+    color: var(--vscode-charts-blue);
+}
+
+.status-icon.local {
+    color: var(--vscode-charts-orange);
+}

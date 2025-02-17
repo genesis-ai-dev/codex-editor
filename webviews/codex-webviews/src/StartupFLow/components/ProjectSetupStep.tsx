@@ -110,7 +110,6 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                 onCloneProject={(project) =>
                     project.gitOriginUrl && onCloneRepo(project.gitOriginUrl)
                 }
-                syncStatus={syncStatus}
             />
             <div className="setup-options">
                 <div className="option">
