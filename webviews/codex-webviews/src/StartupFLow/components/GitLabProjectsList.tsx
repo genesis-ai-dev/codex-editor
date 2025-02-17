@@ -216,7 +216,24 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                             {isUnpublished && <VSCodeBadge>Unpublished</VSCodeBadge>}
                         </div>
                     </div>
-                    <div className="card-actions">
+                    <div
+                        className="card-actions"
+                        style={{ display: "flex", gap: "0.5rem", flexWrap: "nowrap" }}
+                    >
+                        {displayUrl && (
+                            <div className="url-container">
+                                <VSCodeButton
+                                    appearance="secondary"
+                                    onClick={() =>
+                                        navigator.clipboard.writeText(project.gitOriginUrl || "")
+                                    }
+                                    title="Copy URL to clipboard"
+                                >
+                                    <i className="codicon codicon-copy"></i>
+                                    URL
+                                </VSCodeButton>
+                            </div>
+                        )}
                         {project.syncStatus === "cloudOnlyNotSynced" && (
                             <VSCodeButton
                                 appearance="secondary"
@@ -224,6 +241,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                 title="Download project"
                             >
                                 <i className="codicon codicon-cloud-download"></i>
+                                Download
                             </VSCodeButton>
                         )}
                         {(project.syncStatus === "downloadedAndSynced" ||
@@ -233,6 +251,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                 title="Open project"
                             >
                                 <i className="codicon codicon-folder-opened"></i>
+                                Open
                             </VSCodeButton>
                         )}
                     </div>
@@ -241,7 +260,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                     {project.description && <p className="description">{project.description}</p>}
                     {displayUrl && (
                         <div className="url-container">
-                            <span className="url">{displayUrl}</span>
+                            <p className="url">{displayUrl}</p>
                             {uniqueId && <span className="unique-id">#{uniqueId}</span>}
                         </div>
                     )}
