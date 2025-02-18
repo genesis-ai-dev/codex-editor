@@ -30,7 +30,7 @@ export const registerSourceUploadCommands = (context: vscode.ExtensionContext) =
             const workspaceFolder = getWorkSpaceFolder();
             if (workspaceFolder) {
                 const uri = vscode.Uri.parse(
-                    `sourceUploadProvider-scheme:Upload Document.sourceUploadProvider`
+                    `sourceUploadProvider-scheme:Upload Document`
                 );
                 vscode.commands.executeCommand(
                     "vscode.openWith",
