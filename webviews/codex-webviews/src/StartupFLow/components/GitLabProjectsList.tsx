@@ -311,7 +311,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                 <VSCodeTextField
                     placeholder="Search projects..."
                     value={searchQuery}
-                    onChange={(e: any) => setSearchQuery(e.target.value)}
+                    onInput={(e: any) => setSearchQuery((e.target as HTMLInputElement).value)}
                 >
                     <i slot="start" className="codicon codicon-search"></i>
                 </VSCodeTextField>
