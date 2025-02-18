@@ -17,6 +17,7 @@
         "build:all": "pnpm run build:StartupFlow && pnpm run build:ParallelView && pnpm run build:EditableReactTable && pnpm run build:CommentsView && pnpm run build:CodexCellEditor && pnpm run build:ProjectManagerView && pnpm run build:SourceUpload && pnpm run build:ChatView",
         "type-check": "tsc --noEmit",
         "watch:all": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:all",
+        "watch:ChatView": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:ChatView",
         "watch:CodexCellEditor": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:CodexCellEditor",
         "watch:SemanticView": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:SemanticView",
         "watch:SourceUpload": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:SourceUpload",
