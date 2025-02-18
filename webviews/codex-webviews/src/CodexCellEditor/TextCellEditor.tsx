@@ -92,17 +92,17 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     useEffect(() => {
         if (showFlashingBorder && cellEditorRef.current) {
+            debug("Scrolling to content in showFlashingBorder", {
+                showFlashingBorder,
+                cellEditorRef,
+            });
             cellEditorRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
         }
     }, [showFlashingBorder]);
 
     useEffect(() => {
-        if (
-            contentToScrollTo &&
-            contentToScrollTo === cellMarkers[0] &&
-            cellEditorRef.current &&
-            !setUnsavedChanges
-        ) {
+        if (contentToScrollTo && contentToScrollTo === cellMarkers[0] && cellEditorRef.current) {
+            debug("Scrolling to content", { contentToScrollTo, cellMarkers });
             cellEditorRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
         }
     }, [contentToScrollTo]);
@@ -440,7 +440,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 appearance="primary"
                                 className="save-button"
                             >
-                                <i className="codicon codicon-save"></i>
+                                <i className="codicon codicon-check"></i>
                             </VSCodeButton>
                             <CloseButtonWithConfirmation
                                 handleDeleteButtonClick={handleCloseEditor}

@@ -3,7 +3,6 @@ import React, { useMemo, useCallback, useState, useEffect } from "react";
 import CellEditor from "./TextCellEditor";
 import CellContentDisplay from "./CellContentDisplay";
 import EmptyCellDisplay from "./EmptyCellDisplay";
-import "@vscode/codicons/dist/codicon.css";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 import { WebviewApi } from "vscode-webview";
 
@@ -22,6 +21,7 @@ export interface CellListProps {
     headerHeight: number;
     alertColorCodes: { [cellId: string]: number };
     highlightedCellId: string | null;
+    scrollSyncEnabled: boolean;
 }
 
 const DEBUG_ENABLED = false;
@@ -46,6 +46,7 @@ const CellList: React.FC<CellListProps> = ({
     spellCheckResponse,
     alertColorCodes,
     highlightedCellId,
+    scrollSyncEnabled,
 }) => {
     const duplicateCellIds = useMemo(() => {
         const idCounts = new Map<string, number>();
@@ -108,6 +109,7 @@ const CellList: React.FC<CellListProps> = ({
                                             : alertColorCodes[cellId]
                                     }
                                     highlightedCellId={highlightedCellId}
+                                    scrollSyncEnabled={scrollSyncEnabled}
                                 />
                             </span>
                         );
@@ -130,6 +132,8 @@ const CellList: React.FC<CellListProps> = ({
         const result = [];
         let currentGroup = [];
         let groupStartIndex = 0;
+
+        debug("translationUnits", { translationUnits });
 
         for (let i = 0; i < translationUnits.length; i++) {
             const { cellMarkers, cellContent, cellType, cellLabel, timestamps } =

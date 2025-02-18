@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.1.18",
+    "version": "0.1.26",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -686,6 +686,11 @@
                 "command": "nextGenCodexTreeView.openFile",
                 "title": "Open Codex File",
                 "icon": "$(book)"
+            },
+            {
+                "command": "frontier.showWordsView",
+                "title": "Frontier: View All Words",
+                "category": "Frontier"
             }
         ],
         "notebooks": [
@@ -803,6 +808,11 @@
                         "additionalProperties": {
                             "type": "string"
                         }
+                    },
+                    "codex-project-manager.spellcheckIsEnabled": {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "Enable or disable spellcheck for the project"
                     }
                 }
             },

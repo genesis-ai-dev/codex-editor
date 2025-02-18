@@ -30,12 +30,14 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
 }) => {
     const [projectsList, setProjectsList] = useState<ProjectWithSyncStatus[]>([]);
     const [syncStatus, setSyncStatus] = useState<Record<string, "synced" | "cloud" | "error">>({});
+    const [isLoading, setIsLoading] = useState(true);
     // const [state, send, service] = useMachine(startupFlowMachine);
 
     const fetchProjectList = () => {
         vscode.postMessage({
             command: "getProjectsListFromGitLab",
         } as MessagesToStartupFlowProvider);
+        setIsLoading(true);
     };
 
     useEffect(() => {
@@ -49,6 +51,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
             if (message.command === "projectsListFromGitLab") {
                 console.log(message.projects, "message in ProjectSetupStep");
                 setProjectsList(message.projects);
+                setIsLoading(false);
             }
         };
 
@@ -88,33 +91,70 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                     </VSCodeButton>
                 </div>
             )} */}
-            <h2>Project Setup</h2>
-            {gitlabInfo && (
-                <div className="gitlab-info">
-                    <p>Logged in as {gitlabInfo.username}</p>
+            <div
+                style={{
+                    display: "flex",
+                    flexDirection: "row",
+                    gap: "2rem",
+                    justifyContent: "space-between",
+                    width: "100%",
+                }}
+            >
+                <div className="title-section" style={{ alignSelf: "start" }}>
+                    <h2>Project Setup</h2>
                 </div>
-            )}
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                <VSCodeButton appearance="icon" onClick={fetchProjectList} title="Refresh">
-                    <i className="codicon codicon-refresh"></i>
-                </VSCodeButton>
+                <div
+                    className="actions-section"
+                    style={{
+                        display: "flex",
+                        flex: 1,
+                        alignSelf: "end",
+                        gap: "1rem",
+                        justifyContent: "flex-end",
+                    }}
+                >
+                    {gitlabInfo && (
+                        <div className="gitlab-info">
+                            <p>Logged in as {gitlabInfo.username}</p>
+                        </div>
+                    )}
+                    <VSCodeButton
+                        appearance="secondary"
+                        onClick={fetchProjectList}
+                        title="Refresh"
+                        className="refresh-button"
+                    >
+                        <i className="codicon codicon-refresh"></i>
+                    </VSCodeButton>
+
+                    <VSCodeButton
+                        appearance="primary"
+                        onClick={onCreateEmpty}
+                        title="Create New Project from Scratch"
+                        className="create-button"
+                    >
+                        <i className="codicon codicon-plus"></i>
+                        Create Empty Project
+                    </VSCodeButton>
+                </div>
+
+                {/* <div className="setup-options">
+                    <div className="option">
+                        <h3>Create Empty Project</h3>
+                        <p>Start with a blank project and add files as needed.</p>
+                        <VSCodeButton onClick={onCreateEmpty}>Create Empty Project</VSCodeButton>
+                    </div>
+                </div> */}
             </div>
 
             <GitLabProjectsList
+                isLoading={isLoading}
                 onOpenProject={onOpenProject}
                 projects={projectsList}
                 onCloneProject={(project) =>
                     project.gitOriginUrl && onCloneRepo(project.gitOriginUrl)
                 }
-                syncStatus={syncStatus}
             />
-            <div className="setup-options">
-                <div className="option">
-                    <h3>Create Empty Project</h3>
-                    <p>Start with a blank project and add files as needed.</p>
-                    <VSCodeButton onClick={onCreateEmpty}>Create Empty Project</VSCodeButton>
-                </div>
-            </div>
         </div>
     );
 };

@@ -13,7 +13,11 @@ import {
     CellIdGlobalState,
 } from "../../../types";
 import { CodexCellDocument } from "./codexDocument";
-import { CodexCellEditorMessageHandling } from "./codexCellEditorMessagehandling";
+import {
+    handleGlobalMessage,
+    handleMessages,
+    performLLMCompletion,
+} from "./codexCellEditorMessagehandling";
 import { GlobalProvider } from "../../globalProvider";
 import { getAuthApi } from "@/extension";
 import { initializeStateStore } from "../../stateStore";
@@ -27,22 +31,35 @@ interface StateStore {
 }
 
 function getNonce(): string {
+    debug("Generating nonce");
     let text = "";
     const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     for (let i = 0; i < 32; i++) {
         text += possible.charAt(Math.floor(Math.random() * possible.length));
     }
+    debug("Generated nonce:", text);
     return text;
 }
 
+const DEBUG_MODE = false;
+
+const debug = function (...args: any[]) {
+    if (DEBUG_MODE) {
+        console.log("[CodexCellEditorProvider]", ...args);
+    }
+};
+
 export class CodexCellEditorProvider implements vscode.CustomEditorProvider<CodexCellDocument> {
-    private messageHandler: CodexCellEditorMessageHandling;
     public currentDocument: CodexCellDocument | undefined;
     private webviewPanels: Map<string, vscode.WebviewPanel> = new Map();
     private userInfo: { username: string; email: string } | undefined;
     private stateStore: StateStore | undefined;
+    private stateStoreListener: (() => void) | undefined;
+    private commitTimer: NodeJS.Timeout | undefined;
+    private readonly COMMIT_DELAY_MS = 5 * 60 * 1000; // 5 minutes in milliseconds
 
     public static register(context: vscode.ExtensionContext): vscode.Disposable {
+        debug("Registering CodexCellEditorProvider");
         const provider = new CodexCellEditorProvider(context);
         const providerRegistration = vscode.window.registerCustomEditorProvider(
             CodexCellEditorProvider.viewType,
@@ -54,40 +71,56 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 },
             }
         );
-        GlobalProvider.getInstance().registerProvider("codex-cell-editor", provider);
-        return providerRegistration;
+        const globalProviderRegistration = GlobalProvider.getInstance().registerProvider(
+            "codex-cell-editor",
+            provider
+        );
+        debug("Provider registered successfully");
+
+        return new vscode.Disposable(() => {
+            providerRegistration.dispose();
+            globalProviderRegistration.dispose();
+        });
     }
 
     private static readonly viewType = "codex.cellEditor";
 
     constructor(private readonly context: vscode.ExtensionContext) {
-        this.messageHandler = new CodexCellEditorMessageHandling(this);
+        debug("Constructing CodexCellEditorProvider");
         this.initializeStateStore();
     }
 
     private async initializeStateStore() {
+        debug("Initializing state store");
         try {
             const { storeListener, updateStoreState } = await initializeStateStore();
             this.stateStore = { storeListener, updateStoreState };
 
-            // Set up listener for cell ID changes
-            this.stateStore.storeListener("cellId", (value: CellIdGlobalState | undefined) => {
-                if (value?.cellId && value?.uri) {
-                    // Only send highlight messages to source files when a codex file is active
-                    const valueIsCodexFile = value.uri.endsWith(".codex");
-                    if (valueIsCodexFile) {
-                        for (const [panelUri, panel] of this.webviewPanels.entries()) {
-                            const isSourceFile = panelUri.endsWith(".source");
-                            if (isSourceFile) {
-                                panel.webview.postMessage({
-                                    type: "highlightCell",
-                                    cellId: value.cellId,
-                                });
+            // Store the dispose function when setting up the listener
+            this.stateStoreListener = this.stateStore.storeListener(
+                "cellId",
+                (value: CellIdGlobalState | undefined) => {
+                    debug("Cell ID change detected:", value);
+                    if (value?.cellId && value?.uri) {
+                        // Only send highlight messages to source files when a codex file is active
+                        const valueIsCodexFile = value.uri.endsWith(".codex");
+                        if (valueIsCodexFile) {
+                            debug("Processing codex file highlight");
+                            for (const [panelUri, panel] of this.webviewPanels.entries()) {
+                                const isSourceFile = panelUri.endsWith(".source");
+                                if (isSourceFile) {
+                                    debug("Sending highlight message to source file:", panelUri);
+                                    panel.webview.postMessage({
+                                        type: "highlightCell",
+                                        cellId: value.cellId,
+                                    });
+                                }
                             }
                         }
                     }
                 }
-            });
+            );
+            debug("State store initialized successfully");
         } catch (error) {
             console.error("Failed to initialize state store:", error);
         }
@@ -104,32 +137,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         openContext: { backupId?: string },
         _token: vscode.CancellationToken
     ): Promise<CodexCellDocument> {
-        console.log("openCustomDocument called for:", uri.toString());
+        debug("Opening custom document:", uri.toString());
         const document = await CodexCellDocument.create(uri, openContext.backupId, _token);
+        debug("Document created successfully");
         return document;
-    }
-
-    public async receiveMessage(message: any, updateWebview?: () => void) {
-        console.log("Cell Provider rec: ", { message });
-
-        // Find the active panel
-        const activePanel = Array.from(this.webviewPanels.values()).find((panel) => panel.active);
-        if (!activePanel || !this.currentDocument) {
-            console.warn("No active panel or currentDocument is not initialized");
-            return;
-        }
-
-        if ("destination" in message) {
-            console.log("Global message detected");
-            this.messageHandler.handleGlobalMessage(message as GlobalMessage);
-            return;
-        }
-        this.messageHandler.handleMessages(
-            message as EditorPostMessages,
-            activePanel,
-            this.currentDocument,
-            updateWebview ?? (() => {})
-        );
     }
 
     public async resolveCustomEditor(
@@ -137,13 +148,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         webviewPanel: vscode.WebviewPanel,
         _token: vscode.CancellationToken
     ): Promise<void> {
-        console.log("resolveCustomEditor called for:", document.uri.toString());
+        debug("Resolving custom editor for:", document.uri.toString());
 
         // Store the webview panel with its document URI as the key
         this.webviewPanels.set(document.uri.toString(), webviewPanel);
 
         // Listen for when this editor becomes active
         webviewPanel.onDidChangeViewState((e) => {
+            debug("Webview panel state changed, active:", e.webviewPanel.active);
             if (e.webviewPanel.active) {
                 // Only update references without refreshing
                 this.currentDocument = document;
@@ -154,6 +166,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         this.currentDocument = document;
         const authApi = await getAuthApi();
         this.userInfo = await authApi?.getUserInfo();
+        debug("User info retrieved:", this.userInfo);
 
         // Enable scripts in the webview
         webviewPanel.webview.options = {
@@ -163,6 +176,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Get text direction and check if it's a source file
         const textDirection = this.getTextDirection(document);
         const isSourceText = document.uri.fsPath.endsWith(".source");
+        debug("Text direction:", textDirection, "Is source text:", isSourceText);
 
         // Set up the HTML content for the webview
         webviewPanel.webview.html = this.getHtmlForWebview(
@@ -182,8 +196,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Watch for file changes
         watcher.onDidChange((uri) => {
+            debug("File change detected:", uri.toString());
             if (uri.toString() === document.uri.toString()) {
                 if (!document.isDirty) {
+                    debug("Document not dirty, reverting");
                     document.revert(); // Reload the document if it isn't dirty
                 }
             }
@@ -191,6 +207,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Create update function
         const updateWebview = () => {
+            debug("Updating webview");
             const notebookData: vscode.NotebookData = this.getDocumentAsJson(document);
             const processedData = this.processNotebookData(notebookData);
 
@@ -204,13 +221,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Set up navigation functions
         const navigateToSection = (cellId: string) => {
+            debug("Navigating to section:", cellId);
             webviewPanel.webview.postMessage({
                 type: "jumpToSection",
                 content: cellId,
             });
         };
         const openCellByIdImpl = (cellId: string, text: string) => {
-            console.log("openCellById (implemented)", cellId, text);
+            debug("Opening cell by ID:", cellId, text);
             webviewPanel.webview.postMessage({
                 type: "openCellById",
                 cellId: cellId,
@@ -218,6 +236,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             });
         };
         const jumpToCellListenerDispose = workspaceStoreListener("cellToJumpTo", (value) => {
+            debug("Jump to cell event received:", value);
             navigateToSection(value);
         });
 
@@ -226,6 +245,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         listeners.push(
             document.onDidChangeForVsCodeAndWebview((e) => {
+                debug("Document changed for VS Code and webview");
                 updateWebview();
                 this._onDidChangeCustomDocument.fire({ document });
             })
@@ -233,12 +253,22 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         listeners.push(
             document.onDidChangeForWebview((e) => {
+                debug("Document changed for webview only");
                 updateWebview();
             })
         );
 
         // Clean up on panel close
         webviewPanel.onDidDispose(() => {
+            debug("Webview panel disposed");
+            if (this.commitTimer) {
+                clearTimeout(this.commitTimer);
+            }
+            // Dispose of the state store listener
+            if (this.stateStoreListener) {
+                this.stateStoreListener();
+                this.stateStoreListener = undefined;
+            }
             this.webviewPanels.delete(document.uri.toString());
             jumpToCellListenerDispose();
             listeners.forEach((l) => l.dispose());
@@ -247,42 +277,64 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Handle messages from webview
         webviewPanel.webview.onDidReceiveMessage(async (e: EditorPostMessages | GlobalMessage) => {
+            debug("Received message from webview:", e);
             if ("destination" in e) {
-                console.log("handling global message", { e });
+                debug("Handling global message");
                 GlobalProvider.getInstance().handleMessage(e);
-                this.messageHandler.handleGlobalMessage(e as GlobalMessage);
+                handleGlobalMessage(this, e as GlobalMessage);
                 return;
             }
-            this.receiveMessage(e, updateWebview);
+            handleMessages(e, webviewPanel, document, updateWebview, this);
         });
 
         // Initial update
+        debug("Performing initial webview update");
         updateWebview();
 
         // Watch for configuration changes
-        vscode.workspace.onDidChangeConfiguration((e) => {
+        const configListenerDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
+            debug("Configuration changed");
             if (e.affectsConfiguration("translators-copilot.textDirection")) {
+                debug("Text direction configuration changed");
                 this.updateTextDirection(webviewPanel, document);
             }
         });
+        listeners.push(configListenerDisposable);
     }
 
-    public async saveCustomDocument(
-        document: CodexCellDocument,
-        cancellation: vscode.CancellationToken
-    ): Promise<void> {
-        await document.save(cancellation);
-        await this.executeGitCommit(document);
+    public async receiveMessage(message: any, updateWebview?: () => void) {
+        debug("Cell Provider received message:", message);
+        // NOTE: do not use this method to handled messages within the provider. This has access to the global context and can get crossed with other providers
+        // Find the active panel
+        const activePanel = Array.from(this.webviewPanels.values()).find((panel) => panel.active);
+        if (!activePanel || !this.currentDocument) {
+            debug("No active panel or currentDocument is not initialized");
+            return;
+        }
+
+        if ("destination" in message) {
+            debug("Global message detected");
+            handleGlobalMessage(this, message as GlobalMessage);
+            return;
+        }
+        handleMessages(
+            message as EditorPostMessages,
+            activePanel,
+            this.currentDocument,
+            updateWebview ?? (() => {}),
+            this
+        );
     }
 
     private async executeGitCommit(document: CodexCellDocument): Promise<void> {
+        debug("Executing git commit for:", document.uri.toString());
         await vscode.commands.executeCommand(
             "extension.manualCommit",
             `changes to ${vscode.workspace.asRelativePath(document.uri).split(/[/\\]/).pop()}`
         );
     }
     public postMessage(message: GlobalMessage) {
-        console.log("postMessage", { message });
+        debug("Posting message:", message);
         if (this.webviewPanels.size > 0) {
             this.webviewPanels.forEach((panel) => panel.webview.postMessage(message));
         } else {
@@ -290,21 +342,46 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
     }
 
+    private scheduleCommit(document: CodexCellDocument) {
+        debug("Scheduling commit for:", document.uri.toString());
+        // Clear any existing timer
+        if (this.commitTimer) {
+            clearTimeout(this.commitTimer);
+        }
+
+        // Set new timer
+        this.commitTimer = setTimeout(async () => {
+            debug("Executing scheduled commit");
+            await this.executeGitCommit(document);
+        }, this.COMMIT_DELAY_MS);
+    }
+
+    public async saveCustomDocument(
+        document: CodexCellDocument,
+        cancellation: vscode.CancellationToken
+    ): Promise<void> {
+        debug("Saving custom document:", document.uri.toString());
+        await document.save(cancellation);
+        this.scheduleCommit(document); // Schedule commit instead of immediate commit
+    }
+
     public async saveCustomDocumentAs(
         document: CodexCellDocument,
         destination: vscode.Uri,
         cancellation: vscode.CancellationToken
     ): Promise<void> {
+        debug("Saving custom document as:", destination.toString());
         await document.saveAs(destination, cancellation);
-        await this.executeGitCommit(document);
+        this.scheduleCommit(document); // Schedule commit instead of immediate commit
     }
 
     public async revertCustomDocument(
         document: CodexCellDocument,
         cancellation: vscode.CancellationToken
     ): Promise<void> {
+        debug("Reverting custom document:", document.uri.toString());
         await document.revert(cancellation);
-        await this.executeGitCommit(document);
+        this.scheduleCommit(document); // Schedule commit instead of immediate commit
     }
 
     public async backupCustomDocument(
@@ -312,7 +389,18 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         context: vscode.CustomDocumentBackupContext,
         cancellation: vscode.CancellationToken
     ): Promise<vscode.CustomDocumentBackup> {
+        debug("Backing up custom document to:", context.destination.toString());
         return document.backup(context.destination, cancellation);
+    }
+
+    public getCachedChapter(uri: string): number {
+        const key = `chapter-cache-${uri}`;
+        return this.context.workspaceState.get(key, 1); // Default to chapter 1
+    }
+
+    public async updateCachedChapter(uri: string, chapter: number) {
+        const key = `chapter-cache-${uri}`;
+        await this.context.workspaceState.update(key, chapter);
     }
 
     private getHtmlForWebview(
@@ -321,6 +409,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         textDirection: string,
         isSourceText: boolean
     ): string {
+        debug("Getting HTML for webview");
         const styleResetUri = webview.asWebviewUri(
             vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "reset.css")
         );
@@ -353,6 +442,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // FIXME: when switching from a remote/youtube video to a local video, you need to close the webview and re-open it
         if (videoPath) {
+            debug("Processing video path:", videoPath);
             if (videoPath.startsWith("http://") || videoPath.startsWith("https://")) {
                 // If it's a web URL, use it directly
                 videoUri = videoPath;
@@ -368,9 +458,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     videoUri = webview.asWebviewUri(fullPath).toString();
                 }
             }
+            debug("Processed video URI:", videoUri);
         }
 
         const nonce = getNonce();
+
+        const cachedChapter = this.getCachedChapter(document.uri.toString());
 
         return /*html*/ `
             <!DOCTYPE html>
@@ -398,7 +491,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         videoUrl: ${videoUri ? `"${videoUri}"` : "null"},
                         sourceCellMap: ${JSON.stringify(document._sourceCellMap)},
                         metadata: ${JSON.stringify(notebookData.metadata)},
-                        userInfo: ${JSON.stringify(this.userInfo)}
+                        userInfo: ${JSON.stringify(this.userInfo)},
+                        cachedChapter: ${cachedChapter}
                     };
                 </script>
             </head>
@@ -410,21 +504,26 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     }
 
     private getDocumentAsJson(document: CodexCellDocument): any {
+        debug("Getting document as JSON");
         const text = document.getText();
         if (text.trim().length === 0) {
+            debug("Document is empty");
             return {};
         }
 
         try {
-            return JSON.parse(text);
+            const json = JSON.parse(text);
+            debug("Successfully parsed document as JSON");
+            return json;
         } catch {
             throw new Error("Could not get document as json. Content is not valid json");
         }
     }
 
     private getTextDirection(document: CodexCellDocument): string {
+        debug("Getting text direction");
         const notebookData = this.getDocumentAsJson(document);
-        console.log("getTextDirection", notebookData.metadata?.textDirection);
+        debug("Text direction from metadata:", notebookData.metadata?.textDirection);
         return notebookData.metadata?.textDirection || "ltr";
     }
 
@@ -432,6 +531,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         webviewPanel: vscode.WebviewPanel,
         document: CodexCellDocument
     ): void {
+        debug("Updating text direction");
         const textDirection = this.getTextDirection(document);
         this.postMessageToWebview(webviewPanel, {
             type: "providerUpdatesTextDirection",
@@ -439,45 +539,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         });
     }
 
-    public async performLLMCompletion(document: CodexCellDocument, currentCellId: string) {
-        // Prevent LLM completion on source files
-        if (document.uri.fsPath.endsWith(".source")) {
-            console.warn(
-                "Attempted to perform LLM completion on a source file. This operation is not allowed."
-            );
-            return;
-        }
-
-        try {
-            // Fetch completion configuration
-            const completionConfig = await fetchCompletionConfig();
-            const notebookReader = new CodexNotebookReader(document.uri);
-            console.log("Document URI: ", notebookReader);
-            // Perform LLM completion
-            const result = await llmCompletion(
-                notebookReader,
-                currentCellId,
-                completionConfig,
-                new vscode.CancellationTokenSource().token
-            );
-
-            // Update content and metadata atomically
-            document.updateCellContent(currentCellId, result, EditType.LLM_GENERATION);
-
-            console.log("LLM completion result", { result });
-            return result;
-        } catch (error: any) {
-            console.error("Error in performLLMCompletion:", error);
-            vscode.window.showErrorMessage(`LLM completion failed: ${error.message}`);
-            throw error;
-        }
-    }
-
     public async performAutocompleteChapter(
         document: CodexCellDocument,
         webviewPanel: vscode.WebviewPanel,
         currentChapterTranslationUnits: QuillCellContent[]
     ) {
+        debug("Starting chapter autocompletion");
         for (let i = 0; i < currentChapterTranslationUnits.length; i++) {
             const cell = currentChapterTranslationUnits[i];
 
@@ -491,9 +558,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             }
 
             try {
+                debug(
+                    `Processing cell ${i + 1}/${currentChapterTranslationUnits.length}, ID: ${cellId}`
+                );
                 // Perform LLM completion for the current cell
                 if (this.currentDocument) {
-                    await this.performLLMCompletion(this.currentDocument, cellId);
+                    await performLLMCompletion(cellId, this.currentDocument);
                 }
 
                 // Send an update to the webview
@@ -516,6 +586,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             await new Promise((resolve) => setTimeout(resolve, debounceTimeToAllowIndexesToSettle));
         }
 
+        debug("Chapter autocompletion completed");
         // Send a final update to indicate completion
         this.postMessageToWebview(webviewPanel, {
             type: "providerCompletesChapterAutocompletion",
@@ -523,6 +594,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     }
 
     private processNotebookData(notebook: vscode.NotebookData) {
+        debug("Processing notebook data");
         const translationUnits: QuillCellContent[] = notebook.cells.map((cell) => ({
             cellMarkers: [cell.metadata?.id],
             cellContent: cell.value,
@@ -533,11 +605,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }));
 
         const processedData = this.mergeRangesAndProcess(translationUnits);
-
+        debug("Notebook data processed");
         return processedData;
     }
 
     private mergeRangesAndProcess(translationUnits: QuillCellContent[]) {
+        debug("Merging ranges and processing translation units");
         const translationUnitsWithMergedRanges: QuillCellContent[] = [];
 
         translationUnits.forEach((verse, index) => {
@@ -566,14 +639,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             });
         });
 
+        debug("Range merging completed");
         return translationUnitsWithMergedRanges;
     }
 
     public postMessageToWebview(webviewPanel: vscode.WebviewPanel, message: EditorReceiveMessages) {
+        debug("Posting message to webview:", message.type);
         webviewPanel.webview.postMessage(message);
     }
 
     public refreshWebview(webviewPanel: vscode.WebviewPanel, document: CodexCellDocument) {
+        debug("Refreshing webview");
         const notebookData = this.getDocumentAsJson(document);
         const processedData = this.processNotebookData(notebookData);
         const isSourceText = document.uri.fsPath.endsWith(".source");
@@ -604,12 +680,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 content: videoUrl,
             });
         }
+        debug("Webview refresh completed");
     }
 
     private getVideoUrl(
         videoPath: string | undefined,
         webviewPanel: vscode.WebviewPanel
     ): string | null {
+        debug("Getting video URL for path:", videoPath);
         if (!videoPath) return null;
 
         if (videoPath.startsWith("http://") || videoPath.startsWith("https://")) {
@@ -623,10 +701,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 return webviewPanel.webview.asWebviewUri(fullPath).toString();
             }
         }
+        debug("No valid video URL found");
         return null;
     }
 
     public updateCellIdState(cellId: string, uri: string) {
+        debug("Updating cell ID state:", cellId, uri);
         if (!this.stateStore) {
             console.warn("State store not initialized when trying to update cell ID");
             return;

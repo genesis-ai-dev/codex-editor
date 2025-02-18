@@ -91,7 +91,7 @@ function getNonce(): string {
     return text;
 }
 
-const DEBUG_MODE = true; // Set to true to enable debug logging
+const DEBUG_MODE = false; // Set to true to enable debug logging
 
 function debugLog(...args: any[]): void {
     if (DEBUG_MODE) {

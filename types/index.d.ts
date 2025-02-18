@@ -564,9 +564,10 @@ interface EditHistoryEntry {
 }
 
 export type EditorPostMessages =
+    | { command: "updateCachedChapter"; content: number }
     | { command: "webviewReady" }
     | { command: "getContent" }
-    | { command: "setCurrentIdToGlobalState"; content: { currentLineId: string; uri: string } }
+    | { command: "setCurrentIdToGlobalState"; content: { currentLineId: string } }
     | { command: "webviewFocused"; content: { uri: string } }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string } }
     | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata }
@@ -803,6 +804,7 @@ interface ProjectOverview extends Project {
     meta: Omit<Project["meta"], "generator"> & {
         generator: Project["meta"]["generator"] & { userEmail?: string };
     };
+    spellcheckIsEnabled: boolean;
 }
 
 /* This is the project metadata that is saved in the metadata.json file */
@@ -1031,7 +1033,8 @@ type ProjectManagerMessageFromWebview =
     | { command: "checkPublishStatus" }
     | { command: "publishProject" }
     | { command: "syncProject" }
-    | { command: "openEditAnalysis" };
+    | { command: "openEditAnalysis" }
+    | { command: "toggleSpellcheck" };
 
 interface ProjectManagerState {
     projectOverview: ProjectOverview | null;

@@ -20,6 +20,7 @@ interface CellContentDisplayProps {
     timestamps: Timestamps | undefined;
     alertColorCode: number | undefined;
     highlightedCellId?: string | null;
+    scrollSyncEnabled: boolean;
 }
 
 const DEBUG_ENABLED = false;
@@ -42,6 +43,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     timestamps,
     alertColorCode,
     highlightedCellId,
+    scrollSyncEnabled,
 }) => {
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
 
@@ -49,8 +51,18 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     const { contentToScrollTo } = useContext(ScrollToContentContext);
 
     useEffect(() => {
-        if (highlightedCellId === cellIds[0] && cellRef.current && isSourceText) {
-            cellRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+        if (
+            highlightedCellId === cellIds[0] &&
+            cellRef.current &&
+            isSourceText &&
+            scrollSyncEnabled
+        ) {
+            debug("Scrolling to content highlightedCellId", {
+                highlightedCellId,
+                cellIds,
+                isSourceText,
+            });
+            cellRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
         }
     }, [highlightedCellId]);
 
@@ -78,7 +90,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             command: "setCurrentIdToGlobalState",
             content: {
                 currentLineId: cellIds[0],
-                uri: documentUri,
             },
         } as EditorPostMessages);
     };
@@ -122,7 +133,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     };
 
     const getBackgroundColor = () => {
-        if (highlightedCellId === cellIds[0]) {
+        if (highlightedCellId === cellIds[0] && scrollSyncEnabled) {
             return "rgba(255, 255, 255, 0.1)";
         }
         return "transparent";
@@ -132,7 +143,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         <div
             ref={cellRef}
             className={`cell-content ${hasDuplicateId ? "duplicate-cell" : ""} ${
-                highlightedCellId === cellIds[0] ? "highlighted-cell" : ""
+                highlightedCellId === cellIds[0] && scrollSyncEnabled ? "highlighted-cell" : ""
             }`}
             onClick={handleVerseClick}
             style={{

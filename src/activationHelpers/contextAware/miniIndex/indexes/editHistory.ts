@@ -56,6 +56,29 @@ function calculateLevenshteinDistance(str1: string, str2: string): number {
     return dp[m][n];
 }
 
+function calculateMeteorScore(llmText: string, userText: string): number {
+    // Simple METEOR implementation focusing on exact matches and word order
+    const llmWords = llmText.toLowerCase().split(/\s+/);
+    const userWords = userText.toLowerCase().split(/\s+/);
+    
+    // Calculate exact matches
+    const matches = llmWords.filter((word, i) => word === userWords[i]);
+    
+    // Calculate precision and recall
+    const precision = matches.length / llmWords.length;
+    const recall = matches.length / userWords.length;
+    
+    // Calculate F-mean with recall weighted 9 times more than precision
+    const fMean = precision && recall ? 
+        (10 * precision * recall) / (recall + 9 * precision) : 0;
+    
+    // Penalty for differences in word order (simplified)
+    const orderPenalty = 1 - (Math.abs(llmWords.length - userWords.length) / Math.max(llmWords.length, userWords.length));
+    
+    // Final METEOR score
+    return fMean * orderPenalty;
+}
+
 /**
  * Analyzes the edit history to measure LLM adaptation to user preferences over sequential edits.
  *
@@ -89,6 +112,7 @@ function calculateLevenshteinDistance(str1: string, str2: string): number {
  *     llmText: string;
  *     userText: string;
  *   }>;
+ *   meteorScore: number;
  * }>} Analysis results showing edit distances and their progression over the sequence
  */
 export async function analyzeEditHistory(): Promise<{
@@ -101,6 +125,7 @@ export async function analyzeEditHistory(): Promise<{
         llmText: string;
         userText: string;
     }>;
+    meteorScore: number;
 }> {
     const targetFiles = await getTargetFilesContent();
     const editPairs: EditPair[] = [];
@@ -221,7 +246,7 @@ export async function analyzeEditHistory(): Promise<{
 
     // Create sequence-based snapshots (not time-based)
     if (editPairs.length === 0) {
-        return { editDistances, averageEditDistance, timeSnapshots: [], rawDistances: [] };
+        return { editDistances, averageEditDistance, timeSnapshots: [], rawDistances: [], meteorScore: 0 };
     }
 
     const totalEdits = editPairs.length;
@@ -254,10 +279,18 @@ export async function analyzeEditHistory(): Promise<{
         };
     });
 
+    // Calculate METEOR score
+    const meteorScores = editPairs.map(pair => 
+        calculateMeteorScore(pair.llmGeneration, pair.userEdit)
+    );
+    const meteorScore = meteorScores.length > 0 ? 
+        meteorScores.reduce((sum, score) => sum + score, 0) / meteorScores.length : 0;
+
     return {
         editDistances,
         averageEditDistance,
         timeSnapshots,
         rawDistances,
+        meteorScore,
     };
 }

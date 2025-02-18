@@ -91,17 +91,18 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                 style={{
                     display: "flex",
                     flexDirection: "column",
-                    gap: "1rem",
+                    gap: "1.5rem",
                     alignItems: "center",
+                    width: "100%",
                 }}
             >
                 <div
                     style={{
                         display: "flex",
-                        alignItems: "start",
-                        gap: "1rem",
+                        alignItems: "center",
+                        gap: "1.5rem",
                         flexDirection: "column",
-                        marginRight: `-${centerBumpValue}rem`,
+                        width: "min(100%, 400px)",
                     }}
                 >
                     <VSCodeTextField
@@ -109,6 +110,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                         onChange={(e) => setUsername((e.target as HTMLInputElement).value)}
                         placeholder="Username"
                         required
+                        style={{ width: "100%" }}
                     />
                     {isRegistering && (
                         <VSCodeTextField
@@ -117,6 +119,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                             onChange={(e) => setEmail((e.target as HTMLInputElement).value)}
                             placeholder="Email"
                             required
+                            style={{ width: "100%" }}
                         />
                     )}
                     <div
@@ -127,7 +130,14 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                             position: "relative",
                         }}
                     >
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                        <div
+                            style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "0.5rem",
+                                width: "100%",
+                            }}
+                        >
                             <VSCodeTextField
                                 type={showPassword ? "text" : "password"}
                                 value={password}
@@ -138,6 +148,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                 onBlur={() => setIsPasswordFocused(false)}
                                 placeholder="Password"
                                 required
+                                style={{ width: "100%" }}
                             />
                             <VSCodeButton
                                 appearance="icon"
@@ -206,7 +217,6 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                 color: "var(--vscode-errorForeground)",
                                 fontSize: "1.5rem",
                                 alignSelf: "center",
-                                marginRight: `${centerBumpValue}rem`,
                             }}
                         >
                             ≠
@@ -222,6 +232,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                 }
                                 placeholder="Confirm Password"
                                 required
+                                style={{ width: "100%" }}
                             />
                             {passwordError && (
                                 <span style={{ color: "var(--vscode-errorForeground)" }}>

@@ -119,6 +119,35 @@ export class EditAnalysisProvider implements vscode.Disposable {
                     padding: 15px;
                     border-radius: 6px;
                     background: var(--vscode-editor-background);
+                    position: relative;
+                }
+                .stat-card:hover .stat-tooltip {
+                    display: block;
+                }
+                .stat-tooltip {
+                    display: none;
+                    position: absolute;
+                    bottom: 100%;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: var(--vscode-editor-background);
+                    border: 1px solid var(--vscode-editor-foreground);
+                    padding: 8px;
+                    border-radius: 4px;
+                    width: 250px;
+                    z-index: 1000;
+                    font-size: 0.9em;
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+                    margin-bottom: 8px;
+                }
+                .stat-tooltip::after {
+                    content: '';
+                    position: absolute;
+                    top: 100%;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    border: 8px solid transparent;
+                    border-top-color: var(--vscode-editor-foreground);
                 }
                 .stat-label {
                     font-size: 0.9em;
@@ -196,10 +225,17 @@ export class EditAnalysisProvider implements vscode.Disposable {
                     <div class="stat-card">
                         <div class="stat-label">Total Edits</div>
                         <div class="stat-value">${analysis.editDistances.length}</div>
+                        <div class="stat-tooltip">Total number of edits made to LLM-generated text, indicating the volume of corrections needed.</div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-label">Average Edit Distance</div>
                         <div class="stat-value">${analysis.averageEditDistance.toFixed(2)}</div>
+                        <div class="stat-tooltip">Average number of character-level changes needed to transform LLM output into user-desired text. Lower values indicate better performance.</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">METEOR Score</div>
+                        <div class="stat-value">${analysis.meteorScore?.toFixed(2) ?? 'N/A'}</div>
+                        <div class="stat-tooltip">METEOR (Metric for Evaluation of Translation with Explicit Ordering) score ranges from 0 to 1. Higher scores indicate better alignment between LLM output and user edits, considering synonyms and word order.</div>
                     </div>
                     ${analysis.timeSnapshots
                         .map(

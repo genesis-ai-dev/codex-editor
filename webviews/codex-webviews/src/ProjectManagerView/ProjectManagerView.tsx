@@ -335,6 +335,17 @@ function ProjectManagerView() {
                                 onAction={() => handleAction({ command: "openSourceUpload" })}
                                 hasWarning={!state.projectOverview.sourceTexts?.length}
                             />
+                            <ProjectField
+                                label="Spellcheck"
+                                value={
+                                    state.projectOverview.spellcheckIsEnabled
+                                        ? "Spellcheck is enabled"
+                                        : "Spellcheck is disabled"
+                                }
+                                icon="warning"
+                                onAction={() => handleAction({ command: "toggleSpellcheck" })}
+                                // hasWarning={}
+                            />
                             <div
                                 style={{
                                     display: "flex",

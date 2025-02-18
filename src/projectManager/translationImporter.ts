@@ -15,7 +15,7 @@ import * as grammar from "usfm-grammar";
 import { ParsedUSFM } from "usfm-grammar";
 import { getNotebookMetadataManager } from "../utils/notebookMetadataManager";
 
-const DEBUG_MODE = true; // Set this to false to disable debug logging
+const DEBUG_MODE = false; // Set this to false to disable debug logging
 
 function debug(...args: any[]): void {
     if (DEBUG_MODE) {

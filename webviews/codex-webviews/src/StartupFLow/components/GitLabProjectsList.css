@@ -1,0 +1,200 @@
+.gitlab-projects-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    height: calc(
+        100vh - 130px
+    ); /* note: this is the approx. height of the header and the search bar */
+    width: 100%;
+    /* height: calc(100vh - 300px); */
+}
+
+.search-container {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--vscode-editor-background);
+    padding: 1rem;
+    /* border-bottom: 1px solid var(--vscode-widget-border); */
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.search-container vscode-text-field {
+    flex: 1;
+}
+
+.search-clear-button {
+    opacity: 0.7;
+    cursor: pointer;
+}
+
+.search-clear-button:hover {
+    opacity: 1;
+}
+
+.loading-container {
+    display: flex;
+    justify-content: center;
+    padding: 2rem;
+}
+
+.projects-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    padding: 1rem;
+    overflow-y: auto;
+    overflow-x: hidden;
+    max-width: 100%;
+}
+
+.group-section {
+    background: var(--vscode-editor-background);
+    /* border: 1px solid var(--vscode-widget-border); */
+    border-radius: 6px;
+    padding: 1rem;
+    position: relative;
+}
+
+/* Add nested group styles */
+.group-section .group-section {
+    margin-left: 1rem;
+    border-left: 2px solid var(--vscode-widget-border);
+    padding-left: 1.5rem;
+    margin-top: 1rem;
+    border-radius: 0;
+}
+
+/* Lighten the border for deeper nesting */
+.group-section .group-section .group-section {
+    border-left-color: color-mix(in srgb, var(--vscode-widget-border) 70%, transparent);
+}
+
+/* Even deeper nesting */
+.group-section .group-section .group-section .group-section {
+    border-left-color: color-mix(in srgb, var(--vscode-widget-border) 40%, transparent);
+}
+
+.group-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--vscode-widget-border);
+    margin-bottom: 1rem;
+}
+
+.group-name {
+    font-weight: 600;
+    font-size: 1.1em;
+    color: var(--vscode-foreground);
+    margin: 0;
+}
+
+.projects-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    width: 100%;
+    align-items: stretch;
+}
+
+.project-card {
+    background: var(--vscode-sideBar-background);
+    border: 1px solid var(--vscode-widget-border);
+    border-radius: 4px;
+    padding: 1rem;
+    transition: box-shadow 0.2s ease;
+    width: 100%;
+}
+
+.project-card:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 0.5rem;
+}
+
+.status-and-name {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.project-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.project-title .name {
+    font-weight: 600;
+    font-size: 1.1em;
+}
+
+.card-content {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 0.5rem;
+    width: 100%;
+}
+
+.description {
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.9em;
+    margin: 0;
+    width: 100%;
+    text-align: left;
+}
+
+.url-container {
+    font-size: 0.9em;
+    color: var(--vscode-textLink-foreground);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: flex-start;
+    justify-content: flex-start;
+    width: 100%;
+}
+
+.url-container p {
+    margin: 0;
+    width: 100%;
+    text-align: left;
+}
+
+.unique-id {
+    font-size: 0.8em;
+    margin-left: 0.5rem;
+    opacity: 0.7;
+    color: var(--vscode-descriptionForeground);
+}
+
+.status-icon {
+    font-size: 1.1em;
+}
+
+.status-icon.synced {
+    color: var(--vscode-testing-iconPassed);
+}
+
+.status-icon.error {
+    color: var(--vscode-testing-iconFailed);
+}
+
+.status-icon.cloud {
+    color: var(--vscode-charts-blue);
+}
+
+.status-icon.local {
+    color: var(--vscode-charts-orange);
+}

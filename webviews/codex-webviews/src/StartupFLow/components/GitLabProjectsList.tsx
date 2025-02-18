@@ -1,50 +1,79 @@
-import React from "react";
+import React, { useState, useMemo } from "react";
 import { ProjectWithSyncStatus, ProjectSyncStatus } from "types";
-import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import {
+    VSCodeButton,
+    VSCodeProgressRing,
+    VSCodeBadge,
+    VSCodeDivider,
+    VSCodeDropdown,
+    VSCodeTextField,
+} from "@vscode/webview-ui-toolkit/react";
+import "./GitLabProjectsList.css";
 
 interface GitLabProjectsListProps {
     projects: ProjectWithSyncStatus[];
     onCloneProject: (project: ProjectWithSyncStatus) => void;
     onOpenProject: (project: ProjectWithSyncStatus) => void;
-    syncStatus?: Record<string, "synced" | "cloud" | "error">;
+    isLoading: boolean;
+}
+
+interface ProjectGroup {
+    name: string;
+    projects: ProjectWithSyncStatus[];
+    subgroups: Record<string, ProjectGroup>;
+    isLast: boolean;
+}
+
+interface ParsedProjectInfo {
+    groups: string[];
+    cleanName: string;
+    displayUrl: string;
+    uniqueId: string;
 }
 
 export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     projects,
     onCloneProject,
     onOpenProject,
+    isLoading,
 }) => {
+    const [searchQuery, setSearchQuery] = useState("");
+
     const getStatusIcon = (syncStatus: ProjectSyncStatus) => {
         switch (syncStatus) {
             case "downloadedAndSynced":
-                return (
-                    <i
-                        className="codicon codicon-check status-icon synced"
-                        title="Downloaded and synced"
-                    />
-                );
+                return {
+                    icon: "codicon-check",
+                    title: "Downloaded and synced",
+                    className: "synced",
+                };
             case "error":
-                return (
-                    <i
-                        className="codicon codicon-error status-icon"
-                        title="Local only - not synced"
-                    />
-                );
+                return {
+                    icon: "codicon-error",
+                    title: "Local only - not synced",
+                    className: "error",
+                };
             case "cloudOnlyNotSynced":
-                return (
-                    <i className="codicon codicon-cloud status-icon" title="Available in cloud" />
-                );
+                return {
+                    icon: "codicon-cloud",
+                    title: "Available in cloud",
+                    className: "cloud",
+                };
             case "localOnlyNotSynced":
-                return (
-                    <i
-                        className="codicon codicon-vm status-icon"
-                        title="Local only - not synced with cloud"
-                    />
-                );
+                return {
+                    icon: "codicon-vm",
+                    title: "Local only - not synced with cloud",
+                    className: "local",
+                };
             default:
-                return <i className="codicon codicon-error status-icon" title="Error" />;
+                return {
+                    icon: "codicon-error",
+                    title: "Error",
+                    className: "error",
+                };
         }
     };
+
     const sharedStyles = {
         cell: {
             padding: "0.5rem",
@@ -57,58 +86,271 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
         },
     };
 
+    const parseProjectUrl = (url?: string) => {
+        if (!url) return { groups: [], cleanName: "", displayUrl: "", uniqueId: "" };
+
+        try {
+            const parsed = new URL(url);
+            const pathParts = parsed.pathname.split("/").filter(Boolean);
+
+            // Extract groups hierarchy (all parts except last)
+            const groups = pathParts.slice(0, -1);
+            const fullName = pathParts[pathParts.length - 1]?.replace(/\.git$/, "") || "";
+            const nameParts = fullName.split("-");
+
+            // Extract 20-character ID if it exists
+            const lastPart = nameParts[nameParts.length - 1];
+            const hasUniqueId = lastPart?.length === 20;
+            const uniqueId = hasUniqueId ? nameParts.pop()! : "";
+            const cleanName = nameParts.join("-");
+
+            // Rebuild display URL with hierarchy
+            const displayPath = [
+                ...groups,
+                `${cleanName}${parsed.pathname.endsWith(".git") ? ".git" : ""}`,
+            ].join("/");
+            const displayUrl = new URL(displayPath, parsed.origin).toString();
+
+            return { groups, cleanName, displayUrl, uniqueId };
+        } catch {
+            return { groups: [], cleanName: "", displayUrl: "", uniqueId: "" };
+        }
+    };
+
+    const groupProjectsByHierarchy = (projects: ProjectWithSyncStatus[]) => {
+        if (!Array.isArray(projects)) {
+            console.warn("Invalid projects data received:", projects);
+            return {};
+        }
+
+        const hierarchy: Record<string, ProjectGroup> = {};
+        const ungroupedProjects: ProjectWithSyncStatus[] = [];
+
+        projects.forEach((project) => {
+            if (!project) return;
+
+            // If no gitOriginUrl or no groups, add to ungrouped
+            if (!project.gitOriginUrl) {
+                ungroupedProjects.push(project);
+                return;
+            }
+
+            const { groups } = parseProjectUrl(project.gitOriginUrl);
+
+            // If no valid groups, add to ungrouped
+            if (!Array.isArray(groups) || groups.length === 0) {
+                ungroupedProjects.push(project);
+                return;
+            }
+
+            let currentLevel = hierarchy;
+            const currentPath: string[] = [];
+
+            for (const group of groups) {
+                if (!group) continue;
+                currentPath.push(group);
+
+                // Create path if it doesn't exist
+                if (!currentLevel[group]) {
+                    currentLevel[group] = {
+                        name: group,
+                        projects: [],
+                        subgroups: {},
+                        isLast: currentPath.length === groups.length,
+                    };
+                }
+
+                // Move to next level
+                const nextLevel = currentLevel[group].subgroups;
+                if (!nextLevel) {
+                    currentLevel[group].subgroups = {};
+                }
+
+                // Add project to current level
+                if (currentPath.length === groups.length) {
+                    if (!Array.isArray(currentLevel[group].projects)) {
+                        currentLevel[group].projects = [];
+                    }
+                    currentLevel[group].projects.push(project);
+                    break;
+                }
+
+                currentLevel = currentLevel[group].subgroups;
+            }
+        });
+
+        return { hierarchy, ungroupedProjects };
+    };
+
+    const filterProjects = (projects: ProjectWithSyncStatus[]) => {
+        if (!searchQuery) return projects;
+        return projects.filter(
+            (project) =>
+                project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                project.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                project.gitOriginUrl?.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+    };
+
+    const { hierarchy, ungroupedProjects } = useMemo(
+        () => groupProjectsByHierarchy(projects || []),
+        [projects]
+    );
+
+    const renderProjectCard = (project: ProjectWithSyncStatus) => {
+        if (!project) return null;
+        const { cleanName, displayUrl, uniqueId } = parseProjectUrl(project.gitOriginUrl);
+        const isUnpublished = !project.gitOriginUrl;
+        const status = getStatusIcon(project.syncStatus);
+
+        return (
+            <div className="project-card" key={project.name}>
+                <div className="card-header">
+                    <div className="status-and-name">
+                        <i
+                            className={`codicon ${status.icon} status-icon ${status.className}`}
+                            title={status.title}
+                        />
+                        <div className="project-title">
+                            <span className="name">{cleanName || project.name}</span>
+                            {isUnpublished && <VSCodeBadge>Unpublished</VSCodeBadge>}
+                        </div>
+                    </div>
+                    <div
+                        className="card-actions"
+                        style={{ display: "flex", gap: "0.5rem", flexWrap: "nowrap" }}
+                    >
+                        {displayUrl && (
+                            <div className="url-container">
+                                <VSCodeButton
+                                    appearance="secondary"
+                                    onClick={() =>
+                                        navigator.clipboard.writeText(project.gitOriginUrl || "")
+                                    }
+                                    title="Copy URL to clipboard"
+                                >
+                                    <i className="codicon codicon-copy"></i>
+                                    URL
+                                </VSCodeButton>
+                            </div>
+                        )}
+                        {project.syncStatus === "cloudOnlyNotSynced" && (
+                            <VSCodeButton
+                                appearance="secondary"
+                                onClick={() => onCloneProject(project)}
+                                title="Download project"
+                            >
+                                <i className="codicon codicon-cloud-download"></i>
+                                Download
+                            </VSCodeButton>
+                        )}
+                        {(project.syncStatus === "downloadedAndSynced" ||
+                            project.syncStatus === "localOnlyNotSynced") && (
+                            <VSCodeButton
+                                onClick={() => onOpenProject(project)}
+                                title="Open project"
+                            >
+                                <i className="codicon codicon-folder-opened"></i>
+                                Open
+                            </VSCodeButton>
+                        )}
+                    </div>
+                </div>
+                <div className="card-content">
+                    {project.description && <p className="description">{project.description}</p>}
+                    {displayUrl && (
+                        <div className="url-container">
+                            <p className="url">{displayUrl}</p>
+                            {uniqueId && <span className="unique-id">#{uniqueId}</span>}
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
+    const renderGroupSection = (group: ProjectGroup, depth: number = 0) => {
+        if (!group || typeof group !== "object") return null;
+
+        const filteredProjects = filterProjects(group.projects || []);
+        const hasSubgroupsWithProjects = Object.values(group.subgroups).some((subgroup) => {
+            if (!subgroup) return false;
+            const filteredSubgroupProjects = filterProjects(subgroup.projects || []);
+            return filteredSubgroupProjects.length > 0;
+        });
+
+        // Hide empty groups when searching
+        if (searchQuery && filteredProjects.length === 0 && !hasSubgroupsWithProjects) {
+            return null;
+        }
+
+        return (
+            <div className="group-section" key={group.name}>
+                <div className="group-header">
+                    <i className="codicon codicon-folder" />
+                    <h2 className="group-name">{(group.name || "").replace(/_/g, " ")}</h2>
+                    <VSCodeBadge>{filteredProjects.length}</VSCodeBadge>
+                </div>
+                {filteredProjects.length > 0 && (
+                    <div className="projects-grid">
+                        {filteredProjects.map((project) => renderProjectCard(project))}
+                    </div>
+                )}
+                {Object.entries(group.subgroups || {}).map(([subgroupName, subgroup]) =>
+                    subgroup ? renderGroupSection(subgroup, depth + 1) : null
+                )}
+            </div>
+        );
+    };
+
+    const filteredUngroupedProjects = filterProjects(ungroupedProjects || []);
+
     return (
-        <div
-            className="gitlab-projects-list"
-            style={{
-                padding: "1rem",
-                minHeight: "200px", // Ensures at least 2-3 projects visible
-                maxHeight: "calc(100vh - 300px)", // Dynamic height based on viewport
-                overflowY: "auto",
-            }}
-        >
-            <table style={sharedStyles.table}>
-                <thead>
-                    <tr>
-                        <th style={sharedStyles.cell}>Status</th>
-                        <th style={sharedStyles.cell}>Project Name</th>
-                        <th style={sharedStyles.cell}>Description</th>
-                        <th style={sharedStyles.cell}>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {projects.map((project) => (
-                        <tr key={project.name}>
-                            <td style={sharedStyles.cell}>
-                                {project.syncStatus && getStatusIcon(project.syncStatus)}
-                            </td>
-                            <td style={sharedStyles.cell}>{project.name}</td>
-                            <td style={sharedStyles.cell}>{project.description}</td>
-                            <td style={sharedStyles.cell}>
-                                {project.syncStatus === "cloudOnlyNotSynced" && (
-                                    <VSCodeButton
-                                        appearance="secondary"
-                                        onClick={() => onCloneProject(project)}
-                                        title="Download project"
-                                    >
-                                        <i className="codicon codicon-cloud-download"></i>
-                                    </VSCodeButton>
+        <div className="gitlab-projects-list">
+            <div className="search-container">
+                <VSCodeTextField
+                    placeholder="Search projects..."
+                    value={searchQuery}
+                    onChange={(e: any) => setSearchQuery(e.target.value)}
+                >
+                    <i slot="start" className="codicon codicon-search"></i>
+                </VSCodeTextField>
+                {searchQuery && (
+                    <VSCodeButton
+                        appearance="icon"
+                        onClick={() => setSearchQuery("")}
+                        className="search-clear-button"
+                        title="Clear search"
+                    >
+                        <i className="codicon codicon-close"></i>
+                    </VSCodeButton>
+                )}
+            </div>
+            {isLoading ? (
+                <div className="loading-container">
+                    <VSCodeProgressRing />
+                </div>
+            ) : (
+                <div className="projects-container">
+                    {Object.entries(hierarchy || {}).map(([groupName, group]) =>
+                        group ? renderGroupSection(group, 0) : null
+                    )}
+                    {filteredUngroupedProjects.length > 0 && (
+                        <div className="group-section">
+                            <div className="group-header">
+                                <i className="codicon codicon-folder" />
+                                <h2 className="group-name">Ungrouped Projects</h2>
+                                <VSCodeBadge>{filteredUngroupedProjects.length}</VSCodeBadge>
+                            </div>
+                            <div className="projects-grid">
+                                {filteredUngroupedProjects.map((project) =>
+                                    renderProjectCard(project)
                                 )}
-                                {(project.syncStatus === "downloadedAndSynced" ||
-                                    project.syncStatus === "localOnlyNotSynced") && (
-                                    <VSCodeButton
-                                        // appearance="icon"
-                                        onClick={() => onOpenProject(project)}
-                                        title="Open project"
-                                    >
-                                        <i className="codicon codicon-folder-opened"></i>
-                                    </VSCodeButton>
-                                )}
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 };

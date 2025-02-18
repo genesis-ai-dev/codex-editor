@@ -50,6 +50,7 @@ const CodexCellEditor: React.FC = () => {
     const [highlightedCellId, setHighlightedCellId] = useState<string | null>(null);
     const [isWebviewReady, setIsWebviewReady] = useState(false);
     const { setContentToScrollTo } = useContext(ScrollToContentContext);
+    const [scrollSyncEnabled, setScrollSyncEnabled] = useState(true);
 
     // Initialize state store after webview is ready
     useEffect(() => {
@@ -74,6 +75,14 @@ const CodexCellEditor: React.FC = () => {
         return () => window.removeEventListener("message", handleMessage);
     }, []);
 
+    useEffect(() => {
+        if (highlightedCellId && scrollSyncEnabled) {
+            const cellId = highlightedCellId;
+            const chapter = cellId?.split(" ")[1]?.split(":")[0];
+            setChapterNumber(parseInt(chapter) || 1);
+        }
+    }, [highlightedCellId]);
+
     const checkAlertCodes = () => {
         const cellContentAndId = translationUnits.map((unit) => ({
             text: removeHtmlTags(unit.cellContent),
@@ -94,7 +103,9 @@ const CodexCellEditor: React.FC = () => {
     const [contentBeingUpdated, setContentBeingUpdated] = useState<EditorCellContent>(
         {} as EditorCellContent
     );
-    const [chapterNumber, setChapterNumber] = useState<number>(1);
+    const [chapterNumber, setChapterNumber] = useState<number>(
+        (window as any).initialData?.cachedChapter || 1
+    );
     const [autocompletionProgress, setAutocompletionProgress] = useState<number | null>(null);
     const [textDirection, setTextDirection] = useState<"ltr" | "rtl">(
         (window as any).initialData?.metadata?.textDirection || "ltr"
@@ -377,6 +388,13 @@ const CodexCellEditor: React.FC = () => {
         return () => window.removeEventListener("resize", handleResize);
     }, [shouldShowVideoPlayer]); // Add shouldShowVideoPlayer as a dependency
 
+    useEffect(() => {
+        vscode.postMessage({
+            command: "updateCachedChapter",
+            content: chapterNumber,
+        } as EditorPostMessages);
+    }, [chapterNumber]);
+
     const checkForDuplicateCells = (translationUnitsToCheck: QuillCellContent[]) => {
         const listOfCellIds = translationUnitsToCheck.map((unit) => unit.cellMarkers[0]);
         const uniqueCellIds = new Set(listOfCellIds);
@@ -432,6 +450,8 @@ const CodexCellEditor: React.FC = () => {
                         onPickFile={handlePickFile}
                         onUpdateVideoUrl={handleUpdateVideoUrl}
                         handleExportVtt={handleExportVtt}
+                        toggleScrollSync={() => setScrollSyncEnabled(!scrollSyncEnabled)}
+                        scrollSyncEnabled={scrollSyncEnabled}
                     />
                 </div>
                 {shouldShowVideoPlayer && videoUrl && (
@@ -480,6 +500,7 @@ const CodexCellEditor: React.FC = () => {
                         headerHeight={headerHeight}
                         alertColorCodes={alertColorCodes}
                         highlightedCellId={highlightedCellId}
+                        scrollSyncEnabled={scrollSyncEnabled}
                     />
                 </div>
             </div>

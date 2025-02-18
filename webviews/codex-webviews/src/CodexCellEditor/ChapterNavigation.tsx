@@ -33,6 +33,8 @@ interface ChapterNavigationProps {
     onUpdateVideoUrl: (url: string) => void;
     tempVideoUrl: string;
     handleExportVtt: () => void;
+    toggleScrollSync: () => void;
+    scrollSyncEnabled: boolean;
 }
 
 const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
@@ -58,6 +60,8 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     onUpdateVideoUrl,
     tempVideoUrl,
     handleExportVtt: onExportVtt,
+    toggleScrollSync,
+    scrollSyncEnabled,
 }) => {
     const [showConfirm, setShowConfirm] = useState(false);
     const defaultCustomValue = Math.min(5, totalCellsToAutocomplete);
@@ -114,8 +118,17 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                         <VSCodeButton appearance="secondary" disabled>
                             Source Text
                         </VSCodeButton>
-                        <VSCodeButton appearance="icon" disabled>
-                            <i className="codicon codicon-lock" />
+                        <VSCodeButton
+                            appearance="icon"
+                            onClick={() => {
+                                toggleScrollSync();
+                            }}
+                        >
+                            <i
+                                className={`codicon ${
+                                    scrollSyncEnabled ? "codicon-lock" : "codicon-unlock"
+                                }`}
+                            />
                         </VSCodeButton>
                     </>
                 )}
