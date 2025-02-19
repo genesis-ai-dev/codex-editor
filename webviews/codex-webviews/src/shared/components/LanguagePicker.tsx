@@ -166,7 +166,7 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
                     }}
                     onKeyDown={handleKeyDown}
                 />
-                {isDropdownOpen && filteredLanguages.length > 0 && (
+                {isDropdownOpen && (
                     <div
                         ref={listRef}
                         className="language-picker__dropdown"
@@ -192,15 +192,15 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
                                 {language.name} ({language.code})
                             </div>
                         ))}
+                        {languageFilter && (
+                            <div
+                                className="language-picker__option language-picker__custom-option"
+                                onClick={() => handleCustomLanguageSelect(languageFilter)}
+                            >
+                                <i className="codicon codicon-plus"></i> Create Custom Language "{languageFilter}"
+                            </div>
+                        )}
                     </div>
-                )}
-                {isDropdownOpen && filteredLanguages.length === 0 && languageFilter && (
-                    <VSCodeButton
-                        className="language-picker__custom-button"
-                        onClick={() => handleCustomLanguageSelect(languageFilter)}
-                    >
-                        <i className="codicon codicon-add"></i> Custom Language
-                    </VSCodeButton>
                 )}
             </div>
         </div>

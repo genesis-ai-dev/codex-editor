@@ -94,6 +94,20 @@
     font-size: 14px;
 }
 
+.language-picker__custom-option {
+    border-top: 1px solid var(--vscode-dropdown-border);
+    color: var(--vscode-button-foreground);
+    background-color: var(--vscode-button-background);
+}
+
+.language-picker__custom-option:hover {
+    background-color: var(--vscode-button-hoverBackground);
+}
+
+.language-picker__custom-option i {
+    font-size: 14px;
+}
+
 /* Scrollbar styling */
 .language-picker__dropdown::-webkit-scrollbar {
     width: 10px;
