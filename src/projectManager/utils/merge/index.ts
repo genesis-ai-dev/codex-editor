@@ -15,6 +15,7 @@
 import * as vscode from "vscode";
 import git from "isomorphic-git";
 import fs from "fs";
+import http from "isomorphic-git/http/web";
 import { resolveConflictFiles } from "./resolvers";
 import { getAuthApi } from "../../../extension";
 import { ConflictFile } from "./types";
@@ -37,8 +38,9 @@ export async function stageAndCommitAllAndSync(commitMessage: string): Promise<v
 
     try {
         // First check if we have a valid git repo
+        let remotes;
         try {
-            const remotes = await git.listRemotes({ fs, dir: workspaceFolder });
+            remotes = await git.listRemotes({ fs, dir: workspaceFolder });
             if (remotes.length === 0) {
                 console.log("No remotes found");
                 return;
@@ -48,13 +50,25 @@ export async function stageAndCommitAllAndSync(commitMessage: string): Promise<v
             return;
         }
 
+        // Fetch latest changes from remote
+        await git.fetch({
+            fs,
+            http,
+            dir: workspaceFolder,
+            remote: remotes[0].remote,
+        });
+
+        // Check for remote changes by comparing HEAD with remote
+        const localRef = await git.resolveRef({ fs, dir: workspaceFolder, ref: "HEAD" });
+        const remoteRef = await git.resolveRef({
+            fs,
+            dir: workspaceFolder,
+            ref: `refs/remotes/${remotes[0].remote}/HEAD`,
+        });
+        const hasRemoteChanges = localRef !== remoteRef;
+
         // Get the status before syncing to check for unmerged paths
         const status = await git.statusMatrix({ fs, dir: workspaceFolder });
-
-        // Check for any files that are:
-        // 1. Modified but not staged (WorkDir different from Stage)
-        // 2. Staged but different from HEAD (Stage different from HEAD)
-        // 3. Unmerged paths (stage === 2)
         const hasUncommittedChanges = status.some(([_filepath, head, workdir, stage]) => {
             const isModifiedNotStaged = workdir !== stage;
             const isStagedDifferentFromHead = stage !== head;
@@ -62,8 +76,8 @@ export async function stageAndCommitAllAndSync(commitMessage: string): Promise<v
             return isModifiedNotStaged || isStagedDifferentFromHead || isUnmerged;
         });
 
-        if (hasUncommittedChanges) {
-            // Try to resolve any existing conflicts first
+        // Sync if there are either local or remote changes
+        if (hasUncommittedChanges || hasRemoteChanges) {
             const conflicts = await authApi.syncChanges();
             if (conflicts?.hasConflicts) {
                 const resolvedFiles = await resolveConflictFiles(
@@ -72,11 +86,11 @@ export async function stageAndCommitAllAndSync(commitMessage: string): Promise<v
                 );
                 if (resolvedFiles.length > 0) {
                     await authApi.completeMerge(resolvedFiles);
-                    vscode.window.showInformationMessage("Project is fully synced.");
                 }
             }
-        } else {
             vscode.window.showInformationMessage("Project is fully synced.");
+        } else {
+            vscode.window.showInformationMessage("Project is already up to date.");
         }
     } catch (error) {
         console.error("Failed to commit and sync changes:", error);
