@@ -11,6 +11,7 @@ import {
     getBiblesForLanguage,
     ExtendedMetadata,
 } from "../../../../../src/utils/ebible/ebibleCorpusUtils";
+import "../../shared/components/LanguagePicker.css";
 
 interface BibleDownloadFormProps {
     onDownload: (metadata: ExtendedMetadata, asTranslationOnly: boolean) => void;
@@ -262,11 +263,11 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({
             <div style={{ marginBottom: "1rem" }} ref={languageDropdownRef}>
                 <label
                     htmlFor="language-select"
-                    style={{ display: "block", marginBottom: "0.5rem" }}
+                    className="language-picker__label"
                 >
                     Select Language
                 </label>
-                <div style={{ position: "relative" }}>
+                <div className="language-picker__container">
                     <input
                         type="text"
                         id="language-select"
@@ -297,50 +298,23 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({
                                 );
                             }
                         }}
-                        style={{
-                            width: "100%",
-                            padding: "5px 8px",
-                            boxSizing: "border-box",
-                            backgroundColor: "var(--vscode-input-background)",
-                            color: "var(--vscode-input-foreground)",
-                            border: "1px solid var(--vscode-input-border)",
-                            borderRadius: "2px",
-                        }}
                     />
                     {isLanguageDropdownOpen && filteredLanguages.length > 0 && (
                         <div
                             ref={languageListRef}
-                            style={{
-                                position: "absolute",
-                                top: "100%",
-                                left: 0,
-                                right: 0,
-                                maxHeight: "200px",
-                                overflowY: "auto",
-                                backgroundColor: "var(--vscode-dropdown-background)",
-                                border: "1px solid var(--vscode-dropdown-border)",
-                                borderRadius: "2px",
-                                zIndex: 1000,
-                            }}
+                            className="language-picker__dropdown"
                         >
                             {filteredLanguages.map((language, index) => (
                                 <div
                                     key={language.code}
                                     onClick={() => handleLanguageSelect(language.code, language.name)}
-                                    style={{
-                                        padding: "5px 8px",
-                                        cursor: "pointer",
-                                        backgroundColor:
-                                            index === highlightedLanguageIndex
-                                                ? "var(--vscode-list-activeSelectionBackground)"
-                                                : selectedLanguage === language.code
-                                                ? "var(--vscode-list-inactiveSelectionBackground)"
-                                                : "transparent",
-                                        color:
-                                            index === highlightedLanguageIndex
-                                                ? "var(--vscode-list-activeSelectionForeground)"
-                                                : "var(--vscode-dropdown-foreground)",
-                                    }}
+                                    className={`language-picker__option ${
+                                        index === highlightedLanguageIndex
+                                            ? "language-picker__option--highlighted"
+                                            : selectedLanguage === language.code
+                                            ? "language-picker__option--selected"
+                                            : ""
+                                    }`}
                                     onMouseEnter={() => setHighlightedLanguageIndex(index)}
                                     onMouseLeave={(e: React.MouseEvent<HTMLDivElement>) => {
                                         if ((e.relatedTarget as HTMLElement)?.parentElement !== languageListRef.current) {
@@ -360,11 +334,11 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({
                 <div style={{ marginBottom: "1rem" }} ref={bibleDropdownRef}>
                     <label
                         htmlFor="bible-select"
-                        style={{ display: "block", marginBottom: "0.5rem" }}
+                        className="language-picker__label"
                     >
                         Select Bible Translation
                     </label>
-                    <div style={{ position: "relative" }}>
+                    <div className="language-picker__container">
                         <input
                             type="text"
                             id="bible-select"
@@ -395,50 +369,23 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({
                                     );
                                 }
                             }}
-                            style={{
-                                width: "100%",
-                                padding: "5px 8px",
-                                boxSizing: "border-box",
-                                backgroundColor: "var(--vscode-input-background)",
-                                color: "var(--vscode-input-foreground)",
-                                border: "1px solid var(--vscode-input-border)",
-                                borderRadius: "2px",
-                            }}
                         />
                         {isBibleDropdownOpen && filteredBibles.length > 0 && (
                             <div
                                 ref={bibleListRef}
-                                style={{
-                                    position: "absolute",
-                                    top: "100%",
-                                    left: 0,
-                                    right: 0,
-                                    maxHeight: "200px",
-                                    overflowY: "auto",
-                                    backgroundColor: "var(--vscode-dropdown-background)",
-                                    border: "1px solid var(--vscode-dropdown-border)",
-                                    borderRadius: "2px",
-                                    zIndex: 1000,
-                                }}
+                                className="language-picker__dropdown"
                             >
                                 {filteredBibles.map((bible, index) => (
                                     <div
                                         key={bible.id}
                                         onClick={() => handleBibleSelect(bible)}
-                                        style={{
-                                            padding: "5px 8px",
-                                            cursor: "pointer",
-                                            backgroundColor:
-                                                index === highlightedBibleIndex
-                                                    ? "var(--vscode-list-activeSelectionBackground)"
-                                                    : selectedBible === bible.id
-                                                    ? "var(--vscode-list-inactiveSelectionBackground)"
-                                                    : "transparent",
-                                            color:
-                                                index === highlightedBibleIndex
-                                                    ? "var(--vscode-list-activeSelectionForeground)"
-                                                    : "var(--vscode-dropdown-foreground)",
-                                        }}
+                                        className={`language-picker__option ${
+                                            index === highlightedBibleIndex
+                                                ? "language-picker__option--highlighted"
+                                                : selectedBible === bible.id
+                                                ? "language-picker__option--selected"
+                                                : ""
+                                        }`}
                                         onMouseEnter={() => setHighlightedBibleIndex(index)}
                                         onMouseLeave={(e: React.MouseEvent<HTMLDivElement>) => {
                                             if ((e.relatedTarget as HTMLElement)?.parentElement !== bibleListRef.current) {

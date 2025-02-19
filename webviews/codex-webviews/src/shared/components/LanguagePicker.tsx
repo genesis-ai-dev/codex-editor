@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { getAvailableLanguages } from "../../../../../src/utils/ebible/ebibleCorpusUtils";
-import { LanguageMetadata } from "codex-types";
+import { LanguageMetadata, LanguageProjectStatus } from "codex-types";
+import "./LanguagePicker.css";
 
 interface LanguagePickerProps {
     onLanguageSelect: (language: LanguageMetadata) => void;
@@ -16,7 +17,7 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
     label = "Select Language",
 }) => {
     const [languageFilter, setLanguageFilter] = useState<string>(() => {
-        if (initialLanguage) {
+        if (initialLanguage?.refName) {
             return initialLanguage.refName;
         }
         return "";
@@ -49,7 +50,7 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
             ) {
                 setIsDropdownOpen(false);
                 if (isEditing && !languageFilter && previousLanguage) {
-                    setLanguageFilter(previousLanguage.refName);
+                    setLanguageFilter(previousLanguage.refName || "");
                 }
                 setIsEditing(false);
             }
@@ -64,7 +65,7 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
             name: { en: name },
             tag: code,
             refName: name,
-            projectStatus: projectStatus === "source" ? "source" : "target",
+            projectStatus: projectStatus === "source" ? LanguageProjectStatus.SOURCE : LanguageProjectStatus.TARGET,
         };
         setPreviousLanguage(language);
         setLanguageFilter(name);
@@ -118,14 +119,14 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
     }, [languageFilter]);
 
     return (
-        <div style={{ marginBottom: "1rem" }} ref={dropdownRef}>
+        <div className="language-picker" ref={dropdownRef}>
             <label
                 htmlFor="language-select"
-                style={{ display: "block", marginBottom: "0.5rem" }}
+                className="language-picker__label"
             >
                 {label}
             </label>
-            <div style={{ position: "relative" }}>
+            <div className="language-picker__container">
                 <input
                     type="text"
                     id="language-select"
@@ -144,50 +145,23 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
                         setIsDropdownOpen(true);
                     }}
                     onKeyDown={handleKeyDown}
-                    style={{
-                        width: "100%",
-                        padding: "5px 8px",
-                        boxSizing: "border-box",
-                        backgroundColor: "var(--vscode-input-background)",
-                        color: "var(--vscode-input-foreground)",
-                        border: "1px solid var(--vscode-input-border)",
-                        borderRadius: "2px",
-                    }}
                 />
                 {isDropdownOpen && filteredLanguages.length > 0 && (
                     <div
                         ref={listRef}
-                        style={{
-                            position: "absolute",
-                            top: "100%",
-                            left: 0,
-                            right: 0,
-                            maxHeight: "200px",
-                            overflowY: "auto",
-                            backgroundColor: "var(--vscode-dropdown-background)",
-                            border: "1px solid var(--vscode-dropdown-border)",
-                            borderRadius: "2px",
-                            zIndex: 1000,
-                        }}
+                        className="language-picker__dropdown"
                     >
                         {filteredLanguages.map((language, index) => (
                             <div
                                 key={language.code}
                                 onClick={() => handleLanguageSelect(language.code, language.name)}
-                                style={{
-                                    padding: "5px 8px",
-                                    cursor: "pointer",
-                                    backgroundColor:
-                                        index === highlightedIndex
-                                            ? "var(--vscode-list-activeSelectionBackground)"
-                                            : previousLanguage?.tag === language.code
-                                            ? "var(--vscode-list-inactiveSelectionBackground)"
-                                            : "transparent",
-                                    color:
-                                        index === highlightedIndex
-                                            ? "var(--vscode-list-activeSelectionForeground)"
-                                            : "var(--vscode-dropdown-foreground)",
-                                }}
+                                className={`language-picker__option ${
+                                    index === highlightedIndex 
+                                        ? 'language-picker__option--highlighted' 
+                                        : previousLanguage?.tag === language.code 
+                                            ? 'language-picker__option--selected' 
+                                            : ''
+                                }`}
                                 onMouseEnter={() => setHighlightedIndex(index)}
                                 onMouseLeave={(e: React.MouseEvent<HTMLDivElement>) => {
                                     if ((e.relatedTarget as HTMLElement)?.parentElement !== listRef.current) {

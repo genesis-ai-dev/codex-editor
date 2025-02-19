@@ -1,0 +1,99 @@
+.language-picker {
+    margin-bottom: 1rem;
+    width: 100%;
+}
+
+.language-picker__label {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: var(--vscode-foreground);
+    font-size: 13px;
+    font-weight: 400;
+}
+
+.language-picker__container {
+    position: relative;
+}
+
+/* VSCode input styling */
+.vscode-input {
+    width: 100%;
+    height: 28px;
+    padding: 4px 8px;
+    box-sizing: border-box;
+    background-color: var(--vscode-input-background, white) !important;
+    color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border, rgba(0, 0, 0, 0.1));
+    border-radius: 2px;
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+    line-height: 20px;
+    box-shadow: 0 0 0 1px var(--vscode-input-border, rgba(0, 0, 0, 0.1));
+}
+
+.vscode-input:focus {
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: -1px;
+    box-shadow: 0 0 0 1px var(--vscode-focusBorder);
+}
+
+.vscode-input::placeholder {
+    color: var(--vscode-input-placeholderForeground, rgba(0, 0, 0, 0.5));
+}
+
+.language-picker__dropdown {
+    position: absolute;
+    top: calc(100% + 2px);
+    left: 0;
+    right: 0;
+    max-height: 200px;
+    overflow-y: auto;
+    background-color: var(--vscode-dropdown-background, white);
+    border: 1px solid var(--vscode-dropdown-border, rgba(0, 0, 0, 0.1));
+    border-radius: 2px;
+    z-index: 1000;
+    box-shadow: 0 2px 4px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.1));
+}
+
+.language-picker__option {
+    padding: 4px 8px;
+    cursor: pointer;
+    font-size: var(--vscode-font-size);
+    color: var(--vscode-dropdown-foreground);
+    display: flex;
+    align-items: center;
+    min-height: 20px;
+    box-sizing: border-box;
+    line-height: 20px;
+}
+
+.language-picker__option:hover {
+    background-color: var(--vscode-list-hoverBackground);
+}
+
+.language-picker__option--highlighted {
+    background-color: var(--vscode-list-activeSelectionBackground);
+    color: var(--vscode-list-activeSelectionForeground);
+}
+
+.language-picker__option--selected {
+    background-color: var(--vscode-list-inactiveSelectionBackground);
+}
+
+/* Scrollbar styling */
+.language-picker__dropdown::-webkit-scrollbar {
+    width: 10px;
+}
+
+.language-picker__dropdown::-webkit-scrollbar-track {
+    background: var(--vscode-scrollbarSlider-background);
+}
+
+.language-picker__dropdown::-webkit-scrollbar-thumb {
+    background: var(--vscode-scrollbarSlider-hoverBackground);
+    border-radius: 5px;
+}
+
+.language-picker__dropdown::-webkit-scrollbar-thumb:hover {
+    background: var(--vscode-scrollbarSlider-activeBackground);
+} 

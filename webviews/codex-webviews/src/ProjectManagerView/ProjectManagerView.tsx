@@ -238,11 +238,9 @@ function ProjectManagerView() {
                                 height: "100%",
                             }}
                         >
-                            <VSCodeButton
-                                onClick={() => handleAction({ command: "initializeProject" })}
-                            >
-                                <i className="codicon codicon-plus"></i>
-                                <div style={{ marginInline: "0.25rem" }}>Initialize Project</div>
+                            <VSCodeButton>
+                                <i className="codicon codicon-loading codicon-modifier-spin"></i>
+                                <div style={{ marginInline: "0.25rem" }}>Initializing Project...</div>
                             </VSCodeButton>
                         </div>
                     ) : state.projectOverview ? (
