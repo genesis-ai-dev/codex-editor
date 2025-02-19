@@ -136,7 +136,7 @@ const CellList: React.FC<CellListProps> = ({
         debug("translationUnits", { translationUnits });
 
         for (let i = 0; i < translationUnits.length; i++) {
-            const { cellMarkers, cellContent, cellType, cellLabel, timestamps } =
+            const { cellMarkers, cellContent, cellType, cellLabel, timestamps, editHistory } =
                 translationUnits[i];
 
             const checkIfCurrentCellIsChild = () => {
@@ -169,6 +169,7 @@ const CellList: React.FC<CellListProps> = ({
                         style={{ display: "inline-flex", alignItems: "center" }}
                     >
                         <CellEditor
+                            editHistory={editHistory}
                             spellCheckResponse={spellCheckResponse}
                             cellIsChild={cellIsChild}
                             cellMarkers={cellMarkers}

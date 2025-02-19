@@ -2,7 +2,7 @@ import { useRef, useEffect, useMemo, useState, useContext } from "react";
 import Quill from "quill";
 import "quill/dist/quill.snow.css";
 import registerQuillSpellChecker, { getCleanedHtml } from "./react-quill-spellcheck";
-import { EditorPostMessages, SpellCheckResponse } from "../../../../types";
+import { EditHistory, EditorPostMessages, SpellCheckResponse } from "../../../../types";
 import "./TextEditor.css"; // Override the default Quill styles so spans flow
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import React from "react";
@@ -22,6 +22,11 @@ icons[
     "openLibrary"
 ] = `<i class="codicon codicon-book quill-toolbar-icon" style="color: var(--vscode-editor-foreground)"></i>`;
 
+// Add icon for edit history button
+icons[
+    "showEditHistory"
+] = `<i class="codicon codicon-history quill-toolbar-icon" style="color: var(--vscode-editor-foreground)"></i>`;
+
 export interface EditorContentChanged {
     html: string;
 }
@@ -37,6 +42,7 @@ const HEADER_CYCLE = [
 export interface EditorProps {
     currentLineId: string;
     initialValue?: string;
+    editHistory: EditHistory[];
     onChange?: (changes: EditorContentChanged) => void;
     spellCheckResponse?: SpellCheckResponse | null;
     textDirection: "ltr" | "rtl";
@@ -85,6 +91,11 @@ export default function Editor(props: EditorProps) {
         (window as any).initialData?.userInfo?.username || "anonymous"
     );
 
+    const [showHistoryModal, setShowHistoryModal] = useState(false);
+    const [editHistoryForCell, setEditHistoryForCell] = useState<EditHistory[]>(props.editHistory);
+
+    console.log({ editHistory, editHistoryForCell });
+
     // Initialize Quill editor
     useEffect(() => {
         if (editorRef.current && !quillRef.current) {
@@ -114,6 +125,12 @@ export default function Editor(props: EditorProps) {
                                     .filter((word, index, self) => self.indexOf(word) === index);
                                 setWordsToAdd(words);
                                 setShowModal(true);
+                            },
+                            showEditHistory: () => {
+                                if (quillRef.current) {
+                                    setEditHistoryForCell(props.editHistory);
+                                    setShowHistoryModal(true);
+                                }
                             },
                         },
                     },
@@ -360,6 +377,94 @@ export default function Editor(props: EditorProps) {
             <div className="editor-container">
                 <div ref={editorRef}></div>
             </div>
+            {showHistoryModal && (
+                <div
+                    style={{
+                        position: "fixed",
+                        top: "50%",
+                        left: "50%",
+                        transform: "translate(-50%, -50%)",
+                        backgroundColor: "var(--vscode-editor-background)",
+                        padding: "20px",
+                        border: "1px solid var(--vscode-editor-foreground)",
+                        borderRadius: "4px",
+                        zIndex: 1000,
+                        maxHeight: "80vh",
+                        overflowY: "auto",
+                        minWidth: "300px",
+                    }}
+                >
+                    <div
+                        style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            marginBottom: "16px",
+                        }}
+                    >
+                        <h3>Edit History</h3>
+                        <button
+                            onClick={() => setShowHistoryModal(false)}
+                            style={{
+                                background: "none",
+                                border: "none",
+                                cursor: "pointer",
+                                color: "var(--vscode-editor-foreground)",
+                                width: "fit-content",
+                                flexShrink: 0,
+                            }}
+                        >
+                            <i className="codicon codicon-close"></i>
+                        </button>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                        {editHistoryForCell.length > 0 ? (
+                            editHistoryForCell.map((entry, index) => (
+                                <div
+                                    key={index}
+                                    style={{
+                                        padding: "8px",
+                                        border: "1px solid var(--vscode-editor-foreground)",
+                                        borderRadius: "4px",
+                                    }}
+                                >
+                                    <div
+                                        style={{
+                                            marginBottom: "4px",
+                                            fontSize: "0.9em",
+                                            color: "var(--vscode-descriptionForeground)",
+                                        }}
+                                    >
+                                        {new Date(entry.timestamp).toLocaleString()} by{" "}
+                                        {entry.author}
+                                    </div>
+                                    <div style={{ marginBottom: "8px" }}>
+                                        <div
+                                            style={{
+                                                whiteSpace: "pre-wrap",
+                                                backgroundColor:
+                                                    "var(--vscode-editor-findMatchHighlightBackground)",
+                                                padding: "4px",
+                                                borderRadius: "2px",
+                                            }}
+                                            dangerouslySetInnerHTML={{ __html: entry.cellValue }}
+                                        />
+                                    </div>
+                                </div>
+                            ))
+                        ) : (
+                            <div
+                                style={{
+                                    textAlign: "center",
+                                    color: "var(--vscode-descriptionForeground)",
+                                }}
+                            >
+                                No edit history available
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
             {showModal && (
                 <div
                     style={{
@@ -401,8 +506,8 @@ export default function Editor(props: EditorProps) {
 
 // Existing constants and interfaces
 const TOOLBAR_OPTIONS = [
-    ["openLibrary", "autocomplete"],
-    ["headerStyleLeft", "headerStyleLabel", "headerStyleRight"], // Three separate buttons for the control
+    ["openLibrary", "autocomplete", "showEditHistory"],
+    ["headerStyleLeft", "headerStyleLabel", "headerStyleRight"],
     ["bold", "italic", "underline", "strike", "blockquote", "link"],
     [{ list: "ordered" }, { list: "bullet" }],
     [{ indent: "-1" }, { indent: "+1" }],

@@ -1,5 +1,6 @@
 import React, { useContext, useEffect, useRef, useState, useCallback } from "react";
 import {
+    EditHistory,
     EditorCellContent,
     EditorPostMessages,
     SpellCheckResponse,
@@ -41,6 +42,7 @@ interface CellEditorProps {
     cellTimestamps: Timestamps | undefined;
     cellIsChild: boolean;
     openCellById: (cellId: string, text: string) => void;
+    editHistory: EditHistory[];
 }
 
 const DEBUG_ENABLED = false;
@@ -53,6 +55,7 @@ function debug(message: string, ...args: any[]): void {
 const CellEditor: React.FC<CellEditorProps> = ({
     cellMarkers,
     cellContent,
+    editHistory,
     cellIndex,
     cellType,
     spellCheckResponse,
@@ -491,6 +494,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     key={`${cellIndex}-quill`}
                     initialValue={editorContent}
                     spellCheckResponse={spellCheckResponse}
+                    editHistory={editHistory}
                     onChange={({ html }) => {
                         setEditorContent(html);
 
