@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { getAvailableLanguages } from "../../../../../src/utils/ebible/ebibleCorpusUtils";
 import { LanguageMetadata, LanguageProjectStatus } from "codex-types";
+import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import "./LanguagePicker.css";
 
 interface LanguagePickerProps {
@@ -74,6 +75,22 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
         onLanguageSelect(language);
     };
 
+    const handleCustomLanguageSelect = (customName: string) => {
+        if (!customName.trim()) return;
+        
+        const language: LanguageMetadata = {
+            name: { en: customName },
+            tag: "custom",
+            refName: customName,
+            projectStatus: projectStatus === "source" ? LanguageProjectStatus.SOURCE : LanguageProjectStatus.TARGET,
+        };
+        setPreviousLanguage(language);
+        setLanguageFilter(customName);
+        setIsDropdownOpen(false);
+        setIsEditing(false);
+        onLanguageSelect(language);
+    };
+
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (isDropdownOpen && filteredLanguages.length > 0) {
             switch (e.key) {
@@ -84,7 +101,7 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
                     break;
                 case "ArrowUp":
                     e.preventDefault();
-                    setHighlightedIndex(Math.max(highlightedIndex - 1, 0));
+                    setHighlightedIndex(Math.max(highlightedIndex - 1, -1));
                     scrollIntoView(highlightedIndex - 1);
                     break;
                 case "Enter":
@@ -99,6 +116,9 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
                     setIsDropdownOpen(false);
                     break;
             }
+        } else if (e.key === "Enter" && languageFilter.trim()) {
+            e.preventDefault();
+            handleCustomLanguageSelect(languageFilter);
         }
     };
 
@@ -132,7 +152,7 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
                     id="language-select"
                     className="vscode-input"
                     value={languageFilter}
-                    placeholder="Search and select language..."
+                    placeholder="Search for a language..."
                     onChange={(e) => {
                         setLanguageFilter(e.target.value);
                         setIsDropdownOpen(true);
@@ -173,6 +193,14 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
                             </div>
                         ))}
                     </div>
+                )}
+                {isDropdownOpen && filteredLanguages.length === 0 && languageFilter && (
+                    <VSCodeButton
+                        className="language-picker__custom-button"
+                        onClick={() => handleCustomLanguageSelect(languageFilter)}
+                    >
+                        <i className="codicon codicon-add"></i> Custom Language
+                    </VSCodeButton>
                 )}
             </div>
         </div>

@@ -62,6 +62,7 @@
     color: var(--vscode-dropdown-foreground);
     display: flex;
     align-items: center;
+    gap: 0.5rem;
     min-height: 20px;
     box-sizing: border-box;
     line-height: 20px;
@@ -78,6 +79,19 @@
 
 .language-picker__option--selected {
     background-color: var(--vscode-list-inactiveSelectionBackground);
+}
+
+.language-picker__custom-button {
+    width: 100%;
+    margin-top: 2px;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    justify-content: center;
+}
+
+.language-picker__custom-button i {
+    font-size: 14px;
 }
 
 /* Scrollbar styling */
