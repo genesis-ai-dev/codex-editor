@@ -104,7 +104,11 @@ export async function resolveConflictFile(
  * I suspect this is not going to be an issue, since we hardly use the metadata.
  * - we simply take 'our' version of the metadata.
  */
-async function resolveCodexCustomMerge(ourContent: string, theirContent: string): Promise<string> {
+export async function resolveCodexCustomMerge(
+    ourContent: string,
+    theirContent: string
+): Promise<string> {
+    debug({ ourContent: ourContent.slice(0, 1000), theirContent: theirContent.slice(0, 1000) });
     debug("Starting resolveCodexCustomMerge");
     debug("Parsing notebook content");
     const ourNotebook = JSON.parse(ourContent);
@@ -186,7 +190,13 @@ async function resolveCodexCustomMerge(ourContent: string, theirContent: string)
             debug({ editThatBelongsToOurCellValue, editThatBelongsToTheirCellValue });
 
             // Ensure the latest edit is in the history
-            const finalValue = mostRecentOfTheirAndOurEdits?.cellValue ?? ourCell.value; // Nullish coalescing to keep empty strings from being overwritten
+            let finalValue = mostRecentOfTheirAndOurEdits?.cellValue ?? ourCell.value; // Nullish coalescing to keep empty strings from being overwritten
+            if (
+                (ourCell.metadata?.edits?.length || 0) === 0 &&
+                (theirCell.metadata?.edits?.length || 0) > 0
+            ) {
+                finalValue = theirCell.value;
+            }
             const finalEdits = [...uniqueEdits];
             debug({ finalValue, finalEdits });
 
